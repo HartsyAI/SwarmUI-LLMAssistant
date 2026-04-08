@@ -1,0 +1,132 @@
+/* LLM Assistant - Core layout */
+
+.llm-assistant-container {
+    display: flex;
+    height: 100%;
+    min-height: 500px;
+    background: var(--background);
+    color: var(--text);
+    font-family: inherit;
+    overflow: hidden;
+}
+
+.llm-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+/* Top Bar */
+.llm-top-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--background-gray);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.llm-sidebar-toggle {
+    font-size: 16px;
+    padding: 4px 8px;
+    line-height: 1;
+}
+
+.llm-thread-title {
+    flex: 1;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-strong);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.llm-top-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.llm-mode-select {
+    background: var(--button-background);
+    color: var(--button-text);
+    border: 1px solid var(--button-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.llm-mode-select:hover {
+    background: var(--button-background-hover);
+}
+
+/* Content Area */
+.llm-content-area {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.llm-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Welcome message */
+.llm-welcome-message {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-soft);
+}
+
+.llm-welcome-message h3 {
+    color: var(--emphasis);
+    margin-bottom: 8px;
+}
+
+/* Common elements */
+.llm-error {
+    color: var(--red);
+}
+
+.llm-loading {
+    color: var(--text-soft);
+    font-style: italic;
+}
+
+.llm-streaming-cursor::after {
+    content: '\25AE';
+    animation: llm-blink 0.8s infinite;
+    color: var(--emphasis);
+}
+
+@keyframes llm-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+/* Prompt button row (Generate tab) */
+.llm-prompt-btn-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+
+.llm-prompt-action-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+}
+
+.llm-prompt-action-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}

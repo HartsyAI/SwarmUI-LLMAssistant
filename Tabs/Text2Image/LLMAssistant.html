@@ -1,0 +1,140 @@
+<div class="llm-assistant-container" id="llm-assistant-container">
+    <!-- Thread Sidebar -->
+    <div class="llm-sidebar" id="llm-sidebar">
+        <div class="llm-sidebar-header">
+            <h4>Threads</h4>
+            <button class="basic-button" id="llm-new-thread-btn" title="New Thread">+ New</button>
+        </div>
+        <input type="text" class="llm-sidebar-search" id="llm-thread-search" placeholder="Search threads...">
+        <div class="llm-thread-list" id="llm-thread-list">
+            <!-- Thread items populated by JS -->
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="llm-main" id="llm-main">
+        <!-- Top Bar -->
+        <div class="llm-top-bar">
+            <button class="basic-button llm-sidebar-toggle" id="llm-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
+            <span class="llm-thread-title" id="llm-thread-title">New Thread</span>
+            <div class="llm-top-actions">
+                <select class="llm-mode-select" id="llm-mode-select">
+                    <option value="chat">Chat</option>
+                    <option value="prompt">Prompt</option>
+                    <option value="vision">Vision</option>
+                </select>
+                <button class="basic-button" id="llm-settings-btn" title="Settings">&#9881;</button>
+            </div>
+        </div>
+
+        <!-- Tab Content Panels -->
+        <div class="llm-content-area">
+            <!-- Chat Panel -->
+            <div class="llm-panel llm-chat-panel" id="llm-chat-panel">
+                <div class="llm-messages" id="llm-messages">
+                    <div class="llm-welcome-message" id="llm-welcome">
+                        <h3>LLM Assistant</h3>
+                        <p>Configure an LLM backend in Server &gt; Backends, then start chatting.</p>
+                    </div>
+                </div>
+                <div class="llm-input-area">
+                    <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
+                    <div class="llm-input-actions">
+                        <button class="basic-button llm-send-btn" id="llm-send-btn">Send</button>
+                        <button class="basic-button llm-stop-btn" id="llm-stop-btn" style="display:none;">Stop</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vision Panel -->
+            <div class="llm-panel llm-vision-panel" id="llm-vision-panel" style="display:none;">
+                <div class="llm-vision-upload-area" id="llm-vision-upload">
+                    <div class="llm-vision-dropzone" id="llm-vision-dropzone">
+                        <p>Drag &amp; drop an image here, or click to upload</p>
+                        <input type="file" id="llm-vision-file" accept="image/*" style="display:none;">
+                    </div>
+                    <div class="llm-vision-preview" id="llm-vision-preview" style="display:none;">
+                        <img id="llm-vision-image" src="" alt="Uploaded image">
+                        <div class="llm-vision-actions">
+                            <button class="basic-button" id="llm-vision-caption">Caption</button>
+                            <button class="basic-button" id="llm-vision-prompt">Send to Prompt</button>
+                            <button class="basic-button" id="llm-vision-init">Use as Init</button>
+                            <button class="basic-button" id="llm-vision-clear">Clear</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="llm-vision-output" id="llm-vision-output">
+                    <!-- Caption output appears here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="llm-modal-overlay" id="llm-settings-modal" style="display:none;">
+        <div class="llm-modal">
+            <div class="llm-modal-header">
+                <h3>LLM Assistant Settings</h3>
+                <button class="llm-modal-close" id="llm-settings-close">&times;</button>
+            </div>
+            <div class="llm-modal-body">
+                <div class="llm-settings-tabs">
+                    <button class="llm-settings-tab active" data-tab="general">General</button>
+                    <button class="llm-settings-tab" data-tab="instructions">Instructions</button>
+                    <button class="llm-settings-tab" data-tab="features">Features</button>
+                </div>
+
+                <!-- General Settings Tab -->
+                <div class="llm-settings-panel" id="llm-settings-general">
+                    <div class="llm-setting-group">
+                        <label>Temperature</label>
+                        <input type="range" id="llm-setting-temperature" min="0" max="2" step="0.1" value="1.0">
+                        <span id="llm-setting-temperature-val">1.0</span>
+                    </div>
+                    <div class="llm-setting-group">
+                        <label>Max Tokens</label>
+                        <input type="number" id="llm-setting-max-tokens" min="1" max="32768" value="1024">
+                    </div>
+                    <div class="llm-setting-group">
+                        <label>Top P</label>
+                        <input type="range" id="llm-setting-top-p" min="0" max="1" step="0.05" value="0.9">
+                        <span id="llm-setting-top-p-val">0.9</span>
+                    </div>
+                    <p class="llm-settings-note">
+                        LLM backends are configured in <strong>Server &gt; Backends</strong>.
+                        Add a "Local LLaMA.cpp GGUF Backend" or "Remote LLM (OpenAI API)" there.
+                    </p>
+                </div>
+
+                <!-- Instructions Tab -->
+                <div class="llm-settings-panel" id="llm-settings-instructions" style="display:none;">
+                    <div class="llm-instruction-list" id="llm-instruction-list">
+                        <!-- Populated by JS -->
+                    </div>
+                    <button class="basic-button" id="llm-create-instruction">+ Create Custom Instruction</button>
+                    <div id="llm-instruction-editor" style="display:none;">
+                        <input type="text" id="llm-instr-title" placeholder="Instruction title">
+                        <textarea id="llm-instr-content" rows="8" placeholder="Instruction content..."></textarea>
+                        <input type="text" id="llm-instr-tooltip" placeholder="Short description">
+                        <div class="llm-instr-actions">
+                            <button class="basic-button" id="llm-instr-save">Save</button>
+                            <button class="basic-button" id="llm-instr-cancel">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Features Tab -->
+                <div class="llm-settings-panel" id="llm-settings-features" style="display:none;">
+                    <p>Map features to specific instructions:</p>
+                    <div id="llm-feature-mappings">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+            <div class="llm-modal-footer">
+                <button class="basic-button" id="llm-settings-save">Save &amp; Close</button>
+                <button class="basic-button" id="llm-settings-reset">Reset to Defaults</button>
+            </div>
+        </div>
+    </div>
+</div>

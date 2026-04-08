@@ -1,0 +1,210 @@
+/* LLM Assistant - Chat panel */
+
+.llm-chat-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.llm-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Message bubbles */
+.llm-message {
+    padding: 10px 14px;
+    border-radius: 8px;
+    max-width: 85%;
+    position: relative;
+}
+
+.llm-msg-user {
+    align-self: flex-end;
+    background: var(--emphasis);
+    color: var(--emphasis-text);
+    border-bottom-right-radius: 2px;
+}
+
+.llm-msg-assistant {
+    align-self: flex-start;
+    background: var(--background-soft);
+    border: 1px solid var(--border-color);
+    border-bottom-left-radius: 2px;
+}
+
+.llm-msg-role {
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    opacity: 0.7;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.llm-msg-content {
+    line-height: 1.5;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.llm-msg-content p {
+    margin: 0 0 8px 0;
+}
+
+.llm-msg-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* Code blocks */
+.llm-msg-content pre {
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 12px;
+    overflow-x: auto;
+    margin: 8px 0;
+    position: relative;
+}
+
+.llm-msg-content pre code {
+    font-family: var(--font-monospace);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.llm-msg-content code:not(pre code) {
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    padding: 1px 4px;
+    font-family: var(--font-monospace);
+    font-size: 13px;
+}
+
+.llm-copy-code {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: var(--button-background);
+    color: var(--button-text);
+    border: 1px solid var(--button-border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.llm-msg-content pre:hover .llm-copy-code {
+    opacity: 1;
+}
+
+.llm-copy-code:hover {
+    background: var(--button-background-hover);
+}
+
+/* Tables */
+.llm-msg-content table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    width: 100%;
+}
+
+.llm-msg-content th,
+.llm-msg-content td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    text-align: left;
+}
+
+.llm-msg-content th {
+    background: var(--background-gray);
+    font-weight: 600;
+}
+
+/* Blockquotes */
+.llm-msg-content blockquote {
+    border-left: 3px solid var(--emphasis);
+    margin: 8px 0;
+    padding: 4px 12px;
+    color: var(--text-soft);
+}
+
+/* Message actions */
+.llm-msg-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.llm-message:hover .llm-msg-actions {
+    opacity: 1;
+}
+
+.llm-msg-action {
+    background: none;
+    border: 1px solid var(--border-color);
+    color: var(--text-soft);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.llm-msg-action:hover {
+    background: var(--button-background-hover);
+    color: var(--text);
+}
+
+/* Input area */
+.llm-input-area {
+    display: flex;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border-color);
+    background: var(--background-gray);
+    align-items: flex-end;
+}
+
+.llm-input {
+    flex: 1;
+    background: var(--background);
+    color: var(--text);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-family: inherit;
+    resize: none;
+    min-height: 20px;
+    max-height: 200px;
+    line-height: 1.4;
+}
+
+.llm-input:focus {
+    outline: none;
+    border-color: var(--emphasis);
+}
+
+.llm-input:disabled {
+    opacity: 0.6;
+}
+
+.llm-input-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.llm-send-btn,
+.llm-stop-btn {
+    padding: 8px 16px;
+    white-space: nowrap;
+}
