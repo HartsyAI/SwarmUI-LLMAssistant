@@ -105,10 +105,21 @@ public static class ThreadStorageService
             string firstMsg = messages[0]?["content"]?.ToString() ?? "New Thread";
             title = firstMsg.Length > 50 ? firstMsg[..50] + "..." : firstMsg;
         }
+        // Build searchable preview from message content
+        string preview = "";
+        if (messages is not null && messages.Count > 0)
+        {
+            preview = string.Join(" ", messages.Select(m => m["content"]?.ToString() ?? ""));
+            if (preview.Length > 200)
+            {
+                preview = preview[..200];
+            }
+        }
         JObject summary = new()
         {
             ["id"] = threadId,
             ["title"] = title ?? "New Thread",
+            ["preview"] = preview,
             ["createdAt"] = thread["createdAt"],
             ["updatedAt"] = thread["updatedAt"],
             ["messageCount"] = thread["messageCount"]

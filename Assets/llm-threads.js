@@ -46,11 +46,12 @@
             if (filter) {
                 let lowerFilter = filter.toLowerCase();
                 filtered = filtered.filter(t =>
-                    (t.title || '').toLowerCase().includes(lowerFilter)
+                    (t.title || '').toLowerCase().includes(lowerFilter) ||
+                    (t.preview || '').toLowerCase().includes(lowerFilter)
                 );
             }
             if (filtered.length === 0) {
-                container.innerHTML = '<div class="llm-thread-empty">No threads yet</div>';
+                container.innerHTML = '<div class="llm-thread-empty">No chats yet</div>';
                 return;
             }
             for (let thread of filtered) {
@@ -69,7 +70,7 @@
                 let delBtn = document.createElement('button');
                 delBtn.className = 'llm-thread-delete';
                 delBtn.textContent = '\u00d7';
-                delBtn.title = 'Delete thread';
+                delBtn.title = 'Delete chat';
                 delBtn.addEventListener('click', e => {
                     e.stopPropagation();
                     this.deleteThread(thread.id);
@@ -99,6 +100,7 @@
                     LLM.Chat.loadMessages(resp.thread.messages || []);
                     LLM.updateContextBar();
                     this.renderList();
+                    LLM.closeMobileSidebar();
                 }
             } catch (ex) {
                 console.error('[LLMAssistant] Failed to load thread:', ex);
@@ -111,13 +113,13 @@
             LLM.updateParamsButtonLabel();
             LLM.Chat.clearMessages();
             let titleEl = document.getElementById('llm-thread-title');
-            if (titleEl) titleEl.textContent = 'New Thread';
+            if (titleEl) titleEl.textContent = 'LLM Assistant';
             LLM.updateContextBar();
             this.renderList();
         },
 
         async deleteThread(threadId) {
-            if (!confirm('Delete this thread?')) return;
+            if (!confirm('Delete this chat?')) return;
             try {
                 await LLM.APIClient.deleteThread(threadId);
                 if (LLM.currentThreadId === threadId) {

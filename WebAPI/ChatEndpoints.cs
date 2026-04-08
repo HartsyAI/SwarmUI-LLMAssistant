@@ -10,10 +10,12 @@ namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 /// <summary>Chat message endpoints (HTTP and WebSocket streaming).</summary>
 public static class ChatEndpoints
 {
+    private static readonly PromptCacheService _cache = new(500);
+
     /// <summary>Sends a message to an LLM backend and returns the full response.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
-        double temperature = -1, int maxTokens = -1, int backendId = -1)
+        double temperature = -1, int maxTokens = -1, int backendId = -1, bool noCache = false)
     {
         try
         {
@@ -21,7 +23,18 @@ public static class ChatEndpoints
             string systemPrompt = InstructionService.ResolveInstruction(instructionId, settings);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             ApplyParameters(input, settings, temperature, maxTokens);
-            string response = await LLMDispatcher.Generate(input, backendId);
+            string response;
+            if (noCache)
+            {
+                response = await LLMDispatcher.Generate(input, backendId);
+            }
+            else
+            {
+                response = await _cache.GetOrCreate(message, instructionId, async () =>
+                {
+                    return await LLMDispatcher.Generate(input, backendId);
+                });
+            }
             return new JObject
             {
                 ["success"] = true,

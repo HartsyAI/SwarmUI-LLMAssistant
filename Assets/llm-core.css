@@ -2,8 +2,8 @@
 
 .llm-assistant-container {
     display: flex;
-    height: 100%;
-    min-height: 500px;
+    position: relative;
+    /* height set by JS (initContainerHeight) to account for nav tabs */
     background: var(--background);
     color: var(--text);
     font-family: inherit;
@@ -92,8 +92,11 @@
 /* Welcome message */
 .llm-welcome-message {
     text-align: center;
-    padding: 60px 20px;
+    padding: 60px 0;
     color: var(--text-soft);
+    max-width: 720px;
+    width: 100%;
+    align-self: center;
 }
 
 .llm-welcome-message h3 {
@@ -259,4 +262,115 @@
 
 .llm-dropdown-item:hover {
     background: var(--button-background-hover);
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+    .llm-top-bar {
+        padding: 6px 8px;
+        gap: 6px;
+        flex-wrap: wrap;
+    }
+
+    .llm-thread-title {
+        font-size: 13px;
+        min-width: 0;
+    }
+
+    .llm-top-actions {
+        gap: 4px;
+    }
+
+    .llm-backend-select {
+        max-width: 120px;
+        font-size: 12px;
+        padding: 6px 8px;
+    }
+
+    .llm-sidebar-toggle {
+        padding: 8px 10px;
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .llm-welcome-message {
+        padding: 30px 16px;
+    }
+
+    .llm-welcome-features {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .llm-welcome-card {
+        width: 100%;
+        max-width: 280px;
+    }
+
+    .llm-context-bar {
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+
+    .llm-params-popover {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        margin-top: 0;
+        border-radius: 12px 12px 0 0;
+        min-width: unset;
+        width: 100%;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    .llm-export-dropdown {
+        position: fixed;
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        margin-top: 0;
+        border-radius: 12px 12px 0 0;
+        min-width: unset;
+        width: 100%;
+    }
+
+    .llm-dropdown-item {
+        padding: 14px;
+        font-size: 15px;
+    }
+}
+
+@media (max-width: 480px) {
+    .llm-top-bar {
+        padding: 4px 6px;
+    }
+
+    .llm-top-actions {
+        flex-wrap: wrap;
+    }
+
+    .llm-backend-select {
+        max-width: 100px;
+        font-size: 11px;
+    }
+
+    .llm-welcome-message {
+        padding: 20px 12px;
+    }
+
+    .llm-welcome-subtitle {
+        font-size: 13px;
+    }
+
+    .llm-welcome-card {
+        padding: 12px;
+    }
 }

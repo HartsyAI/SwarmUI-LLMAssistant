@@ -33,7 +33,7 @@ if (!window.LLM) {
 
             sendMessageStreaming(payload, onChunk, onDone, onError) {
                 try {
-                    makeWSRequest('LLMAssistantSendMessageWS', payload, data => {
+                    let socket = makeWSRequest('LLMAssistantSendMessageWS', payload, data => {
                         if (data.error) {
                             if (onError) onError(data.error);
                             return;
@@ -47,8 +47,10 @@ if (!window.LLM) {
                     }, 0, err => {
                         if (onError) onError(err?.message || 'WebSocket error');
                     });
+                    return socket;
                 } catch (ex) {
                     if (onError) onError(ex.message);
+                    return null;
                 }
             },
 
@@ -69,6 +71,7 @@ if (!window.LLM) {
         async init() {
             if (this.initialized) return;
             try {
+                this.initContainerHeight();
                 let resp = await this.APIClient.getSettings();
                 this.settings = resp.settings;
                 await this.initBackendSelector();
@@ -78,6 +81,8 @@ if (!window.LLM) {
                 if (LLM.PromptButtons) LLM.PromptButtons.init();
                 this.initParamPopover();
                 this.initExportButton();
+                this.initKeyboardShortcuts();
+                this.initMobileLayout();
                 this.updateContextBar();
                 this.updateWelcomeHint();
                 this.initialized = true;
@@ -85,6 +90,20 @@ if (!window.LLM) {
             } catch (ex) {
                 console.error('[LLMAssistant] Init failed:', ex);
             }
+        },
+
+        // -- Container height (accounts for nav tabs) --
+
+        initContainerHeight() {
+            let container = document.getElementById('llm-assistant-container');
+            if (!container) return;
+            let setHeight = () => {
+                let navTabs = document.querySelector('.nav.nav-tabs');
+                let offset = navTabs ? navTabs.getBoundingClientRect().bottom : 0;
+                container.style.height = `calc(100vh - ${offset}px)`;
+            };
+            setHeight();
+            window.addEventListener('resize', setHeight);
         },
 
         // -- Backend selector --
@@ -267,6 +286,77 @@ if (!window.LLM) {
             let mdBtn = document.getElementById('llm-export-md');
             if (jsonBtn) jsonBtn.addEventListener('click', () => { this.exportThread('json'); dropdown.style.display = 'none'; });
             if (mdBtn) mdBtn.addEventListener('click', () => { this.exportThread('markdown'); dropdown.style.display = 'none'; });
+        },
+
+        // -- Mobile layout --
+
+        isMobile() {
+            return window.innerWidth <= 768;
+        },
+
+        initMobileLayout() {
+            let sidebar = document.getElementById('llm-sidebar');
+            if (!sidebar) return;
+            // Collapse sidebar by default on mobile
+            if (this.isMobile()) {
+                sidebar.classList.add('collapsed');
+            }
+            // Add backdrop overlay for mobile sidebar
+            let backdrop = document.createElement('div');
+            backdrop.className = 'llm-sidebar-backdrop';
+            backdrop.style.display = 'none';
+            sidebar.parentElement.appendChild(backdrop);
+            backdrop.addEventListener('click', () => {
+                sidebar.classList.add('collapsed');
+                backdrop.style.display = 'none';
+            });
+            // Update backdrop when sidebar toggles
+            let toggle = document.getElementById('llm-sidebar-toggle');
+            if (toggle) {
+                let origHandler = toggle.onclick;
+                toggle.addEventListener('click', () => {
+                    if (this.isMobile()) {
+                        backdrop.style.display = sidebar.classList.contains('collapsed') ? '' : 'none';
+                    }
+                });
+            }
+        },
+
+        closeMobileSidebar() {
+            if (!this.isMobile()) return;
+            let sidebar = document.getElementById('llm-sidebar');
+            let backdrop = document.querySelector('.llm-sidebar-backdrop');
+            if (sidebar) sidebar.classList.add('collapsed');
+            if (backdrop) backdrop.style.display = 'none';
+        },
+
+        // -- Keyboard shortcuts --
+
+        initKeyboardShortcuts() {
+            document.addEventListener('keydown', e => {
+                let container = document.getElementById('llm-assistant-container');
+                if (!container || container.offsetParent === null) return;
+                if (e.key === 'Escape') {
+                    if (LLM.Chat?.isStreaming) {
+                        LLM.Chat.stopStreaming();
+                    } else {
+                        let popover = document.getElementById('llm-params-popover');
+                        let dropdown = document.getElementById('llm-export-dropdown');
+                        if (popover) popover.style.display = 'none';
+                        if (dropdown) dropdown.style.display = 'none';
+                    }
+                }
+                if (e.ctrlKey && e.shiftKey && e.key === 'N') {
+                    e.preventDefault();
+                    if (LLM.Threads) LLM.Threads.createNew();
+                    document.getElementById('llm-input')?.focus();
+                }
+                if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+                    e.preventDefault();
+                    let sidebar = document.getElementById('llm-sidebar');
+                    if (sidebar) sidebar.classList.toggle('collapsed');
+                }
+            });
         },
 
         exportThread(format) {

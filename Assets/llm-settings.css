@@ -231,3 +231,112 @@
     font-size: 13px;
     cursor: pointer;
 }
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+    .llm-modal {
+        width: 100vw;
+        max-width: 100vw;
+        max-height: 100vh;
+        height: 100vh;
+        border-radius: 0;
+    }
+
+    .llm-modal-header {
+        padding: 12px 14px;
+    }
+
+    .llm-modal-header h3 {
+        font-size: 15px;
+    }
+
+    .llm-modal-close {
+        font-size: 28px;
+        padding: 4px 8px;
+        min-width: 44px;
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .llm-modal-body {
+        padding: 12px 14px;
+    }
+
+    .llm-modal-footer {
+        padding: 10px 14px;
+        flex-wrap: wrap;
+    }
+
+    .llm-modal-footer .basic-button {
+        flex: 1;
+        min-height: 44px;
+        font-size: 14px;
+    }
+
+    .llm-settings-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .llm-settings-tab {
+        padding: 10px 14px;
+        font-size: 14px;
+        white-space: nowrap;
+    }
+
+    .llm-setting-group {
+        flex-wrap: wrap;
+    }
+
+    .llm-setting-group label {
+        min-width: 100%;
+        margin-bottom: 4px;
+    }
+
+    .llm-setting-group input[type="range"] {
+        min-width: 0;
+    }
+
+    .llm-setting-group input[type="number"] {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 16px;
+    }
+
+    .llm-feature-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+    }
+
+    .llm-feature-row label {
+        min-width: unset;
+    }
+
+    .llm-feature-row select {
+        padding: 10px;
+        font-size: 16px;
+    }
+
+    .llm-instruction-item {
+        flex-wrap: wrap;
+    }
+
+    #llm-instruction-editor input[type="text"],
+    #llm-instruction-editor textarea {
+        font-size: 16px;
+        padding: 10px 12px;
+    }
+
+    .llm-instr-actions {
+        flex-wrap: wrap;
+    }
+
+    .llm-instr-actions .basic-button {
+        flex: 1;
+        min-height: 44px;
+    }
+}

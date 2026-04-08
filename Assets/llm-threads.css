@@ -123,3 +123,81 @@
     color: var(--text-soft);
     font-size: 13px;
 }
+
+/* Sidebar backdrop (mobile overlay) */
+.llm-sidebar-backdrop {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 499;
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+    .llm-sidebar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        z-index: 500;
+        width: 80vw;
+        max-width: 320px;
+        min-width: 0;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.3);
+        transform: translateX(0);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .llm-sidebar.collapsed {
+        transform: translateX(-100%);
+        box-shadow: none;
+        width: 80vw;
+        border-right: 1px solid var(--border-color);
+    }
+
+    .llm-sidebar.collapsed > * {
+        display: flex; /* Override desktop hide — let transform handle it */
+    }
+
+    .llm-sidebar-header {
+        padding: 12px;
+    }
+
+    .llm-sidebar-search {
+        font-size: 16px; /* Prevents iOS zoom */
+        padding: 10px 12px;
+    }
+
+    .llm-thread-item {
+        padding: 12px 10px;
+        min-height: 44px;
+    }
+
+    .llm-thread-item-title {
+        font-size: 14px;
+    }
+
+    /* Always show delete on mobile */
+    .llm-thread-delete {
+        opacity: 1;
+        font-size: 20px;
+        padding: 4px 8px;
+        min-width: 36px;
+        min-height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .llm-sidebar {
+        width: 100vw;
+        max-width: 100vw;
+    }
+}

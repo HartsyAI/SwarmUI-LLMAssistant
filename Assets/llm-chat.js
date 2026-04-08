@@ -8,6 +8,9 @@
     const Chat = {
         messages: [],
         isStreaming: false,
+        activeSocket: null,
+        streamingMsgId: null,
+        streamingText: '',
         pastedImage: null,
 
         init() {
@@ -30,6 +33,7 @@
                 input.addEventListener('input', () => {
                     input.style.height = 'auto';
                     input.style.height = Math.min(input.scrollHeight, 200) + 'px';
+                    this.updateInputCounter(input.value);
                 });
                 input.addEventListener('paste', e => this.handlePaste(e));
             }
@@ -73,6 +77,7 @@
             if (this.isStreaming) return;
             input.value = '';
             input.style.height = 'auto';
+            this.updateInputCounter('');
             let welcome = document.getElementById('llm-welcome');
             if (welcome) welcome.style.display = 'none';
             this.appendMessage('user', message || '(image)');
@@ -99,25 +104,30 @@
         streamResponse(payload) {
             this.setStreaming(true);
             let assistantMsgId = this.appendMessage('assistant', '');
+            this.streamingMsgId = assistantMsgId;
+            this.streamingText = '';
             let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
-            let fullText = '';
-            LLM.APIClient.sendMessageStreaming(
+            this.activeSocket = LLM.APIClient.sendMessageStreaming(
                 payload,
                 chunk => {
-                    fullText += chunk;
-                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.streamingText += chunk;
+                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
                     this.scrollToBottom();
                 },
                 finalText => {
-                    fullText = finalText || fullText;
-                    this.updateMessage(assistantMsgId, fullText);
-                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.streamingText = finalText || this.streamingText;
+                    this.updateMessage(assistantMsgId, this.streamingText);
+                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
+                    this.activeSocket = null;
+                    this.streamingMsgId = null;
                     this.setStreaming(false);
                     this.autoSaveThread();
                     LLM.updateContextBar();
                 },
                 error => {
                     if (contentDiv) contentDiv.innerHTML = `<span class="llm-error">Error: ${error}</span>`;
+                    this.activeSocket = null;
+                    this.streamingMsgId = null;
                     this.setStreaming(false);
                 }
             );
@@ -403,30 +413,35 @@
             this.clearPastedImage();
             this.setStreaming(true);
             let assistantMsgId = this.appendMessage('assistant', '');
+            this.streamingMsgId = assistantMsgId;
+            this.streamingText = '';
             let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
-            let fullText = '';
-            LLM.APIClient.sendMessageStreaming(
+            this.activeSocket = LLM.APIClient.sendMessageStreaming(
                 payload,
                 chunk => {
-                    fullText += chunk;
-                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.streamingText += chunk;
+                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
                     this.scrollToBottom();
                 },
                 finalText => {
-                    fullText = finalText || fullText;
-                    this.updateMessage(assistantMsgId, fullText);
-                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.streamingText = finalText || this.streamingText;
+                    this.updateMessage(assistantMsgId, this.streamingText);
+                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
+                    this.activeSocket = null;
+                    this.streamingMsgId = null;
                     this.setStreaming(false);
                     this.autoSaveThread();
                     LLM.updateContextBar();
                     let promptBox = document.getElementById('alt_prompt_textbox');
                     if (promptBox) {
-                        promptBox.value = fullText;
+                        promptBox.value = this.streamingText;
                         triggerChangeFor(promptBox);
                     }
                 },
                 error => {
                     if (contentDiv) contentDiv.innerHTML = `<span class="llm-error">Error: ${error}</span>`;
+                    this.activeSocket = null;
+                    this.streamingMsgId = null;
                     this.setStreaming(false);
                 }
             );
@@ -516,6 +531,19 @@
         },
 
         stopStreaming() {
+            if (this.activeSocket) {
+                try { this.activeSocket.close(); } catch (_) {}
+                this.activeSocket = null;
+            }
+            // Save partial response
+            if (this.streamingMsgId && this.streamingText) {
+                this.updateMessage(this.streamingMsgId, this.streamingText);
+                let contentDiv = document.querySelector(`[data-msg-id="${this.streamingMsgId}"] .llm-msg-content`);
+                if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
+                this.autoSaveThread();
+            }
+            this.streamingMsgId = null;
+            this.streamingText = '';
             this.setStreaming(false);
         },
 
@@ -524,12 +552,24 @@
             if (container) container.scrollTop = container.scrollHeight;
         },
 
+        updateInputCounter(text) {
+            let counter = document.getElementById('llm-input-counter');
+            if (!counter) return;
+            if (!text || text.length === 0) {
+                counter.textContent = '';
+                return;
+            }
+            let chars = text.length;
+            let tokens = Math.ceil(chars / 4);
+            counter.textContent = `~${tokens} tokens`;
+        },
+
         async autoSaveThread() {
             if (!LLM.currentThreadId) {
                 LLM.currentThreadId = LLM.generateId();
             }
-            let title = document.getElementById('llm-thread-title')?.textContent || 'New Thread';
-            if (title === 'New Thread' && this.messages.length > 0) {
+            let title = document.getElementById('llm-thread-title')?.textContent || 'LLM Assistant';
+            if ((title === 'LLM Assistant' || title === 'New Chat' || title === 'New Thread') && this.messages.length > 0) {
                 let firstMsg = this.messages[0].content;
                 title = firstMsg.length > 50 ? firstMsg.substring(0, 50) + '...' : firstMsg;
                 let titleEl = document.getElementById('llm-thread-title');

@@ -2,10 +2,10 @@
     <!-- Thread Sidebar -->
     <div class="llm-sidebar" id="llm-sidebar">
         <div class="llm-sidebar-header">
-            <h4>Threads</h4>
-            <button class="basic-button" id="llm-new-thread-btn" title="New Thread">+ New</button>
+            <h4>Chats</h4>
+            <button class="basic-button" id="llm-new-thread-btn" title="New Chat">+ New</button>
         </div>
-        <input type="text" class="llm-sidebar-search" id="llm-thread-search" placeholder="Search threads...">
+        <input type="text" class="llm-sidebar-search" id="llm-thread-search" placeholder="Search chats...">
         <div class="llm-thread-list" id="llm-thread-list">
         </div>
     </div>
@@ -15,7 +15,7 @@
         <!-- Top Bar -->
         <div class="llm-top-bar">
             <button class="basic-button llm-sidebar-toggle" id="llm-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
-            <span class="llm-thread-title" id="llm-thread-title">New Thread</span>
+            <span class="llm-thread-title" id="llm-thread-title">LLM Assistant</span>
             <div class="llm-top-actions">
                 <!-- Backend selector -->
                 <select class="llm-backend-select" id="llm-backend-select" title="Select LLM backend">
@@ -86,15 +86,24 @@
                 </div>
                 <!-- Paste/attach preview with vision actions -->
                 <div class="llm-paste-preview" id="llm-paste-preview" style="display:none;"></div>
-                <div class="llm-input-area" id="llm-input-area">
-                    <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
-                    <div class="llm-input-actions">
-                        <label class="basic-button llm-attach-btn" id="llm-attach-btn" title="Attach image">
-                            <input type="file" id="llm-attach-file" accept="image/*" style="display:none;">
-                            &#128206;
-                        </label>
-                        <button class="basic-button llm-send-btn" id="llm-send-btn">Send</button>
-                        <button class="basic-button llm-stop-btn" id="llm-stop-btn" style="display:none;">Stop</button>
+                <div class="llm-input-wrapper" id="llm-input-area">
+                    <div class="llm-input-box">
+                        <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
+                        <div class="llm-input-bottom">
+                            <span class="llm-input-counter" id="llm-input-counter"></span>
+                            <div class="llm-input-actions">
+                                <label class="llm-attach-btn" id="llm-attach-btn" title="Attach image">
+                                    <input type="file" id="llm-attach-file" accept="image/*" style="display:none;">
+                                    &#128206;
+                                </label>
+                                <button class="llm-send-btn" id="llm-send-btn" title="Send">
+                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
+                                </button>
+                                <button class="llm-stop-btn" id="llm-stop-btn" style="display:none;" title="Stop">
+                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="2" fill="currentColor"/></svg>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
