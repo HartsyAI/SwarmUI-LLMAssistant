@@ -25,6 +25,21 @@ public static class LLMDispatcher
         return backend;
     }
 
+    /// <summary>Gets a specific running LLM backend by its ID, falling back to the first available.</summary>
+    public static AbstractLLMBackend GetBackendById(int backendId)
+    {
+        if (backendId >= 0)
+        {
+            AbstractLLMBackend match = GetRunningBackends()
+                .FirstOrDefault(b => b.AbstractBackendData.ID == backendId);
+            if (match is not null)
+            {
+                return match;
+            }
+        }
+        return GetBackend();
+    }
+
     /// <summary>Gets a backend filtered by a specific feature tag (e.g., "local_llm", "remote_llm").</summary>
     public static AbstractLLMBackend GetBackendWithFeature(string feature)
     {
@@ -38,16 +53,16 @@ public static class LLMDispatcher
     }
 
     /// <summary>Sends a message and returns the full response (non-streaming).</summary>
-    public static async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
+    public static async Task<string> Generate(ExtendedLLMInput input, int backendId = -1, CancellationToken ct = default)
     {
-        AbstractLLMBackend backend = GetBackend();
+        AbstractLLMBackend backend = backendId >= 0 ? GetBackendById(backendId) : GetBackend();
         return await backend.Generate(input);
     }
 
     /// <summary>Sends a message with streaming chunks via callback.</summary>
-    public static async Task GenerateStreaming(ExtendedLLMInput input, Action<JObject> onChunk, CancellationToken ct = default)
+    public static async Task GenerateStreaming(ExtendedLLMInput input, Action<JObject> onChunk, int backendId = -1, CancellationToken ct = default)
     {
-        AbstractLLMBackend backend = GetBackend();
+        AbstractLLMBackend backend = backendId >= 0 ? GetBackendById(backendId) : GetBackend();
         await backend.GenerateLive(input, "0", onChunk);
     }
 

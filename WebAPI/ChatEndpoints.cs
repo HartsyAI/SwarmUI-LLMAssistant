@@ -13,7 +13,7 @@ public static class ChatEndpoints
     /// <summary>Sends a message to an LLM backend and returns the full response.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
-        double temperature = -1, int maxTokens = -1)
+        double temperature = -1, int maxTokens = -1, int backendId = -1)
     {
         try
         {
@@ -21,7 +21,7 @@ public static class ChatEndpoints
             string systemPrompt = InstructionService.ResolveInstruction(instructionId, settings);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             ApplyParameters(input, settings, temperature, maxTokens);
-            string response = await LLMDispatcher.Generate(input);
+            string response = await LLMDispatcher.Generate(input, backendId);
             return new JObject
             {
                 ["success"] = true,
@@ -48,6 +48,7 @@ public static class ChatEndpoints
             string model = rawInput["model"]?.ToString();
             double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
+            int backendId = rawInput["backendId"]?.Value<int>() ?? -1;
             // Build history from previous messages if provided
             JArray historyArray = rawInput["history"] as JArray;
             JObject settings = SettingsService.GetSettings();
@@ -71,7 +72,7 @@ public static class ChatEndpoints
                 input = ExtendedLLMInput.Create(message, systemPrompt, model);
             }
             ApplyParameters(input, settings, temperature, maxTokens);
-            await LLMStreamHelper.StreamToWebSocket(socket, input);
+            await LLMStreamHelper.StreamToWebSocket(socket, input, backendId);
             return null;
         }
         catch (Exception ex)

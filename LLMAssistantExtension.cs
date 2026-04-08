@@ -26,7 +26,6 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/llm-core.js");
         ScriptFiles.Add("Assets/llm-markdown.js");
         ScriptFiles.Add("Assets/llm-chat.js");
-        ScriptFiles.Add("Assets/llm-vision.js");
         ScriptFiles.Add("Assets/llm-settings.js");
         ScriptFiles.Add("Assets/llm-prompt-buttons.js");
         ScriptFiles.Add("Assets/llm-threads.js");
@@ -35,7 +34,6 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/lib/katex.min.css");
         StyleSheetFiles.Add("Assets/llm-core.css");
         StyleSheetFiles.Add("Assets/llm-chat.css");
-        StyleSheetFiles.Add("Assets/llm-vision.css");
         StyleSheetFiles.Add("Assets/llm-settings.css");
         StyleSheetFiles.Add("Assets/llm-threads.css");
     }

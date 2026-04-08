@@ -8,7 +8,7 @@ namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 public static class LLMStreamHelper
 {
     /// <summary>Streams LLM generation output over a WebSocket connection.</summary>
-    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, CancellationToken ct = default)
+    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, int backendId = -1, CancellationToken ct = default)
     {
         StringBuilder fullText = new();
         await LLMDispatcher.GenerateStreaming(input, chunk =>
@@ -24,7 +24,7 @@ public static class LLMStreamHelper
                 fullText.Clear();
                 fullText.Append(resultToken.ToString());
             }
-        }, ct);
+        }, backendId, ct);
         await SendJson(socket, new JObject
         {
             ["done"] = true,

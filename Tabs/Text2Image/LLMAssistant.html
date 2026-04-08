@@ -17,6 +17,10 @@
             <button class="basic-button llm-sidebar-toggle" id="llm-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
             <span class="llm-thread-title" id="llm-thread-title">New Thread</span>
             <div class="llm-top-actions">
+                <!-- Backend selector -->
+                <select class="llm-backend-select" id="llm-backend-select" title="Select LLM backend">
+                    <option value="-1" disabled selected>No backends</option>
+                </select>
                 <!-- Parameter override popover -->
                 <div class="llm-popover-anchor">
                     <button class="basic-button llm-params-btn" id="llm-params-btn" title="Thread parameters">Params</button>
@@ -49,11 +53,6 @@
                         <button class="llm-dropdown-item" id="llm-export-md">Markdown</button>
                     </div>
                 </div>
-                <select class="llm-mode-select" id="llm-mode-select">
-                    <option value="chat">Chat</option>
-                    <option value="prompt">Prompt</option>
-                    <option value="vision">Vision</option>
-                </select>
                 <button class="basic-button" id="llm-settings-btn" title="Settings">&#9881;</button>
             </div>
         </div>
@@ -61,45 +60,43 @@
         <!-- Context Bar -->
         <div class="llm-context-bar" id="llm-context-bar">0 messages</div>
 
-        <!-- Tab Content Panels -->
+        <!-- Chat Content -->
         <div class="llm-content-area">
-            <!-- Chat Panel -->
             <div class="llm-panel llm-chat-panel" id="llm-chat-panel">
                 <div class="llm-messages" id="llm-messages">
                     <div class="llm-welcome-message" id="llm-welcome">
                         <h3>LLM Assistant</h3>
-                        <p>Configure an LLM backend in Server &gt; Backends, then start chatting.</p>
+                        <p class="llm-welcome-subtitle">Chat with AI models powered by your configured backends.</p>
+                        <div class="llm-welcome-features">
+                            <div class="llm-welcome-card">
+                                <strong>Chat</strong>
+                                <span>Ask questions, get help with prompts, brainstorm ideas</span>
+                            </div>
+                            <div class="llm-welcome-card">
+                                <strong>Images</strong>
+                                <span>Attach or paste images for vision analysis</span>
+                            </div>
+                            <div class="llm-welcome-card">
+                                <strong>Export</strong>
+                                <span>Save conversations as JSON or Markdown</span>
+                            </div>
+                        </div>
+                        <p class="llm-welcome-hint" id="llm-welcome-hint"></p>
                     </div>
                 </div>
-                <!-- Paste preview -->
+                <!-- Paste/attach preview with vision actions -->
                 <div class="llm-paste-preview" id="llm-paste-preview" style="display:none;"></div>
-                <div class="llm-input-area">
-                    <textarea class="llm-input" id="llm-input" placeholder="Type a message... (Ctrl+V to paste images)" rows="1"></textarea>
+                <div class="llm-input-area" id="llm-input-area">
+                    <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
                     <div class="llm-input-actions">
+                        <label class="basic-button llm-attach-btn" id="llm-attach-btn" title="Attach image">
+                            <input type="file" id="llm-attach-file" accept="image/*" style="display:none;">
+                            &#128206;
+                        </label>
                         <button class="basic-button llm-send-btn" id="llm-send-btn">Send</button>
                         <button class="basic-button llm-stop-btn" id="llm-stop-btn" style="display:none;">Stop</button>
                     </div>
                 </div>
-            </div>
-
-            <!-- Vision Panel -->
-            <div class="llm-panel llm-vision-panel" id="llm-vision-panel" style="display:none;">
-                <div class="llm-vision-upload-area" id="llm-vision-upload">
-                    <div class="llm-vision-dropzone" id="llm-vision-dropzone">
-                        <p>Drag &amp; drop an image here, or click to upload</p>
-                        <input type="file" id="llm-vision-file" accept="image/*" style="display:none;">
-                    </div>
-                    <div class="llm-vision-preview" id="llm-vision-preview" style="display:none;">
-                        <img id="llm-vision-image" src="" alt="Uploaded image">
-                        <div class="llm-vision-actions">
-                            <button class="basic-button" id="llm-vision-caption">Caption</button>
-                            <button class="basic-button" id="llm-vision-prompt">Send to Prompt</button>
-                            <button class="basic-button" id="llm-vision-init">Use as Init</button>
-                            <button class="basic-button" id="llm-vision-clear">Clear</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="llm-vision-output" id="llm-vision-output"></div>
             </div>
         </div>
     </div>

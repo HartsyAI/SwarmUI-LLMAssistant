@@ -1,6 +1,6 @@
 /**
  * LLM Assistant - Chat handler
- * Message rendering, streaming, editing, regeneration, and image paste.
+ * Message rendering, streaming, editing, regeneration, image attach/paste, and vision actions.
  */
 (function() {
     'use strict';
@@ -33,6 +33,37 @@
                 });
                 input.addEventListener('paste', e => this.handlePaste(e));
             }
+            // Attach button (file picker)
+            let attachFile = document.getElementById('llm-attach-file');
+            if (attachFile) {
+                attachFile.addEventListener('change', () => {
+                    if (attachFile.files?.length > 0) this.handleAttachFile(attachFile.files[0]);
+                });
+            }
+            // Drag & drop on input area
+            let inputArea = document.getElementById('llm-input-area');
+            if (inputArea) {
+                inputArea.addEventListener('dragover', e => {
+                    e.preventDefault();
+                    inputArea.classList.add('llm-drag-over');
+                });
+                inputArea.addEventListener('dragleave', () => {
+                    inputArea.classList.remove('llm-drag-over');
+                });
+                inputArea.addEventListener('drop', e => {
+                    e.preventDefault();
+                    inputArea.classList.remove('llm-drag-over');
+                    let files = e.dataTransfer?.files;
+                    if (files?.length > 0) {
+                        for (let f of files) {
+                            if (f.type.startsWith('image/')) {
+                                this.handleAttachFile(f);
+                                return;
+                            }
+                        }
+                    }
+                });
+            }
         },
 
         async submitInput() {
@@ -45,17 +76,19 @@
             let welcome = document.getElementById('llm-welcome');
             if (welcome) welcome.style.display = 'none';
             this.appendMessage('user', message || '(image)');
-            let modeSelect = document.getElementById('llm-mode-select');
-            let mode = modeSelect?.value || 'chat';
-            let instructionId = LLM.settings?.featureMappings?.[mode + '-mode'] || mode;
+            let instructionId = LLM.settings?.featureMappings?.['chat-mode'] || 'chat';
             let history = this.messages.map(m => ({ role: m.role, content: m.content }));
             let payload = { message, instructionId, history };
+            // Backend selection
+            if (LLM.selectedBackendId >= 0) {
+                payload.backendId = LLM.selectedBackendId;
+            }
             // Per-thread parameter overrides
             if (LLM.currentThreadParams) {
                 if (LLM.currentThreadParams.temperature >= 0) payload.temperature = LLM.currentThreadParams.temperature;
                 if (LLM.currentThreadParams.maxTokens > 0) payload.maxTokens = LLM.currentThreadParams.maxTokens;
             }
-            // Attach pasted image
+            // Attach image
             if (this.pastedImage) {
                 payload.media = [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }];
                 this.clearPastedImage();
@@ -246,22 +279,21 @@
             if (this.isStreaming) return;
             let msgIndex = this.messages.findIndex(m => m.id === msgId);
             if (msgIndex < 0) return;
-            // Build history up to (not including) the message being regenerated
             let historyMessages = this.messages.slice(0, msgIndex);
             let history = historyMessages.map(m => ({ role: m.role, content: m.content }));
-            // Remove the old message and everything after from UI and memory
             let removedIds = this.messages.slice(msgIndex).map(m => m.id);
             this.messages = historyMessages;
             removedIds.forEach(id => {
                 let el = document.querySelector(`[data-msg-id="${id}"]`);
                 if (el) el.remove();
             });
-            let modeSelect = document.getElementById('llm-mode-select');
-            let mode = modeSelect?.value || 'chat';
-            let instructionId = LLM.settings?.featureMappings?.[mode + '-mode'] || mode;
+            let instructionId = LLM.settings?.featureMappings?.['chat-mode'] || 'chat';
             let lastUserMsg = historyMessages.filter(m => m.role === 'user').pop();
             let message = lastUserMsg?.content || '';
             let payload = { message, instructionId, history };
+            if (LLM.selectedBackendId >= 0) {
+                payload.backendId = LLM.selectedBackendId;
+            }
             if (LLM.currentThreadParams) {
                 if (LLM.currentThreadParams.temperature >= 0) payload.temperature = LLM.currentThreadParams.temperature;
                 if (LLM.currentThreadParams.maxTokens > 0) payload.maxTokens = LLM.currentThreadParams.maxTokens;
@@ -278,15 +310,28 @@
                 if (item.type.startsWith('image/')) {
                     e.preventDefault();
                     let file = item.getAsFile();
-                    let reader = new FileReader();
-                    reader.onload = ev => {
-                        this.pastedImage = ev.target.result;
-                        this.showPastePreview(ev.target.result);
-                    };
-                    reader.readAsDataURL(file);
+                    this.readImageFile(file);
                     return;
                 }
             }
+        },
+
+        // -- Image Attach (file picker) --
+
+        handleAttachFile(file) {
+            if (!file.type.startsWith('image/')) return;
+            this.readImageFile(file);
+            let attachFile = document.getElementById('llm-attach-file');
+            if (attachFile) attachFile.value = '';
+        },
+
+        readImageFile(file) {
+            let reader = new FileReader();
+            reader.onload = ev => {
+                this.pastedImage = ev.target.result;
+                this.showPastePreview(ev.target.result);
+            };
+            reader.readAsDataURL(file);
         },
 
         showPastePreview(dataUrl) {
@@ -297,13 +342,94 @@
             let img = document.createElement('img');
             img.src = dataUrl;
             img.className = 'llm-paste-thumbnail';
+            preview.appendChild(img);
+            // Vision action buttons
+            let captionBtn = document.createElement('button');
+            captionBtn.className = 'basic-button llm-preview-action';
+            captionBtn.textContent = 'Caption';
+            captionBtn.title = 'Send image with caption request';
+            captionBtn.addEventListener('click', () => this.captionImage());
+            preview.appendChild(captionBtn);
+            let promptBtn = document.createElement('button');
+            promptBtn.className = 'basic-button llm-preview-action';
+            promptBtn.textContent = 'Use as Prompt';
+            promptBtn.title = 'Caption and send result to prompt box';
+            promptBtn.addEventListener('click', () => this.captionAndSendToPrompt());
+            preview.appendChild(promptBtn);
+            let initBtn = document.createElement('button');
+            initBtn.className = 'basic-button llm-preview-action';
+            initBtn.textContent = 'Use as Init';
+            initBtn.title = 'Use image as init image for generation';
+            initBtn.addEventListener('click', () => {
+                if (this.pastedImage && typeof setCurrentImage === 'function') {
+                    setCurrentImage(this.pastedImage);
+                }
+            });
+            preview.appendChild(initBtn);
+            // Remove button
             let removeBtn = document.createElement('button');
             removeBtn.className = 'llm-paste-remove';
             removeBtn.textContent = '\u00d7';
             removeBtn.title = 'Remove image';
             removeBtn.addEventListener('click', () => this.clearPastedImage());
-            preview.appendChild(img);
             preview.appendChild(removeBtn);
+        },
+
+        async captionImage() {
+            if (!this.pastedImage) return;
+            let input = document.getElementById('llm-input');
+            if (input) {
+                input.value = 'Describe this image in detail.';
+            }
+            this.submitInput();
+        },
+
+        async captionAndSendToPrompt() {
+            if (!this.pastedImage) return;
+            let welcome = document.getElementById('llm-welcome');
+            if (welcome) welcome.style.display = 'none';
+            this.appendMessage('user', 'Describe this image for use as an image generation prompt.');
+            let instructionId = LLM.settings?.featureMappings?.['caption'] || 'caption';
+            let history = this.messages.map(m => ({ role: m.role, content: m.content }));
+            let payload = {
+                message: 'Describe this image for use as an image generation prompt.',
+                instructionId,
+                history,
+                media: [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }]
+            };
+            if (LLM.selectedBackendId >= 0) {
+                payload.backendId = LLM.selectedBackendId;
+            }
+            this.clearPastedImage();
+            this.setStreaming(true);
+            let assistantMsgId = this.appendMessage('assistant', '');
+            let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
+            let fullText = '';
+            LLM.APIClient.sendMessageStreaming(
+                payload,
+                chunk => {
+                    fullText += chunk;
+                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.scrollToBottom();
+                },
+                finalText => {
+                    fullText = finalText || fullText;
+                    this.updateMessage(assistantMsgId, fullText);
+                    if (contentDiv) LLM.renderIntoElement(fullText, contentDiv);
+                    this.setStreaming(false);
+                    this.autoSaveThread();
+                    LLM.updateContextBar();
+                    let promptBox = document.getElementById('alt_prompt_textbox');
+                    if (promptBox) {
+                        promptBox.value = fullText;
+                        triggerChangeFor(promptBox);
+                    }
+                },
+                error => {
+                    if (contentDiv) contentDiv.innerHTML = `<span class="llm-error">Error: ${error}</span>`;
+                    this.setStreaming(false);
+                }
+            );
         },
 
         clearPastedImage() {

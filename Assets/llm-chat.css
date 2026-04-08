@@ -8,6 +8,7 @@
 
 .llm-messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 12px;
     display: flex;
@@ -172,6 +173,7 @@
     border-top: 1px solid var(--border-color);
     background: var(--background-gray);
     align-items: flex-end;
+    flex-shrink: 0;
 }
 
 .llm-input {
@@ -207,6 +209,29 @@
 .llm-stop-btn {
     padding: 8px 16px;
     white-space: nowrap;
+}
+
+/* Attach button */
+.llm-attach-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 10px;
+    font-size: 16px;
+    cursor: pointer;
+    line-height: 1;
+}
+
+/* Drag-over highlight */
+.llm-input-area.llm-drag-over {
+    border-color: var(--emphasis);
+    background: color-mix(in srgb, var(--emphasis) 10%, var(--background-gray));
+}
+
+/* Preview action buttons */
+.llm-preview-action {
+    font-size: 12px;
+    padding: 4px 10px;
 }
 
 /* Edited label */
@@ -251,6 +276,7 @@
     padding: 8px 12px;
     border-top: 1px solid var(--border-color);
     background: var(--background-soft);
+    flex-shrink: 0;
 }
 
 .llm-paste-thumbnail {

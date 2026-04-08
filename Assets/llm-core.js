@@ -8,6 +8,8 @@ if (!window.LLM) {
         settings: null,
         currentThreadId: null,
         currentThreadParams: null,
+        selectedBackendId: -1,
+        backends: [],
 
         /** API client wrapping SwarmUI's genericRequest. */
         APIClient: {
@@ -69,15 +71,15 @@ if (!window.LLM) {
             try {
                 let resp = await this.APIClient.getSettings();
                 this.settings = resp.settings;
+                await this.initBackendSelector();
                 if (LLM.Chat) LLM.Chat.init();
                 if (LLM.Threads) LLM.Threads.init();
-                if (LLM.Vision) LLM.Vision.init();
                 if (LLM.Settings) LLM.Settings.init();
                 if (LLM.PromptButtons) LLM.PromptButtons.init();
-                this.initModeSelector();
                 this.initParamPopover();
                 this.initExportButton();
                 this.updateContextBar();
+                this.updateWelcomeHint();
                 this.initialized = true;
                 console.log('[LLMAssistant] Initialized');
             } catch (ex) {
@@ -85,16 +87,60 @@ if (!window.LLM) {
             }
         },
 
-        initModeSelector() {
-            let modeSelect = document.getElementById('llm-mode-select');
-            if (!modeSelect) return;
-            modeSelect.addEventListener('change', () => {
-                let mode = modeSelect.value;
-                let chatPanel = document.getElementById('llm-chat-panel');
-                let visionPanel = document.getElementById('llm-vision-panel');
-                if (chatPanel) chatPanel.style.display = (mode !== 'vision') ? '' : 'none';
-                if (visionPanel) visionPanel.style.display = (mode === 'vision') ? '' : 'none';
+        // -- Backend selector --
+
+        async initBackendSelector() {
+            let select = document.getElementById('llm-backend-select');
+            if (!select) return;
+            try {
+                let resp = await this.APIClient.getBackends();
+                this.backends = resp.backends || [];
+            } catch (ex) {
+                this.backends = [];
+            }
+            select.innerHTML = '';
+            if (this.backends.length === 0) {
+                let opt = document.createElement('option');
+                opt.value = '-1';
+                opt.textContent = 'No backends';
+                opt.disabled = true;
+                opt.selected = true;
+                select.appendChild(opt);
+                select.disabled = true;
+            } else {
+                this.backends.forEach(b => {
+                    let opt = document.createElement('option');
+                    opt.value = b.id;
+                    opt.textContent = b.name || b.type;
+                    select.appendChild(opt);
+                });
+                select.disabled = false;
+                // Select the first backend by default
+                this.selectedBackendId = this.backends[0].id;
+                select.value = this.selectedBackendId;
+            }
+            select.addEventListener('change', () => {
+                this.selectedBackendId = parseInt(select.value, 10);
+                this.updateContextBar();
             });
+        },
+
+        getSelectedBackendName() {
+            if (this.selectedBackendId < 0) return null;
+            let b = this.backends.find(x => x.id === this.selectedBackendId);
+            return b ? (b.name || b.type) : null;
+        },
+
+        // -- Welcome hint --
+
+        updateWelcomeHint() {
+            let hint = document.getElementById('llm-welcome-hint');
+            if (!hint) return;
+            if (this.backends.length === 0) {
+                hint.textContent = 'Configure an LLM backend in Server > Backends to get started.';
+            } else {
+                hint.textContent = 'Type a message below to begin.';
+            }
         },
 
         // -- Per-thread parameter popover --
@@ -107,13 +153,11 @@ if (!window.LLM) {
                 popover.style.display = popover.style.display === 'none' ? '' : 'none';
                 if (popover.style.display !== 'none') this.loadParamPopoverValues();
             });
-            // Close when clicking outside
             document.addEventListener('click', e => {
                 if (!btn.contains(e.target) && !popover.contains(e.target)) {
                     popover.style.display = 'none';
                 }
             });
-            // Slider value displays
             let tempSlider = document.getElementById('llm-param-temperature');
             let topPSlider = document.getElementById('llm-param-top-p');
             if (tempSlider) {
@@ -128,7 +172,6 @@ if (!window.LLM) {
                     if (val) val.textContent = topPSlider.value;
                 });
             }
-            // Apply button
             let applyBtn = document.getElementById('llm-params-apply');
             if (applyBtn) {
                 applyBtn.addEventListener('click', () => {
@@ -136,7 +179,6 @@ if (!window.LLM) {
                     popover.style.display = 'none';
                 });
             }
-            // Reset button
             let resetBtn = document.getElementById('llm-params-reset');
             if (resetBtn) {
                 resetBtn.addEventListener('click', () => {
@@ -195,12 +237,12 @@ if (!window.LLM) {
             let bar = document.getElementById('llm-context-bar');
             if (!bar) return;
             let msgCount = LLM.Chat?.messages?.length || 0;
-            let modeSelect = document.getElementById('llm-mode-select');
-            let mode = modeSelect?.value || 'chat';
-            let instructionId = this.settings?.featureMappings?.[mode + '-mode'] || mode;
             let parts = [];
             parts.push(`${msgCount} message${msgCount !== 1 ? 's' : ''}`);
-            parts.push(instructionId);
+            let backendName = this.getSelectedBackendName();
+            if (backendName) {
+                parts.push(backendName);
+            }
             if (this.currentThreadParams) {
                 parts.push(`T:${this.currentThreadParams.temperature}`);
             }
