@@ -7,7 +7,6 @@
         </div>
         <input type="text" class="llm-sidebar-search" id="llm-thread-search" placeholder="Search threads...">
         <div class="llm-thread-list" id="llm-thread-list">
-            <!-- Thread items populated by JS -->
         </div>
     </div>
 
@@ -18,6 +17,38 @@
             <button class="basic-button llm-sidebar-toggle" id="llm-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
             <span class="llm-thread-title" id="llm-thread-title">New Thread</span>
             <div class="llm-top-actions">
+                <!-- Parameter override popover -->
+                <div class="llm-popover-anchor">
+                    <button class="basic-button llm-params-btn" id="llm-params-btn" title="Thread parameters">Params</button>
+                    <div class="llm-params-popover" id="llm-params-popover" style="display:none;">
+                        <div class="llm-setting-group">
+                            <label>Temperature</label>
+                            <input type="range" id="llm-param-temperature" min="0" max="2" step="0.1" value="1.0">
+                            <span id="llm-param-temperature-val">1.0</span>
+                        </div>
+                        <div class="llm-setting-group">
+                            <label>Max Tokens</label>
+                            <input type="number" id="llm-param-max-tokens" min="1" max="32768" value="1024">
+                        </div>
+                        <div class="llm-setting-group">
+                            <label>Top P</label>
+                            <input type="range" id="llm-param-top-p" min="0" max="1" step="0.05" value="0.9">
+                            <span id="llm-param-top-p-val">0.9</span>
+                        </div>
+                        <div class="llm-popover-actions">
+                            <button class="basic-button" id="llm-params-apply">Apply</button>
+                            <button class="basic-button" id="llm-params-reset">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Export dropdown -->
+                <div class="llm-popover-anchor">
+                    <button class="basic-button" id="llm-export-btn" title="Export thread">Export</button>
+                    <div class="llm-export-dropdown" id="llm-export-dropdown" style="display:none;">
+                        <button class="llm-dropdown-item" id="llm-export-json">JSON</button>
+                        <button class="llm-dropdown-item" id="llm-export-md">Markdown</button>
+                    </div>
+                </div>
                 <select class="llm-mode-select" id="llm-mode-select">
                     <option value="chat">Chat</option>
                     <option value="prompt">Prompt</option>
@@ -26,6 +57,9 @@
                 <button class="basic-button" id="llm-settings-btn" title="Settings">&#9881;</button>
             </div>
         </div>
+
+        <!-- Context Bar -->
+        <div class="llm-context-bar" id="llm-context-bar">0 messages</div>
 
         <!-- Tab Content Panels -->
         <div class="llm-content-area">
@@ -37,8 +71,10 @@
                         <p>Configure an LLM backend in Server &gt; Backends, then start chatting.</p>
                     </div>
                 </div>
+                <!-- Paste preview -->
+                <div class="llm-paste-preview" id="llm-paste-preview" style="display:none;"></div>
                 <div class="llm-input-area">
-                    <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
+                    <textarea class="llm-input" id="llm-input" placeholder="Type a message... (Ctrl+V to paste images)" rows="1"></textarea>
                     <div class="llm-input-actions">
                         <button class="basic-button llm-send-btn" id="llm-send-btn">Send</button>
                         <button class="basic-button llm-stop-btn" id="llm-stop-btn" style="display:none;">Stop</button>
@@ -63,9 +99,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="llm-vision-output" id="llm-vision-output">
-                    <!-- Caption output appears here -->
-                </div>
+                <div class="llm-vision-output" id="llm-vision-output"></div>
             </div>
         </div>
     </div>
@@ -84,7 +118,6 @@
                     <button class="llm-settings-tab" data-tab="features">Features</button>
                 </div>
 
-                <!-- General Settings Tab -->
                 <div class="llm-settings-panel" id="llm-settings-general">
                     <div class="llm-setting-group">
                         <label>Temperature</label>
@@ -106,11 +139,8 @@
                     </p>
                 </div>
 
-                <!-- Instructions Tab -->
                 <div class="llm-settings-panel" id="llm-settings-instructions" style="display:none;">
-                    <div class="llm-instruction-list" id="llm-instruction-list">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div class="llm-instruction-list" id="llm-instruction-list"></div>
                     <button class="basic-button" id="llm-create-instruction">+ Create Custom Instruction</button>
                     <div id="llm-instruction-editor" style="display:none;">
                         <input type="text" id="llm-instr-title" placeholder="Instruction title">
@@ -123,12 +153,9 @@
                     </div>
                 </div>
 
-                <!-- Features Tab -->
                 <div class="llm-settings-panel" id="llm-settings-features" style="display:none;">
                     <p>Map features to specific instructions:</p>
-                    <div id="llm-feature-mappings">
-                        <!-- Populated by JS -->
-                    </div>
+                    <div id="llm-feature-mappings"></div>
                 </div>
             </div>
             <div class="llm-modal-footer">

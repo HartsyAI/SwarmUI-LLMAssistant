@@ -91,10 +91,14 @@
                 let resp = await LLM.APIClient.getThread(threadId);
                 if (resp.thread) {
                     LLM.currentThreadId = threadId;
+                    // Load per-thread parameter overrides
+                    LLM.currentThreadParams = resp.thread.parameters || null;
+                    LLM.updateParamsButtonLabel();
                     let titleEl = document.getElementById('llm-thread-title');
                     if (titleEl) titleEl.textContent = resp.thread.title || 'Untitled';
                     LLM.Chat.loadMessages(resp.thread.messages || []);
-                    this.renderList(); // Update active state
+                    LLM.updateContextBar();
+                    this.renderList();
                 }
             } catch (ex) {
                 console.error('[LLMAssistant] Failed to load thread:', ex);
@@ -103,10 +107,13 @@
 
         createNew() {
             LLM.currentThreadId = null;
+            LLM.currentThreadParams = null;
+            LLM.updateParamsButtonLabel();
             LLM.Chat.clearMessages();
             let titleEl = document.getElementById('llm-thread-title');
             if (titleEl) titleEl.textContent = 'New Thread';
-            this.renderList(); // Clear active state
+            LLM.updateContextBar();
+            this.renderList();
         },
 
         async deleteThread(threadId) {

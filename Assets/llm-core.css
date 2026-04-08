@@ -130,3 +130,84 @@
     opacity: 0.6;
     cursor: wait;
 }
+
+/* Context Bar */
+.llm-context-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 12px;
+    background: var(--background-soft);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 11px;
+    color: var(--text-soft);
+    flex-shrink: 0;
+}
+
+/* Popover anchor (used by params + export) */
+.llm-popover-anchor {
+    position: relative;
+}
+
+/* Parameter popover */
+.llm-params-popover {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 14px;
+    min-width: 280px;
+    z-index: 1000;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.llm-params-popover .llm-setting-group {
+    margin-bottom: 10px;
+}
+
+.llm-popover-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    justify-content: flex-end;
+}
+
+.llm-params-btn.llm-params-active {
+    background: var(--emphasis);
+    color: var(--emphasis-text);
+    border-color: var(--emphasis);
+}
+
+/* Export dropdown */
+.llm-export-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--background);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    overflow: hidden;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    min-width: 120px;
+}
+
+.llm-dropdown-item {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--text);
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.llm-dropdown-item:hover {
+    background: var(--button-background-hover);
+}

@@ -19,6 +19,9 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/lib/marked.min.js");
         ScriptFiles.Add("Assets/lib/highlight.min.js");
         ScriptFiles.Add("Assets/lib/purify.min.js");
+        ScriptFiles.Add("Assets/lib/katex.min.js");
+        ScriptFiles.Add("Assets/lib/auto-render.min.js");
+        ScriptFiles.Add("Assets/lib/mermaid.min.js");
         // Extension JS
         ScriptFiles.Add("Assets/llm-core.js");
         ScriptFiles.Add("Assets/llm-markdown.js");
@@ -29,6 +32,7 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/llm-threads.js");
         // CSS
         StyleSheetFiles.Add("Assets/lib/github-dark.min.css");
+        StyleSheetFiles.Add("Assets/lib/katex.min.css");
         StyleSheetFiles.Add("Assets/llm-core.css");
         StyleSheetFiles.Add("Assets/llm-chat.css");
         StyleSheetFiles.Add("Assets/llm-vision.css");
