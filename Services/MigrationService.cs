@@ -45,7 +45,7 @@ public static class MigrationService
         if (mpSettings["instructions"] is JObject mpInstructions)
         {
             JObject newInstructions = newSettings["instructions"] as JObject;
-            string[] builtInKeys = ["chat", "vision", "caption", "prompt", "randomprompt", "instructiongen"];
+            string[] builtInKeys = InstructionIds.All;
             foreach (string key in builtInKeys)
             {
                 if (mpInstructions[key] is JValue val && !string.IsNullOrEmpty(val.ToString()))

@@ -46,6 +46,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSaveThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);
         // Instructions
         API.RegisterAPICall(InstructionEndpoints.LLMAssistantGetInstructions, false, PermSettings);
         API.RegisterAPICall(InstructionEndpoints.LLMAssistantSaveInstruction, true, PermSettings);

@@ -26,24 +26,30 @@ public static class SettingsService
         },
         ["instructions"] = new JObject
         {
-            ["chat"] = DefaultInstructions.Chat,
-            ["vision"] = DefaultInstructions.Vision,
-            ["caption"] = DefaultInstructions.Caption,
-            ["prompt"] = DefaultInstructions.Prompt,
-            ["randomprompt"] = DefaultInstructions.RandomPrompt,
-            ["instructiongen"] = DefaultInstructions.InstructionGen,
+            [InstructionIds.Chat] = DefaultInstructions.Chat,
+            [InstructionIds.Vision] = DefaultInstructions.Vision,
+            [InstructionIds.Caption] = DefaultInstructions.Caption,
+            [InstructionIds.Prompt] = DefaultInstructions.Prompt,
+            [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
+            [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen,
             ["custom"] = new JObject()
         },
         ["featureMappings"] = new JObject
         {
-            ["enhance-prompt"] = "prompt",
-            ["magic-vision"] = "caption",
-            ["chat-mode"] = "chat",
-            ["vision-mode"] = "vision",
-            ["prompt-mode"] = "prompt",
-            ["random-prompt"] = "randomprompt",
-            ["generate-instruction"] = "instructiongen"
+            [FeatureKeys.EnhancePrompt] = InstructionIds.Prompt,
+            [FeatureKeys.MagicVision] = InstructionIds.Caption,
+            [FeatureKeys.ChatMode] = InstructionIds.Chat,
+            [FeatureKeys.VisionMode] = InstructionIds.Vision,
+            [FeatureKeys.PromptMode] = InstructionIds.Prompt,
+            [FeatureKeys.RandomPrompt] = InstructionIds.RandomPrompt,
+            [FeatureKeys.GenerateInstruction] = InstructionIds.InstructionGen
         }
+    };
+
+    private static readonly JsonMergeSettings MergeSettings = new()
+    {
+        MergeArrayHandling = MergeArrayHandling.Replace,
+        MergeNullValueHandling = MergeNullValueHandling.Merge
     };
 
     /// <summary>Gets the current settings, merged with defaults for any missing keys.</summary>
@@ -51,16 +57,18 @@ public static class SettingsService
     {
         string raw = Program.Sessions.GenericSharedUser.GetGenericData(DataName, ConfigKey);
         JObject settings = string.IsNullOrEmpty(raw) ? new JObject() : JObject.Parse(raw);
-        return DeepMerge(DefaultSettings, settings);
+        JObject result = (JObject)DefaultSettings.DeepClone();
+        result.Merge(settings, MergeSettings);
+        return result;
     }
 
     /// <summary>Saves settings (merges with existing).</summary>
     public static JObject SaveSettings(JObject incoming)
     {
         JObject current = GetSettings();
-        JObject merged = DeepMerge(current, incoming);
-        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, merged.ToString(Formatting.None));
-        return merged;
+        current.Merge(incoming, MergeSettings);
+        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, current.ToString(Formatting.None));
+        return current;
     }
 
     /// <summary>Resets settings to defaults.</summary>
@@ -69,24 +77,6 @@ public static class SettingsService
         JObject defaults = DefaultSettings;
         Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, defaults.ToString(Formatting.None));
         return defaults;
-    }
-
-    /// <summary>Deep merges source into target. Source values override target values. Recurses into objects.</summary>
-    public static JObject DeepMerge(JObject target, JObject source)
-    {
-        JObject result = (JObject)target.DeepClone();
-        foreach (KeyValuePair<string, JToken> prop in source)
-        {
-            if (prop.Value is JObject sourceObj && result[prop.Key] is JObject targetObj)
-            {
-                result[prop.Key] = DeepMerge(targetObj, sourceObj);
-            }
-            else
-            {
-                result[prop.Key] = prop.Value.DeepClone();
-            }
-        }
-        return result;
     }
 }
 

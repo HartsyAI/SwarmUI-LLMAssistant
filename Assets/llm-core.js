@@ -63,6 +63,7 @@ if (!window.LLM) {
             async getThread(threadId) { return this.request('LLMAssistantGetThread', { threadId }); },
             async saveThread(thread) { return this.request('LLMAssistantSaveThread', { thread }); },
             async deleteThread(threadId) { return this.request('LLMAssistantDeleteThread', { threadId }); },
+            async exportThread(threadId, format) { return this.request('LLMAssistantExportThread', { threadId, format }); },
             async getInstructions() { return this.request('LLMAssistantGetInstructions', {}); },
             async saveInstruction(data) { return this.request('LLMAssistantSaveInstruction', data); },
             async deleteInstruction(id) { return this.request('LLMAssistantDeleteInstruction', { id }); }
@@ -87,7 +88,10 @@ if (!window.LLM) {
                 try {
                     let instrResp = await this.APIClient.getInstructions();
                     this.instructions = instrResp.instructions || [];
-                } catch (_) { this.instructions = []; }
+                } catch (ex) {
+                    console.warn('[LLMAssistant] Failed to load instructions:', ex);
+                    this.instructions = [];
+                }
                 this.updateContextBar();
                 this.updateWelcomeHint();
                 this.initialized = true;
@@ -376,7 +380,6 @@ if (!window.LLM) {
             // Update backdrop when sidebar toggles
             let toggle = document.getElementById('llm-sidebar-toggle');
             if (toggle) {
-                let origHandler = toggle.onclick;
                 toggle.addEventListener('click', () => {
                     if (this.isMobile()) {
                         backdrop.style.display = sidebar.classList.contains('collapsed') ? '' : 'none';
@@ -422,46 +425,29 @@ if (!window.LLM) {
             });
         },
 
-        exportThread(format) {
-            if (!LLM.Chat?.messages?.length) {
+        async exportThread(format) {
+            if (!this.currentThreadId || !LLM.Chat?.messages?.length) {
                 showError('No messages to export.');
                 return;
             }
-            let title = document.getElementById('llm-thread-title')?.textContent || 'thread';
-            let filename, content, mimeType;
-            if (format === 'json') {
-                let thread = {
-                    id: this.currentThreadId,
-                    title,
-                    messages: LLM.Chat.messages,
-                    parameters: this.currentThreadParams || null,
-                    exportedAt: new Date().toISOString()
-                };
-                content = JSON.stringify(thread, null, 2);
-                filename = `${title.replace(/[^a-zA-Z0-9]/g, '_')}.json`;
-                mimeType = 'application/json';
-            } else {
-                let lines = [`# ${title}\n`];
-                for (let msg of LLM.Chat.messages) {
-                    let role = msg.role === 'user' ? 'You' : 'Assistant';
-                    lines.push(`## ${role}\n`);
-                    lines.push(msg.content + '\n');
-                }
-                content = lines.join('\n');
-                filename = `${title.replace(/[^a-zA-Z0-9]/g, '_')}.md`;
-                mimeType = 'text/markdown';
+            try {
+                let resp = await this.APIClient.exportThread(this.currentThreadId, format);
+                let mimeType = format === 'json' ? 'application/json' : 'text/markdown';
+                let blob = new Blob([resp.content], { type: mimeType });
+                let url = URL.createObjectURL(blob);
+                let a = document.createElement('a');
+                a.href = url;
+                a.download = resp.filename;
+                a.click();
+                URL.revokeObjectURL(url);
+            } catch (ex) {
+                console.error('[LLMAssistant] Export failed:', ex);
+                showError('Export failed: ' + ex.message);
             }
-            let blob = new Blob([content], { type: mimeType });
-            let url = URL.createObjectURL(blob);
-            let a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(url);
         },
 
         generateId() {
-            return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
+            return crypto.randomUUID().replace(/-/g, '');
         }
     };
 }

@@ -74,10 +74,11 @@ public static class ChatEndpoints
                 {
                     history.Add(new ChatMessageData
                     {
-                        Role = msg["role"]?.ToString() ?? "user",
+                        Role = msg["role"]?.ToString() ?? Roles.User,
                         Content = msg["content"]?.ToString() ?? ""
                     });
                 }
+                history = TruncateHistory(history, settings, rawInput);
                 input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
             }
             else
@@ -96,6 +97,22 @@ public static class ChatEndpoints
                 ["error"] = ex.Message
             };
         }
+    }
+
+    /// <summary>Truncates message history to the configured maxContextMessages limit.</summary>
+    private static List<ChatMessageData> TruncateHistory(List<ChatMessageData> history, JObject settings, JObject rawInput)
+    {
+        // Per-thread override takes priority, then global setting
+        int maxCtx = rawInput["maxContextMessages"]?.Value<int>() ?? 0;
+        if (maxCtx <= 0)
+        {
+            maxCtx = (settings["parameters"] as JObject)?["maxContextMessages"]?.Value<int>() ?? 0;
+        }
+        if (maxCtx > 0 && history.Count > maxCtx)
+        {
+            return history.GetRange(history.Count - maxCtx, maxCtx);
+        }
+        return history;
     }
 
     private static void ApplyParameters(ExtendedLLMInput input, JObject settings, double temperature, int maxTokens)

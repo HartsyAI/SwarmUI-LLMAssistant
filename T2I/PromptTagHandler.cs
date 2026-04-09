@@ -60,13 +60,13 @@ public static class PromptTagHandler
         _paramInstructions = T2IParamTypes.Register<string>(new(
             "LLM Instructions",
             "Which instruction set to use for prompt processing.",
-            "prompt",
+            InstructionIds.Prompt,
             Group: _paramGroup,
             OrderPriority: 4,
             ValidateValues: false,
             GetValues: _ =>
             {
-                List<string> values = ["prompt", "caption", "chat", "vision", "randomprompt"];
+                List<string> values = [.. InstructionIds.All];
                 JArray instructions = InstructionService.GetInstructionList();
                 foreach (JToken instr in instructions)
                 {

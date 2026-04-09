@@ -62,9 +62,9 @@ public class ExtendedLLMInput : LLMParamInput
         {
             AuthorRole role = msg.Role.ToLowerInvariant() switch
             {
-                "user" => AuthorRole.User,
-                "assistant" => AuthorRole.Assistant,
-                "system" => AuthorRole.System,
+                Roles.User => AuthorRole.User,
+                Roles.Assistant => AuthorRole.Assistant,
+                Roles.System => AuthorRole.System,
                 _ => AuthorRole.User
             };
             input.ChatHistory.AddMessage(role, msg.Content);

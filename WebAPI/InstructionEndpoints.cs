@@ -40,7 +40,7 @@ public static class InstructionEndpoints
             // Custom instruction
             if (string.IsNullOrEmpty(id))
             {
-                id = $"custom-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+                id = $"custom-{Guid.NewGuid():N}";
             }
             JObject custom = instructions["custom"] as JObject ?? new JObject();
             custom[id] = new JObject

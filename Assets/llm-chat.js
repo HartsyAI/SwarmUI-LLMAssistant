@@ -5,6 +5,10 @@
 (function() {
     'use strict';
 
+    const ROLE_USER = 'user';
+    const ROLE_ASSISTANT = 'assistant';
+    const ROLE_LABELS = { user: 'You', assistant: 'Assistant' };
+
     const Chat = {
         messages: [],
         isStreaming: false,
@@ -71,9 +75,28 @@
             }
         },
 
+        // -- Payload builder --
+
+        buildPayload(message, instructionId, history, options = {}) {
+            let payload = { message, instructionId, history };
+            if (LLM.selectedBackendId >= 0) {
+                payload.backendId = LLM.selectedBackendId;
+            }
+            if (LLM.currentThreadParams) {
+                if (LLM.currentThreadParams.temperature >= 0) payload.temperature = LLM.currentThreadParams.temperature;
+                if (LLM.currentThreadParams.maxTokens > 0) payload.maxTokens = LLM.currentThreadParams.maxTokens;
+                if (LLM.currentThreadParams.maxContextMessages > 0) payload.maxContextMessages = LLM.currentThreadParams.maxContextMessages;
+            }
+            if (options.media) payload.media = options.media;
+            return payload;
+        },
+
+        // -- Submit --
+
         async submitInput() {
             let input = document.getElementById('llm-input');
-            let message = input?.value?.trim();
+            if (!input) return;
+            let message = input.value?.trim();
             if (!message && !this.pastedImage) return;
             if (this.isStreaming) return;
             input.value = '';
@@ -81,30 +104,23 @@
             this.updateInputCounter('');
             let welcome = document.getElementById('llm-welcome');
             if (welcome) welcome.style.display = 'none';
-            this.appendMessage('user', message || '(image)');
+            this.appendMessage(ROLE_USER, message || '(image)');
             let instructionId = LLM.settings?.featureMappings?.['chat-mode'] || 'chat';
             let history = this.getContextHistory();
-            let payload = { message, instructionId, history };
-            // Backend selection
-            if (LLM.selectedBackendId >= 0) {
-                payload.backendId = LLM.selectedBackendId;
-            }
-            // Per-thread parameter overrides
-            if (LLM.currentThreadParams) {
-                if (LLM.currentThreadParams.temperature >= 0) payload.temperature = LLM.currentThreadParams.temperature;
-                if (LLM.currentThreadParams.maxTokens > 0) payload.maxTokens = LLM.currentThreadParams.maxTokens;
-            }
-            // Attach image
+            let media = null;
             if (this.pastedImage) {
-                payload.media = [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }];
+                media = [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }];
                 this.clearPastedImage();
             }
+            let payload = this.buildPayload(message, instructionId, history, { media });
             this.streamResponse(payload);
         },
 
-        streamResponse(payload) {
+        // -- Streaming --
+
+        streamResponse(payload, onComplete) {
             this.setStreaming(true);
-            let assistantMsgId = this.appendMessage('assistant', '');
+            let assistantMsgId = this.appendMessage(ROLE_ASSISTANT, '');
             this.streamingMsgId = assistantMsgId;
             this.streamingText = '';
             let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
@@ -136,14 +152,59 @@
                     this.setStreaming(false);
                     this.autoSaveThread();
                     LLM.updateContextBar();
+                    if (onComplete) onComplete(this.streamingText);
                 },
                 error => {
-                    if (contentDiv) contentDiv.innerHTML = `<span class="llm-error">Error: ${error}</span>`;
+                    this.showErrorInContent(contentDiv, error);
                     this.activeSocket = null;
                     this.streamingMsgId = null;
                     this.setStreaming(false);
                 }
             );
+        },
+
+        showErrorInContent(element, error) {
+            if (!element) return;
+            element.textContent = '';
+            let span = document.createElement('span');
+            span.className = 'llm-error';
+            span.textContent = `Error: ${error}`;
+            element.appendChild(span);
+        },
+
+        // -- Message DOM creation --
+
+        createMessageElement(msg, options = {}) {
+            let div = document.createElement('div');
+            div.className = `llm-message llm-msg-${msg.role}`;
+            div.setAttribute('data-msg-id', msg.id);
+            let label = document.createElement('div');
+            label.className = 'llm-msg-role';
+            label.textContent = ROLE_LABELS[msg.role] || msg.role;
+            let contentDiv = document.createElement('div');
+            contentDiv.className = 'llm-msg-content';
+            if (msg.role === ROLE_USER) {
+                contentDiv.textContent = msg.content;
+            } else if (msg.content) {
+                LLM.renderIntoElement(msg.content, contentDiv);
+            } else {
+                contentDiv.innerHTML = '<div class="llm-thinking"><span class="llm-thinking-dots"><span>.</span><span>.</span><span>.</span></span></div>';
+            }
+            let actions = this.createActions(msg.id, msg.role);
+            div.appendChild(label);
+            div.appendChild(contentDiv);
+            div.appendChild(actions);
+            if (msg.edited) this.addEditedLabel(div);
+            if (msg.role === ROLE_ASSISTANT && msg.meta) {
+                let metaDiv = document.createElement('div');
+                metaDiv.className = 'llm-msg-meta';
+                let metaParts = [];
+                if (msg.meta.backend) metaParts.push(msg.meta.backend);
+                metaParts.push(`${msg.meta.genTime || '?'}s`);
+                metaDiv.textContent = metaParts.join('  \u00b7  ');
+                div.insertBefore(metaDiv, actions);
+            }
+            return div;
         },
 
         appendMessage(role, content) {
@@ -152,25 +213,7 @@
             this.messages.push(msg);
             let container = document.getElementById('llm-messages');
             if (!container) return id;
-            let div = document.createElement('div');
-            div.className = `llm-message llm-msg-${role}`;
-            div.setAttribute('data-msg-id', id);
-            let label = document.createElement('div');
-            label.className = 'llm-msg-role';
-            label.textContent = role === 'user' ? 'You' : 'Assistant';
-            let contentDiv = document.createElement('div');
-            contentDiv.className = 'llm-msg-content';
-            if (role === 'user') {
-                contentDiv.textContent = content;
-            } else if (content) {
-                LLM.renderIntoElement(content, contentDiv);
-            } else {
-                contentDiv.innerHTML = '<div class="llm-thinking"><span class="llm-thinking-dots"><span>.</span><span>.</span><span>.</span></span></div>';
-            }
-            let actions = this.createActions(id, role);
-            div.appendChild(label);
-            div.appendChild(contentDiv);
-            div.appendChild(actions);
+            let div = this.createMessageElement(msg);
             container.appendChild(div);
             this.scrollToBottom();
             this.updateContextIndicators();
@@ -196,7 +239,7 @@
             });
             div.appendChild(copyBtn);
             // Edit (user messages)
-            if (role === 'user') {
+            if (role === ROLE_USER) {
                 let editBtn = document.createElement('button');
                 editBtn.className = 'llm-msg-action';
                 editBtn.textContent = 'Edit';
@@ -204,7 +247,7 @@
                 div.appendChild(editBtn);
             }
             // Regenerate (assistant messages)
-            if (role === 'assistant') {
+            if (role === ROLE_ASSISTANT) {
                 let regenBtn = document.createElement('button');
                 regenBtn.className = 'llm-msg-action';
                 regenBtn.textContent = 'Regenerate';
@@ -216,13 +259,7 @@
                 promptBtn.textContent = 'Use as Prompt';
                 promptBtn.addEventListener('click', () => {
                     let msg = this.messages.find(m => m.id === msgId);
-                    if (msg) {
-                        let promptBox = document.getElementById('alt_prompt_textbox');
-                        if (promptBox) {
-                            promptBox.value = msg.content;
-                            triggerChangeFor(promptBox);
-                        }
-                    }
+                    if (msg) this.sendToPromptBox(msg.content);
                 });
                 div.appendChild(promptBtn);
             }
@@ -233,6 +270,15 @@
             delBtn.addEventListener('click', () => this.deleteMessage(msgId));
             div.appendChild(delBtn);
             return div;
+        },
+
+        sendToPromptBox(text) {
+            let promptBox = document.getElementById('alt_prompt_textbox');
+            if (!promptBox) return;
+            promptBox.value = text;
+            if (typeof triggerChangeFor === 'function') {
+                triggerChangeFor(promptBox);
+            }
         },
 
         // -- Message Editing --
@@ -304,12 +350,7 @@
             let msgIndex = this.messages.findIndex(m => m.id === msgId);
             if (msgIndex < 0) return;
             let historyMessages = this.messages.slice(0, msgIndex);
-            let maxCtx = LLM.currentThreadParams?.maxContextMessages
-                || LLM.settings?.parameters?.maxContextMessages || 0;
             let history = historyMessages.map(m => ({ role: m.role, content: m.content }));
-            if (maxCtx > 0 && history.length > maxCtx) {
-                history = history.slice(-maxCtx);
-            }
             let removedIds = this.messages.slice(msgIndex).map(m => m.id);
             this.messages = historyMessages;
             removedIds.forEach(id => {
@@ -317,16 +358,9 @@
                 if (el) el.remove();
             });
             let instructionId = LLM.settings?.featureMappings?.['chat-mode'] || 'chat';
-            let lastUserMsg = historyMessages.filter(m => m.role === 'user').pop();
+            let lastUserMsg = historyMessages.filter(m => m.role === ROLE_USER).pop();
             let message = lastUserMsg?.content || '';
-            let payload = { message, instructionId, history };
-            if (LLM.selectedBackendId >= 0) {
-                payload.backendId = LLM.selectedBackendId;
-            }
-            if (LLM.currentThreadParams) {
-                if (LLM.currentThreadParams.temperature >= 0) payload.temperature = LLM.currentThreadParams.temperature;
-                if (LLM.currentThreadParams.maxTokens > 0) payload.maxTokens = LLM.currentThreadParams.maxTokens;
-            }
+            let payload = this.buildPayload(message, instructionId, history);
             this.streamResponse(payload);
         },
 
@@ -417,65 +451,16 @@
             if (!this.pastedImage) return;
             let welcome = document.getElementById('llm-welcome');
             if (welcome) welcome.style.display = 'none';
-            this.appendMessage('user', 'Describe this image for use as an image generation prompt.');
+            let captionMsg = 'Describe this image for use as an image generation prompt.';
+            this.appendMessage(ROLE_USER, captionMsg);
             let instructionId = LLM.settings?.featureMappings?.['caption'] || 'caption';
             let history = this.messages.map(m => ({ role: m.role, content: m.content }));
-            let payload = {
-                message: 'Describe this image for use as an image generation prompt.',
-                instructionId,
-                history,
-                media: [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }]
-            };
-            if (LLM.selectedBackendId >= 0) {
-                payload.backendId = LLM.selectedBackendId;
-            }
+            let media = [{ type: 'base64', data: this.pastedImage, mediaType: 'image/png' }];
             this.clearPastedImage();
-            this.setStreaming(true);
-            let assistantMsgId = this.appendMessage('assistant', '');
-            this.streamingMsgId = assistantMsgId;
-            this.streamingText = '';
-            let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
-            let startTime = performance.now();
-            let firstChunk = true;
-            this.activeSocket = LLM.APIClient.sendMessageStreaming(
-                payload,
-                chunk => {
-                    if (firstChunk) {
-                        firstChunk = false;
-                        let thinking = contentDiv?.querySelector('.llm-thinking');
-                        if (thinking) thinking.remove();
-                    }
-                    this.streamingText += chunk;
-                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
-                    this.scrollToBottom();
-                },
-                finalText => {
-                    let elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-                    this.streamingText = finalText || this.streamingText;
-                    this.updateMessage(assistantMsgId, this.streamingText);
-                    if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
-                    let backendName = LLM.getSelectedBackendName() || '';
-                    this.addResponseMeta(assistantMsgId, elapsed, backendName);
-                    let msg = this.messages.find(m => m.id === assistantMsgId);
-                    if (msg) msg.meta = { genTime: elapsed, backend: backendName };
-                    this.activeSocket = null;
-                    this.streamingMsgId = null;
-                    this.setStreaming(false);
-                    this.autoSaveThread();
-                    LLM.updateContextBar();
-                    let promptBox = document.getElementById('alt_prompt_textbox');
-                    if (promptBox) {
-                        promptBox.value = this.streamingText;
-                        triggerChangeFor(promptBox);
-                    }
-                },
-                error => {
-                    if (contentDiv) contentDiv.innerHTML = `<span class="llm-error">Error: ${error}</span>`;
-                    this.activeSocket = null;
-                    this.streamingMsgId = null;
-                    this.setStreaming(false);
-                }
-            );
+            let payload = this.buildPayload(captionMsg, instructionId, history, { media });
+            this.streamResponse(payload, text => {
+                this.sendToPromptBox(text);
+            });
         },
 
         clearPastedImage() {
@@ -507,13 +492,7 @@
         // -- Context window --
 
         getContextHistory() {
-            let maxCtx = LLM.currentThreadParams?.maxContextMessages
-                || LLM.settings?.parameters?.maxContextMessages || 0;
-            let history = this.messages.map(m => ({ role: m.role, content: m.content }));
-            if (maxCtx > 0 && history.length > maxCtx) {
-                history = history.slice(-maxCtx);
-            }
-            return history;
+            return this.messages.map(m => ({ role: m.role, content: m.content }));
         },
 
         updateContextIndicators() {
@@ -560,45 +539,19 @@
             if (!messages || messages.length === 0) return;
             let welcome = document.getElementById('llm-welcome');
             if (welcome) welcome.style.display = 'none';
+            let container = document.getElementById('llm-messages');
             for (let msg of messages) {
-                let id = msg.id || LLM.generateId();
                 let m = {
-                    id, role: msg.role, content: msg.content,
+                    id: msg.id || LLM.generateId(),
+                    role: msg.role, content: msg.content,
                     timestamp: msg.timestamp,
                     edited: msg.edited || false,
                     editedAt: msg.editedAt || null,
                     meta: msg.meta || null
                 };
                 this.messages.push(m);
-                let container = document.getElementById('llm-messages');
                 if (!container) continue;
-                let div = document.createElement('div');
-                div.className = `llm-message llm-msg-${m.role}`;
-                div.setAttribute('data-msg-id', m.id);
-                let label = document.createElement('div');
-                label.className = 'llm-msg-role';
-                label.textContent = m.role === 'user' ? 'You' : 'Assistant';
-                let contentDiv = document.createElement('div');
-                contentDiv.className = 'llm-msg-content';
-                if (m.role === 'user') {
-                    contentDiv.textContent = m.content;
-                } else {
-                    LLM.renderIntoElement(m.content, contentDiv);
-                }
-                let actions = this.createActions(m.id, m.role);
-                div.appendChild(label);
-                div.appendChild(contentDiv);
-                div.appendChild(actions);
-                if (m.edited) this.addEditedLabel(div);
-                if (m.role === 'assistant' && m.meta) {
-                    let metaDiv = document.createElement('div');
-                    metaDiv.className = 'llm-msg-meta';
-                    let metaParts = [];
-                    if (m.meta.backend) metaParts.push(m.meta.backend);
-                    metaParts.push(`${m.meta.genTime || '?'}s`);
-                    metaDiv.textContent = metaParts.join('  \u00b7  ');
-                    div.insertBefore(metaDiv, actions);
-                }
+                let div = this.createMessageElement(m);
                 container.appendChild(div);
             }
             this.scrollToBottom();

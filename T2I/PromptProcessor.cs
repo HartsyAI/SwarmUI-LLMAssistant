@@ -49,7 +49,7 @@ public static class PromptProcessor
         {
             string tagInstructionId = match.Groups[1].Success ? match.Groups[1].Value : null;
             string content = match.Groups[2].Value;
-            string effectiveInstruction = tagInstructionId ?? instructionOverride ?? "prompt";
+            string effectiveInstruction = tagInstructionId ?? instructionOverride ?? InstructionIds.Prompt;
             try
             {
                 string response;

@@ -20,7 +20,7 @@ public static class InstructionService
         }
         if (string.IsNullOrEmpty(instructionId))
         {
-            instructionId = GetFeatureMapping("chat-mode", settings);
+            instructionId = GetFeatureMapping(FeatureKeys.ChatMode, settings);
         }
         // Check built-in instructions first
         if (instructions[instructionId] is JValue builtIn)
@@ -45,7 +45,7 @@ public static class InstructionService
             }
         }
         // Fallback to prompt instruction
-        return instructions["prompt"]?.ToString() ?? DefaultInstructions.Prompt;
+        return instructions[InstructionIds.Prompt]?.ToString() ?? DefaultInstructions.Prompt;
     }
 
     /// <summary>Gets the instruction ID mapped to a feature.</summary>
@@ -53,7 +53,7 @@ public static class InstructionService
     {
         settings ??= SettingsService.GetSettings();
         JObject mappings = settings["featureMappings"] as JObject;
-        return mappings?[featureName]?.ToString() ?? "prompt";
+        return mappings?[featureName]?.ToString() ?? InstructionIds.Prompt;
     }
 
     /// <summary>Substitutes {{variable}} placeholders in instruction text.</summary>
@@ -78,7 +78,7 @@ public static class InstructionService
         JArray result = [];
         if (instructions is null) return result;
         // Built-in instructions
-        string[] builtInKeys = ["chat", "vision", "caption", "prompt", "randomprompt", "instructiongen"];
+        string[] builtInKeys = InstructionIds.All;
         foreach (string key in builtInKeys)
         {
             if (instructions[key] is JValue val)

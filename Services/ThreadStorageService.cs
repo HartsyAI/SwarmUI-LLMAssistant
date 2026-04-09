@@ -84,7 +84,7 @@ public static class ThreadStorageService
     /// <summary>Generates a unique thread ID.</summary>
     public static string GenerateThreadId()
     {
-        return $"{DateTime.UtcNow.Ticks}_{Guid.NewGuid():N}"[..24];
+        return Guid.NewGuid().ToString("N");
     }
 
     private static void UpdateIndex(User user, JObject thread)
