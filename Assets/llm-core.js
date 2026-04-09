@@ -82,7 +82,12 @@ if (!window.LLM) {
                 this.initParamPopover();
                 this.initExportButton();
                 this.initKeyboardShortcuts();
+                this.initThreadRename();
                 this.initMobileLayout();
+                try {
+                    let instrResp = await this.APIClient.getInstructions();
+                    this.instructions = instrResp.instructions || [];
+                } catch (_) { this.instructions = []; }
                 this.updateContextBar();
                 this.updateWelcomeHint();
                 this.initialized = true;
@@ -222,16 +227,20 @@ if (!window.LLM) {
             if (maxTok) { maxTok.value = params.maxTokens ?? 1024; }
             if (topP) { topP.value = params.topP ?? 0.9; }
             if (topPVal) { topPVal.textContent = params.topP ?? 0.9; }
+            let maxCtx = document.getElementById('llm-param-max-context');
+            if (maxCtx) { maxCtx.value = params.maxContextMessages ?? 0; }
         },
 
         applyParamOverrides() {
             let temp = document.getElementById('llm-param-temperature');
             let maxTok = document.getElementById('llm-param-max-tokens');
             let topP = document.getElementById('llm-param-top-p');
+            let maxCtx = document.getElementById('llm-param-max-context');
             this.currentThreadParams = {
                 temperature: temp ? parseFloat(temp.value) : 1.0,
                 maxTokens: maxTok ? parseInt(maxTok.value, 10) : 1024,
-                topP: topP ? parseFloat(topP.value) : 0.9
+                topP: topP ? parseFloat(topP.value) : 0.9,
+                maxContextMessages: maxCtx ? parseInt(maxCtx.value, 10) || 0 : 0
             };
             this.updateParamsButtonLabel();
             this.updateContextBar();
@@ -250,18 +259,72 @@ if (!window.LLM) {
             }
         },
 
+        // -- Thread rename --
+
+        initThreadRename() {
+            let titleEl = document.getElementById('llm-thread-title');
+            if (!titleEl) return;
+            titleEl.addEventListener('click', () => {
+                if (titleEl.querySelector('input')) return;
+                let current = titleEl.textContent;
+                if (current === 'LLM Assistant' && !this.currentThreadId) return;
+                let input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'llm-thread-title-input';
+                input.value = current;
+                titleEl.textContent = '';
+                titleEl.appendChild(input);
+                input.focus();
+                input.select();
+                let commit = () => {
+                    let newTitle = input.value.trim() || current;
+                    titleEl.textContent = newTitle;
+                    if (this.currentThreadId && LLM.Chat) {
+                        LLM.Chat.customTitle = true;
+                        LLM.Chat.autoSaveThread();
+                    }
+                    if (LLM.Threads) LLM.Threads.refreshList();
+                };
+                input.addEventListener('blur', commit);
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                    if (e.key === 'Escape') { e.preventDefault(); titleEl.textContent = current; }
+                });
+            });
+        },
+
+        // -- Instruction indicator --
+
+        getActiveInstructionName() {
+            let id = this.settings?.featureMappings?.['chat-mode'] || 'chat';
+            if (this.instructions) {
+                let instr = this.instructions.find(i => i.id === id);
+                if (instr) return instr.title;
+            }
+            return id.charAt(0).toUpperCase() + id.slice(1);
+        },
+
         // -- Context bar --
 
         updateContextBar() {
             let bar = document.getElementById('llm-context-bar');
             if (!bar) return;
             let msgCount = LLM.Chat?.messages?.length || 0;
+            let maxCtx = this.currentThreadParams?.maxContextMessages
+                || this.settings?.parameters?.maxContextMessages || 0;
             let parts = [];
-            parts.push(`${msgCount} message${msgCount !== 1 ? 's' : ''}`);
+            if (maxCtx > 0) {
+                let included = Math.min(msgCount, maxCtx);
+                parts.push(`${included}/${msgCount} in context`);
+            } else {
+                parts.push(`${msgCount} message${msgCount !== 1 ? 's' : ''}`);
+            }
             let backendName = this.getSelectedBackendName();
             if (backendName) {
                 parts.push(backendName);
             }
+            let instrName = this.getActiveInstructionName();
+            if (instrName) parts.push(instrName + ' mode');
             if (this.currentThreadParams) {
                 parts.push(`T:${this.currentThreadParams.temperature}`);
             }

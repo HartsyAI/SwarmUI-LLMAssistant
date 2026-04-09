@@ -12,6 +12,7 @@
         streamingMsgId: null,
         streamingText: '',
         pastedImage: null,
+        customTitle: false,
 
         init() {
             this.bindEvents();
@@ -82,7 +83,7 @@
             if (welcome) welcome.style.display = 'none';
             this.appendMessage('user', message || '(image)');
             let instructionId = LLM.settings?.featureMappings?.['chat-mode'] || 'chat';
-            let history = this.messages.map(m => ({ role: m.role, content: m.content }));
+            let history = this.getContextHistory();
             let payload = { message, instructionId, history };
             // Backend selection
             if (LLM.selectedBackendId >= 0) {
@@ -107,17 +108,29 @@
             this.streamingMsgId = assistantMsgId;
             this.streamingText = '';
             let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
+            let startTime = performance.now();
+            let firstChunk = true;
             this.activeSocket = LLM.APIClient.sendMessageStreaming(
                 payload,
                 chunk => {
+                    if (firstChunk) {
+                        firstChunk = false;
+                        let thinking = contentDiv?.querySelector('.llm-thinking');
+                        if (thinking) thinking.remove();
+                    }
                     this.streamingText += chunk;
                     if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
                     this.scrollToBottom();
                 },
                 finalText => {
+                    let elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
                     this.streamingText = finalText || this.streamingText;
                     this.updateMessage(assistantMsgId, this.streamingText);
                     if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
+                    let backendName = LLM.getSelectedBackendName() || '';
+                    this.addResponseMeta(assistantMsgId, elapsed, backendName);
+                    let msg = this.messages.find(m => m.id === assistantMsgId);
+                    if (msg) msg.meta = { genTime: elapsed, backend: backendName };
                     this.activeSocket = null;
                     this.streamingMsgId = null;
                     this.setStreaming(false);
@@ -152,7 +165,7 @@
             } else if (content) {
                 LLM.renderIntoElement(content, contentDiv);
             } else {
-                contentDiv.innerHTML = '<span class="llm-streaming-cursor"></span>';
+                contentDiv.innerHTML = '<div class="llm-thinking"><span class="llm-thinking-dots"><span>.</span><span>.</span><span>.</span></span></div>';
             }
             let actions = this.createActions(id, role);
             div.appendChild(label);
@@ -160,6 +173,7 @@
             div.appendChild(actions);
             container.appendChild(div);
             this.scrollToBottom();
+            this.updateContextIndicators();
             LLM.updateContextBar();
             return id;
         },
@@ -290,7 +304,12 @@
             let msgIndex = this.messages.findIndex(m => m.id === msgId);
             if (msgIndex < 0) return;
             let historyMessages = this.messages.slice(0, msgIndex);
+            let maxCtx = LLM.currentThreadParams?.maxContextMessages
+                || LLM.settings?.parameters?.maxContextMessages || 0;
             let history = historyMessages.map(m => ({ role: m.role, content: m.content }));
+            if (maxCtx > 0 && history.length > maxCtx) {
+                history = history.slice(-maxCtx);
+            }
             let removedIds = this.messages.slice(msgIndex).map(m => m.id);
             this.messages = historyMessages;
             removedIds.forEach(id => {
@@ -416,17 +435,29 @@
             this.streamingMsgId = assistantMsgId;
             this.streamingText = '';
             let contentDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llm-msg-content`);
+            let startTime = performance.now();
+            let firstChunk = true;
             this.activeSocket = LLM.APIClient.sendMessageStreaming(
                 payload,
                 chunk => {
+                    if (firstChunk) {
+                        firstChunk = false;
+                        let thinking = contentDiv?.querySelector('.llm-thinking');
+                        if (thinking) thinking.remove();
+                    }
                     this.streamingText += chunk;
                     if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
                     this.scrollToBottom();
                 },
                 finalText => {
+                    let elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
                     this.streamingText = finalText || this.streamingText;
                     this.updateMessage(assistantMsgId, this.streamingText);
                     if (contentDiv) LLM.renderIntoElement(this.streamingText, contentDiv);
+                    let backendName = LLM.getSelectedBackendName() || '';
+                    this.addResponseMeta(assistantMsgId, elapsed, backendName);
+                    let msg = this.messages.find(m => m.id === assistantMsgId);
+                    if (msg) msg.meta = { genTime: elapsed, backend: backendName };
                     this.activeSocket = null;
                     this.streamingMsgId = null;
                     this.setStreaming(false);
@@ -456,6 +487,49 @@
             }
         },
 
+        addResponseMeta(msgId, elapsed, backendName) {
+            let msgEl = document.querySelector(`[data-msg-id="${msgId}"]`);
+            if (!msgEl || msgEl.querySelector('.llm-msg-meta')) return;
+            let meta = document.createElement('div');
+            meta.className = 'llm-msg-meta';
+            let parts = [];
+            if (backendName) parts.push(backendName);
+            parts.push(`${elapsed}s`);
+            meta.textContent = parts.join('  \u00b7  ');
+            let actions = msgEl.querySelector('.llm-msg-actions');
+            if (actions) {
+                msgEl.insertBefore(meta, actions);
+            } else {
+                msgEl.appendChild(meta);
+            }
+        },
+
+        // -- Context window --
+
+        getContextHistory() {
+            let maxCtx = LLM.currentThreadParams?.maxContextMessages
+                || LLM.settings?.parameters?.maxContextMessages || 0;
+            let history = this.messages.map(m => ({ role: m.role, content: m.content }));
+            if (maxCtx > 0 && history.length > maxCtx) {
+                history = history.slice(-maxCtx);
+            }
+            return history;
+        },
+
+        updateContextIndicators() {
+            let maxCtx = LLM.currentThreadParams?.maxContextMessages
+                || LLM.settings?.parameters?.maxContextMessages || 0;
+            let msgs = document.querySelectorAll('#llm-messages .llm-message');
+            if (maxCtx <= 0 || msgs.length <= maxCtx) {
+                msgs.forEach(el => el.classList.remove('llm-out-of-context'));
+                return;
+            }
+            let cutoff = msgs.length - maxCtx;
+            msgs.forEach((el, i) => {
+                el.classList.toggle('llm-out-of-context', i < cutoff);
+            });
+        },
+
         // -- Core operations --
 
         updateMessage(msgId, content) {
@@ -473,6 +547,7 @@
 
         clearMessages() {
             this.messages = [];
+            this.customTitle = false;
             let container = document.getElementById('llm-messages');
             if (container) container.innerHTML = '';
             let welcome = document.getElementById('llm-welcome');
@@ -491,7 +566,8 @@
                     id, role: msg.role, content: msg.content,
                     timestamp: msg.timestamp,
                     edited: msg.edited || false,
-                    editedAt: msg.editedAt || null
+                    editedAt: msg.editedAt || null,
+                    meta: msg.meta || null
                 };
                 this.messages.push(m);
                 let container = document.getElementById('llm-messages');
@@ -514,9 +590,19 @@
                 div.appendChild(contentDiv);
                 div.appendChild(actions);
                 if (m.edited) this.addEditedLabel(div);
+                if (m.role === 'assistant' && m.meta) {
+                    let metaDiv = document.createElement('div');
+                    metaDiv.className = 'llm-msg-meta';
+                    let metaParts = [];
+                    if (m.meta.backend) metaParts.push(m.meta.backend);
+                    metaParts.push(`${m.meta.genTime || '?'}s`);
+                    metaDiv.textContent = metaParts.join('  \u00b7  ');
+                    div.insertBefore(metaDiv, actions);
+                }
                 container.appendChild(div);
             }
             this.scrollToBottom();
+            this.updateContextIndicators();
             LLM.updateContextBar();
         },
 
@@ -569,7 +655,7 @@
                 LLM.currentThreadId = LLM.generateId();
             }
             let title = document.getElementById('llm-thread-title')?.textContent || 'LLM Assistant';
-            if ((title === 'LLM Assistant' || title === 'New Chat' || title === 'New Thread') && this.messages.length > 0) {
+            if (!this.customTitle && (title === 'LLM Assistant' || title === 'New Chat' || title === 'New Thread') && this.messages.length > 0) {
                 let firstMsg = this.messages[0].content;
                 title = firstMsg.length > 50 ? firstMsg.substring(0, 50) + '...' : firstMsg;
                 let titleEl = document.getElementById('llm-thread-title');
@@ -582,7 +668,8 @@
                     id: m.id, role: m.role, content: m.content,
                     timestamp: m.timestamp,
                     edited: m.edited || false,
-                    editedAt: m.editedAt || null
+                    editedAt: m.editedAt || null,
+                    meta: m.meta || null
                 }))
             };
             if (LLM.currentThreadParams) {

@@ -21,7 +21,8 @@ public static class SettingsService
         {
             ["temperature"] = 1.0,
             ["maxTokens"] = 1024,
-            ["topP"] = 0.9
+            ["topP"] = 0.9,
+            ["maxContextMessages"] = 0
         },
         ["instructions"] = new JObject
         {

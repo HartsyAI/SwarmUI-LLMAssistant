@@ -121,20 +121,35 @@
                 // KaTeX errors are non-fatal
             }
         }
-        // Add copy buttons to code blocks (skip mermaid)
+        // Add language label + copy button header to code blocks
         element.querySelectorAll('pre code').forEach(block => {
-            if (block.parentElement.querySelector('.llm-copy-code')) return;
-            let btn = document.createElement('button');
-            btn.className = 'llm-copy-code';
-            btn.textContent = 'Copy';
-            btn.addEventListener('click', () => {
+            let pre = block.parentElement;
+            if (pre.querySelector('.llm-code-header')) return;
+            // Extract language from class name
+            let lang = '';
+            for (let cls of block.className.split(/\s+/)) {
+                if (cls.startsWith('language-') && cls !== 'language-undefined') {
+                    lang = cls.replace('language-', '');
+                    break;
+                }
+            }
+            let header = document.createElement('div');
+            header.className = 'llm-code-header';
+            let langLabel = document.createElement('span');
+            langLabel.className = 'llm-code-lang';
+            langLabel.textContent = lang;
+            let copyBtn = document.createElement('button');
+            copyBtn.className = 'llm-copy-code';
+            copyBtn.textContent = 'Copy';
+            copyBtn.addEventListener('click', () => {
                 navigator.clipboard.writeText(block.textContent).then(() => {
-                    btn.textContent = 'Copied!';
-                    setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
                 });
             });
-            block.parentElement.style.position = 'relative';
-            block.parentElement.appendChild(btn);
+            header.appendChild(langLabel);
+            header.appendChild(copyBtn);
+            pre.insertBefore(header, pre.firstChild);
         });
     }
 

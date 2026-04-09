@@ -92,6 +92,8 @@
             if (maxTok) { maxTok.value = params.maxTokens ?? 1024; }
             if (topP) { topP.value = params.topP ?? 0.9; }
             if (topPVal) { topPVal.textContent = params.topP ?? 0.9; }
+            let maxCtx = document.getElementById('llm-setting-max-context');
+            if (maxCtx) { maxCtx.value = params.maxContextMessages ?? 0; }
         },
 
         gatherSettingsFromUI() {
@@ -103,6 +105,8 @@
             if (temp) s.parameters.temperature = parseFloat(temp.value);
             if (maxTok) s.parameters.maxTokens = parseInt(maxTok.value, 10);
             if (topP) s.parameters.topP = parseFloat(topP.value);
+            let maxCtx = document.getElementById('llm-setting-max-context');
+            if (maxCtx) s.parameters.maxContextMessages = parseInt(maxCtx.value, 10) || 0;
             // Gather feature mappings
             let mappings = {};
             document.querySelectorAll('#llm-feature-mappings select').forEach(sel => {
