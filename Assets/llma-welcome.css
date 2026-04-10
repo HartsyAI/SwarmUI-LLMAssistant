@@ -1,0 +1,119 @@
+/* ================================================================
+   LLM Assistant — Welcome Screen & Assistant Cards
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Welcome / Gallery ──────────────────────────────────────── */
+.llma-welcome {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px 16px;
+}
+.llma-welcome::-webkit-scrollbar { width: 5px; }
+.llma-welcome::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+.llma-gallery-header { margin-bottom: 16px; }
+.llma-gallery-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin: 0 0 4px;
+}
+.llma-gallery-sub {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    opacity: 0.5;
+    margin: 0;
+}
+.llma-assistant-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+}
+
+/* Assistant card */
+.llma-asst-card {
+    border: 1px solid var(--light-border);
+    border-radius: 10px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.16s, transform 0.14s, box-shadow 0.16s;
+    background: var(--background-panel-subtle);
+    outline: none;
+}
+.llma-asst-card:hover, .llma-asst-card:focus {
+    border-color: var(--emphasis);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--black) 30%, transparent);
+}
+.llma-asst-card.active-card {
+    border-color: var(--emphasis);
+    box-shadow: 0 0 0 2px var(--emphasis), 0 6px 20px color-mix(in srgb, var(--black) 30%, transparent);
+}
+.llma-card-visual {
+    height: 90px;
+    overflow: hidden;
+    position: relative;
+}
+.llma-card-visual img.llma-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.llma-card-gradient {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-card-icon { font-size: 28px; line-height: 1; }
+.llma-card-body { padding: 8px 10px 10px; }
+.llma-card-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.llma-card-desc {
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.6;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 6px;
+    min-height: 30px;
+}
+.llma-card-badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 500;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    color: var(--text-soft);
+    opacity: 0.75;
+    text-transform: capitalize;
+}
+
+/* Create new card */
+.llma-asst-card.create-card .llma-card-visual {
+    background: transparent;
+    border-bottom: 1px dashed var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-create-plus {
+    font-size: 26px;
+    color: var(--text-soft);
+    opacity: 0.35;
+    line-height: 1;
+}
+.llma-asst-card.create-card:hover .llma-create-plus { opacity: 0.7; }

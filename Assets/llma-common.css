@@ -1,0 +1,118 @@
+/* ================================================================
+   LLM Assistant — Toasts, Animations, Responsive Breakpoints
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Toast Notifications ────────────────────────────────────── */
+.llma-toast {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 500;
+    z-index: 400;
+    pointer-events: none;
+    animation: llma-toast-in 0.2s ease, llma-toast-out 0.2s ease 2.3s forwards;
+    white-space: nowrap;
+}
+.llma-toast.success {
+    background: color-mix(in srgb, var(--backend-running) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--backend-running) 30%, transparent);
+    color: var(--backend-running);
+}
+.llma-toast.error {
+    background: color-mix(in srgb, var(--backend-errored) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--backend-errored) 30%, transparent);
+    color: var(--backend-errored);
+}
+.llma-toast.info {
+    background: var(--background-soft);
+    border: 1px solid var(--border-color);
+    color: var(--text);
+}
+@keyframes llma-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+@keyframes llma-toast-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* ── Pulse animation ────────────────────────────────────────── */
+@keyframes llma-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+/* ── Empty State ───────────────────────────────────────────── */
+.llma-empty-state {
+    text-align: center;
+    opacity: 0.4;
+    padding: 16px;
+    font-size: 12px;
+    color: var(--text-soft);
+}
+
+/* ── Prompt Buttons (Generate Tab) ─────────────────────────── */
+.llma-prompt-btn-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+    flex-wrap: wrap;
+}
+.llma-prompt-btn-row .basic-button {
+    font-size: 12px;
+    padding: 4px 10px;
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+
+/* Tablet: hide right panel, show toggle in topbar */
+@media (max-width: 1050px) {
+    .llma-container {
+        grid-template-columns: var(--llma-sidebar-w, 200px) 1fr;
+        --llma-panel-w: 0px;
+    }
+    .llma-asst-panel {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 260px;
+        z-index: 100;
+        box-shadow: -4px 0 20px color-mix(in srgb, var(--black) 40%, transparent);
+        transform: translateX(100%);
+        transition: transform 0.22s ease;
+    }
+    .llma-asst-panel.panel-open {
+        transform: translateX(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .llma-asst-toggle { display: flex !important; }
+}
+
+/* Mobile: sidebar also becomes overlay */
+@media (max-width: 680px) {
+    .llma-container {
+        grid-template-columns: 1fr;
+        --llma-sidebar-w: 0px;
+    }
+    .llma-sidebar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 240px;
+        z-index: 150;
+        box-shadow: 4px 0 20px color-mix(in srgb, var(--black) 40%, transparent);
+        transform: translateX(-100%);
+        transition: transform 0.22s ease;
+    }
+    .llma-sidebar.sidebar-open {
+        transform: translateX(0);
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .llma-thread-title { max-width: 160px; }
+    .llma-model-label { max-width: 90px; }
+    .llma-assistant-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+    .llma-modal { width: 95%; max-height: 90%; }
+    .llma-param-row { grid-template-columns: 75px 1fr auto; font-size: 11.5px; }
+    .llma-setting-row { grid-template-columns: 110px 1fr auto; }
+}

@@ -12,27 +12,30 @@ public static class ChatEndpoints
 {
     private static readonly PromptCacheService _cache = new(500);
 
-    /// <summary>Sends a message to an LLM backend and returns the full response.</summary>
+    /// <summary>Sends a message to an LLM and returns the full response.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
-        double temperature = -1, int maxTokens = -1, int backendId = -1, bool noCache = false)
+        double temperature = -1, int maxTokens = -1, bool noCache = false,
+        string assistantId = null)
     {
         try
         {
             JObject settings = SettingsService.GetSettings();
-            string systemPrompt = InstructionService.ResolveInstruction(instructionId, settings);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
-            ApplyParameters(input, settings, temperature, maxTokens);
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens);
             string response;
             if (noCache)
             {
-                response = await LLMDispatcher.Generate(input, backendId);
+                response = await LLMDispatcher.Generate(input);
             }
             else
             {
                 response = await _cache.GetOrCreate(message, instructionId, async () =>
                 {
-                    return await LLMDispatcher.Generate(input, backendId);
+                    return await LLMDispatcher.Generate(input);
                 });
             }
             return new JObject
@@ -61,11 +64,11 @@ public static class ChatEndpoints
             string model = rawInput["model"]?.ToString();
             double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
-            int backendId = rawInput["backendId"]?.Value<int>() ?? -1;
-            // Build history from previous messages if provided
+            string assistantId = rawInput["assistantId"]?.ToString();
             JArray historyArray = rawInput["history"] as JArray;
             JObject settings = SettingsService.GetSettings();
-            string systemPrompt = InstructionService.ResolveInstruction(instructionId, settings);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings);
             ExtendedLLMInput input;
             if (historyArray is not null && historyArray.Count > 0)
             {
@@ -85,8 +88,32 @@ public static class ChatEndpoints
             {
                 input = ExtendedLLMInput.Create(message, systemPrompt, model);
             }
-            ApplyParameters(input, settings, temperature, maxTokens);
-            await LLMStreamHelper.StreamToWebSocket(socket, input, backendId);
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens);
+            // Load tools enabled for this assistant and inject their descriptions into the system prompt
+            List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings);
+            if (enabledTools.Count > 0)
+            {
+                input.Tools = enabledTools;
+                string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enabledTools);
+                input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
+                // Replace the system message at position 0 of the ChatHistory if present
+                if (input.ChatHistory.Messages.Count > 0 && input.ChatHistory.Messages[0].AuthorRole == LLama.Common.AuthorRole.System)
+                {
+                    input.ChatHistory.Messages[0] = new LLama.Common.ChatHistory.Message(LLama.Common.AuthorRole.System, input.SystemPrompt);
+                }
+                else
+                {
+                    LLama.Common.ChatHistory newHistory = new();
+                    newHistory.AddMessage(LLama.Common.AuthorRole.System, input.SystemPrompt);
+                    foreach (LLama.Common.ChatHistory.Message msg in input.ChatHistory.Messages)
+                    {
+                        newHistory.AddMessage(msg.AuthorRole, msg.Content);
+                    }
+                    input.ChatHistory = newHistory;
+                }
+            }
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session);
             return null;
         }
         catch (Exception ex)
@@ -99,10 +126,25 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Resolves instruction text for a request, routing through AssistantService for canonical IDs.</summary>
+    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings)
+    {
+        if (string.IsNullOrEmpty(instructionId))
+        {
+            instructionId = InstructionIds.Chat;
+        }
+        // Canonical instruction IDs resolve from the assistant
+        if (InstructionIds.All.Contains(instructionId))
+        {
+            return AssistantService.ResolveInstruction(instructionId, assistantId, settings);
+        }
+        // Custom/legacy instruction IDs fall through to InstructionService
+        return InstructionService.ResolveInstruction(instructionId, settings);
+    }
+
     /// <summary>Truncates message history to the configured maxContextMessages limit.</summary>
     private static List<ChatMessageData> TruncateHistory(List<ChatMessageData> history, JObject settings, JObject rawInput)
     {
-        // Per-thread override takes priority, then global setting
         int maxCtx = rawInput["maxContextMessages"]?.Value<int>() ?? 0;
         if (maxCtx <= 0)
         {
@@ -115,9 +157,9 @@ public static class ChatEndpoints
         return history;
     }
 
-    private static void ApplyParameters(ExtendedLLMInput input, JObject settings, double temperature, int maxTokens)
+    /// <summary>Applies per-request parameter overrides on top of resolved parameters.</summary>
+    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens)
     {
-        JObject parameters = settings["parameters"] as JObject;
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 1024;
         input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;

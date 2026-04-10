@@ -1,0 +1,252 @@
+/* ================================================================
+   LLM Assistant — Top Bar, Popovers, Context Bar
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Top Bar ────────────────────────────────────────────────── */
+.llma-topbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    height: 46px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--light-border);
+    background: var(--background);
+}
+.llma-topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.llma-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.llma-thread-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text);
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 260px;
+}
+
+/* Icon button — small square button for toolbar actions */
+.llma-icon-btn {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.6;
+    transition: background 0.12s, opacity 0.12s, border-color 0.12s;
+    flex-shrink: 0;
+    padding: 0;
+}
+.llma-icon-btn:hover {
+    background: var(--background-soft);
+    opacity: 1;
+    border-color: var(--light-border);
+}
+.llma-icon-btn.active {
+    opacity: 1;
+    background: var(--background-soft);
+    border-color: var(--emphasis);
+    color: var(--emphasis);
+}
+
+/* Model pill */
+.llma-model-pill-wrap {
+    position: relative;
+}
+.llma-model-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px 5px 8px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--background-panel-subtle);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: border-color 0.15s, background 0.15s;
+    outline: none;
+}
+.llma-model-pill:hover {
+    border-color: var(--emphasis);
+    background: var(--background-soft);
+}
+.llma-model-status {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--backend-running);
+    flex-shrink: 0;
+    transition: background 0.3s;
+}
+.llma-model-status.offline { background: var(--backend-errored); }
+.llma-model-status.loading { background: var(--backend-disabled); animation: llma-pulse 1s infinite; }
+.llma-model-label {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.llma-chevron {
+    color: var(--text-soft);
+    opacity: 0.5;
+    flex-shrink: 0;
+    transition: transform 0.18s;
+}
+.llma-model-pill[aria-expanded="true"] .llma-chevron { transform: rotate(180deg); }
+
+/* Model popover */
+.llma-model-popover,
+.llma-params-popover,
+.llma-export-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 200;
+    background: var(--background-soft);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--black) 40%, transparent);
+    padding: 10px;
+    min-width: 200px;
+    animation: llma-popover-in 0.14s ease;
+}
+.llma-model-popover { min-width: 220px; }
+@keyframes llma-popover-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.llma-pop-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 8px;
+}
+.llma-pop-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-soft);
+    opacity: 0.5;
+}
+.llma-pop-select {
+    padding: 5px 8px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12.5px;
+    outline: none;
+    cursor: pointer;
+}
+.llma-pop-apply {
+    width: 100%;
+    margin-top: 2px;
+    font-size: 12px;
+}
+.llma-popover-anchor {
+    position: relative;
+}
+
+/* Params popover */
+.llma-params-popover { min-width: 230px; }
+.llma-params-grid { display: flex; flex-direction: column; gap: 10px; }
+.llma-param-row {
+    display: grid;
+    grid-template-columns: 90px 1fr auto;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text);
+}
+.llma-param-row label { opacity: 0.75; white-space: nowrap; }
+.llma-param-row input[type="range"] { flex: 1; accent-color: var(--emphasis); }
+.llma-param-row input[type="number"] {
+    grid-column: 2 / -1;
+    padding: 4px 7px;
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12px;
+    outline: none;
+}
+.llma-param-val { font-size: 11.5px; opacity: 0.65; min-width: 28px; text-align: right; }
+.llma-param-hint { font-size: 10.5px; opacity: 0.45; grid-column: 2 / -1; }
+.llma-params-actions { display: flex; gap: 6px; margin-top: 6px; }
+.llma-params-actions .basic-button { flex: 1; font-size: 12px; padding: 5px 8px; }
+
+/* Export menu */
+.llma-export-menu { min-width: 160px; padding: 5px; }
+.llma-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: background 0.1s;
+    opacity: 0.8;
+}
+.llma-menu-item:hover { background: var(--background-soft); opacity: 1; }
+
+/* ── Context Bar ────────────────────────────────────────────── */
+.llma-context-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 14px;
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.45;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+    gap: 10px;
+}
+.llma-ctx-left { display: flex; align-items: center; gap: 7px; }
+.llma-ctx-track {
+    width: 72px;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--light-border);
+    overflow: hidden;
+}
+.llma-ctx-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--emphasis);
+    transition: width 0.4s ease;
+    width: 0%;
+}
+
+/* ── Content Area ───────────────────────────────────────────── */
+.llma-content {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}

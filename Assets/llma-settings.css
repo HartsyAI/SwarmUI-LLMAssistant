@@ -1,0 +1,368 @@
+/* ================================================================
+   LLM Assistant — Settings Modal, Assistant List & Editor
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Settings Modal ─────────────────────────────────────────── */
+.llma-overlay {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--black) 55%, transparent);
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: llma-fade-in 0.15s ease;
+}
+@keyframes llma-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.llma-modal {
+    background: var(--background-gray);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: min(560px, 92%);
+    max-height: 85%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: llma-modal-in 0.18s ease;
+}
+@keyframes llma-modal-in {
+    from { opacity: 0; transform: scale(0.97) translateY(-8px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.llma-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+}
+.llma-modal-header h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin: 0;
+}
+.llma-modal-close {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.5;
+    transition: opacity 0.12s, background 0.12s;
+}
+.llma-modal-close:hover { opacity: 1; background: var(--background-soft); }
+
+/* Modal tabs */
+.llma-modal-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--light-border);
+    padding: 0 12px;
+    flex-shrink: 0;
+    background: var(--background);
+}
+.llma-modal-tab {
+    padding: 9px 14px;
+    font-size: 12.5px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.5;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: opacity 0.12s, border-color 0.12s;
+}
+.llma-modal-tab.active {
+    opacity: 1;
+    border-bottom-color: var(--emphasis);
+    font-weight: 500;
+}
+
+/* Modal body */
+.llma-modal-body { flex: 1; overflow-y: auto; padding: 16px; }
+.llma-modal-body::-webkit-scrollbar { width: 5px; }
+.llma-modal-body::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+
+/* Settings sections */
+.llma-setting-section { margin-bottom: 18px; }
+.llma-setting-section h4 {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.45;
+    margin: 0 0 10px;
+}
+.llma-setting-row {
+    display: grid;
+    grid-template-columns: 130px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--text);
+    border-bottom: 1px solid var(--light-border);
+}
+.llma-setting-row:last-child { border-bottom: none; }
+.llma-setting-row label { opacity: 0.75; }
+.llma-range-wrap { display: flex; align-items: center; gap: 8px; grid-column: 2 / -1; }
+.llma-range-wrap input[type="range"] { flex: 1; accent-color: var(--emphasis); }
+.llma-range-val { font-size: 11.5px; opacity: 0.6; min-width: 28px; text-align: right; }
+.llma-setting-row input[type="number"],
+.llma-setting-row input[type="text"] {
+    grid-column: 2 / -1;
+    padding: 5px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12.5px;
+    outline: none;
+}
+.llma-setting-row input[type="checkbox"] {
+    grid-column: 2;
+    accent-color: var(--emphasis);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+}
+.llma-setting-hint {
+    font-size: 10.5px;
+    opacity: 0.4;
+    color: var(--text-soft);
+}
+.llma-settings-note {
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--background-panel-subtle);
+    border: 1px solid var(--light-border);
+    font-size: 11.5px;
+    color: var(--text-soft);
+    opacity: 0.7;
+    line-height: 1.5;
+}
+
+/* Modal footer */
+.llma-modal-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--light-border);
+    flex-shrink: 0;
+}
+.llma-modal-footer .basic-button { font-size: 12.5px; }
+
+/* ── Assistant List (in settings) ───────────────────────────── */
+.llma-asst-list-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: var(--text);
+    opacity: 0.7;
+}
+.llma-asst-list-wrap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.llma-asst-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 9px;
+    border: 1px solid var(--light-border);
+    background: var(--background-panel-subtle);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s;
+}
+.llma-asst-list-item:hover { border-color: var(--emphasis); }
+.llma-list-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    overflow: hidden;
+}
+.llma-list-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.llma-list-info { flex: 1; min-width: 0; }
+.llma-list-name { font-size: 13px; font-weight: 500; color: var(--text); }
+.llma-builtin-badge { opacity: 0.4; font-size: 10px; }
+.llma-list-desc { font-size: 11px; color: var(--text-soft); opacity: 0.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.llma-list-edit {
+    font-size: 11px;
+    padding: 3px 9px;
+    border-radius: 5px;
+    border: 1px solid var(--light-border);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.65;
+    flex-shrink: 0;
+    transition: opacity 0.1s;
+}
+.llma-list-edit:hover { opacity: 1; }
+
+/* ── Assistant Editor (in settings) ────────────────────────── */
+.llma-asst-editor {
+    border-top: 1px solid var(--light-border);
+    padding-top: 14px;
+    margin-top: 6px;
+}
+.llma-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+.llma-editor-header h4 { font-size: 14px; font-weight: 600; color: var(--text); margin: 0; }
+.llma-editor-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+.llma-avatar-preview {
+    width: 64px;
+    height: 64px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.llma-avatar-preview img { width: 100%; height: 100%; object-fit: cover; }
+.llma-avatar-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.llma-avatar-controls .basic-button { font-size: 11.5px; padding: 4px 10px; }
+input[type="color"]#llma-asst-color {
+    width: 32px;
+    height: 28px;
+    padding: 1px 2px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--background);
+    cursor: pointer;
+}
+.llma-editor-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.llma-editor-field { display: flex; flex-direction: column; gap: 4px; }
+.llma-editor-field-full { grid-column: 1 / -1; }
+.llma-editor-field label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-soft);
+    opacity: 0.45;
+}
+.llma-editor-field input[type="text"],
+.llma-editor-field input[type="number"],
+.llma-editor-field select {
+    padding: 6px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12.5px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.llma-editor-field input:focus, .llma-editor-field select:focus {
+    border-color: var(--emphasis);
+}
+
+/* Instructions tabs in editor */
+.llma-instr-section { margin-bottom: 12px; }
+.llma-instr-section h5 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-soft);
+    opacity: 0.4;
+    margin: 0 0 8px;
+}
+.llma-instr-tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.llma-instr-tab {
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+    background: transparent;
+    color: var(--text-soft);
+    font-size: 11.5px;
+    cursor: pointer;
+    opacity: 0.6;
+    transition: background 0.12s, opacity 0.12s, border-color 0.12s;
+}
+.llma-instr-tab.active {
+    opacity: 1;
+    background: var(--background-soft);
+    border-color: var(--emphasis);
+    color: var(--emphasis);
+}
+.llma-instr-area {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12px;
+    font-family: var(--font-monospace);
+    line-height: 1.5;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.15s;
+    box-sizing: border-box;
+}
+.llma-instr-area:focus { border-color: var(--emphasis); }
+
+/* Params override section */
+.llma-params-section { margin-bottom: 14px; }
+.llma-params-section h5 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-soft);
+    opacity: 0.4;
+    margin: 0 0 8px;
+}
+.llma-params-section h5 small { font-size: 10px; text-transform: none; letter-spacing: 0; font-weight: 400; opacity: 0.7; }
+
+.llma-editor-actions {
+    display: flex;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--light-border);
+}
+.llma-editor-actions .basic-button { font-size: 12.5px; }
+#llma-asst-delete { color: var(--backend-errored) !important; border-color: color-mix(in srgb, var(--backend-errored) 30%, transparent) !important; }
+#llma-asst-delete:hover { background: color-mix(in srgb, var(--backend-errored) 10%, transparent) !important; }

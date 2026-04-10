@@ -1,0 +1,110 @@
+using System.Text.RegularExpressions;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace SwarmUI.Extensions.LLMAssistant.Services;
+
+/// <summary>Builds tool system prompts and parses tool calls from LLM output (prompt-injection strategy).</summary>
+public static partial class ToolPromptService
+{
+    [GeneratedRegex(@"<tool_call>\s*(\{.*?\})\s*</tool_call>", RegexOptions.Singleline)]
+    private static partial Regex ToolCallRegex();
+
+    /// <summary>A parsed tool call extracted from the LLM output.</summary>
+    public class ParsedToolCall
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public JObject Arguments { get; set; }
+        public string RawMatch { get; set; }
+    }
+
+    /// <summary>Builds the system-prompt snippet describing available tools to the LLM.</summary>
+    public static string BuildToolSystemPrompt(List<JObject> tools)
+    {
+        if (tools is null || tools.Count == 0)
+        {
+            return "";
+        }
+        StringBuilder sb = new();
+        sb.AppendLine();
+        sb.AppendLine();
+        sb.AppendLine("## Tools");
+        sb.AppendLine();
+        sb.AppendLine("You have access to the tools listed below. When you want to use a tool, output EXACTLY this format on its own line (and nothing else on that line):");
+        sb.AppendLine();
+        sb.AppendLine("<tool_call>{\"name\":\"TOOL_NAME\",\"arguments\":{\"PARAM\":\"VALUE\"}}</tool_call>");
+        sb.AppendLine();
+        sb.AppendLine("After the tool executes, you will see a <tool_result name=\"TOOL_NAME\">RESULT_JSON</tool_result> message. You may then continue your response or call another tool. Do not call tools unnecessarily. Only call a tool when it materially helps answer the user.");
+        sb.AppendLine();
+        sb.AppendLine("### Available Tools:");
+        sb.AppendLine();
+        foreach (JObject tool in tools)
+        {
+            string name = tool["id"]?.ToString() ?? tool["name"]?.ToString() ?? "unknown";
+            string description = tool["description"]?.ToString() ?? "";
+            sb.Append("- **").Append(name).Append("**: ").AppendLine(description);
+            if (tool["parameters"] is JObject parameters)
+            {
+                string compact = parameters.ToString(Formatting.None);
+                sb.Append("  Parameters schema: ").AppendLine(compact);
+            }
+        }
+        sb.AppendLine();
+        return sb.ToString();
+    }
+
+    /// <summary>Parses all complete &lt;tool_call&gt; blocks from the given text.</summary>
+    public static List<ParsedToolCall> ParseToolCalls(string text)
+    {
+        List<ParsedToolCall> result = [];
+        if (string.IsNullOrEmpty(text))
+        {
+            return result;
+        }
+        MatchCollection matches = ToolCallRegex().Matches(text);
+        foreach (Match match in matches)
+        {
+            string json = match.Groups[1].Value;
+            try
+            {
+                JObject obj = JObject.Parse(json);
+                string name = obj["name"]?.ToString();
+                if (string.IsNullOrEmpty(name))
+                {
+                    continue;
+                }
+                JObject args = obj["arguments"] as JObject ?? new JObject();
+                result.Add(new ParsedToolCall
+                {
+                    Id = $"call-{Guid.NewGuid():N}",
+                    Name = name,
+                    Arguments = args,
+                    RawMatch = match.Value
+                });
+            }
+            catch
+            {
+                // Malformed JSON in tool call — skip it
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Checks whether the buffered text contains a closing tool_call tag (heuristic for early stop).</summary>
+    public static bool ContainsCompleteToolCall(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+        return text.Contains("</tool_call>");
+    }
+
+    /// <summary>Formats a tool execution result for injection back into conversation history.</summary>
+    public static string FormatToolResult(string toolName, JObject result)
+    {
+        string json = result?.ToString(Formatting.None) ?? "{}";
+        return $"<tool_result name=\"{toolName}\">{json}</tool_result>";
+    }
+}

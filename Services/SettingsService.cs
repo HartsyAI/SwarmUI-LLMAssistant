@@ -17,6 +17,7 @@ public static class SettingsService
     {
         ["preferredModel"] = "",
         ["preferredVisionModel"] = "",
+        ["activeAssistantId"] = AssistantConstants.DefaultId,
         ["parameters"] = new JObject
         {
             ["temperature"] = 1.0,
@@ -24,6 +25,12 @@ public static class SettingsService
             ["topP"] = 0.9,
             ["maxContextMessages"] = 0
         },
+        ["assistants"] = new JObject
+        {
+            [AssistantConstants.DefaultId] = BuildDefaultAssistant()
+        },
+        ["tools"] = ToolRegistryService.BuildDefaultTools(),
+        // Legacy keys kept for backward compatibility and T2I prompt tags
         ["instructions"] = new JObject
         {
             [InstructionIds.Chat] = DefaultInstructions.Chat,
@@ -44,6 +51,30 @@ public static class SettingsService
             [FeatureKeys.RandomPrompt] = InstructionIds.RandomPrompt,
             [FeatureKeys.GenerateInstruction] = InstructionIds.InstructionGen
         }
+    };
+
+    /// <summary>Builds the default assistant object with all built-in instructions.</summary>
+    public static JObject BuildDefaultAssistant() => new()
+    {
+        ["id"] = AssistantConstants.DefaultId,
+        ["name"] = "Default Assistant",
+        ["description"] = "General-purpose AI assistant for SwarmUI",
+        ["icon"] = "chat",
+        ["color"] = "#7c8aff",
+        ["instructions"] = new JObject
+        {
+            [InstructionIds.Chat] = DefaultInstructions.Chat,
+            [InstructionIds.Vision] = DefaultInstructions.Vision,
+            [InstructionIds.Caption] = DefaultInstructions.Caption,
+            [InstructionIds.Prompt] = DefaultInstructions.Prompt,
+            [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
+            [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen
+        },
+        ["parameters"] = new JObject(),
+        ["enabledToolIds"] = new JArray(ToolConstants.BuiltInIds.Cast<object>().ToArray()),
+        ["isBuiltIn"] = true,
+        ["created"] = DateTime.UtcNow.ToString("o"),
+        ["updated"] = DateTime.UtcNow.ToString("o")
     };
 
     private static readonly JsonMergeSettings MergeSettings = new()

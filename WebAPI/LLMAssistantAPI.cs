@@ -40,16 +40,27 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantResetSettings, true, PermSettings);
         // Models
         API.RegisterAPICall(ModelEndpoints.LLMAssistantGetModels, false, PermModels);
-        API.RegisterAPICall(ModelEndpoints.LLMAssistantGetBackends, false, PermModels);
         // Threads
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThreads, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSaveThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);
-        // Instructions
+        // Instructions (legacy, kept for T2I prompt tag compatibility)
         API.RegisterAPICall(InstructionEndpoints.LLMAssistantGetInstructions, false, PermSettings);
         API.RegisterAPICall(InstructionEndpoints.LLMAssistantSaveInstruction, true, PermSettings);
         API.RegisterAPICall(InstructionEndpoints.LLMAssistantDeleteInstruction, true, PermSettings);
+        // Assistants
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantGetAssistants, false, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantGetAssistant, false, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantSaveAssistant, true, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantDeleteAssistant, true, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantSetActiveAssistant, true, PermSettings);
+        // Tools
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTools, false, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTool, false, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantSaveTool, true, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantDeleteTool, true, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantExecuteTool, true, PermSettings);
     }
 }

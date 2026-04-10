@@ -89,7 +89,10 @@ public static class PromptProcessor
 
     private static async Task<string> CallLLM(string content, string instructionId, string model)
     {
-        string systemPrompt = InstructionService.ResolveInstruction(instructionId);
+        // Use active assistant for canonical instruction IDs, fallback to legacy resolution
+        string systemPrompt = InstructionIds.All.Contains(instructionId)
+            ? AssistantService.ResolveInstruction(instructionId)
+            : InstructionService.ResolveInstruction(instructionId);
         ExtendedLLMInput input = ExtendedLLMInput.Create(content, systemPrompt, model);
         return await LLMDispatcher.Generate(input);
     }

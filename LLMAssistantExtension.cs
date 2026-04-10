@@ -1,13 +1,16 @@
+using System.IO;
 using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Extensions.LLMAssistant.T2I;
+using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant;
 
 /// <summary>LLM Assistant extension for SwarmUI. Provides chat UI, threads, instructions, and T2I integration
-/// on top of SwarmUI's native LLM backends (LlamaSharp, SimpleRemoteLLM).</summary>
+/// using SwarmUI's native LLM model registry and backends.</summary>
 public class LLMAssistantExtension : Extension
 {
     public static new readonly string Version = "1.0.0";
@@ -15,37 +18,63 @@ public class LLMAssistantExtension : Extension
     public override void OnPreInit()
     {
         Logs.Info($"[LLMAssistant] Version {Version} loading...");
-        // JS libraries
-        ScriptFiles.Add("Assets/lib/marked.min.js");
-        ScriptFiles.Add("Assets/lib/highlight.min.js");
-        ScriptFiles.Add("Assets/lib/purify.min.js");
-        ScriptFiles.Add("Assets/lib/katex.min.js");
-        ScriptFiles.Add("Assets/lib/auto-render.min.js");
-        ScriptFiles.Add("Assets/lib/mermaid.min.js");
-        // Extension JS
-        ScriptFiles.Add("Assets/llm-core.js");
-        ScriptFiles.Add("Assets/llm-markdown.js");
-        ScriptFiles.Add("Assets/llm-chat.js");
-        ScriptFiles.Add("Assets/llm-settings.js");
-        ScriptFiles.Add("Assets/llm-prompt-buttons.js");
-        ScriptFiles.Add("Assets/llm-threads.js");
+        // Extension JS (CDN libs loaded dynamically by utils.js)
+        ScriptFiles.Add("Assets/utils.js");
+        ScriptFiles.Add("Assets/chat.js");
+        ScriptFiles.Add("Assets/threads.js");
+        ScriptFiles.Add("Assets/tools.js");
+        ScriptFiles.Add("Assets/llmassistant.js");
         // CSS
-        StyleSheetFiles.Add("Assets/lib/github-dark.min.css");
-        StyleSheetFiles.Add("Assets/lib/katex.min.css");
-        StyleSheetFiles.Add("Assets/llm-core.css");
-        StyleSheetFiles.Add("Assets/llm-chat.css");
-        StyleSheetFiles.Add("Assets/llm-settings.css");
-        StyleSheetFiles.Add("Assets/llm-threads.css");
+        StyleSheetFiles.Add("Assets/llma-layout.css");
+        StyleSheetFiles.Add("Assets/llma-topbar.css");
+        StyleSheetFiles.Add("Assets/llma-welcome.css");
+        StyleSheetFiles.Add("Assets/llma-chat.css");
+        StyleSheetFiles.Add("Assets/llma-panel.css");
+        StyleSheetFiles.Add("Assets/llma-settings.css");
+        StyleSheetFiles.Add("Assets/llma-common.css");
+        StyleSheetFiles.Add("Assets/llma-tools.css");
     }
 
     public override void OnInit()
     {
-        // Register API endpoints and permissions
+        RegisterLLMModelType();
+        RegisterBuiltInTools();
         LLMAssistantAPI.Register();
-        // Register T2I parameters and prompt tag handlers
         PromptTagHandler.RegisterAll();
-        // Migrate from MagicPrompt if settings exist
         MigrationService.RunIfNeeded();
-        Logs.Info($"[LLMAssistant] Initialized. No backends registered — uses Swarm's native LLM backends.");
+        Logs.Info("[LLMAssistant] Initialized.");
+    }
+
+    /// <summary>Registers all built-in tool handlers with the ToolRegistryService.</summary>
+    private static void RegisterBuiltInTools()
+    {
+        ToolRegistryService.RegisterHandler(new GenerateImageTool());
+        ToolRegistryService.RegisterHandler(new WebSearchTool());
+        ToolRegistryService.RegisterHandler(new FileReadTool());
+    }
+
+    /// <summary>Registers the "LLM" model type in SwarmUI's model registry so LLM models
+    /// are discoverable just like image models (Stable-Diffusion, LoRA, etc.).</summary>
+    private static void RegisterLLMModelType()
+    {
+        if (Program.T2IModelSets.ContainsKey("LLM"))
+        {
+            return;
+        }
+        T2IModelHandler handler = new() { ModelType = "LLM" };
+        List<string> paths = [];
+        foreach (string root in Program.ServerSettings.Paths.ActualModelRoots)
+        {
+            string llmPath = Path.Combine(root, "llm");
+            Directory.CreateDirectory(llmPath);
+            paths.Add(llmPath);
+        }
+        if (paths.Count > 0)
+        {
+            handler.FolderPaths = [.. paths];
+            handler.DownloadFolderPath = paths[0];
+        }
+        Program.T2IModelSets["LLM"] = handler;
+        Logs.Info($"[LLMAssistant] Registered LLM model type with {paths.Count} folder(s).");
     }
 }

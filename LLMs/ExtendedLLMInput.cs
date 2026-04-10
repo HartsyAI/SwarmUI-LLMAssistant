@@ -1,4 +1,5 @@
 using LLama.Common;
+using Newtonsoft.Json.Linq;
 using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
@@ -26,6 +27,9 @@ public class ExtendedLLMInput : LLMParamInput
 
     /// <summary>Media attachments for vision requests.</summary>
     public List<MediaAttachment> Media { get; set; }
+
+    /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
+    public List<JObject> Tools { get; set; } = [];
 
     /// <summary>Creates an ExtendedLLMInput from a user message and optional system prompt.</summary>
     public static ExtendedLLMInput Create(string userMessage, string systemPrompt = null, string model = null)

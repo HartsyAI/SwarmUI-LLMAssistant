@@ -1,181 +1,328 @@
-<div class="llm-assistant-container" id="llm-assistant-container">
-    <!-- Thread Sidebar -->
-    <div class="llm-sidebar" id="llm-sidebar">
-        <div class="llm-sidebar-header">
-            <h4>Chats</h4>
-            <button class="basic-button" id="llm-new-thread-btn" title="New Chat">+ New</button>
+<div class="llma-container" id="llma-container">
+    <!-- ── Sidebar ───────────────────────────────────────────── -->
+    <aside class="llma-sidebar" id="llma-sidebar">
+        <div class="llma-sidebar-header">
+            <span class="llma-sidebar-label">Chats</span>
+            <button class="basic-button llma-new-btn" id="llma-new-thread-btn">+ New</button>
         </div>
-        <input type="text" class="llm-sidebar-search" id="llm-thread-search" placeholder="Search chats...">
-        <div class="llm-thread-list" id="llm-thread-list">
+        <div class="llma-search-wrap">
+            <input class="llma-search" id="llma-thread-search" type="text" placeholder="Search chats..." autocomplete="off">
         </div>
-    </div>
+        <div class="llma-thread-list" id="llma-thread-list"></div>
+    </aside>
 
-    <!-- Main Content -->
-    <div class="llm-main" id="llm-main">
+    <!-- ── Main ──────────────────────────────────────────────── -->
+    <main class="llma-main">
         <!-- Top Bar -->
-        <div class="llm-top-bar">
-            <button class="basic-button llm-sidebar-toggle" id="llm-sidebar-toggle" title="Toggle sidebar">&#9776;</button>
-            <span class="llm-thread-title" id="llm-thread-title">LLM Assistant</span>
-            <div class="llm-top-actions">
-                <!-- Backend selector -->
-                <select class="llm-backend-select" id="llm-backend-select" title="Select LLM backend">
-                    <option value="-1" disabled selected>No backends</option>
-                </select>
-                <!-- Parameter override popover -->
-                <div class="llm-popover-anchor">
-                    <button class="basic-button llm-params-btn" id="llm-params-btn" title="Thread parameters">Params</button>
-                    <div class="llm-params-popover" id="llm-params-popover" style="display:none;">
-                        <div class="llm-setting-group">
-                            <label>Temperature</label>
-                            <input type="range" id="llm-param-temperature" min="0" max="2" step="0.1" value="1.0">
-                            <span id="llm-param-temperature-val">1.0</span>
-                        </div>
-                        <div class="llm-setting-group">
-                            <label>Max Tokens</label>
-                            <input type="number" id="llm-param-max-tokens" min="1" max="32768" value="1024">
-                        </div>
-                        <div class="llm-setting-group">
-                            <label>Top P</label>
-                            <input type="range" id="llm-param-top-p" min="0" max="1" step="0.05" value="0.9">
-                            <span id="llm-param-top-p-val">0.9</span>
-                        </div>
-                        <div class="llm-setting-group">
-                            <label>Context</label>
-                            <input type="number" id="llm-param-max-context" min="0" max="200" value="0" title="Max messages sent to backend (0 = all)">
-                        </div>
-                        <div class="llm-popover-actions">
-                            <button class="basic-button" id="llm-params-apply">Apply</button>
-                            <button class="basic-button" id="llm-params-reset">Reset</button>
-                        </div>
-                    </div>
-                </div>
-                <!-- Export dropdown -->
-                <div class="llm-popover-anchor">
-                    <button class="basic-button" id="llm-export-btn" title="Export thread">Export</button>
-                    <div class="llm-export-dropdown" id="llm-export-dropdown" style="display:none;">
-                        <button class="llm-dropdown-item" id="llm-export-json">JSON</button>
-                        <button class="llm-dropdown-item" id="llm-export-md">Markdown</button>
-                    </div>
-                </div>
-                <button class="basic-button" id="llm-settings-btn" title="Settings">&#9881;</button>
+        <header class="llma-topbar">
+            <div class="llma-topbar-left">
+                <button class="llma-icon-btn" id="llma-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                </button>
+                <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
-        </div>
+            <div class="llma-topbar-right">
+                <!-- Model pill -->
+                <div class="llma-model-pill-wrap llma-popover-anchor">
+                    <button class="llma-model-pill" id="llma-model-pill" aria-expanded="false" aria-haspopup="true">
+                        <span class="llma-model-status" id="llma-model-status"></span>
+                        <span class="llma-model-label" id="llma-model-label">No model</span>
+                        <svg class="llma-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 7L8 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="llma-model-popover" id="llma-model-popover" style="display:none;">
+                        <div class="llma-pop-row">
+                            <span class="llma-pop-label">Model</span>
+                            <select class="llma-pop-select" id="llma-model-select">
+                                <option value="" disabled selected>No models found</option>
+                            </select>
+                        </div>
+                        <button class="basic-button llma-pop-apply" id="llma-pop-apply">Apply</button>
+                    </div>
+                </div>
+                <!-- Params -->
+                <div class="llma-popover-anchor">
+                    <button class="llma-icon-btn" id="llma-params-btn" title="Parameters" aria-label="Parameters">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 3.5h3m2 0h6M1.5 7h6m2 0h3M1.5 10.5h2m2 0h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6" cy="3.5" r="1.2" stroke="currentColor" stroke-width="1"/><circle cx="9" cy="7" r="1.2" stroke="currentColor" stroke-width="1"/><circle cx="5" cy="10.5" r="1.2" stroke="currentColor" stroke-width="1"/></svg>
+                    </button>
+                    <div class="llma-params-popover" id="llma-params-popover" style="display:none;">
+                        <div class="llma-params-grid">
+                            <div class="llma-param-row">
+                                <label>Temperature</label>
+                                <input type="range" id="llma-p-temperature" min="0" max="2" step="0.1" value="0.8">
+                                <span class="llma-param-val" id="llma-p-temperature-val">0.8</span>
+                            </div>
+                            <div class="llma-param-row">
+                                <label>Max Tokens</label>
+                                <input type="number" id="llma-p-max-tokens" min="1" max="32768" value="2048">
+                            </div>
+                            <div class="llma-param-row">
+                                <label>Top P</label>
+                                <input type="range" id="llma-p-top-p" min="0" max="1" step="0.05" value="0.9">
+                                <span class="llma-param-val" id="llma-p-top-p-val">0.9</span>
+                            </div>
+                            <div class="llma-param-row">
+                                <label>Context</label>
+                                <input type="number" id="llma-p-context" min="0" max="200" value="0">
+                                <span class="llma-param-hint">0 = all</span>
+                            </div>
+                        </div>
+                        <div class="llma-params-actions">
+                            <button class="basic-button" id="llma-params-apply">Apply</button>
+                            <button class="basic-button" id="llma-params-reset">Reset</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Export -->
+                <div class="llma-popover-anchor">
+                    <button class="llma-icon-btn" id="llma-export-btn" title="Export" aria-label="Export">
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v8M3.5 6L7 9.5 10.5 6M2 11.5h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    </button>
+                    <div class="llma-export-menu" id="llma-export-menu" style="display:none;">
+                        <button class="llma-menu-item" id="llma-export-json">JSON</button>
+                        <button class="llma-menu-item" id="llma-export-md">Markdown</button>
+                        <button class="llma-menu-item" id="llma-export-txt">Plain Text</button>
+                    </div>
+                </div>
+                <!-- Settings -->
+                <button class="llma-icon-btn" id="llma-settings-btn" title="Settings" aria-label="Settings">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 9a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.2"/><path d="M11.4 8.6l.9.5a.5.5 0 01.2.7l-1 1.7a.5.5 0 01-.7.2l-.9-.5a4.5 4.5 0 01-1 .6v1a.5.5 0 01-.5.5H6.6a.5.5 0 01-.5-.5v-1a4.5 4.5 0 01-1-.6l-.9.5a.5.5 0 01-.7-.2l-1-1.7a.5.5 0 01.2-.7l.9-.5a4.5 4.5 0 010-1.2l-.9-.5a.5.5 0 01-.2-.7l1-1.7a.5.5 0 01.7-.2l.9.5a4.5 4.5 0 011-.6v-1a.5.5 0 01.5-.5h1.8a.5.5 0 01.5.5v1a4.5 4.5 0 011 .6l.9-.5a.5.5 0 01.7.2l1 1.7a.5.5 0 01-.2.7l-.9.5a4.5 4.5 0 010 1.2z" stroke="currentColor" stroke-width="1"/></svg>
+                </button>
+                <!-- Assistant panel toggle (tablet/mobile) -->
+                <button class="llma-icon-btn" id="llma-asst-toggle" title="Assistant panel" aria-label="Assistant panel" style="display:none;">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M9 1v12" stroke="currentColor" stroke-width="1.2"/></svg>
+                </button>
+            </div>
+        </header>
 
         <!-- Context Bar -->
-        <div class="llm-context-bar" id="llm-context-bar">0 messages</div>
+        <div class="llma-context-bar">
+            <div class="llma-ctx-left">
+                <span id="llma-ctx-label">No active thread</span>
+                <div class="llma-ctx-track"><div class="llma-ctx-fill" id="llma-ctx-fill"></div></div>
+            </div>
+            <span id="llma-ctx-tokens"></span>
+        </div>
 
-        <!-- Chat Content -->
-        <div class="llm-content-area">
-            <div class="llm-panel llm-chat-panel" id="llm-chat-panel">
-                <div class="llm-messages" id="llm-messages">
-                    <div class="llm-welcome-message" id="llm-welcome">
-                        <h3>LLM Assistant</h3>
-                        <p class="llm-welcome-subtitle">Chat with AI models powered by your configured backends.</p>
-                        <div class="llm-welcome-features">
-                            <div class="llm-welcome-card">
-                                <strong>Chat</strong>
-                                <span>Ask questions, get help with prompts, brainstorm ideas</span>
-                            </div>
-                            <div class="llm-welcome-card">
-                                <strong>Images</strong>
-                                <span>Attach or paste images for vision analysis</span>
-                            </div>
-                            <div class="llm-welcome-card">
-                                <strong>Export</strong>
-                                <span>Save conversations as JSON or Markdown</span>
-                            </div>
-                        </div>
-                        <p class="llm-welcome-hint" id="llm-welcome-hint"></p>
-                    </div>
+        <!-- Content -->
+        <div class="llma-content">
+            <!-- Welcome / Gallery -->
+            <div class="llma-welcome" id="llma-welcome">
+                <div class="llma-gallery-header">
+                    <h2 class="llma-gallery-title">LLM Assistant</h2>
+                    <p class="llma-gallery-sub">Choose an assistant to start a conversation.</p>
                 </div>
-                <!-- Paste/attach preview with vision actions -->
-                <div class="llm-paste-preview" id="llm-paste-preview" style="display:none;"></div>
-                <div class="llm-input-wrapper" id="llm-input-area">
-                    <div class="llm-input-box">
-                        <textarea class="llm-input" id="llm-input" placeholder="Type a message..." rows="1"></textarea>
-                        <div class="llm-input-bottom">
-                            <span class="llm-input-counter" id="llm-input-counter"></span>
-                            <div class="llm-input-actions">
-                                <label class="llm-attach-btn" id="llm-attach-btn" title="Attach image">
-                                    <input type="file" id="llm-attach-file" accept="image/*" style="display:none;">
-                                    &#128206;
-                                </label>
-                                <button class="llm-send-btn" id="llm-send-btn" title="Send">
-                                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
-                                </button>
-                                <button class="llm-stop-btn" id="llm-stop-btn" style="display:none;" title="Stop">
-                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="2" fill="currentColor"/></svg>
-                                </button>
-                            </div>
+                <div class="llma-assistant-grid" id="llma-assistant-grid"></div>
+            </div>
+
+            <!-- Chat Panel -->
+            <div class="llma-chat-panel" id="llma-chat-panel" style="display:none;">
+                <div class="llma-messages" id="llma-messages"></div>
+                <div class="llma-attachment-preview" id="llma-attachment-preview" style="display:none;"></div>
+                <div class="llma-input-area">
+                    <div class="llma-input-wrap">
+                        <textarea class="llma-input" id="llma-input" placeholder="Type a message..." rows="1"></textarea>
+                        <div class="llma-input-actions">
+                            <label class="llma-icon-btn" title="Attach image" style="cursor:pointer;">
+                                <input type="file" id="llma-attach-file" accept="image/*" style="display:none;">
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7.5 3.5L4 7a2.12 2.12 0 003 3l5-5a3.54 3.54 0 00-5-5L2.5 4.5a4.95 4.95 0 007 7L13 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </label>
+                            <button class="llma-send-btn" id="llma-send-btn" title="Send" aria-label="Send message">
+                                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
+                            </button>
+                            <button class="llma-stop-btn" id="llma-stop-btn" style="display:none;" title="Stop" aria-label="Stop generation">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>
+                            </button>
                         </div>
+                    </div>
+                    <div class="llma-input-footer">
+                        <span class="llma-input-hint">Enter to send &middot; Shift+Enter for newline</span>
+                        <span class="llma-char-count" id="llma-char-count"></span>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
+    </main>
 
-    <!-- Settings Modal -->
-    <div class="llm-modal-overlay" id="llm-settings-modal" style="display:none;">
-        <div class="llm-modal">
-            <div class="llm-modal-header">
-                <h3>LLM Assistant Settings</h3>
-                <button class="llm-modal-close" id="llm-settings-close">&times;</button>
+    <!-- ── Assistant Panel (right) ───────────────────────────── -->
+    <aside class="llma-asst-panel" id="llma-asst-panel">
+        <div class="llma-panel-header">
+            <span class="llma-panel-header-label">Assistant</span>
+            <button class="llma-icon-btn" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M7 1.5L3.5 5.5L7 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+        </div>
+        <div class="llma-panel-inner" id="llma-panel-inner">
+            <div class="llma-panel-empty">Select an assistant to see details.</div>
+        </div>
+    </aside>
+
+    <!-- ── Settings Modal ────────────────────────────────────── -->
+    <div class="llma-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
+        <div class="llma-modal">
+            <div class="llma-modal-header">
+                <h3>Settings</h3>
+                <button class="llma-modal-close" id="llma-settings-close" aria-label="Close settings">&times;</button>
             </div>
-            <div class="llm-modal-body">
-                <div class="llm-settings-tabs">
-                    <button class="llm-settings-tab active" data-tab="general">General</button>
-                    <button class="llm-settings-tab" data-tab="instructions">Instructions</button>
-                    <button class="llm-settings-tab" data-tab="features">Features</button>
+            <div class="llma-modal-tabs" role="tablist">
+                <button class="llma-modal-tab active" data-tab="general" role="tab" aria-selected="true">General</button>
+                <button class="llma-modal-tab" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
+            </div>
+            <div class="llma-modal-body">
+                <!-- General Settings -->
+                <div class="llma-modal-panel" id="llma-settings-general">
+                    <div class="llma-setting-section">
+                        <h4>Generation</h4>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-temperature">Temperature</label>
+                            <div class="llma-range-wrap">
+                                <input type="range" id="llma-s-temperature" min="0" max="2" step="0.05" value="0.8">
+                                <span class="llma-range-val" id="llma-s-temperature-val">0.8</span>
+                            </div>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-max-tokens">Max Tokens</label>
+                            <input type="number" id="llma-s-max-tokens" min="1" max="32768" value="2048">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-top-p">Top P</label>
+                            <div class="llma-range-wrap">
+                                <input type="range" id="llma-s-top-p" min="0" max="1" step="0.05" value="0.9">
+                                <span class="llma-range-val" id="llma-s-top-p-val">0.9</span>
+                            </div>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-top-k">Top K</label>
+                            <input type="number" id="llma-s-top-k" min="0" max="200" value="40">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-repeat-penalty">Repeat Penalty</label>
+                            <div class="llma-range-wrap">
+                                <input type="range" id="llma-s-repeat-penalty" min="1" max="2" step="0.05" value="1.1">
+                                <span class="llma-range-val" id="llma-s-repeat-penalty-val">1.1</span>
+                            </div>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-seed">Seed</label>
+                            <input type="number" id="llma-s-seed" value="-1">
+                            <span class="llma-setting-hint">-1 = random</span>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-context">Context Messages</label>
+                            <input type="number" id="llma-s-context" min="0" max="200" value="0">
+                            <span class="llma-setting-hint">0 = all</span>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-stream">Stream</label>
+                            <input type="checkbox" id="llma-s-stream" checked>
+                        </div>
+                    </div>
+                    <div class="llma-setting-section">
+                        <h4>Interface</h4>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-markdown">Markdown Rendering</label>
+                            <input type="checkbox" id="llma-s-markdown" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-enter-send">Enter to Send</label>
+                            <input type="checkbox" id="llma-s-enter-send" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-show-tokens">Show Token Count</label>
+                            <input type="checkbox" id="llma-s-show-tokens" checked>
+                        </div>
+                    </div>
+                    <div class="llma-settings-note">
+                        Place LLM model files in <strong>Models/llm/</strong>. Configure an LLM backend in <strong>Server &gt; Backends</strong>.
+                    </div>
                 </div>
 
-                <div class="llm-settings-panel" id="llm-settings-general">
-                    <div class="llm-setting-group">
-                        <label>Temperature</label>
-                        <input type="range" id="llm-setting-temperature" min="0" max="2" step="0.1" value="1.0">
-                        <span id="llm-setting-temperature-val">1.0</span>
-                    </div>
-                    <div class="llm-setting-group">
-                        <label>Max Tokens</label>
-                        <input type="number" id="llm-setting-max-tokens" min="1" max="32768" value="1024">
-                    </div>
-                    <div class="llm-setting-group">
-                        <label>Top P</label>
-                        <input type="range" id="llm-setting-top-p" min="0" max="1" step="0.05" value="0.9">
-                        <span id="llm-setting-top-p-val">0.9</span>
-                    </div>
-                    <div class="llm-setting-group">
-                        <label>Context Messages</label>
-                        <input type="number" id="llm-setting-max-context" min="0" max="200" value="0" title="Max messages sent to backend (0 = all)">
-                        <span class="llm-setting-hint">0 = all</span>
-                    </div>
-                    <p class="llm-settings-note">
-                        LLM backends are configured in <strong>Server &gt; Backends</strong>.
-                        Add a "Local LLaMA.cpp GGUF Backend" or "Remote LLM (OpenAI API)" there.
-                    </p>
-                </div>
+                <!-- Assistants -->
+                <div class="llma-modal-panel" id="llma-settings-assistants" style="display:none;">
+                    <div class="llma-asst-list-wrap" id="llma-assistant-list"></div>
+                    <button class="basic-button" id="llma-create-asst-btn">+ Create Assistant</button>
 
-                <div class="llm-settings-panel" id="llm-settings-instructions" style="display:none;">
-                    <div class="llm-instruction-list" id="llm-instruction-list"></div>
-                    <button class="basic-button" id="llm-create-instruction">+ Create Custom Instruction</button>
-                    <div id="llm-instruction-editor" style="display:none;">
-                        <input type="text" id="llm-instr-title" placeholder="Instruction title">
-                        <textarea id="llm-instr-content" rows="8" placeholder="Instruction content..."></textarea>
-                        <input type="text" id="llm-instr-tooltip" placeholder="Short description">
-                        <div class="llm-instr-actions">
-                            <button class="basic-button" id="llm-instr-save">Save</button>
-                            <button class="basic-button" id="llm-instr-cancel">Cancel</button>
+                    <!-- Assistant Editor -->
+                    <div class="llma-asst-editor" id="llma-asst-editor" style="display:none;">
+                        <div class="llma-editor-header">
+                            <h4 id="llma-editor-title">New Assistant</h4>
+                            <button class="llma-icon-btn" id="llma-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
+                        </div>
+                        <div class="llma-editor-avatar-row">
+                            <div class="llma-avatar-preview" id="llma-avatar-preview">?</div>
+                            <div class="llma-avatar-controls">
+                                <button class="basic-button" id="llma-avatar-upload-btn">Upload</button>
+                                <input type="file" id="llma-avatar-file" accept="image/*" style="display:none;">
+                                <input type="color" id="llma-asst-color" value="#7c8aff">
+                            </div>
+                        </div>
+                        <div class="llma-editor-grid">
+                            <div class="llma-editor-field">
+                                <label for="llma-asst-name">Name</label>
+                                <input type="text" id="llma-asst-name" placeholder="Assistant name">
+                            </div>
+                            <div class="llma-editor-field">
+                                <label for="llma-asst-category">Category</label>
+                                <select id="llma-asst-category">
+                                    <option value="chat">Chat</option>
+                                    <option value="vision">Vision</option>
+                                    <option value="prompt">Prompt</option>
+                                    <option value="code">Code</option>
+                                    <option value="creative">Creative</option>
+                                    <option value="analyze">Analyze</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="llma-editor-field llma-editor-field-full">
+                                <label for="llma-asst-desc">Description</label>
+                                <input type="text" id="llma-asst-desc" placeholder="Short description shown on welcome screen">
+                            </div>
+                        </div>
+                        <div class="llma-instr-section">
+                            <h5>Instructions</h5>
+                            <div class="llma-instr-tabs" id="llma-instr-tabs">
+                                <button class="llma-instr-tab active" data-mode="chat">Chat</button>
+                                <button class="llma-instr-tab" data-mode="vision">Vision</button>
+                                <button class="llma-instr-tab" data-mode="caption">Caption</button>
+                                <button class="llma-instr-tab" data-mode="prompt">Prompt</button>
+                                <button class="llma-instr-tab" data-mode="randomprompt">Random</button>
+                                <button class="llma-instr-tab" data-mode="instructiongen">Instruct</button>
+                            </div>
+                            <textarea class="llma-instr-area" id="llma-instr-area" rows="4" placeholder="System prompt for this mode..."></textarea>
+                            <input type="hidden" id="llma-instr-chat">
+                            <input type="hidden" id="llma-instr-vision">
+                            <input type="hidden" id="llma-instr-caption">
+                            <input type="hidden" id="llma-instr-prompt">
+                            <input type="hidden" id="llma-instr-randomprompt">
+                            <input type="hidden" id="llma-instr-instructiongen">
+                        </div>
+                        <div class="llma-params-section">
+                            <h5>Parameter Defaults <small>(leave blank for global)</small></h5>
+                            <div class="llma-editor-grid">
+                                <div class="llma-editor-field">
+                                    <label for="llma-asst-temperature">Temperature</label>
+                                    <input type="number" id="llma-asst-temperature" min="0" max="2" step="0.1" placeholder="Global">
+                                </div>
+                                <div class="llma-editor-field">
+                                    <label for="llma-asst-max-tokens">Max Tokens</label>
+                                    <input type="number" id="llma-asst-max-tokens" min="1" max="32768" placeholder="Global">
+                                </div>
+                                <div class="llma-editor-field">
+                                    <label for="llma-asst-top-p">Top P</label>
+                                    <input type="number" id="llma-asst-top-p" min="0" max="1" step="0.05" placeholder="Global">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="llma-editor-actions">
+                            <button class="basic-button" id="llma-asst-save">Save</button>
+                            <button class="basic-button" id="llma-asst-delete" style="display:none;">Delete</button>
+                            <button class="basic-button" id="llma-asst-cancel">Cancel</button>
                         </div>
                     </div>
                 </div>
-
-                <div class="llm-settings-panel" id="llm-settings-features" style="display:none;">
-                    <p>Map features to specific instructions:</p>
-                    <div id="llm-feature-mappings"></div>
-                </div>
             </div>
-            <div class="llm-modal-footer">
-                <button class="basic-button" id="llm-settings-save">Save &amp; Close</button>
-                <button class="basic-button" id="llm-settings-reset">Reset to Defaults</button>
+            <div class="llma-modal-footer">
+                <button class="basic-button" id="llma-settings-save">Save &amp; Close</button>
+                <button class="basic-button" id="llma-settings-reset">Reset Defaults</button>
             </div>
         </div>
     </div>

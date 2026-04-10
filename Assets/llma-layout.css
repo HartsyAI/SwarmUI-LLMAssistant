@@ -1,0 +1,160 @@
+/* ================================================================
+   LLM Assistant — Layout (Container, Grid, Sidebar, Main Area)
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Container & Layout ─────────────────────────────────────── */
+.llma-container {
+    display: grid;
+    grid-template-columns: var(--llma-sidebar-w, 220px) 1fr var(--llma-panel-w, 260px);
+    grid-template-rows: 1fr;
+    height: 100%;
+    min-height: 520px;
+    max-height: 860px;
+    overflow: hidden;
+    position: relative;
+    background: var(--background);
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+}
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+.llma-sidebar {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid var(--light-border);
+    background: var(--background);
+    transition: width 0.22s ease, opacity 0.22s ease;
+    min-width: 0;
+}
+.llma-sidebar.collapsed {
+    width: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+}
+.llma-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+}
+.llma-sidebar-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+    opacity: 0.5;
+}
+.llma-new-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    line-height: 1.4;
+}
+.llma-search-wrap {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+}
+.llma-search {
+    width: 100%;
+    padding: 5px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background-panel-subtle);
+    color: var(--text);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.llma-search:focus {
+    border-color: var(--emphasis);
+}
+.llma-thread-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px 6px 12px;
+}
+.llma-thread-list::-webkit-scrollbar { width: 4px; }
+.llma-thread-list::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
+.llma-thread-group-label {
+    padding: 8px 8px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.35;
+}
+.llma-thread-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 8px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: var(--text-soft);
+    opacity: 0.7;
+    transition: background 0.12s, opacity 0.12s;
+    margin-bottom: 1px;
+    overflow: hidden;
+    white-space: nowrap;
+}
+.llma-thread-item:hover {
+    background: var(--background-soft);
+    opacity: 1;
+}
+.llma-thread-item.active {
+    background: var(--background-soft);
+    opacity: 1;
+    font-weight: 500;
+}
+.llma-thread-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--emphasis);
+    opacity: 0.7;
+}
+.llma-thread-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.llma-thread-del {
+    visibility: hidden;
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border: none;
+    background: none;
+    color: var(--text-soft);
+    opacity: 0.4;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-thread-item:hover .llma-thread-del { visibility: visible; }
+.llma-thread-del:hover { opacity: 0.9; background: color-mix(in srgb, var(--backend-errored) 15%, transparent); }
+
+/* ── Main Area ──────────────────────────────────────────────── */
+.llma-main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+    background: var(--background);
+}

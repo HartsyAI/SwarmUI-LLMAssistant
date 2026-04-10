@@ -101,6 +101,7 @@ public static class ThreadEndpoints
             {
                 ["id"] = thread["id"],
                 ["title"] = title,
+                ["assistantId"] = thread["assistantId"],
                 ["messages"] = thread["messages"],
                 ["parameters"] = thread["parameters"],
                 ["exportedAt"] = DateTime.UtcNow.ToString("o")

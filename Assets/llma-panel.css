@@ -1,0 +1,186 @@
+/* ================================================================
+   LLM Assistant — Assistant Right Panel
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Assistant Right Panel ──────────────────────────────────── */
+.llma-asst-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 1px solid var(--light-border);
+    background: var(--background);
+    transition: width 0.22s ease, opacity 0.22s ease;
+    min-width: 0;
+    position: relative;
+}
+.llma-asst-panel.collapsed {
+    width: 0 !important;
+    opacity: 0;
+    pointer-events: none;
+}
+.llma-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+}
+.llma-panel-header-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    opacity: 0.45;
+    color: var(--text-soft);
+}
+.llma-panel-inner {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.llma-panel-inner::-webkit-scrollbar { width: 4px; }
+.llma-panel-inner::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
+
+/* Assistant card in panel */
+.llma-panel-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid var(--light-border);
+    gap: 8px;
+    text-align: center;
+}
+.llma-panel-avatar {
+    width: 72px;
+    height: 72px;
+    border-radius: 14px;
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 30px;
+    border: 1px solid var(--light-border);
+}
+.llma-panel-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.llma-panel-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-panel-desc {
+    font-size: 12px;
+    color: var(--text-soft);
+    opacity: 0.55;
+    line-height: 1.4;
+}
+.llma-panel-actions { display: flex; gap: 6px; }
+.llma-panel-action-btn {
+    font-size: 11.5px;
+    padding: 4px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    opacity: 0.8;
+    transition: background 0.12s, opacity 0.12s;
+}
+.llma-panel-action-btn:hover { opacity: 1; background: var(--background-soft); }
+
+/* Panel stats */
+.llma-panel-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--light-border);
+}
+.llma-stat-box {
+    background: var(--background-panel-subtle);
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    padding: 8px;
+    text-align: center;
+}
+.llma-stat-num {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-stat-lbl {
+    font-size: 10px;
+    color: var(--text-soft);
+    opacity: 0.45;
+    margin-top: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Memory chips */
+.llma-panel-memories {
+    padding: 12px;
+    flex: 1;
+}
+.llma-mem-header {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.4;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.llma-mem-add {
+    font-size: 11px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    border: 1px solid var(--light-border);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.6;
+}
+.llma-mem-add:hover { opacity: 1; }
+.llma-memory-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.llma-mem-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    background: var(--background-panel-subtle);
+    border: 1px solid var(--light-border);
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.7;
+    cursor: default;
+}
+.llma-mem-chip:hover { opacity: 1; }
+.llma-mem-chip-del {
+    border: none;
+    background: none;
+    cursor: pointer;
+    color: var(--text-soft);
+    opacity: 0.4;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0;
+    margin-left: 2px;
+}
+.llma-mem-chip-del:hover { opacity: 0.9; color: var(--backend-errored); }
+.llma-panel-empty {
+    padding: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-soft);
+    opacity: 0.4;
+    line-height: 1.6;
+}
