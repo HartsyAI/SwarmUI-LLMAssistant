@@ -11,18 +11,40 @@
     overflow: hidden;
 }
 
+/* Empty-chat state: center the input vertically, hide the messages container */
+.llma-chat-panel:has(.llma-messages:empty) .llma-messages {
+    flex: 0 0 auto;
+    min-height: 0;
+    padding: 0;
+}
+.llma-chat-panel:has(.llma-messages:empty) .llma-input-area {
+    margin-top: auto;
+    margin-bottom: auto;
+    padding-top: 0;
+    padding-bottom: 0;
+}
+.llma-chat-panel:has(.llma-messages:empty) .llma-input-area::before {
+    content: "How can I help you today?";
+    display: block;
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--text-strong);
+    opacity: 0.85;
+    margin-bottom: 18px;
+    text-align: center;
+}
+
 /* Messages */
 .llma-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 14px 8px;
+    padding: 20px max(14px, calc((100% - 820px) / 2)) 12px;
     display: flex;
     flex-direction: column;
     gap: 14px;
     scroll-behavior: smooth;
 }
-.llma-messages::-webkit-scrollbar { width: 5px; }
-.llma-messages::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+/* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 
 /* Message row */
 .llma-msg-row {
@@ -266,7 +288,10 @@
 /* Image attachment preview */
 .llma-attachment-preview {
     position: relative;
-    padding: 8px 14px 0;
+    padding: 8px 0 0;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 760px;
     display: flex;
     align-items: flex-start;
     gap: 8px;
@@ -299,48 +324,82 @@
 
 /* ── Input Area ─────────────────────────────────────────────── */
 .llma-input-area {
-    padding: 8px 12px 10px;
-    border-top: 1px solid var(--light-border);
+    padding: 12px 16px 64px;
+    margin-top: auto;
     flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    background: transparent;
 }
 .llma-input-wrap {
     display: flex;
     align-items: flex-end;
-    gap: 6px;
-    background: var(--background-panel-subtle);
+    gap: 8px;
+    width: 100%;
+    max-width: 760px;
+    background: color-mix(in srgb, var(--background-soft) 92%, var(--black) 8%);
     border: 1px solid var(--light-border);
-    border-radius: 12px;
-    padding: 8px 8px 8px 12px;
-    transition: border-color 0.15s;
+    border-radius: 28px;
+    padding: 14px 14px 14px 22px;
+    box-shadow: 0 4px 18px -6px color-mix(in srgb, var(--black) 35%, transparent);
+    transition: border-color 0.15s, box-shadow 0.15s;
 }
 .llma-input-wrap:focus-within {
-    border-color: var(--emphasis);
+    border-color: color-mix(in srgb, var(--emphasis) 60%, var(--light-border));
+    box-shadow: 0 4px 22px -6px color-mix(in srgb, var(--emphasis) 22%, transparent);
 }
 .llma-input {
     flex: 1;
-    background: transparent;
-    border: none;
-    outline: none;
+    background: transparent !important;
+    border: none !important;
+    outline: none !important;
+    box-shadow: none !important;
     color: var(--text);
-    font-size: 13.5px;
-    line-height: 1.5;
+    font-size: 14.5px;
+    line-height: 1.55;
     resize: none;
-    min-height: 22px;
-    max-height: 140px;
+    min-height: 48px;
+    max-height: 220px;
     overflow-y: auto;
     font-family: inherit;
+    padding: 6px 2px;
+    align-self: center;
 }
-.llma-input::placeholder { color: var(--text-soft); opacity: 0.4; }
+.llma-input:focus,
+.llma-input:focus-visible {
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.llma-input::placeholder { color: var(--text-soft); opacity: 0.5; }
 .llma-input-actions {
     display: flex;
     align-items: center;
     gap: 4px;
     flex-shrink: 0;
+    align-self: flex-end;
+    padding-bottom: 2px;
+}
+.llma-input-actions .llma-icon-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-soft);
+    transition: background 0.12s, color 0.12s;
+}
+.llma-input-actions .llma-icon-btn:hover {
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    color: var(--text);
 }
 .llma-send-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
     background: var(--emphasis);
     border: none;
     color: var(--emphasis-text);
@@ -355,9 +414,9 @@
 .llma-send-btn:active { transform: scale(0.94); }
 .llma-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .llma-stop-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
     background: color-mix(in srgb, var(--backend-errored) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--backend-errored) 35%, transparent);
     color: var(--backend-errored);
@@ -371,7 +430,9 @@
 .llma-input-footer {
     display: flex;
     justify-content: space-between;
-    padding: 3px 2px 0;
+    padding: 6px 4px 0;
+    width: 100%;
+    max-width: 760px;
 }
 .llma-input-hint {
     font-size: 10.5px;

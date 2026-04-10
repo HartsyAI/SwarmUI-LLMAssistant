@@ -40,11 +40,50 @@ async function llmaInit() {
     llmaSetupInput();
     llmaSetupSettingsModal();
     llmaSetupAssistantPanel();
+    llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
     llmaSetupResponsive();
 
-    llmaShowWelcome();
+    // Restore the last-used assistant and drop straight into an empty chat
+    // (no thread is persisted until the user actually sends a message).
+    const startAsst = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId)
+                    || LLMAState.assistants[0];
+    if (startAsst) {
+        llmaStartChatWithAssistant(startAsst.id, { persist: false });
+    } else {
+        llmaShowWelcome();
+    }
     llmaUpdateModelPill();
+}
+
+// Start a fresh empty chat session with an assistant without persisting
+// a new thread to the backend. The thread is only saved when the user sends
+// their first message (see llmaSendMessage → llmaCreateThread).
+function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
+    const assistant = LLMAState.assistants.find(a => a.id === assistantId);
+    if (!assistant) return;
+
+    LLMAState.activeAssistantId = assistantId;
+    LLMAState.activeThreadId    = null;
+    LLMAState.messages          = [];
+
+    // Clear rendered messages so the empty-chat CSS state kicks in
+    const msgList = document.getElementById('llma-messages');
+    if (msgList) msgList.innerHTML = '';
+
+    const titleEl = document.getElementById('llma-thread-title');
+    if (titleEl) titleEl.textContent = `Chat with ${assistant.name}`;
+
+    llmaShowChatPanel();
+    llmaUpdateContextBar();
+    llmaRenderThreadList(LLMAState.threads);
+    llmaRenderAssistantPanel(assistantId);
+
+    if (persist) {
+        llmaRequest('LLMAssistantSetActiveAssistant', { assistantId }).catch(() => {});
+    }
+
+    setTimeout(() => document.getElementById('llma-input')?.focus(), 80);
 }
 
 // -- Settings --
@@ -309,7 +348,15 @@ function llmaSetupSidebar() {
     const newBtn = document.getElementById('llma-new-thread-btn');
     if (newBtn) {
         newBtn.addEventListener('click', () => {
-            llmaShowWelcome();
+            // Start a fresh empty chat with the current assistant (no thread
+            // is saved until the first message is sent). If there is no
+            // current assistant, fall back to the welcome gallery.
+            if (LLMAState.activeAssistantId
+                && LLMAState.assistants.some(a => a.id === LLMAState.activeAssistantId)) {
+                llmaStartChatWithAssistant(LLMAState.activeAssistantId, { persist: false });
+            } else {
+                llmaShowWelcome();
+            }
             if (window.innerWidth <= 680) {
                 document.getElementById('llma-sidebar')?.classList.remove('sidebar-open');
             }
@@ -339,6 +386,91 @@ function llmaSetupAssistantPanel() {
     }
 }
 
+// -- Resizable split bars (like the Generate page) --
+function llmaSetupSplitBars() {
+    const container = document.getElementById('llma-container');
+    if (!container) return;
+
+    // Restore saved sizes
+    const savedLeft  = parseInt(localStorage.getItem('llma_sidebar_w') || '0', 10);
+    const savedRight = parseInt(localStorage.getItem('llma_panel_w')   || '0', 10);
+    if (savedLeft  > 0) container.style.setProperty('--llma-sidebar-w', `${savedLeft}px`);
+    if (savedRight > 0) container.style.setProperty('--llma-panel-w',   `${savedRight}px`);
+
+    const leftBar  = document.getElementById('llma-split-left');
+    const rightBar = document.getElementById('llma-split-right');
+
+    const MIN_SIDEBAR = 140;
+    const MAX_SIDEBAR = 520;
+    const MIN_PANEL   = 180;
+    const MAX_PANEL   = 560;
+    const BAR_WIDTH   = 5;
+
+    const attach = (bar, which) => {
+        if (!bar) return;
+        let dragging = false;
+
+        const onMove = (e) => {
+            if (!dragging) return;
+            const rect = container.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            if (which === 'left') {
+                const w = Math.max(MIN_SIDEBAR, Math.min(MAX_SIDEBAR, x));
+                container.style.setProperty('--llma-sidebar-w', `${w}px`);
+            } else {
+                const fromRight = rect.width - x - BAR_WIDTH;
+                const w = Math.max(MIN_PANEL, Math.min(MAX_PANEL, fromRight));
+                container.style.setProperty('--llma-panel-w', `${w}px`);
+            }
+            e.preventDefault();
+        };
+
+        const onUp = () => {
+            if (!dragging) return;
+            dragging = false;
+            bar.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            // Persist
+            const cs = getComputedStyle(container);
+            if (which === 'left') {
+                const px = parseInt(cs.getPropertyValue('--llma-sidebar-w'), 10);
+                if (px > 0) localStorage.setItem('llma_sidebar_w', `${px}`);
+            } else {
+                const px = parseInt(cs.getPropertyValue('--llma-panel-w'), 10);
+                if (px > 0) localStorage.setItem('llma_panel_w', `${px}`);
+            }
+        };
+
+        bar.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return;
+            dragging = true;
+            bar.classList.add('dragging');
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+            e.preventDefault();
+        });
+
+        // Double-click to reset to default
+        bar.addEventListener('dblclick', () => {
+            if (which === 'left') {
+                container.style.removeProperty('--llma-sidebar-w');
+                localStorage.removeItem('llma_sidebar_w');
+            } else {
+                container.style.removeProperty('--llma-panel-w');
+                localStorage.removeItem('llma_panel_w');
+            }
+        });
+    };
+
+    attach(leftBar,  'left');
+    attach(rightBar, 'right');
+}
+
 function llmaRenderAssistantPanel(assistantId) {
     const inner = document.getElementById('llma-panel-inner');
     if (!inner) return;
@@ -358,6 +490,7 @@ function llmaRenderAssistantPanel(assistantId) {
             <div class="llma-panel-desc">${llmaEscapeHtml(assistant.description || '')}</div>
             <div class="llma-panel-actions">
                 <button class="llma-panel-action-btn" onclick="llmaOpenSettings();document.querySelector('.llma-modal-tab[data-tab=assistants]')?.click();">Edit</button>
+                <button class="llma-panel-action-btn" onclick="llmaShowWelcome();">Switch</button>
             </div>
         </div>
         <div class="llma-panel-stats">
@@ -424,8 +557,7 @@ function llmaRenderWelcomeAssistants() {
     grid.querySelectorAll('.llma-asst-card:not(.create-card)').forEach(card => {
         card.addEventListener('click', () => {
             const asstId = card.dataset.assistantId;
-            LLMAState.activeAssistantId = asstId;
-            llmaCreateThread(asstId);
+            llmaStartChatWithAssistant(asstId);
         });
         card.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {

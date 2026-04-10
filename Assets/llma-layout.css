@@ -6,17 +6,46 @@
 /* ── Container & Layout ─────────────────────────────────────── */
 .llma-container {
     display: grid;
-    grid-template-columns: var(--llma-sidebar-w, 220px) 1fr var(--llma-panel-w, 260px);
+    grid-template-columns:
+        var(--llma-sidebar-w, 220px)
+        var(--llma-splitbar-w, 5px)
+        1fr
+        var(--llma-splitbar-w, 5px)
+        var(--llma-panel-w, 260px);
     grid-template-rows: 1fr;
     height: 100%;
     min-height: 520px;
-    max-height: 860px;
     overflow: hidden;
     position: relative;
     background: var(--background);
     border-radius: 6px;
     border: 1px solid var(--light-border);
 }
+.llma-container.sidebar-collapsed { --llma-sidebar-w: 0px; --llma-splitbar-left-w: 0px; }
+.llma-container.panel-collapsed   { --llma-panel-w:   0px; --llma-splitbar-right-w: 0px; }
+
+/* ── Splitter bars (resizable dividers) ─────────────────────────
+   Reuses SwarmUI's global .splitter-bar class (genpage.css) for the
+   base background. This class only adds layout-specific rules (sizing,
+   cursor, z-index) and an unscoped hover state, since SwarmUI's hover
+   is gated on the .large-window body class which this tab may not set. */
+.llma-splitbar {
+    height: 100%;
+    cursor: col-resize;
+    user-select: none;
+    transition: background-color 0.12s, box-shadow 0.12s;
+    z-index: 2;
+}
+.llma-splitbar:hover,
+.llma-splitbar.dragging {
+    background-color: var(--emphasis);
+    box-shadow:
+        -0.4rem 0 0.5rem 0 color-mix(in srgb, transparent 55%, var(--emphasis)),
+         0.4rem 0 0.5rem 0 color-mix(in srgb, transparent 55%, var(--emphasis));
+}
+/* Hide the corresponding bar if a side is collapsed */
+.llma-container.sidebar-collapsed #llma-split-left  { display: none; }
+.llma-container.panel-collapsed   #llma-split-right { display: none; }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 .llma-sidebar {
@@ -80,8 +109,7 @@
     overflow-x: hidden;
     padding: 6px 6px 12px;
 }
-.llma-thread-list::-webkit-scrollbar { width: 4px; }
-.llma-thread-list::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
+/* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 .llma-thread-group-label {
     padding: 8px 8px 3px;
     font-size: 10px;

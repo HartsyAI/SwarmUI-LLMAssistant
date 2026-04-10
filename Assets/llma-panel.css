@@ -41,8 +41,7 @@
     display: flex;
     flex-direction: column;
 }
-.llma-panel-inner::-webkit-scrollbar { width: 4px; }
-.llma-panel-inner::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 2px; }
+/* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 
 /* Assistant card in panel */
 .llma-panel-card {

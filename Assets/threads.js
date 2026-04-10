@@ -88,7 +88,7 @@ async function llmaCreateThread(assistantId) {
     };
 
     try {
-        await llmaRequest('LLMAssistantSaveThread', { thread: JSON.stringify(thread) });
+        await llmaRequest('LLMAssistantSaveThread', { thread });
     } catch {
         llmaShowToast('Failed to save thread', 'error');
         return;
@@ -131,7 +131,9 @@ async function llmaSwitchThread(threadId) {
 
     try {
         const result = await llmaRequest('LLMAssistantGetThread', { threadId });
-        const thread = result?.thread ? JSON.parse(result.thread) : null;
+        const thread = result?.thread
+            ? (typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread)
+            : null;
         if (!thread) { llmaShowToast('Thread not found', 'error'); return; }
 
         LLMAState.activeThreadId    = thread.id;
@@ -212,7 +214,7 @@ async function llmaSaveActiveThread() {
     meta.messageCount = thread.messages.length;
 
     try {
-        await llmaRequest('LLMAssistantSaveThread', { thread: JSON.stringify(thread) });
+        await llmaRequest('LLMAssistantSaveThread', { thread });
     } catch {
         console.warn('[LLMAssistant] Failed to persist thread');
     }

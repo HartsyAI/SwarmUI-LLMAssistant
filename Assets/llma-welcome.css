@@ -9,8 +9,7 @@
     overflow-y: auto;
     padding: 20px 16px;
 }
-.llma-welcome::-webkit-scrollbar { width: 5px; }
-.llma-welcome::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
+/* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 .llma-gallery-header { margin-bottom: 16px; }
 .llma-gallery-title {
     font-size: 18px;

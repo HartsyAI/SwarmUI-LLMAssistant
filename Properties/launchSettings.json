@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "SwarmUI-LLMAssistant": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:10005;http://localhost:10006"
+    }
+  }
+}

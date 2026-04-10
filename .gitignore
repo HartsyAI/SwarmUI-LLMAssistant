@@ -41,3 +41,4 @@
 *.dwo
 /obj
 /bin
+/.vs

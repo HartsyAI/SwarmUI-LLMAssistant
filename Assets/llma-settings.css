@@ -88,10 +88,8 @@
     font-weight: 500;
 }
 
-/* Modal body */
+/* Modal body — scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 .llma-modal-body { flex: 1; overflow-y: auto; padding: 16px; }
-.llma-modal-body::-webkit-scrollbar { width: 5px; }
-.llma-modal-body::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
 
 /* Settings sections */
 .llma-setting-section { margin-bottom: 18px; }
