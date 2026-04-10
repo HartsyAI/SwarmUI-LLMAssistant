@@ -1,0 +1,361 @@
+/* ================================================================
+   LLM Assistant — Tools (Chat Bubbles, List, Editor)
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Tool Call Bubble (in chat) ─────────────────────────────── */
+.llma-msg-text-segment {
+    /* Text segments between tool bubbles — no extra styling, just a container */
+}
+.llma-msg-text-segment:empty { display: none; }
+
+.llma-tool-call-bubble {
+    margin: 8px 0;
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--background-gray) 92%, transparent);
+    overflow: hidden;
+    font-size: 12px;
+}
+.llma-tool-call-bubble.pending {
+    border-color: color-mix(in srgb, var(--emphasis) 45%, var(--light-border));
+}
+.llma-tool-call-bubble.success {
+    border-color: color-mix(in srgb, #4caf50 55%, var(--light-border));
+}
+.llma-tool-call-bubble.error {
+    border-color: color-mix(in srgb, #e53935 55%, var(--light-border));
+}
+.llma-tool-call-bubble.collapsed .llma-tool-call-body { display: none; }
+
+.llma-tool-call-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: color-mix(in srgb, var(--emphasis) 8%, transparent);
+    cursor: default;
+    user-select: none;
+}
+.llma-tool-call-bubble.success .llma-tool-call-header {
+    background: color-mix(in srgb, #4caf50 10%, transparent);
+}
+.llma-tool-call-bubble.error .llma-tool-call-header {
+    background: color-mix(in srgb, #e53935 10%, transparent);
+}
+.llma-tool-call-icon {
+    font-size: 13px;
+    color: var(--emphasis);
+}
+.llma-tool-call-title {
+    flex: 1;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-tool-call-status {
+    font-size: 11px;
+    color: var(--text-soft);
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--background) 80%, transparent);
+}
+.llma-tool-call-bubble.pending .llma-tool-call-status { color: var(--emphasis); }
+.llma-tool-call-bubble.success .llma-tool-call-status { color: #4caf50; }
+.llma-tool-call-bubble.error .llma-tool-call-status { color: #e53935; }
+.llma-tool-call-toggle {
+    background: none;
+    border: 0;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 11px;
+}
+.llma-tool-call-toggle:hover { color: var(--text-strong); }
+
+.llma-tool-call-body {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-tool-call-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.llma-tool-call-args {
+    margin: 0;
+    padding: 6px 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: var(--monospace), monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow: auto;
+}
+
+/* ── Tool Result Bubble ─────────────────────────────────────── */
+.llma-tool-result-slot {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-tool-result-bubble {
+    padding: 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-tool-result-bubble.success {
+    border-left: 3px solid #4caf50;
+}
+.llma-tool-result-bubble.error {
+    border-left: 3px solid #e53935;
+}
+.llma-tool-result-image {
+    max-width: 320px;
+    max-height: 320px;
+    border-radius: 4px;
+    cursor: pointer;
+    align-self: flex-start;
+    border: 1px solid var(--light-border);
+}
+.llma-tool-result-caption {
+    font-size: 11px;
+    color: var(--text-soft);
+    font-style: italic;
+}
+.llma-tool-result-search {
+    margin: 0;
+    padding: 0 0 0 14px;
+    font-size: 12px;
+}
+.llma-tool-result-search li { margin-bottom: 6px; }
+.llma-tool-result-search a {
+    color: var(--emphasis);
+    text-decoration: none;
+}
+.llma-tool-result-search a:hover { text-decoration: underline; }
+.llma-tool-result-snippet {
+    color: var(--text-soft);
+    font-size: 11px;
+    margin-top: 2px;
+}
+.llma-tool-result-fileinfo {
+    font-size: 11px;
+    color: var(--text-soft);
+    font-family: var(--monospace), monospace;
+}
+.llma-tool-result-filecontent {
+    margin: 0;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--background-gray) 60%, transparent);
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--monospace), monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 300px;
+    overflow: auto;
+}
+.llma-tool-result-json {
+    margin: 0;
+    padding: 6px 8px;
+    background: color-mix(in srgb, var(--background-gray) 60%, transparent);
+    border-radius: 4px;
+    color: var(--text);
+    font-family: var(--monospace), monospace;
+    font-size: 11px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 200px;
+    overflow: auto;
+}
+
+/* ── Tool List (Settings Tab) ───────────────────────────────── */
+.llma-tool-list-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.llma-tool-list-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    transition: border-color 0.1s ease;
+}
+.llma-tool-list-item:hover {
+    border-color: color-mix(in srgb, var(--emphasis) 35%, var(--light-border));
+}
+.llma-tool-list-item.disabled {
+    opacity: 0.55;
+}
+.llma-tool-list-info {
+    flex: 1;
+    min-width: 0;
+}
+.llma-tool-list-name {
+    font-weight: 600;
+    color: var(--text-strong);
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+.llma-tool-list-desc {
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 6px;
+    line-height: 1.4;
+}
+.llma-tool-list-meta {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.llma-tool-badge {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--emphasis) 15%, transparent);
+    color: var(--text-soft);
+    font-family: var(--monospace), monospace;
+}
+.llma-tool-list-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.llma-tool-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-soft);
+    cursor: pointer;
+    padding: 3px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--background-gray) 70%, transparent);
+}
+.llma-tool-toggle input { margin: 0; }
+
+/* ── Tool Editor ────────────────────────────────────────────── */
+.llma-tool-editor {
+    margin-top: 12px;
+    padding: 14px;
+    background: color-mix(in srgb, var(--background-gray) 80%, transparent);
+    border: 1px solid var(--light-border);
+    border-radius: 10px;
+}
+.llma-tool-editor-note {
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--emphasis) 10%, transparent);
+    border-radius: 5px;
+    color: var(--text-soft);
+    font-size: 11px;
+    margin-bottom: 10px;
+}
+.llma-tool-schema-section,
+.llma-tool-test-section {
+    margin-top: 10px;
+}
+.llma-tool-schema-section h5,
+.llma-tool-test-section h5 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-tool-schema,
+.llma-tool-test-args {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: var(--monospace), monospace;
+    font-size: 11px;
+    resize: vertical;
+}
+.llma-tool-test-result {
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    color: var(--text);
+    font-family: var(--monospace), monospace;
+    font-size: 11px;
+    min-height: 20px;
+    max-height: 200px;
+    overflow: auto;
+    white-space: pre-wrap;
+}
+
+/* ── Assistant Editor: Enabled Tools Checklist ──────────────── */
+.llma-assist-tools-section {
+    margin-top: 12px;
+}
+.llma-assist-tools-section h5 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-tool-checklist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 6px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+.llma-tool-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+}
+.llma-tool-check:hover {
+    background: color-mix(in srgb, var(--emphasis) 10%, transparent);
+}
+.llma-tool-check.global-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.llma-tool-check input { margin: 0; }
+.llma-tool-check-name {
+    flex: 1;
+}
+.llma-tool-checklist-empty {
+    padding: 10px;
+    background: var(--background);
+    border: 1px dashed var(--light-border);
+    border-radius: 5px;
+    color: var(--text-soft);
+    font-size: 11px;
+    text-align: center;
+}

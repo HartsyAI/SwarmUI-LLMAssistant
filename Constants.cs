@@ -33,3 +33,33 @@ public static class Roles
     public const string Assistant = "assistant";
     public const string System = "system";
 }
+
+/// <summary>Assistant-related constants.</summary>
+public static class AssistantConstants
+{
+    public const string DefaultId = "default";
+}
+
+/// <summary>Tool-calling related constants.</summary>
+public static class ToolConstants
+{
+    /// <summary>Maximum number of agentic iterations (tool call rounds) per user message.</summary>
+    public const int MaxAgenticIterations = 8;
+
+    /// <summary>Handler type: built-in C# ToolHandler implementation.</summary>
+    public const string HandlerBuiltIn = "builtin";
+
+    /// <summary>Reserved: MCP server over stdio.</summary>
+    public const string HandlerMcpStdio = "mcp_stdio";
+
+    /// <summary>Reserved: MCP server over HTTP.</summary>
+    public const string HandlerMcpHttp = "mcp_http";
+
+    // Built-in tool IDs
+    public const string GenerateImage = "generate_image";
+    public const string WebSearch = "web_search";
+    public const string FileRead = "file_read";
+
+    /// <summary>All built-in tool IDs.</summary>
+    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead];
+}

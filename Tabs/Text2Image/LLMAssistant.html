@@ -166,6 +166,7 @@
             <div class="llma-modal-tabs" role="tablist">
                 <button class="llma-modal-tab active" data-tab="general" role="tab" aria-selected="true">General</button>
                 <button class="llma-modal-tab" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
+                <button class="llma-modal-tab" data-tab="tools" role="tab" aria-selected="false">Tools</button>
             </div>
             <div class="llma-modal-body">
                 <!-- General Settings -->
@@ -312,10 +313,73 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="llma-assist-tools-section">
+                            <h5>Enabled Tools</h5>
+                            <div id="llma-assist-tools"></div>
+                        </div>
                         <div class="llma-editor-actions">
                             <button class="basic-button" id="llma-asst-save">Save</button>
                             <button class="basic-button" id="llma-asst-delete" style="display:none;">Delete</button>
                             <button class="basic-button" id="llma-asst-cancel">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tools -->
+                <div class="llma-modal-panel" id="llma-settings-tools" style="display:none;">
+                    <div class="llma-tool-list-wrap" id="llma-tool-list"></div>
+                    <button class="basic-button" id="llma-create-tool-btn">+ Create Tool</button>
+
+                    <!-- Tool Editor -->
+                    <div class="llma-tool-editor" id="llma-tool-editor" style="display:none;">
+                        <div class="llma-editor-header">
+                            <h4 id="llma-tool-editor-title">New Tool</h4>
+                            <button class="llma-icon-btn" id="llma-tool-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
+                        </div>
+                        <div class="llma-tool-editor-note" id="llma-tool-editor-note" style="display:none;"></div>
+                        <div class="llma-editor-grid">
+                            <div class="llma-editor-field">
+                                <label for="llma-tool-id">ID</label>
+                                <input type="text" id="llma-tool-id" placeholder="unique_tool_id">
+                            </div>
+                            <div class="llma-editor-field">
+                                <label for="llma-tool-name">Name</label>
+                                <input type="text" id="llma-tool-name" placeholder="Human-readable name">
+                            </div>
+                            <div class="llma-editor-field llma-editor-field-full">
+                                <label for="llma-tool-description">Description</label>
+                                <input type="text" id="llma-tool-description" placeholder="What this tool does (shown to the LLM)">
+                            </div>
+                            <div class="llma-editor-field">
+                                <label for="llma-tool-handler-type">Handler Type</label>
+                                <select id="llma-tool-handler-type">
+                                    <option value="builtin">Built-In</option>
+                                </select>
+                            </div>
+                            <div class="llma-editor-field">
+                                <label for="llma-tool-handler-id">Handler ID</label>
+                                <input type="text" id="llma-tool-handler-id" placeholder="handler identifier">
+                            </div>
+                            <div class="llma-editor-field">
+                                <label for="llma-tool-enabled">Enabled</label>
+                                <input type="checkbox" id="llma-tool-enabled" checked>
+                            </div>
+                        </div>
+                        <div class="llma-tool-schema-section">
+                            <h5>Parameters Schema (JSON)</h5>
+                            <textarea class="llma-tool-schema" id="llma-tool-schema" rows="8" spellcheck="false"></textarea>
+                        </div>
+                        <div class="llma-tool-test-section">
+                            <h5>Test Execution</h5>
+                            <label for="llma-tool-test-args">Arguments (JSON)</label>
+                            <textarea class="llma-tool-test-args" id="llma-tool-test-args" rows="3" spellcheck="false">{}</textarea>
+                            <button class="basic-button" id="llma-tool-test-run">Run Test</button>
+                            <pre class="llma-tool-test-result" id="llma-tool-test-result"></pre>
+                        </div>
+                        <div class="llma-editor-actions">
+                            <button class="basic-button" id="llma-tool-save">Save</button>
+                            <button class="basic-button" id="llma-tool-delete" style="display:none;">Delete</button>
+                            <button class="basic-button" id="llma-tool-cancel">Cancel</button>
                         </div>
                     </div>
                 </div>

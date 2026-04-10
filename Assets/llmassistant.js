@@ -26,6 +26,7 @@ async function llmaInit() {
         llmaLoadAssistants(),
         llmaLoadThreads(),
         llmaLoadModels(),
+        llmaLoadTools(),
     ]);
 
     // Apply loaded settings to state
@@ -486,6 +487,7 @@ function llmaSetupSettingsModal() {
             document.querySelectorAll('.llma-modal-panel').forEach(p => { p.style.display = 'none'; });
             const panel = document.getElementById(`llma-settings-${tab.dataset.tab}`);
             if (panel) panel.style.display = '';
+            if (tab.dataset.tab === 'tools') llmaLoadTools();
         });
     });
 
@@ -516,6 +518,7 @@ function llmaSetupSettingsModal() {
 
     llmaSetupAvatarUpload();
     llmaSetupInstrTabs();
+    llmaSetupToolsTab();
 }
 
 function llmaOpenSettings() {
@@ -668,6 +671,9 @@ function llmaShowAssistantEditor(assistant) {
     llmaSetEl('llma-asst-temperature', assistant?.parameters?.temperature ?? '');
     llmaSetEl('llma-asst-max-tokens',  assistant?.parameters?.maxTokens ?? '');
     llmaSetEl('llma-asst-top-p',       assistant?.parameters?.topP ?? '');
+
+    // Enabled tools checklist
+    llmaRenderAssistantToolsChecklist(assistant?.enabledToolIds || []);
 }
 
 async function llmaSaveAssistantFromEditor() {
@@ -700,6 +706,8 @@ async function llmaSaveAssistantFromEditor() {
     if (temp?.value) assistant.parameters.temperature = parseFloat(temp.value);
     if (maxTok?.value) assistant.parameters.maxTokens = parseInt(maxTok.value, 10);
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
+
+    assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
 
     try {
         await llmaRequest('LLMAssistantSaveAssistant', { assistant });
