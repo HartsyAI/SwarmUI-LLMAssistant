@@ -2,6 +2,8 @@ using System.Net.WebSockets;
 using LLama.Common;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Backends;
+using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
 
@@ -163,5 +165,73 @@ public static class ChatEndpoints
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 1024;
         input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;
+    }
+
+    /// <summary>Counts tokens for a block of text or a chat history array.
+    /// <para>Accepts either <c>text</c> (a single string) or <c>messages</c> (an array of
+    /// <c>{role, content}</c> objects). If <c>messages</c> is provided, the array is flattened
+    /// with role headers before counting.</para>
+    /// <para>When a <see cref="LlamaSharpLLMBackend"/> is running with a model already loaded,
+    /// the exact tokenizer is used and <c>exact=true</c> is returned. Otherwise a cheap
+    /// <c>chars/4</c> heuristic is returned with <c>exact=false</c>. Calling this endpoint
+    /// never loads a model — if nothing is loaded yet, the caller still gets a heuristic
+    /// response immediately rather than paying a multi-second model-load cost.</para>
+    /// </summary>
+    public static async Task<JObject> LLMAssistantCountTokens(Session session, JObject rawInput)
+    {
+        try
+        {
+            string text = rawInput["text"]?.ToString();
+            if (text is null)
+            {
+                JArray messages = rawInput["messages"] as JArray;
+                if (messages is not null)
+                {
+                    StringBuilder sb = new();
+                    foreach (JToken msg in messages)
+                    {
+                        string role = msg["role"]?.ToString() ?? "user";
+                        string content = msg["content"]?.ToString() ?? "";
+                        sb.Append(role).Append(": ").Append(content).Append('\n');
+                    }
+                    text = sb.ToString();
+                }
+            }
+            text ??= "";
+            // Prefer the running LlamaSharp backend's tokenizer when a model is already loaded.
+            // Deliberately never call Load() here — tokenization should be near-instant; if the
+            // model isn't loaded yet we fall back to the heuristic rather than paying load cost.
+            try
+            {
+                LlamaSharpLLMBackend llama = Program.Backends.RunningBackendsOfType<LlamaSharpLLMBackend>().FirstOrDefault();
+                if (llama?.LoadedContext is not null)
+                {
+                    LLama.Native.LLamaToken[] toks = llama.LoadedContext.Tokenize(text, addBos: true, special: true);
+                    return new JObject
+                    {
+                        ["success"] = true,
+                        ["count"] = toks.Length,
+                        ["exact"] = true,
+                        ["source"] = "llama.cpp"
+                    };
+                }
+            }
+            catch
+            {
+                // Fall through to heuristic on any tokenizer error.
+            }
+            int approx = Math.Max(0, (int)Math.Ceiling(text.Length / 4.0));
+            return new JObject
+            {
+                ["success"] = true,
+                ["count"] = approx,
+                ["exact"] = false,
+                ["source"] = "heuristic"
+            };
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
     }
 }

@@ -542,6 +542,59 @@ function llmaRenderAssistantPanelEmpty() {
     if (inner) inner.innerHTML = '<div class="llma-panel-empty">Select an assistant to see details.</div>';
 }
 
+// Lightweight in-place update for the Messages/Tokens stat boxes.
+// Called from chat.js on user send and on stream completion so the right panel
+// reflects the active thread's live counts without a full re-render.
+//
+// Uses the exact backend token count (LLMAState.exactTokenCount) when available,
+// otherwise falls back to the cheap char/4 heuristic. Exact counts are requested
+// via llmaRefreshExactTotalTokens() on stream completion.
+function llmaUpdatePanelStats() {
+    const boxes = document.querySelectorAll('#llma-panel-inner .llma-panel-stats .llma-stat-num');
+    if (!boxes || boxes.length < 2) return;
+    const msgs = LLMAState.messages || [];
+    boxes[0].textContent = String(msgs.length);
+    const exact = LLMAState.exactTokenCount;
+    if (typeof exact === 'number' && LLMAState.exactTokenCountForLen === msgs.length) {
+        boxes[1].textContent = exact.toLocaleString();
+    }
+    else {
+        boxes[1].textContent = '~' + llmaApproxTokens(msgs);
+    }
+}
+
+// Fires a background request to get an exact token count for the current thread's
+// full message history and patches LLMAState.exactTokenCount when it lands.
+// Fire-and-forget — safe to call without awaiting. If the active LLM backend
+// cannot tokenize (not loaded / wrong backend type), the server returns the same
+// heuristic and this stays as an approximation.
+async function llmaRefreshExactTotalTokens() {
+    const msgs = LLMAState.messages || [];
+    if (msgs.length === 0) {
+        LLMAState.exactTokenCount = 0;
+        LLMAState.exactTokenCountForLen = 0;
+        llmaUpdatePanelStats();
+        llmaUpdateContextBar();
+        return;
+    }
+    // Snapshot length so we can invalidate if more messages land while we're waiting.
+    const snapshotLen = msgs.length;
+    const payload = { messages: msgs.map(m => ({ role: m.role, content: m.content || '' })) };
+    try {
+        const result = await llmaRequest('LLMAssistantCountTokens', payload);
+        if (!result || result.success === false) return;
+        // Only apply if the conversation hasn't moved on since we requested.
+        if ((LLMAState.messages || []).length !== snapshotLen) return;
+        LLMAState.exactTokenCount = Number(result.count) || 0;
+        LLMAState.exactTokenCountForLen = snapshotLen;
+        LLMAState.exactTokenCountIsExact = !!result.exact;
+        llmaUpdatePanelStats();
+        llmaUpdateContextBar();
+    } catch {
+        // Silent — heuristic stays.
+    }
+}
+
 // -- Welcome Screen Assistant Grid --
 function llmaRenderWelcomeAssistants() {
     const grid = document.getElementById('llma-assistant-grid');

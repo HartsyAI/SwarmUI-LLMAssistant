@@ -204,6 +204,11 @@ async function llmaSendMessage() {
     };
     LLMAState.messages.push(userMsg);
     llmaAppendMessageToDOM('user', userMsg.content, userMsg.imageBase64, userMsgId);
+    // The previous exact count is stale now that a new message was added;
+    // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
+    LLMAState.exactTokenCount = null;
+    LLMAState.exactTokenCountForLen = -1;
+    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
     // Build payload
     const history = LLMAState.messages.map(m => ({ role: m.role, content: m.content }));
@@ -369,6 +374,10 @@ function llmaStreamResponse(payload, onComplete) {
                 llmaSetStreaming(false);
                 llmaSaveActiveThread();
                 llmaUpdateContextBar();
+                if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+                // Fire-and-forget exact-count refresh: lands async and patches the
+                // sidebar/context bar once the server responds.
+                if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
                 if (onComplete) onComplete(cleanFinal);
             }
         }, 0, err => {
@@ -433,6 +442,7 @@ function llmaDeleteMessage(msgId) {
     llmaRebuildAssetsForThread();
     llmaSaveActiveThread();
     llmaUpdateContextBar();
+    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 }
 
 function llmaStartEdit(msgId) {

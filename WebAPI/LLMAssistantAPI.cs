@@ -72,6 +72,7 @@ public static class LLMAssistantAPI
         // Chat
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantCountTokens, false, PermChat);
         // Settings
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantSaveSettings, true, PermSettings);

@@ -141,6 +141,9 @@ async function llmaSwitchThread(threadId) {
         LLMAState.activeThreadId    = thread.id;
         LLMAState.messages          = Array.isArray(thread.messages) ? thread.messages : [];
         LLMAState.activeAssistantId = thread.assistantId || LLMAState.activeAssistantId;
+        // Invalidate the exact token count — it's for the previous thread.
+        LLMAState.exactTokenCount = null;
+        LLMAState.exactTokenCountForLen = -1;
 
         // Restore per-thread parameter overrides (model, temperature, etc.)
         if (thread.params && typeof thread.params === 'object') {
@@ -170,6 +173,11 @@ async function llmaSwitchThread(threadId) {
 
         if (LLMAState.activeAssistantId) {
             llmaRenderAssistantPanel(LLMAState.activeAssistantId);
+        }
+
+        // Request exact count for the freshly-loaded thread (fire-and-forget).
+        if (typeof llmaRefreshExactTotalTokens === 'function') {
+            llmaRefreshExactTotalTokens();
         }
 
         // Close sidebar on mobile
@@ -356,12 +364,16 @@ function llmaUpdateContextBar() {
 
     const count     = LLMAState.messages.length;
     const maxCtx    = LLMAState.settings?.defaults?.contextMessages || 0;
-    const approxTok = llmaApproxTokens(LLMAState.messages);
-    const pct       = maxCtx > 0 ? Math.min(100, (count / maxCtx) * 100) : Math.min(100, (approxTok / 4096) * 100);
+    // Prefer the exact token count when it's valid for the current conversation length.
+    const useExact = typeof LLMAState.exactTokenCount === 'number'
+        && LLMAState.exactTokenCountForLen === count;
+    const tokCount  = useExact ? LLMAState.exactTokenCount : llmaApproxTokens(LLMAState.messages);
+    const pct       = maxCtx > 0 ? Math.min(100, (count / maxCtx) * 100) : Math.min(100, (tokCount / 4096) * 100);
 
     if (label)  label.textContent  = `${count} message${count !== 1 ? 's' : ''}`;
     if (fill)   fill.style.width   = `${pct.toFixed(0)}%`;
     if (tokens && LLMAState.showTokens) {
-        tokens.textContent = `~${approxTok.toLocaleString()} tokens`;
+        const prefix = useExact && LLMAState.exactTokenCountIsExact ? '' : '~';
+        tokens.textContent = `${prefix}${tokCount.toLocaleString()} tokens`;
     }
 }
