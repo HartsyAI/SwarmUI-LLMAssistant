@@ -162,6 +162,27 @@
         </div>
     </aside>
 
+    <!-- ── Asset Viewer Modal ────────────────────────────────── -->
+    <div class="llma-overlay llma-asset-overlay" id="llma-asset-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Asset viewer">
+        <div class="llma-modal llma-asset-modal">
+            <div class="llma-modal-header">
+                <div class="llma-asset-title-wrap">
+                    <span class="llma-asset-modal-icon" id="llma-asset-modal-icon"></span>
+                    <span class="llma-asset-modal-title" id="llma-asset-modal-title"></span>
+                    <span class="llma-asset-type-badge" id="llma-asset-modal-badge"></span>
+                </div>
+                <div class="llma-asset-actions">
+                    <button id="llma-asset-use-prompt" title="Send content to the Generate prompt box">Use as Prompt</button>
+                    <button id="llma-asset-use-init" title="Send image as init for Generate" style="display:none;">Use as Init</button>
+                    <button id="llma-asset-copy" title="Copy content to clipboard">Copy</button>
+                    <button id="llma-asset-download" title="Download as file">Download</button>
+                    <button class="llma-modal-close" id="llma-asset-close" aria-label="Close asset viewer">&times;</button>
+                </div>
+            </div>
+            <div class="llma-modal-body" id="llma-asset-modal-body"></div>
+        </div>
+    </div>
+
     <!-- ── Settings Modal ────────────────────────────────────── -->
     <div class="llma-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="llma-modal">
@@ -324,6 +345,10 @@
                             <div id="llma-assist-tools"></div>
                         </div>
                         <div class="llma-editor-actions">
+                            <label class="llma-scope-toggle" id="llma-asst-scope-toggle" style="display:none;" title="Save this assistant to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
+                                <input type="checkbox" id="llma-asst-scope-shared">
+                                <span>Shared (visible to all users)</span>
+                            </label>
                             <button class="basic-button" id="llma-asst-save">Save</button>
                             <button class="basic-button" id="llma-asst-delete" style="display:none;">Delete</button>
                             <button class="basic-button" id="llma-asst-cancel">Cancel</button>
@@ -386,6 +411,10 @@
                             <button class="basic-button" id="llma-tool-save">Save</button>
                             <button class="basic-button" id="llma-tool-delete" style="display:none;">Delete</button>
                             <button class="basic-button" id="llma-tool-cancel">Cancel</button>
+                            <label class="llma-scope-toggle" id="llma-tool-scope-toggle" style="display:none;" title="Save this tool to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
+                                <input type="checkbox" id="llma-tool-scope-shared">
+                                <span>Shared (visible to all users)</span>
+                            </label>
                         </div>
                     </div>
                 </div>

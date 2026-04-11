@@ -17,6 +17,7 @@ public static class MigrationService
         MigrateFromMagicPrompt();
         MigrateToAssistants();
         MigrateTools();
+        BackfillBuiltInTools();
     }
 
     /// <summary>Seeds built-in tools into settings and enables them on the default assistant for existing installs.</summary>
@@ -64,6 +65,39 @@ public static class MigrationService
         catch (Exception ex)
         {
             Logs.Error($"[LLMAssistant] Tool migration failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>Idempotent top-up: ensures every built-in tool defined in <see cref="ToolRegistryService.BuildDefaultTools"/>
+    /// is present in settings, so existing installs automatically pick up new built-ins added in later versions.
+    /// Does NOT auto-enable new tools on existing assistants — the user explicitly opts in (especially for dangerous
+    /// tools like <c>shell_exec</c>).</summary>
+    private static void BackfillBuiltInTools()
+    {
+        try
+        {
+            JObject settings = SettingsService.GetSettings();
+            JObject tools = settings["tools"] as JObject ?? new JObject();
+            JObject defaultTools = ToolRegistryService.BuildDefaultTools();
+            bool changed = false;
+            foreach (KeyValuePair<string, JToken> kvp in defaultTools)
+            {
+                if (!tools.ContainsKey(kvp.Key))
+                {
+                    tools[kvp.Key] = kvp.Value;
+                    changed = true;
+                    Logs.Info($"[LLMAssistant] Backfilled new built-in tool: {kvp.Key}");
+                }
+            }
+            if (changed)
+            {
+                settings["tools"] = tools;
+                SettingsService.SaveSettings(settings);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Built-in tool backfill failed: {ex.Message}");
         }
     }
 

@@ -1,0 +1,553 @@
+/* ================================================================
+   LLM Assistant — Asset Cards, Sidebar List, Viewer Modal
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* ── Inline asset card (in chat bubble) ─────────────────────────── */
+.llma-asset-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    border-radius: 10px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    cursor: pointer;
+    transition: border-color 0.14s, background 0.14s, transform 0.08s;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    text-align: left;
+    font-family: inherit;
+}
+.llma-asset-card:hover {
+    border-color: var(--emphasis);
+    background: var(--background-soft);
+}
+.llma-asset-card:active { transform: scale(0.99); }
+.llma-asset-card:focus-visible {
+    outline: 2px solid var(--emphasis);
+    outline-offset: 1px;
+}
+
+/* User-bubble asset cards need to respect bubble width too */
+.llma-msg-bubble.user-bubble .llma-asset-card {
+    background: color-mix(in srgb, var(--black) 18%, transparent);
+    border-color: color-mix(in srgb, var(--emphasis-text) 20%, transparent);
+}
+
+.llma-asset-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--emphasis) 14%, var(--background-panel-subtle));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.llma-asset-thumb {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--background-panel-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-asset-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.llma-asset-card-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.llma-asset-card-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.llma-asset-card-sub {
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.55;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.llma-asset-card-open {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.75;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.llma-asset-card:hover .llma-asset-card-open {
+    opacity: 1;
+    color: var(--text);
+    background: var(--background-soft);
+}
+
+/* ── Sidebar asset section ──────────────────────────────────────── */
+.llma-panel-assets {
+    padding: 10px 12px 14px;
+    border-top: 1px solid var(--light-border);
+}
+.llma-panel-assets-header {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.4;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.llma-asset-count {
+    font-size: 10.5px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--background-panel-subtle);
+    border: 1px solid var(--light-border);
+    opacity: 0.7;
+}
+.llma-asset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-asset-list .llma-asset-card {
+    margin: 0;
+    padding: 8px 10px;
+    max-width: 100%;
+}
+.llma-asset-list .llma-asset-card.compact .llma-asset-icon,
+.llma-asset-list .llma-asset-card.compact .llma-asset-thumb {
+    width: 32px;
+    height: 32px;
+    font-size: 15px;
+}
+.llma-asset-list .llma-asset-card.compact .llma-asset-card-title { font-size: 12px; }
+.llma-asset-list .llma-asset-card.compact .llma-asset-card-sub { font-size: 10.5px; }
+.llma-asset-list .llma-asset-card.compact .llma-asset-card-open {
+    font-size: 10px;
+    padding: 3px 7px;
+}
+
+.llma-asset-empty {
+    padding: 14px 8px;
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.4;
+    text-align: center;
+    line-height: 1.6;
+}
+
+/* ── Asset Viewer Modal ─────────────────────────────────────────── */
+.llma-asset-overlay {
+    /* reuses .llma-overlay base class from llma-settings.css */
+}
+.llma-asset-modal {
+    width: min(920px, 94%);
+    max-height: 90%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--background-gray);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    animation: llma-modal-in 0.18s ease;
+}
+.llma-asset-modal .llma-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--light-border);
+    flex-shrink: 0;
+    gap: 12px;
+}
+.llma-asset-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+}
+.llma-asset-modal-icon {
+    font-size: 20px;
+    flex-shrink: 0;
+}
+.llma-asset-modal-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-strong);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.llma-asset-type-badge {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--emphasis) 18%, transparent);
+    color: var(--emphasis);
+    flex-shrink: 0;
+}
+.llma-asset-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.llma-asset-actions button {
+    font-size: 11.5px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.8;
+    transition: opacity 0.12s, background 0.12s;
+}
+.llma-asset-actions button:hover {
+    opacity: 1;
+    background: var(--background-soft);
+    color: var(--text);
+}
+.llma-asset-actions .llma-modal-close {
+    padding: 0;
+    width: 26px;
+    height: 26px;
+    font-size: 18px;
+    border: none;
+    border-radius: 6px;
+}
+
+.llma-asset-modal .llma-modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+    background: var(--background);
+}
+
+/* ── Viewer type-specific panes ─────────────────────────────────── */
+
+/* Text fallback */
+.llma-asset-view-text {
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--font-monospace);
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--background);
+}
+
+/* Code */
+.llma-asset-view-code {
+    padding: 0;
+}
+.llma-asset-view-code pre {
+    margin: 0;
+    padding: 16px 18px;
+    background: color-mix(in srgb, var(--black) 20%, var(--background));
+    overflow: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+    font-family: var(--font-monospace);
+}
+
+/* Markdown */
+.llma-asset-view-markdown {
+    padding: 18px 22px 28px;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 820px;
+    margin: 0 auto;
+}
+.llma-asset-view-markdown h1,
+.llma-asset-view-markdown h2,
+.llma-asset-view-markdown h3,
+.llma-asset-view-markdown h4 {
+    color: var(--text-strong);
+    font-weight: 600;
+    margin: 16px 0 6px;
+}
+.llma-asset-view-markdown h1 { font-size: 22px; }
+.llma-asset-view-markdown h2 { font-size: 18px; }
+.llma-asset-view-markdown h3 { font-size: 15px; }
+.llma-asset-view-markdown p { margin: 0 0 10px; }
+.llma-asset-view-markdown pre {
+    background: color-mix(in srgb, var(--black) 30%, transparent);
+    padding: 12px;
+    border-radius: 7px;
+    overflow-x: auto;
+    font-size: 12.5px;
+}
+.llma-asset-view-markdown code {
+    font-family: var(--font-monospace);
+    font-size: 12.5px;
+}
+.llma-asset-view-markdown :not(pre) > code {
+    background: color-mix(in srgb, var(--black) 22%, transparent);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+.llma-asset-view-markdown blockquote {
+    border-left: 3px solid var(--emphasis);
+    padding-left: 12px;
+    margin: 10px 0;
+    opacity: 0.8;
+}
+.llma-asset-view-markdown ul,
+.llma-asset-view-markdown ol { padding-left: 22px; margin: 8px 0; }
+.llma-asset-view-markdown table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    font-size: 12.5px;
+}
+.llma-asset-view-markdown th,
+.llma-asset-view-markdown td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+}
+.llma-asset-view-markdown th { background: var(--background-panel-subtle); }
+
+/* HTML with tab bar */
+.llma-asset-view-html {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 420px;
+}
+.llma-asset-view-tabs {
+    display: flex;
+    gap: 2px;
+    padding: 8px 12px 0;
+    border-bottom: 1px solid var(--light-border);
+    background: var(--background-gray);
+    flex-shrink: 0;
+}
+.llma-asset-view-tab {
+    padding: 6px 14px;
+    font-size: 12px;
+    border: 1px solid var(--light-border);
+    border-bottom: none;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    opacity: 0.6;
+    border-radius: 6px 6px 0 0;
+    margin-bottom: -1px;
+}
+.llma-asset-view-tab.active {
+    opacity: 1;
+    background: var(--background);
+    color: var(--text);
+    border-bottom: 1px solid var(--background);
+}
+.llma-asset-view-tab.llma-asset-scripts-btn {
+    margin-left: auto;
+    border-radius: 6px;
+    border-bottom: 1px solid var(--light-border);
+    font-size: 11px;
+    padding: 4px 10px;
+    margin-bottom: 4px;
+}
+.llma-asset-view-tab.llma-asset-scripts-btn.active {
+    background: color-mix(in srgb, var(--backend-errored) 15%, transparent);
+    color: var(--backend-errored);
+    border-color: color-mix(in srgb, var(--backend-errored) 40%, transparent);
+}
+.llma-asset-view-pane {
+    flex: 1;
+    overflow: auto;
+    background: var(--background);
+    display: flex;
+}
+.llma-asset-view-pane.preview { padding: 0; }
+.llma-asset-view-pane.source { padding: 0; }
+.llma-asset-view-pane.source pre {
+    flex: 1;
+    margin: 0;
+    padding: 16px 18px;
+    font-size: 12.5px;
+    overflow: auto;
+}
+.llma-asset-iframe {
+    flex: 1;
+    width: 100%;
+    min-height: 420px;
+    border: none;
+    background: white;
+}
+
+/* SVG viewer */
+.llma-asset-view-svg {
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+    background:
+        linear-gradient(45deg, color-mix(in srgb, var(--black) 10%, transparent) 25%, transparent 25%),
+        linear-gradient(-45deg, color-mix(in srgb, var(--black) 10%, transparent) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--black) 10%, transparent) 75%),
+        linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--black) 10%, transparent) 75%);
+    background-size: 20px 20px;
+    background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+}
+.llma-asset-view-svg svg {
+    max-width: 100%;
+    max-height: 70vh;
+}
+
+/* Mermaid viewer */
+.llma-asset-view-mermaid {
+    padding: 20px;
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-asset-view-mermaid .llma-mermaid-block {
+    max-width: 100%;
+    background: transparent;
+    padding: 0;
+}
+.llma-asset-view-mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Image viewer */
+.llma-asset-view-image {
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 320px;
+    background: color-mix(in srgb, var(--black) 30%, var(--background));
+}
+.llma-asset-view-image img {
+    max-width: 100%;
+    max-height: 75vh;
+    border-radius: 8px;
+    box-shadow: 0 4px 22px -6px color-mix(in srgb, var(--black) 60%, transparent);
+}
+
+/* Table viewer */
+.llma-asset-view-table {
+    padding: 18px 22px;
+    overflow-x: auto;
+}
+.llma-asset-view-table table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 12.5px;
+    color: var(--text);
+}
+.llma-asset-view-table th,
+.llma-asset-view-table td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    text-align: left;
+}
+.llma-asset-view-table th {
+    background: var(--background-panel-subtle);
+    color: var(--text-strong);
+    font-weight: 600;
+}
+
+/* JSON tree viewer */
+.llma-asset-view-json {
+    padding: 16px 20px;
+    font-family: var(--font-monospace);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+}
+.llma-json-node {
+    position: relative;
+}
+.llma-json-head {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+.llma-json-toggle {
+    background: none;
+    border: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0 4px;
+    opacity: 0.6;
+    font-family: inherit;
+}
+.llma-json-toggle:hover { opacity: 1; }
+.llma-json-body {
+    padding-left: 18px;
+    border-left: 1px dashed color-mix(in srgb, var(--text-soft) 20%, transparent);
+    margin-left: 6px;
+}
+.llma-json-tail {
+    padding-left: 6px;
+}
+.llma-json-node.collapsed > .llma-json-toggle,
+.llma-json-node.collapsed .llma-json-head > .llma-json-toggle {
+    transform: rotate(-90deg);
+}
+.llma-json-node.collapsed > .llma-json-body,
+.llma-json-node.collapsed > .llma-json-tail { display: none; }
+.llma-json-node.collapsed > .llma-json-head::after {
+    content: '...';
+    opacity: 0.5;
+    margin-left: 4px;
+}
+.llma-json-key { color: var(--emphasis); }
+.llma-json-str { color: #a0e0a0; }
+.llma-json-num { color: #f0c070; }
+.llma-json-bool { color: #c090ff; }
+.llma-json-null { color: var(--text-soft); opacity: 0.6; }
+.llma-json-bracket { color: var(--text-soft); opacity: 0.8; }
+.llma-json-count { color: var(--text-soft); opacity: 0.5; font-size: 11px; }
+
+/* Error inside viewer */
+.llma-asset-error {
+    padding: 16px;
+    color: var(--backend-errored);
+    font-size: 13px;
+}

@@ -22,18 +22,20 @@ async function llmaInit() {
         llmaLoadSettings(),
     ]);
 
-    await Promise.allSettled([
+    const [, , , , sessionStateResult] = await Promise.allSettled([
         llmaLoadAssistants(),
         llmaLoadThreads(),
         llmaLoadModels(),
         llmaLoadTools(),
+        llmaGetSessionState(),
     ]);
+    const sessionState = sessionStateResult?.status === 'fulfilled' ? (sessionStateResult.value || {}) : {};
 
     // Apply loaded settings to state
     LLMAState.markdownEnabled = LLMAState.settings?.ui?.markdownEnabled !== false;
     LLMAState.enterToSend     = LLMAState.settings?.ui?.enterToSend     !== false;
     LLMAState.showTokens      = LLMAState.settings?.ui?.showTokens      !== false;
-    LLMAState.currentModel    = LLMAState.settings?.currentModel        || null;
+    LLMAState.currentModel    = sessionState.currentModel || LLMAState.settings?.currentModel || null;
 
     llmaSetupTopBar();
     llmaSetupSidebar();
@@ -43,15 +45,23 @@ async function llmaInit() {
     llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
     llmaSetupResponsive();
+    if (typeof llmaSetupAssets === 'function') llmaSetupAssets();
 
-    // Restore the last-used assistant and drop straight into an empty chat
-    // (no thread is persisted until the user actually sends a message).
-    const startAsst = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId)
-                    || LLMAState.assistants[0];
-    if (startAsst) {
-        llmaStartChatWithAssistant(startAsst.id, { persist: false });
+    // Restore the last active thread from session state if present and still exists.
+    const resumeThreadId = sessionState.activeThreadId;
+    const resumeThread   = resumeThreadId && LLMAState.threads.find(t => t.id === resumeThreadId);
+    if (resumeThread) {
+        await llmaSwitchThread(resumeThreadId);
     } else {
-        llmaShowWelcome();
+        // Fall back: drop straight into an empty chat with the last-used assistant.
+        // No thread is persisted until the user actually sends a message.
+        const startAsst = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId)
+                        || LLMAState.assistants[0];
+        if (startAsst) {
+            llmaStartChatWithAssistant(startAsst.id, { persist: false });
+        } else {
+            llmaShowWelcome();
+        }
     }
     llmaUpdateModelPill();
 }
@@ -66,6 +76,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     LLMAState.activeAssistantId = assistantId;
     LLMAState.activeThreadId    = null;
     LLMAState.messages          = [];
+    LLMAState.assets            = [];
 
     // Clear rendered messages so the empty-chat CSS state kicks in
     const msgList = document.getElementById('llma-messages');
@@ -112,6 +123,7 @@ async function llmaLoadAssistants() {
         const result = await llmaRequest('LLMAssistantGetAssistants', {});
         LLMAState.assistants = Array.isArray(result?.assistants) ? result.assistants : [];
         LLMAState.activeAssistantId = result?.activeAssistantId || LLMAState.activeAssistantId || 'default';
+        LLMAState.canWriteShared = !!result?.canWriteShared;
     } catch {
         LLMAState.assistants = [];
     }
@@ -199,6 +211,8 @@ function llmaSetupModelPill() {
             LLMAState.currentModel = model;
             LLMAState.settings.currentModel = model;
             await llmaSaveSettings();
+            // Mirror to per-user session state so a headless client sees the same model.
+            llmaSetSessionState({ currentModel: model });
 
             llmaUpdateModelPill();
             popover.style.display = 'none';
@@ -508,7 +522,19 @@ function llmaRenderAssistantPanel(assistantId) {
                 ${assistant.instructions?.prompt ? '<span class="llma-mem-chip">Prompt</span>' : ''}
                 ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip">Random</span>' : ''}
             </div>
+        </div>
+        <div class="llma-panel-assets">
+            <div class="llma-panel-assets-header">
+                <span>Assets</span>
+                <span class="llma-asset-count" id="llma-asset-count">0</span>
+            </div>
+            <div class="llma-asset-list" id="llma-asset-list"></div>
         </div>`;
+
+    // Populate the freshly-created asset list (derived from current messages)
+    if (typeof llmaRenderAssetSidebar === 'function') {
+        llmaRenderAssetSidebar();
+    }
 }
 
 function llmaRenderAssistantPanelEmpty() {
@@ -727,13 +753,16 @@ function llmaRenderAssistantList() {
     let html = '';
     for (const a of LLMAState.assistants) {
         const icon  = llmaCategoryIcon(a.icon || a.category || 'chat');
+        const scopeBadge = a._scope === 'shared'
+            ? ' <span class="llma-scope-badge llma-scope-shared" title="Shared — visible to all users on this instance">shared</span>'
+            : (a._scope === 'personal' ? ' <span class="llma-scope-badge llma-scope-personal" title="Personal — only visible to you">personal</span>' : '');
         html += `
             <div class="llma-asst-list-item" data-asst-id="${llmaEscapeHtml(a.id)}">
                 <div class="llma-list-avatar" style="background:${llmaGradientBg(a.color)};">
                     ${a.avatar ? `<img src="${llmaEscapeHtml(a.avatar)}">` : icon}
                 </div>
                 <div class="llma-list-info">
-                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : ''}</div>
+                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : ''}${scopeBadge}</div>
                     <div class="llma-list-desc">${llmaEscapeHtml(a.description || '')}</div>
                 </div>
                 <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">Edit</button>
@@ -768,6 +797,17 @@ function llmaShowAssistantEditor(assistant) {
     const deleteBtn = document.getElementById('llma-asst-delete');
     if (deleteBtn) deleteBtn.style.display = (assistant && !assistant.isBuiltIn) ? '' : 'none';
 
+    // Scope toggle: only admins (canWriteShared) see it. When editing an existing assistant,
+    // pre-fill from its current scope so they can re-save to the same layer.
+    const scopeWrap = document.getElementById('llma-asst-scope-toggle');
+    const scopeCheckbox = document.getElementById('llma-asst-scope-shared');
+    if (scopeWrap) {
+        scopeWrap.style.display = LLMAState.canWriteShared ? '' : 'none';
+    }
+    if (scopeCheckbox) {
+        scopeCheckbox.checked = assistant?._scope === 'shared';
+    }
+
     // Basic fields
     llmaSetEl('llma-asst-name', assistant?.name || '');
     llmaSetEl('llma-asst-desc', assistant?.description || '');
@@ -781,9 +821,12 @@ function llmaShowAssistantEditor(assistant) {
     // Avatar preview
     const preview = document.getElementById('llma-avatar-preview');
     if (preview) {
+        delete preview.dataset.avatarData;
         if (assistant?.avatar) {
             preview.innerHTML = `<img src="${llmaEscapeHtml(assistant.avatar)}">`;
+            preview.dataset.avatarData = assistant.avatar;
         } else {
+            preview.innerHTML = '';
             preview.style.background = llmaGradientBg(assistant?.color);
             preview.textContent = llmaCategoryIcon(assistant?.icon || assistant?.category || 'chat');
         }
@@ -841,8 +884,22 @@ async function llmaSaveAssistantFromEditor() {
 
     assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
 
+    const avatarPreview = document.getElementById('llma-avatar-preview');
+    if (avatarPreview?.dataset.avatarData) {
+        assistant.avatar = avatarPreview.dataset.avatarData;
+    }
+
+    // Scope: only send "shared" if the admin explicitly opted in AND has the permission.
+    const scopeCheckbox = document.getElementById('llma-asst-scope-shared');
+    const wantsShared = !!(scopeCheckbox?.checked && LLMAState.canWriteShared);
+    const scope = wantsShared ? 'shared' : 'personal';
+
     try {
-        await llmaRequest('LLMAssistantSaveAssistant', { assistant });
+        const result = await llmaRequest('LLMAssistantSaveAssistant', { assistant, scope });
+        if (result && result.success === false) {
+            llmaShowToast(result.error || 'Failed to save assistant', 'error');
+            return;
+        }
         document.getElementById('llma-asst-editor').style.display = 'none';
         await llmaLoadAssistants();
         llmaRenderAssistantList();
@@ -855,8 +912,16 @@ async function llmaSaveAssistantFromEditor() {
 
 async function llmaDeleteAssistant(id) {
     if (!id || !confirm('Delete this assistant?')) return;
+    // Pass scope so an admin's delete of a shared assistant goes to the shared layer,
+    // and a personal delete goes to the personal layer.
+    const assistant = LLMAState.assistants.find(a => a.id === id);
+    const scope = assistant?._scope || undefined;
     try {
-        await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id });
+        const result = await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id, scope });
+        if (result && result.success === false) {
+            llmaShowToast(result.error || 'Failed to delete assistant', 'error');
+            return;
+        }
         document.getElementById('llma-asst-editor').style.display = 'none';
         await llmaLoadAssistants();
         llmaRenderAssistantList();
@@ -936,6 +1001,11 @@ function llmaSetupKeyboardShortcuts() {
         }
         if (e.key === 'Escape') {
             llmaCloseAllPopovers();
+            const assetOverlay = document.getElementById('llma-asset-overlay');
+            if (assetOverlay && assetOverlay.style.display !== 'none') {
+                if (typeof llmaCloseAssetViewer === 'function') llmaCloseAssetViewer();
+                return;
+            }
             if (document.getElementById('llma-settings-overlay')?.style.display !== 'none') {
                 llmaCloseSettings();
             }

@@ -66,6 +66,31 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Renames a thread. The UI calls this instead of re-sending the entire thread on rename.</summary>
+    public static async Task<JObject> LLMAssistantRenameThread(Session session, string threadId, string title)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return new JObject { ["success"] = false, ["error"] = "title is required." };
+        }
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+        }
+        thread["title"] = title.Trim();
+        ThreadStorageService.SaveThread(session.User, thread);
+        return new JObject
+        {
+            ["success"] = true,
+            ["thread"] = thread
+        };
+    }
+
     /// <summary>Exports a thread in JSON or Markdown format.</summary>
     public static async Task<JObject> LLMAssistantExportThread(Session session, string threadId, string format = "json")
     {

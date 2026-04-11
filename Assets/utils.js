@@ -22,6 +22,8 @@ const LLMAState = {
     markdownEnabled:   true,
     enterToSend:       true,
     showTokens:        true,
+    assets:            [],
+    activeAssetId:     null,
 };
 
 // -- API Helper --

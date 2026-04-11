@@ -1,18 +1,24 @@
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Resolves instructions by ID/title and substitutes variables.</summary>
+/// <summary>Resolves instructions by ID/title and substitutes variables.
+///
+/// <para>Instructions live in <c>settings.instructions</c> and are read from the user's merged
+/// view — a user sees shared/admin instruction defaults plus any of their own custom instructions
+/// transparently.</para>
+/// </summary>
 public static class InstructionService
 {
     /// <summary>Regex for variable references: {{variableName}}.</summary>
     private static readonly Regex VariablePattern = new(@"\{\{(\w+)\}\}", RegexOptions.Compiled);
 
-    /// <summary>Resolves an instruction ID to its content text.</summary>
-    public static string ResolveInstruction(string instructionId, JObject settings = null)
+    /// <summary>Resolves an instruction ID to its content text using the user's merged view.</summary>
+    public static string ResolveInstruction(string instructionId, JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject instructions = settings["instructions"] as JObject;
         if (instructions is null)
         {
@@ -20,7 +26,7 @@ public static class InstructionService
         }
         if (string.IsNullOrEmpty(instructionId))
         {
-            instructionId = GetFeatureMapping(FeatureKeys.ChatMode, settings);
+            instructionId = GetFeatureMapping(FeatureKeys.ChatMode, settings, user);
         }
         // Check built-in instructions first
         if (instructions[instructionId] is JValue builtIn)
@@ -49,9 +55,9 @@ public static class InstructionService
     }
 
     /// <summary>Gets the instruction ID mapped to a feature.</summary>
-    public static string GetFeatureMapping(string featureName, JObject settings = null)
+    public static string GetFeatureMapping(string featureName, JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject mappings = settings["featureMappings"] as JObject;
         return mappings?[featureName]?.ToString() ?? InstructionIds.Prompt;
     }
@@ -71,9 +77,9 @@ public static class InstructionService
     }
 
     /// <summary>Gets all available instructions (built-in + custom) as a list for UI.</summary>
-    public static JArray GetInstructionList(JObject settings = null)
+    public static JArray GetInstructionList(JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject instructions = settings["instructions"] as JObject;
         JArray result = [];
         if (instructions is null) return result;

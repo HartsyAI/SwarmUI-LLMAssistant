@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Text2Image;
@@ -42,6 +43,7 @@ public static class PromptProcessor
         bool useCache = input.TryGet(PromptTagHandler.ParamUseCache, out bool cacheVal) && cacheVal;
         string instructionOverride = input.TryGet(PromptTagHandler.ParamInstructions, out string instrVal) ? instrVal : null;
         string modelOverride = input.TryGet(PromptTagHandler.ParamModelId, out string modelVal) ? modelVal : null;
+        User user = input.SourceSession?.User;
         string originalPrompt = prompt;
         List<string> responses = [];
         // Process all LLM tags
@@ -57,12 +59,12 @@ public static class PromptProcessor
                 {
                     response = Cache.GetOrCreate(content, effectiveInstruction, async () =>
                     {
-                        return await CallLLM(content, effectiveInstruction, modelOverride);
+                        return await CallLLM(content, effectiveInstruction, modelOverride, user);
                     }).Result;
                 }
                 else
                 {
-                    response = CallLLM(content, effectiveInstruction, modelOverride).Result;
+                    response = CallLLM(content, effectiveInstruction, modelOverride, user).Result;
                 }
                 responses.Add(response);
                 return response;
@@ -87,12 +89,12 @@ public static class PromptProcessor
         input.Set(T2IParamTypes.Prompt, prompt);
     }
 
-    private static async Task<string> CallLLM(string content, string instructionId, string model)
+    private static async Task<string> CallLLM(string content, string instructionId, string model, User user)
     {
         // Use active assistant for canonical instruction IDs, fallback to legacy resolution
         string systemPrompt = InstructionIds.All.Contains(instructionId)
-            ? AssistantService.ResolveInstruction(instructionId)
-            : InstructionService.ResolveInstruction(instructionId);
+            ? AssistantService.ResolveInstruction(instructionId, user: user)
+            : InstructionService.ResolveInstruction(instructionId, user: user);
         ExtendedLLMInput input = ExtendedLLMInput.Create(content, systemPrompt, model);
         return await LLMDispatcher.Generate(input);
     }

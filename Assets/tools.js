@@ -14,6 +14,9 @@ async function llmaLoadTools() {
     try {
         const result = await llmaRequest('LLMAssistantGetTools', {});
         LLMAState.tools = Array.isArray(result?.tools) ? result.tools : [];
+        if (typeof result?.canWriteShared === 'boolean') {
+            LLMAState.canWriteShared = !!result.canWriteShared;
+        }
     } catch {
         LLMAState.tools = [];
     }
@@ -34,10 +37,13 @@ function llmaRenderToolList() {
     for (const tool of LLMAState.tools) {
         const disabled = tool.enabled === false;
         const builtInBadge = tool.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : '';
+        const scopeBadge = tool._scope === 'shared'
+            ? ' <span class="llma-scope-badge llma-scope-shared" title="Shared — visible to all users on this instance">shared</span>'
+            : (tool._scope === 'personal' ? ' <span class="llma-scope-badge llma-scope-personal" title="Personal — only visible to you">personal</span>' : '');
         html += `
             <div class="llma-tool-list-item${disabled ? ' disabled' : ''}" data-tool-id="${llmaEscapeHtml(tool.id)}">
                 <div class="llma-tool-list-info">
-                    <div class="llma-tool-list-name">${llmaEscapeHtml(tool.name || tool.id)}${builtInBadge}</div>
+                    <div class="llma-tool-list-name">${llmaEscapeHtml(tool.name || tool.id)}${builtInBadge}${scopeBadge}</div>
                     <div class="llma-tool-list-desc">${llmaEscapeHtml(tool.description || '')}</div>
                     <div class="llma-tool-list-meta">
                         <span class="llma-tool-badge">${llmaEscapeHtml(tool.handlerType || 'builtin')}</span>
@@ -62,7 +68,8 @@ function llmaRenderToolList() {
             const tool = LLMAState.tools.find(t => t.id === id);
             if (!tool) return;
             tool.enabled = el.checked;
-            await llmaRequest('LLMAssistantSaveTool', { tool: JSON.stringify(tool) }).catch(() => {});
+            const scope = tool._scope === 'shared' ? 'shared' : 'personal';
+            await llmaRequest('LLMAssistantSaveTool', { tool: JSON.stringify(tool), scope }).catch(() => {});
             llmaRenderToolList();
         });
     });
@@ -126,6 +133,15 @@ function llmaShowToolEditor(tool) {
 
     llmaSetElChecked('llma-tool-enabled', tool?.enabled !== false);
 
+    const scopeWrap = document.getElementById('llma-tool-scope-toggle');
+    const scopeCheckbox = document.getElementById('llma-tool-scope-shared');
+    if (scopeWrap) scopeWrap.style.display = LLMAState.canWriteShared ? '' : 'none';
+    if (scopeCheckbox) {
+        scopeCheckbox.checked = tool?._scope === 'shared';
+        // Built-in tools always live in the shared layer; don't let admins accidentally demote them.
+        scopeCheckbox.disabled = !!tool?.isBuiltIn;
+    }
+
     const noteEl = document.getElementById('llma-tool-editor-note');
     if (noteEl) {
         noteEl.textContent = tool?.isBuiltIn
@@ -173,8 +189,17 @@ async function llmaSaveToolFromEditor() {
         enabled,
     };
 
+    const scopeCheckbox = document.getElementById('llma-tool-scope-shared');
+    const wantsShared = !!(scopeCheckbox?.checked && LLMAState.canWriteShared);
+    // Built-in tools stay in the shared layer regardless of UI state.
+    const scope = (wantsShared || tool.isBuiltIn) ? 'shared' : 'personal';
+
     try {
-        await llmaRequest('LLMAssistantSaveTool', { tool: JSON.stringify(tool) });
+        const result = await llmaRequest('LLMAssistantSaveTool', { tool: JSON.stringify(tool), scope });
+        if (result && result.success === false) {
+            llmaShowToast(result.error || 'Failed to save tool', 'error');
+            return;
+        }
         document.getElementById('llma-tool-editor').style.display = 'none';
         await llmaLoadTools();
         llmaShowToast('Tool saved', 'success');
@@ -189,7 +214,13 @@ async function llmaDeleteTool(id) {
     if (tool?.isBuiltIn) { llmaShowToast('Cannot delete built-in tool', 'info'); return; }
     if (!confirm(`Delete tool "${tool?.name || id}"?`)) return;
     try {
-        await llmaRequest('LLMAssistantDeleteTool', { toolId: id });
+        const payload = { toolId: id };
+        if (tool?._scope) payload.scope = tool._scope;
+        const result = await llmaRequest('LLMAssistantDeleteTool', payload);
+        if (result && result.success === false) {
+            llmaShowToast(result.error || 'Failed to delete tool', 'error');
+            return;
+        }
         document.getElementById('llma-tool-editor').style.display = 'none';
         await llmaLoadTools();
         llmaShowToast('Tool deleted', 'info');

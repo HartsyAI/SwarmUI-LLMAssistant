@@ -64,10 +64,10 @@ public static class PromptTagHandler
             Group: _paramGroup,
             OrderPriority: 4,
             ValidateValues: false,
-            GetValues: _ =>
+            GetValues: session =>
             {
                 List<string> values = [.. InstructionIds.All];
-                JArray instructions = InstructionService.GetInstructionList();
+                JArray instructions = InstructionService.GetInstructionList(user: session?.User);
                 foreach (JToken instr in instructions)
                 {
                     string id = instr["id"]?.ToString();

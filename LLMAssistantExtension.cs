@@ -20,6 +20,7 @@ public class LLMAssistantExtension : Extension
         Logs.Info($"[LLMAssistant] Version {Version} loading...");
         // Extension JS (CDN libs loaded dynamically by utils.js)
         ScriptFiles.Add("Assets/utils.js");
+        ScriptFiles.Add("Assets/assets.js");
         ScriptFiles.Add("Assets/chat.js");
         ScriptFiles.Add("Assets/threads.js");
         ScriptFiles.Add("Assets/tools.js");
@@ -33,6 +34,7 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-settings.css");
         StyleSheetFiles.Add("Assets/llma-common.css");
         StyleSheetFiles.Add("Assets/llma-tools.css");
+        StyleSheetFiles.Add("Assets/llma-assets.css");
     }
 
     public override void OnInit()
@@ -51,6 +53,8 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new GenerateImageTool());
         ToolRegistryService.RegisterHandler(new WebSearchTool());
         ToolRegistryService.RegisterHandler(new FileReadTool());
+        ToolRegistryService.RegisterHandler(new HttpRequestTool());
+        ToolRegistryService.RegisterHandler(new ShellExecTool());
     }
 
     /// <summary>Registers the "LLM" model type in SwarmUI's model registry so LLM models

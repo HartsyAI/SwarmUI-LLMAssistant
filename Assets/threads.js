@@ -105,7 +105,9 @@ async function llmaCreateThread(assistantId) {
 
     LLMAState.activeThreadId    = thread.id;
     LLMAState.messages          = [];
+    LLMAState.assets            = [];
     LLMAState.activeAssistantId = assistantId || LLMAState.activeAssistantId;
+    llmaSetSessionState({ activeThreadId: thread.id });
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
@@ -140,6 +142,24 @@ async function llmaSwitchThread(threadId) {
         LLMAState.messages          = Array.isArray(thread.messages) ? thread.messages : [];
         LLMAState.activeAssistantId = thread.assistantId || LLMAState.activeAssistantId;
 
+        // Restore per-thread parameter overrides (model, temperature, etc.)
+        if (thread.params && typeof thread.params === 'object') {
+            LLMAState.threadParams[thread.id] = thread.params;
+        }
+
+        // Restore persisted assets if present; otherwise rebuild from messages.
+        if (Array.isArray(thread.assets) && thread.assets.length > 0) {
+            LLMAState.assets = thread.assets;
+            if (typeof llmaRenderAssetSidebar === 'function') {
+                llmaRenderAssetSidebar();
+            }
+        } else if (typeof llmaRebuildAssetsForThread === 'function') {
+            llmaRebuildAssetsForThread();
+        }
+
+        // Persist active thread ID server-side so a headless client can resume.
+        llmaSetSessionState({ activeThreadId: thread.id });
+
         const titleEl = document.getElementById('llma-thread-title');
         if (titleEl) titleEl.textContent = thread.title || 'Untitled';
 
@@ -161,6 +181,28 @@ async function llmaSwitchThread(threadId) {
     }
 }
 
+// -- Session state helpers --
+// Per-user active state (activeThreadId, currentModel, etc.) is persisted server-side
+// via LLMAssistantGetSessionState / LLMAssistantSetSessionState so headless clients
+// can resume exactly where the UI left off.
+async function llmaGetSessionState() {
+    try {
+        const result = await llmaRequest('LLMAssistantGetSessionState', {});
+        return result?.state || {};
+    } catch {
+        return {};
+    }
+}
+
+async function llmaSetSessionState(patch) {
+    if (!patch || typeof patch !== 'object') return;
+    try {
+        await llmaRequest('LLMAssistantSetSessionState', { state: patch });
+    } catch {
+        // Non-fatal — UI can proceed without server-side echo.
+    }
+}
+
 // -- Delete Thread --
 async function llmaDeleteThread(threadId) {
     if (!confirm('Delete this chat? This cannot be undone.')) return;
@@ -177,6 +219,8 @@ async function llmaDeleteThread(threadId) {
     if (LLMAState.activeThreadId === threadId) {
         LLMAState.activeThreadId = null;
         LLMAState.messages       = [];
+        LLMAState.assets         = [];
+        llmaSetSessionState({ activeThreadId: null });
         llmaShowWelcome();
     }
 
@@ -185,6 +229,8 @@ async function llmaDeleteThread(threadId) {
 }
 
 // -- Save Thread --
+// Title auto-derivation happens server-side in ThreadStorageService.SaveThread.
+// We send our current title (may be a placeholder) and trust the server's returned thread.
 async function llmaSaveActiveThread() {
     if (!LLMAState.activeThreadId) return;
 
@@ -199,28 +245,26 @@ async function llmaSaveActiveThread() {
         updated:     new Date().toISOString(),
         messages:    LLMAState.messages,
         params:      LLMAState.threadParams[LLMAState.activeThreadId] || {},
+        assets:      Array.isArray(LLMAState.assets) ? LLMAState.assets : [],
     };
 
-    // Auto-title from first user message
-    if (meta.title === 'New Chat' || meta.title?.startsWith('Chat with ')) {
-        const firstUser = LLMAState.messages.find(m => m.role === 'user');
-        if (firstUser?.content) {
-            thread.title = firstUser.content.slice(0, 50) + (firstUser.content.length > 50 ? '\u2026' : '');
-            meta.title   = thread.title;
-        }
-    }
-
-    meta.updated      = thread.updated;
-    meta.messageCount = thread.messages.length;
-
+    let saved = thread;
     try {
-        await llmaRequest('LLMAssistantSaveThread', { thread });
+        const result = await llmaRequest('LLMAssistantSaveThread', { thread });
+        if (result?.thread) {
+            saved = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
+        }
     } catch {
         console.warn('[LLMAssistant] Failed to persist thread');
     }
 
+    // Trust the server's view of the thread (title may have been auto-derived).
+    meta.title        = saved.title || meta.title;
+    meta.updated      = saved.updatedAt || saved.updated || thread.updated;
+    meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : thread.messages.length;
+
     const titleEl = document.getElementById('llma-thread-title');
-    if (titleEl) titleEl.textContent = thread.title;
+    if (titleEl) titleEl.textContent = meta.title;
     llmaRenderThreadList(LLMAState.threads);
 }
 

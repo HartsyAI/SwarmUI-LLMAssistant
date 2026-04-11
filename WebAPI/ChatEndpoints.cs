@@ -20,11 +20,11 @@ public static class ChatEndpoints
     {
         try
         {
-            JObject settings = SettingsService.GetSettings();
-            assistantId ??= AssistantService.GetActiveAssistantId(settings);
-            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings);
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
-            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings);
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
             string response;
             if (noCache)
@@ -66,9 +66,9 @@ public static class ChatEndpoints
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
             string assistantId = rawInput["assistantId"]?.ToString();
             JArray historyArray = rawInput["history"] as JArray;
-            JObject settings = SettingsService.GetSettings();
-            assistantId ??= AssistantService.GetActiveAssistantId(settings);
-            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings);
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
             ExtendedLLMInput input;
             if (historyArray is not null && historyArray.Count > 0)
             {
@@ -88,10 +88,10 @@ public static class ChatEndpoints
             {
                 input = ExtendedLLMInput.Create(message, systemPrompt, model);
             }
-            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings);
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt
-            List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings);
+            List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
             if (enabledTools.Count > 0)
             {
                 input.Tools = enabledTools;
@@ -127,7 +127,7 @@ public static class ChatEndpoints
     }
 
     /// <summary>Resolves instruction text for a request, routing through AssistantService for canonical IDs.</summary>
-    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings)
+    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user)
     {
         if (string.IsNullOrEmpty(instructionId))
         {
@@ -136,10 +136,10 @@ public static class ChatEndpoints
         // Canonical instruction IDs resolve from the assistant
         if (InstructionIds.All.Contains(instructionId))
         {
-            return AssistantService.ResolveInstruction(instructionId, assistantId, settings);
+            return AssistantService.ResolveInstruction(instructionId, assistantId, settings, user);
         }
         // Custom/legacy instruction IDs fall through to InstructionService
-        return InstructionService.ResolveInstruction(instructionId, settings);
+        return InstructionService.ResolveInstruction(instructionId, settings, user);
     }
 
     /// <summary>Truncates message history to the configured maxContextMessages limit.</summary>

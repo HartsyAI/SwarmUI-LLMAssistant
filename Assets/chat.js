@@ -17,6 +17,7 @@ function llmaRenderMessageHistory(messages) {
             if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
         }
     }
+    llmaRebuildAssetsForThread();
     llmaScrollToBottom();
 }
 
@@ -73,7 +74,7 @@ function llmaAppendMessageToDOM(role, content, imageBase64, msgId, meta) {
         if (isUser) {
             bubble.appendChild(document.createTextNode(content));
         } else {
-            bubble.innerHTML = llmaRenderMarkdown(content);
+            bubble.innerHTML = llmaRenderAssistantContent(content, id);
             llmaPostRenderMermaid(bubble);
         }
     } else if (!isUser) {
@@ -342,12 +343,16 @@ function llmaStreamResponse(payload, onComplete) {
                     if (data.reason) msg.meta.reason = data.reason;
                 }
                 // Render the final text of this (last) iteration into the current segment
+                // with asset-card swap applied
                 const cleanFinal = llmaStripToolTags(streamingText);
                 const tc = ensureTextContainer();
                 if (tc) {
-                    tc.innerHTML = llmaRenderMarkdown(cleanFinal);
+                    tc.innerHTML = llmaRenderAssistantContent(cleanFinal, assistantMsgId);
                     llmaPostRenderMermaid(tc);
                 }
+
+                // Rebuild the asset index for this thread and update the sidebar
+                llmaRebuildAssetsForThread();
 
                 // Update meta display
                 const metaDiv = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-meta`);
@@ -364,7 +369,7 @@ function llmaStreamResponse(payload, onComplete) {
                 llmaSetStreaming(false);
                 llmaSaveActiveThread();
                 llmaUpdateContextBar();
-                if (onComplete) onComplete(finalText);
+                if (onComplete) onComplete(cleanFinal);
             }
         }, 0, err => {
             llmaShowErrorInBubble(bubble, err?.message || 'WebSocket error');
@@ -425,6 +430,7 @@ function llmaDeleteMessage(msgId) {
     LLMAState.messages = LLMAState.messages.filter(m => m.id !== msgId);
     const el = document.querySelector(`[data-msg-id="${msgId}"]`);
     if (el) el.remove();
+    llmaRebuildAssetsForThread();
     llmaSaveActiveThread();
     llmaUpdateContextBar();
 }
@@ -765,6 +771,40 @@ function llmaRenderToolResult(bubble, toolResult) {
         pre.className = 'llma-tool-result-filecontent';
         pre.textContent = result.content;
         resultWrap.appendChild(pre);
+    } else if (success && name === 'http_request') {
+        const info = document.createElement('div');
+        info.className = 'llma-tool-result-fileinfo';
+        const statusClass = result.ok ? 'ok' : 'err';
+        info.innerHTML = `<span class="llma-http-status ${statusClass}">${result.status} ${llmaEscapeHtml(result.statusText || '')}</span> <span class="llma-http-method">${llmaEscapeHtml(result.method || '')}</span> ${llmaEscapeHtml(result.url || '')}${result.truncated ? ' (truncated)' : ''}`;
+        resultWrap.appendChild(info);
+        if (typeof result.body === 'string' && result.body.length) {
+            const pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.body.length > 4000 ? result.body.slice(0, 4000) + '\n…' : result.body;
+            resultWrap.appendChild(pre);
+        }
+    } else if (name === 'shell_exec') {
+        const info = document.createElement('div');
+        info.className = 'llma-tool-result-fileinfo';
+        const exitTxt = result.killed ? `killed (timeout)` : `exit ${result.exitCode}`;
+        info.textContent = `$ ${result.command || ''}  [${exitTxt}${result.truncated ? ', truncated' : ''}]`;
+        resultWrap.appendChild(info);
+        if (typeof result.stdout === 'string' && result.stdout.length) {
+            const pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.stdout;
+            resultWrap.appendChild(pre);
+        }
+        if (typeof result.stderr === 'string' && result.stderr.length) {
+            const label = document.createElement('div');
+            label.className = 'llma-tool-call-label';
+            label.textContent = 'stderr';
+            resultWrap.appendChild(label);
+            const pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.stderr;
+            resultWrap.appendChild(pre);
+        }
     } else {
         // Generic JSON fallback
         const pre = document.createElement('pre');

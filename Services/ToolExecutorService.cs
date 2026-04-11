@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.Tools;
+using SwarmUI.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
@@ -10,12 +11,23 @@ public static class ToolExecutorService
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>Maps built-in tool IDs to the permission required to execute them.
+    /// Custom (user-defined) tools have no entry and pass through.</summary>
+    private static readonly Dictionary<string, PermInfo> BuiltInToolPermissions = new()
+    {
+        [ToolConstants.GenerateImage] = LLMAssistantAPI.PermToolGenerateImage,
+        [ToolConstants.WebSearch] = LLMAssistantAPI.PermToolWebSearch,
+        [ToolConstants.FileRead] = LLMAssistantAPI.PermToolFileRead,
+        [ToolConstants.HttpRequest] = LLMAssistantAPI.PermToolHttpRequest,
+        [ToolConstants.ShellExec] = LLMAssistantAPI.PermToolShellExec,
+    };
+
     /// <summary>Executes a tool by ID with the given arguments.</summary>
     public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, CancellationToken ct = default)
     {
         try
         {
-            JObject tool = ToolRegistryService.GetTool(toolId);
+            JObject tool = ToolRegistryService.GetTool(toolId, user: session?.User);
             if (tool is null)
             {
                 return Error($"Tool not found: {toolId}");
@@ -23,6 +35,16 @@ public static class ToolExecutorService
             if (tool["enabled"]?.Value<bool>() == false)
             {
                 return Error($"Tool is disabled: {toolId}");
+            }
+            // Per-tool SwarmUI permission check for built-ins
+            if (BuiltInToolPermissions.TryGetValue(toolId, out PermInfo requiredPerm))
+            {
+                User user = session?.User;
+                if (user is null || !user.HasPermission(requiredPerm))
+                {
+                    Logs.Warning($"[LLMAssistant] User {(user?.UserID ?? "<none>")} lacks permission '{requiredPerm.ID}' to run tool {toolId}");
+                    return Error($"You do not have permission to use the '{toolId}' tool. Ask an admin to grant '{requiredPerm.DisplayName}'.");
+                }
             }
             string handlerId = tool["handlerId"]?.ToString();
             ToolHandler handler = ToolRegistryService.GetHandler(handlerId);

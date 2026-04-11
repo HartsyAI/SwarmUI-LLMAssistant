@@ -1,11 +1,18 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.Tools;
+using SwarmUI.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Central registry for tool definitions (stored in settings) and executable handlers (in-memory).</summary>
+/// <summary>Central registry for tool definitions (stored in settings) and executable handlers (in-memory).
+///
+/// <para>Multi-user model matches <see cref="AssistantService"/>: reads use the user's merged view
+/// (shared ⊕ personal); writes target either the shared baseline (requires
+/// <see cref="LLMAssistantAPI.PermSharedWrite"/>) or the user's personal override layer.</para>
+/// </summary>
 public static class ToolRegistryService
 {
     private static readonly ConcurrentDictionary<string, ToolHandler> _handlers = new();
@@ -27,10 +34,10 @@ public static class ToolRegistryService
         return _handlers.TryGetValue(handlerId, out ToolHandler handler) ? handler : null;
     }
 
-    /// <summary>Returns all tools as a JArray for the UI.</summary>
-    public static JArray GetToolList(JObject settings = null)
+    /// <summary>Returns all tools as a JArray for the UI. Includes the <c>_scope</c> marker.</summary>
+    public static JArray GetToolList(JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject tools = settings["tools"] as JObject;
         JArray result = [];
         if (tools is null)
@@ -47,24 +54,24 @@ public static class ToolRegistryService
         return result;
     }
 
-    /// <summary>Gets a single tool definition by ID.</summary>
-    public static JObject GetTool(string toolId, JObject settings = null)
+    /// <summary>Gets a single tool definition by ID from the user's merged view.</summary>
+    public static JObject GetTool(string toolId, JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject tools = settings["tools"] as JObject;
         return tools?[toolId] as JObject;
     }
 
     /// <summary>Returns the list of tools that are both globally enabled AND enabled on the given assistant.</summary>
-    public static List<JObject> GetEnabledTools(string assistantId, JObject settings = null)
+    public static List<JObject> GetEnabledTools(string assistantId, JObject settings = null, User user = null)
     {
-        settings ??= SettingsService.GetSettings();
+        settings ??= SettingsService.GetMergedSettings(user);
         JObject tools = settings["tools"] as JObject;
         if (tools is null)
         {
             return [];
         }
-        JObject assistant = AssistantService.GetAssistant(assistantId, settings);
+        JObject assistant = AssistantService.GetAssistant(assistantId, settings, user);
         JArray enabledIds = assistant?["enabledToolIds"] as JArray;
         HashSet<string> enabledSet = [];
         if (enabledIds is not null)
@@ -95,63 +102,156 @@ public static class ToolRegistryService
         return result;
     }
 
-    /// <summary>Saves (creates or updates) a tool definition.</summary>
-    public static string SaveTool(JObject toolData, JObject settings = null)
+    /// <summary>Saves (creates or updates) a tool definition into the layer identified by
+    /// <paramref name="scope"/>. See <see cref="AssistantService.SaveAssistant"/> for scope semantics.
+    /// <para>For built-in tools, only the description and enabled fields are editable. Built-ins live
+    /// in the shared layer, so toggling their enabled state on a per-user basis is done via the
+    /// personal layer's override (personal tool entry with <c>isBuiltIn=false</c> for that ID).</para>
+    /// </summary>
+    public static string SaveTool(JObject toolData, User user, string scope = null)
     {
-        settings ??= SettingsService.GetSettings();
-        JObject tools = settings["tools"] as JObject ?? new JObject();
+        if (toolData is null)
+        {
+            return null;
+        }
+        scope = NormalizeScope(scope);
+        if (scope == SettingsService.ScopeShared && !CanWriteShared(user))
+        {
+            return null;
+        }
         string id = toolData["id"]?.ToString();
         if (string.IsNullOrEmpty(id))
         {
             id = $"tool-{Guid.NewGuid():N}";
             toolData["id"] = id;
         }
-        // For built-ins, protect core fields (only allow editing description + enabled)
+        JObject stripped = SettingsService.StripScope(toolData);
+        if (scope == SettingsService.ScopeShared)
+        {
+            JObject shared = SettingsService.GetSettings();
+            JObject tools = shared["tools"] as JObject ?? [];
+            ApplyToolUpsert(tools, id, stripped);
+            shared["tools"] = tools;
+            SettingsService.ReplaceSharedSettings(shared);
+        }
+        else
+        {
+            JObject personal = SettingsService.GetUserSettings(user);
+            JObject tools = personal["tools"] as JObject ?? [];
+            // Personal-layer tools are never built-in; always store full overrides.
+            stripped["updated"] = DateTime.UtcNow.ToString("o");
+            if (stripped["created"] is null)
+            {
+                stripped["created"] = DateTime.UtcNow.ToString("o");
+            }
+            if (stripped["handlerType"] is null)
+            {
+                stripped["handlerType"] = ToolConstants.HandlerBuiltIn;
+            }
+            if (stripped["enabled"] is null)
+            {
+                stripped["enabled"] = true;
+            }
+            tools[id] = stripped;
+            personal["tools"] = tools;
+            SettingsService.ReplaceUserSettings(user, personal);
+        }
+        return id;
+    }
+
+    /// <summary>Applies upsert semantics to a shared tool dict, respecting built-in field protection.</summary>
+    private static void ApplyToolUpsert(JObject tools, string id, JObject incoming)
+    {
         if (tools[id] is JObject existing && existing["isBuiltIn"]?.Value<bool>() == true)
         {
-            existing["description"] = toolData["description"] ?? existing["description"];
-            existing["enabled"] = toolData["enabled"] ?? existing["enabled"];
+            existing["description"] = incoming["description"] ?? existing["description"];
+            existing["enabled"] = incoming["enabled"] ?? existing["enabled"];
             existing["updated"] = DateTime.UtcNow.ToString("o");
         }
         else
         {
-            toolData["updated"] = DateTime.UtcNow.ToString("o");
-            if (toolData["created"] is null)
+            incoming["updated"] = DateTime.UtcNow.ToString("o");
+            if (incoming["created"] is null)
             {
-                toolData["created"] = DateTime.UtcNow.ToString("o");
+                incoming["created"] = DateTime.UtcNow.ToString("o");
             }
-            if (toolData["handlerType"] is null)
+            if (incoming["handlerType"] is null)
             {
-                toolData["handlerType"] = ToolConstants.HandlerBuiltIn;
+                incoming["handlerType"] = ToolConstants.HandlerBuiltIn;
             }
-            if (toolData["enabled"] is null)
+            if (incoming["enabled"] is null)
             {
-                toolData["enabled"] = true;
+                incoming["enabled"] = true;
             }
-            tools[id] = toolData;
+            tools[id] = incoming;
         }
-        settings["tools"] = tools;
-        SettingsService.SaveSettings(settings);
-        return id;
     }
 
-    /// <summary>Deletes a custom tool. Built-in tools cannot be deleted.</summary>
-    public static bool DeleteTool(string toolId, JObject settings = null)
+    /// <summary>Deletes a tool. Auto-detects the owning layer if <paramref name="scope"/> is null.
+    /// Built-in tools cannot be deleted from the shared layer (they're part of the baseline).
+    /// A user CAN shadow a built-in by creating a personal tool with the same ID, then later
+    /// delete that personal override to restore the baseline.</summary>
+    public static bool DeleteTool(string toolId, User user, string scope = null)
     {
-        settings ??= SettingsService.GetSettings();
-        JObject tools = settings["tools"] as JObject;
-        if (tools is null || !tools.ContainsKey(toolId))
+        scope = NormalizeScope(scope, allowAuto: true);
+        JObject personal = SettingsService.GetUserSettings(user);
+        JObject personalTools = personal["tools"] as JObject;
+        bool inPersonal = personalTools is not null && personalTools.ContainsKey(toolId);
+        JObject shared = SettingsService.GetSettings();
+        JObject sharedTools = shared["tools"] as JObject;
+        bool inShared = sharedTools is not null && sharedTools.ContainsKey(toolId);
+        if (scope is null)
+        {
+            scope = inPersonal ? SettingsService.ScopePersonal : (inShared ? SettingsService.ScopeShared : null);
+        }
+        if (scope is null)
         {
             return false;
         }
-        if (tools[toolId] is JObject existing && existing["isBuiltIn"]?.Value<bool>() == true)
+        if (scope == SettingsService.ScopeShared)
         {
-            return false;
+            if (!inShared || !CanWriteShared(user))
+            {
+                return false;
+            }
+            if (sharedTools[toolId] is JObject existing && existing["isBuiltIn"]?.Value<bool>() == true)
+            {
+                return false;
+            }
+            sharedTools.Remove(toolId);
+            SettingsService.ReplaceSharedSettings(shared);
+            return true;
         }
-        tools.Remove(toolId);
-        settings["tools"] = tools;
-        SettingsService.SaveSettings(settings);
-        return true;
+        else
+        {
+            if (!inPersonal)
+            {
+                return false;
+            }
+            personalTools.Remove(toolId);
+            SettingsService.ReplaceUserSettings(user, personal);
+            return true;
+        }
+    }
+
+    /// <summary>Normalizes a scope string. Null → <c>"personal"</c> unless <paramref name="allowAuto"/>.</summary>
+    private static string NormalizeScope(string scope, bool allowAuto = false)
+    {
+        if (string.IsNullOrEmpty(scope))
+        {
+            return allowAuto ? null : SettingsService.ScopePersonal;
+        }
+        if (string.Equals(scope, SettingsService.ScopeShared, StringComparison.OrdinalIgnoreCase))
+        {
+            return SettingsService.ScopeShared;
+        }
+        return SettingsService.ScopePersonal;
+    }
+
+    /// <summary>True if the user holds <see cref="LLMAssistantAPI.PermSharedWrite"/>.</summary>
+    private static bool CanWriteShared(User user)
+    {
+        return user is not null && user.HasPermission(LLMAssistantAPI.PermSharedWrite);
     }
 
     /// <summary>Builds the default tool definitions seeded on fresh installs.</summary>
@@ -252,6 +352,104 @@ public static class ToolRegistryService
             ["handlerType"] = ToolConstants.HandlerBuiltIn,
             ["handlerId"] = ToolConstants.FileRead,
             ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.HttpRequest] = new JObject
+        {
+            ["id"] = ToolConstants.HttpRequest,
+            ["name"] = "HTTP Request",
+            ["description"] = "Make an HTTP request to a URL (GET/POST/PUT/DELETE/HEAD/PATCH) and return the response. Supports custom headers and body. Blocks requests to private/loopback addresses for safety.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["url"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Full URL (must start with http:// or https://)."
+                    },
+                    ["method"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JArray("GET", "POST", "PUT", "DELETE", "HEAD", "PATCH"),
+                        ["description"] = "HTTP method.",
+                        ["default"] = "GET"
+                    },
+                    ["headers"] = new JObject
+                    {
+                        ["type"] = "object",
+                        ["description"] = "Optional map of request headers (string to string)."
+                    },
+                    ["body"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Optional request body (string). For JSON, pass a stringified JSON here and set Content-Type in headers."
+                    },
+                    ["maxBytes"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["description"] = "Maximum response bytes to return (default 262144, hard cap 2097152).",
+                        ["default"] = 262144
+                    },
+                    ["timeoutSeconds"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["description"] = "Request timeout in seconds (default 30, max 120).",
+                        ["default"] = 30
+                    }
+                },
+                ["required"] = new JArray("url")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.HttpRequest,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.ShellExec] = new JObject
+        {
+            ["id"] = ToolConstants.ShellExec,
+            ["name"] = "Shell Command",
+            ["description"] = "Execute a shell command on the SwarmUI host machine and return stdout, stderr, and exit code. DANGEROUS: this gives the LLM full access to the host shell. Disabled by default — enable per-assistant only when you explicitly want it.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["command"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Shell command to run (executed via the system shell: cmd.exe on Windows, /bin/sh elsewhere)."
+                    },
+                    ["workingDirectory"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Optional working directory (relative to the SwarmUI Data folder; must stay inside it)."
+                    },
+                    ["timeoutSeconds"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["description"] = "Max seconds to wait before killing the process (default 30, max 300).",
+                        ["default"] = 30
+                    },
+                    ["maxOutputBytes"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["description"] = "Max bytes of stdout+stderr to return (default 65536, hard cap 1048576).",
+                        ["default"] = 65536
+                    }
+                },
+                ["required"] = new JArray("command")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.ShellExec,
+            ["enabled"] = false,
             ["isBuiltIn"] = true,
             ["created"] = now,
             ["updated"] = now

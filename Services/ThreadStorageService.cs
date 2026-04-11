@@ -64,10 +64,67 @@ public static class ThreadStorageService
         }
         JArray messages = thread["messages"] as JArray ?? [];
         thread["messageCount"] = messages.Count;
+        // Auto-title: if the title is missing or is a placeholder, derive one from the first user message.
+        string currentTitle = thread["title"]?.ToString();
+        if (IsPlaceholderTitle(currentTitle))
+        {
+            string derived = DeriveTitleFromMessages(messages);
+            if (!string.IsNullOrEmpty(derived))
+            {
+                thread["title"] = derived;
+            }
+        }
         // Save thread data
         user.SaveGenericData(DataName, ThreadPrefix + threadId, thread.ToString(Formatting.None));
         // Update index
         UpdateIndex(user, thread);
+    }
+
+    /// <summary>Returns true if the given title is null, empty, or a known placeholder.</summary>
+    private static bool IsPlaceholderTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return true;
+        }
+        if (title == "New Thread" || title == "New Chat" || title == "Untitled")
+        {
+            return true;
+        }
+        if (title.StartsWith("Chat with ", StringComparison.Ordinal))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Derives a short title from the first user message in a thread, or null if none.</summary>
+    private static string DeriveTitleFromMessages(JArray messages)
+    {
+        if (messages is null)
+        {
+            return null;
+        }
+        foreach (JToken msg in messages)
+        {
+            string role = msg["role"]?.ToString();
+            if (role != Roles.User)
+            {
+                continue;
+            }
+            string content = msg["content"]?.ToString();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                continue;
+            }
+            string trimmed = content.Trim();
+            if (trimmed.Length > 50)
+            {
+                return trimmed[..50] + "\u2026";
+            }
+            return trimmed;
+        }
+        return null;
     }
 
     /// <summary>Deletes a thread and removes it from the index.</summary>

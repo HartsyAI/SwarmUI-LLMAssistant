@@ -59,7 +59,9 @@ public static class ToolConstants
     public const string GenerateImage = "generate_image";
     public const string WebSearch = "web_search";
     public const string FileRead = "file_read";
+    public const string HttpRequest = "http_request";
+    public const string ShellExec = "shell_exec";
 
     /// <summary>All built-in tool IDs.</summary>
-    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead];
+    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead, HttpRequest, ShellExec];
 }

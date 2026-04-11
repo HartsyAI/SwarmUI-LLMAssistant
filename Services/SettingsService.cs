@@ -6,11 +6,31 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Manages extension-level settings (instructions, features, parameters). Backend config is in Server > Backends.</summary>
+/// <summary>Manages extension-level settings (instructions, features, parameters). Backend config is in Server > Backends.
+///
+/// <para>Storage model (multi-user aware):</para>
+/// <list type="bullet">
+/// <item><b>Shared layer</b> — one blob at <c>__shared/llmassistant/config</c>, containing the admin-curated
+/// baseline (shared assistants, shared tools, default instructions, default parameters). Only users with the
+/// <c>llm_shared_write</c> permission may mutate this layer.</item>
+/// <item><b>User layer</b> — one blob per user at <c>{userId}/llmassistant/user_config</c>, containing that
+/// user's personal overrides, personal assistants, personal tools, and their preferred model / parameters.</item>
+/// </list>
+/// <para>A user's effective view (<see cref="GetMergedSettings"/>) is shared ⊕ user. For dict-valued fields like
+/// <c>assistants</c> and <c>tools</c>, entries are unioned and the personal layer wins on ID collision. The
+/// extension tags each entry with a <c>_scope</c> marker (<c>"shared"</c> or <c>"personal"</c>) so the UI can
+/// render badges and know which layer a delete targets.</para>
+/// </summary>
 public static class SettingsService
 {
     public const string DataName = "llmassistant";
-    public const string ConfigKey = "config";
+    public const string ConfigKey = "config";           // shared / admin-managed baseline
+    public const string UserConfigKey = "user_config";  // per-user override layer
+
+    /// <summary>Scope marker injected on dict entries (assistants/tools) so the UI can distinguish
+    /// admin-managed shared items from the user's personal items.</summary>
+    public const string ScopeShared = "shared";
+    public const string ScopePersonal = "personal";
 
     /// <summary>Default settings structure.</summary>
     public static JObject DefaultSettings => new()
@@ -93,7 +113,8 @@ public static class SettingsService
         return result;
     }
 
-    /// <summary>Saves settings (merges with existing).</summary>
+    /// <summary>Saves settings (merges with existing). Legacy merge semantics — use
+    /// <see cref="ReplaceSharedSettings"/> for write paths that need to remove keys (deletes).</summary>
     public static JObject SaveSettings(JObject incoming)
     {
         JObject current = GetSettings();
@@ -102,12 +123,175 @@ public static class SettingsService
         return current;
     }
 
-    /// <summary>Resets settings to defaults.</summary>
+    /// <summary>Fully replaces the shared settings blob. Unlike <see cref="SaveSettings"/>, keys
+    /// that are missing from <paramref name="replacement"/> will be removed on disk. Use this for
+    /// any mutation of assistants/tools/instructions so that deletes are honored.</summary>
+    public static JObject ReplaceSharedSettings(JObject replacement)
+    {
+        replacement ??= [];
+        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, replacement.ToString(Formatting.None));
+        return replacement;
+    }
+
+    /// <summary>Resets shared settings to defaults. Does NOT touch user overrides.</summary>
     public static JObject ResetSettings()
     {
         JObject defaults = DefaultSettings;
         Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, defaults.ToString(Formatting.None));
         return defaults;
+    }
+
+    /// <summary>Loads a user's personal override layer. Returns an empty object if the user has no overrides.</summary>
+    public static JObject GetUserSettings(User user)
+    {
+        if (user is null)
+        {
+            return [];
+        }
+        string raw = user.GetGenericData(DataName, UserConfigKey);
+        if (string.IsNullOrEmpty(raw))
+        {
+            return [];
+        }
+        try
+        {
+            return JObject.Parse(raw);
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Replaces a user's personal override layer in full.</summary>
+    public static void ReplaceUserSettings(User user, JObject userSettings)
+    {
+        if (user is null)
+        {
+            return;
+        }
+        userSettings ??= [];
+        user.SaveGenericData(DataName, UserConfigKey, userSettings.ToString(Formatting.None));
+    }
+
+    /// <summary>Merges the given patch into the user's personal override layer. Returns the new personal layer.</summary>
+    public static JObject PatchUserSettings(User user, JObject patch)
+    {
+        JObject current = GetUserSettings(user);
+        if (patch is not null)
+        {
+            current.Merge(patch, MergeSettings);
+        }
+        ReplaceUserSettings(user, current);
+        return current;
+    }
+
+    /// <summary>Clears a user's personal override layer entirely (reset-to-defaults for that user).
+    /// Does NOT touch the shared layer.</summary>
+    public static void ResetUserSettings(User user)
+    {
+        user?.DeleteGenericData(DataName, UserConfigKey);
+    }
+
+    /// <summary>Returns the effective settings for a user: shared baseline ⊕ user overrides.
+    /// Dict-valued fields (<c>assistants</c>, <c>tools</c>) are unioned with per-entry <c>_scope</c> tags;
+    /// personal entries win on ID collision. Scalar fields and object fields use the standard merge rules
+    /// (personal wins, null values are preserved).</summary>
+    public static JObject GetMergedSettings(User user)
+    {
+        JObject shared = GetSettings();
+        if (user is null)
+        {
+            AnnotateScopes(shared, ScopeShared);
+            return shared;
+        }
+        JObject personal = GetUserSettings(user);
+        // Union merge for assistants/tools (the dicts need scope tagging)
+        JObject mergedAssistants = UnionMergeDict(shared["assistants"] as JObject, personal["assistants"] as JObject);
+        JObject mergedTools = UnionMergeDict(shared["tools"] as JObject, personal["tools"] as JObject);
+        // Everything else: shallow merge with personal winning
+        JObject result = (JObject)shared.DeepClone();
+        result["assistants"] = mergedAssistants;
+        result["tools"] = mergedTools;
+        // Merge scalar + object fields (instructions, parameters, featureMappings, preferredModel, etc.)
+        JObject personalClone = (JObject)personal.DeepClone();
+        personalClone.Remove("assistants");
+        personalClone.Remove("tools");
+        result.Merge(personalClone, MergeSettings);
+        return result;
+    }
+
+    /// <summary>Union-merges two dicts of entries (e.g., assistants or tools), tagging each entry's scope.
+    /// Personal entries override shared entries with the same key.</summary>
+    private static JObject UnionMergeDict(JObject sharedDict, JObject personalDict)
+    {
+        JObject result = [];
+        if (sharedDict is not null)
+        {
+            foreach (KeyValuePair<string, JToken> kvp in sharedDict)
+            {
+                if (kvp.Value is not JObject entry)
+                {
+                    continue;
+                }
+                JObject clone = (JObject)entry.DeepClone();
+                clone["_scope"] = ScopeShared;
+                result[kvp.Key] = clone;
+            }
+        }
+        if (personalDict is not null)
+        {
+            foreach (KeyValuePair<string, JToken> kvp in personalDict)
+            {
+                if (kvp.Value is not JObject entry)
+                {
+                    continue;
+                }
+                JObject clone = (JObject)entry.DeepClone();
+                clone["_scope"] = ScopePersonal;
+                result[kvp.Key] = clone;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>Tags every assistant/tool entry in a settings blob with the given scope marker.
+    /// Used when returning the shared settings as-is for anonymous (null user) calls.</summary>
+    private static void AnnotateScopes(JObject settings, string scope)
+    {
+        if (settings?["assistants"] is JObject assistants)
+        {
+            foreach (KeyValuePair<string, JToken> kvp in assistants)
+            {
+                if (kvp.Value is JObject entry)
+                {
+                    entry["_scope"] = scope;
+                }
+            }
+        }
+        if (settings?["tools"] is JObject tools)
+        {
+            foreach (KeyValuePair<string, JToken> kvp in tools)
+            {
+                if (kvp.Value is JObject entry)
+                {
+                    entry["_scope"] = scope;
+                }
+            }
+        }
+    }
+
+    /// <summary>Strips the <c>_scope</c> marker from an entry before saving it back. The scope is metadata
+    /// that lives in the merged view only; it should never end up in either the shared or user blob.</summary>
+    public static JObject StripScope(JObject entry)
+    {
+        if (entry is null)
+        {
+            return null;
+        }
+        JObject clone = (JObject)entry.DeepClone();
+        clone.Remove("_scope");
+        return clone;
     }
 }
 
