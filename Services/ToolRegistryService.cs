@@ -412,6 +412,88 @@ public static class ToolRegistryService
             ["updated"] = now
         };
 
+        tools[ToolConstants.MemoryWrite] = new JObject
+        {
+            ["id"] = ToolConstants.MemoryWrite,
+            ["name"] = "Remember",
+            ["description"] = "Save something important about the user to long-term memory so you'll remember it in future conversations. Use this whenever the user shares their preferred name, pronouns, a preference, what they're currently working on, or any durable fact worth recalling later. Memory is strictly per-user and private.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["category"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JArray("preferred_name", "pronouns", "bio", "current_work", "preference", "dislike", "fact"),
+                        ["description"] = "Kind of memory. 'preferred_name', 'pronouns', 'bio', and 'current_work' replace existing values. 'preference', 'dislike', and 'fact' append to a deduplicated list. Use 'fact' as the catch-all for anything that doesn't fit the other categories."
+                    },
+                    ["content"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "The value to save. For replacing fields, the full new value. For appending lists, a single concise statement (e.g. 'Prefers Python for scripting')."
+                    }
+                },
+                ["required"] = new JArray("category", "content")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.MemoryWrite,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.MemoryRead] = new JObject
+        {
+            ["id"] = ToolConstants.MemoryRead,
+            ["name"] = "Recall Memory",
+            ["description"] = "Read the calling user's full memory profile. The profile is normally already injected into your system prompt every turn, so you usually don't need this — but it's available for explicit recall or to confirm what's stored.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject()
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.MemoryRead,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.SwarmDocs] = new JObject
+        {
+            ["id"] = ToolConstants.SwarmDocs,
+            ["name"] = "SwarmUI Docs",
+            ["description"] = "Look up SwarmUI's official documentation. Sandboxed to the install's docs/ folder. Use action='list' first to discover available docs (returns all .md filenames), then action='read' with the relative path to fetch a specific document. Cite the doc you read so the user knows where the answer comes from. Use this whenever the user asks how to do something in SwarmUI — never guess from memory if a doc exists.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["action"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JArray("list", "read"),
+                        ["description"] = "'list' returns every .md doc available; 'read' returns the contents of one specific doc."
+                    },
+                    ["path"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Required when action='read'. Relative path inside docs/, e.g. 'Basic Usage.md' or 'Features/Prompt Syntax.md'."
+                    }
+                },
+                ["required"] = new JArray("action")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.SwarmDocs,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
         tools[ToolConstants.ShellExec] = new JObject
         {
             ["id"] = ToolConstants.ShellExec,

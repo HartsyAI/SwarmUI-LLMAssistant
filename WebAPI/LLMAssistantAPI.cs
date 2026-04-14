@@ -67,6 +67,24 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the built-in shell_exec tool to run arbitrary shell commands on the SwarmUI host. This is equivalent to giving the LLM (and anyone who can chat with it) full local shell access. Only grant to fully trusted admin users on trusted models.",
         PermissionDefault.NOBODY, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
 
+    /// <summary>Permission to use the <c>memory_read</c> / <c>memory_write</c> built-in tools.
+    /// Memory is strictly per-user — a user's profile is never visible to any other user and
+    /// there is no shared memory layer — so this is a low-risk permission, but it's still gated
+    /// so admins can disable memory features instance-wide if desired.</summary>
+    public static readonly PermInfo PermToolMemory = Permissions.Register(new(
+        "llm_tool_memory", "[LLM Tool] Memory",
+        "Allows the LLM to read and write the calling user's personal memory profile (preferred name, preferences, current work, and other facts worth remembering across conversations). Memory is strictly per-user — a user's profile is never visible to any other user, and there is no shared memory layer.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
+    /// <summary>Permission for the <c>swarm_docs</c> built-in tool — lets the LLM list and read
+    /// SwarmUI's bundled documentation (the markdown files under the install's <c>docs/</c>
+    /// folder). Sandboxed strictly to that directory; no access to user data or arbitrary disk
+    /// paths. Safe to grant broadly — docs are public reference material.</summary>
+    public static readonly PermInfo PermToolSwarmDocs = Permissions.Register(new(
+        "llm_tool_swarm_docs", "[LLM Tool] SwarmUI Docs",
+        "Allows the LLM to list and read SwarmUI's bundled documentation files (docs/*.md). Sandboxed strictly to the docs folder — cannot access user data or other files. Used by Swarmie and other helper assistants to give exact, doc-grounded how-to answers.",
+        PermissionDefault.USER, LLMAssistantPermGroup));
+
     public static void Register()
     {
         // Chat
@@ -110,5 +128,9 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSaveTool, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantDeleteTool, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantExecuteTool, true, PermSettings);
+        // User memory / profile (strictly per-user, gated behind PermChat since it's personal
+        // conversation state rather than extension configuration)
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetUserProfile, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantClearUserProfile, true, PermChat);
     }
 }

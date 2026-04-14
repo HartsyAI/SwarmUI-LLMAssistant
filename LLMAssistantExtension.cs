@@ -35,6 +35,9 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-common.css");
         StyleSheetFiles.Add("Assets/llma-tools.css");
         StyleSheetFiles.Add("Assets/llma-assets.css");
+        // Static asset files (images) — served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
+        // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
+        OtherAssets.Add("Assets/swarmui-logo.jpg");
     }
 
     public override void OnInit()
@@ -55,6 +58,9 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new FileReadTool());
         ToolRegistryService.RegisterHandler(new HttpRequestTool());
         ToolRegistryService.RegisterHandler(new ShellExecTool());
+        ToolRegistryService.RegisterHandler(new MemoryWriteTool());
+        ToolRegistryService.RegisterHandler(new MemoryReadTool());
+        ToolRegistryService.RegisterHandler(new SwarmDocsTool());
     }
 
     /// <summary>Registers the "LLM" model type in SwarmUI's model registry so LLM models

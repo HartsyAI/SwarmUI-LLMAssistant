@@ -128,20 +128,32 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Resolves instruction text for a request, routing through AssistantService for canonical IDs.</summary>
+    /// <summary>Resolves instruction text for a request, routing through AssistantService for
+    /// canonical IDs and substituting <c>{{userName}}</c>, <c>{{userProfile}}</c>,
+    /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's profile.
+    /// User-profile lookups are scoped strictly to <paramref name="user"/>.</summary>
     private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user)
     {
         if (string.IsNullOrEmpty(instructionId))
         {
             instructionId = InstructionIds.Chat;
         }
-        // Canonical instruction IDs resolve from the assistant
+        string text;
         if (InstructionIds.All.Contains(instructionId))
         {
-            return AssistantService.ResolveInstruction(instructionId, assistantId, settings, user);
+            // Canonical instruction IDs resolve from the assistant
+            text = AssistantService.ResolveInstruction(instructionId, assistantId, settings, user);
         }
-        // Custom/legacy instruction IDs fall through to InstructionService
-        return InstructionService.ResolveInstruction(instructionId, settings, user);
+        else
+        {
+            // Custom/legacy instruction IDs fall through to InstructionService
+            text = InstructionService.ResolveInstruction(instructionId, settings, user);
+        }
+        // Inject per-user profile variables so the model knows who it's talking to.
+        // Profile reads are strictly scoped to `user` by UserProfileService.
+        JObject assistant = AssistantService.GetAssistant(assistantId, settings, user);
+        Dictionary<string, string> vars = UserProfileService.BuildPromptVariables(user, assistant);
+        return InstructionService.SubstituteVariables(text, vars);
     }
 
     /// <summary>Truncates message history to the configured maxContextMessages limit.</summary>

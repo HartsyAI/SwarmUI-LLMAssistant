@@ -4,17 +4,15 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>One-time migrations from MagicPrompt and instructions-to-assistants.</summary>
+/// <summary>One-time migrations for the instructions-to-assistants model and built-in tool seeding.</summary>
 public static class MigrationService
 {
-    private const string MigratedKey = "migrated";
     private const string MigratedAssistantsKey = "migrated_assistants";
     private const string MigratedToolsKey = "migrated_tools";
 
     /// <summary>Runs all pending migrations.</summary>
     public static void RunIfNeeded()
     {
-        MigrateFromMagicPrompt();
         MigrateToAssistants();
         MigrateTools();
         BackfillBuiltInTools();
@@ -101,33 +99,6 @@ public static class MigrationService
         }
     }
 
-    private static void MigrateFromMagicPrompt()
-    {
-        try
-        {
-            string migrated = Program.Sessions.GenericSharedUser.GetGenericData(SettingsService.DataName, MigratedKey);
-            if (!string.IsNullOrEmpty(migrated))
-            {
-                return;
-            }
-            string mpConfig = Program.Sessions.GenericSharedUser.GetGenericData("magicprompt", "config");
-            if (string.IsNullOrEmpty(mpConfig))
-            {
-                Logs.Info("[LLMAssistant] No MagicPrompt settings found, skipping migration.");
-                Program.Sessions.GenericSharedUser.SaveGenericData(SettingsService.DataName, MigratedKey, "true");
-                return;
-            }
-            JObject mpSettings = JObject.Parse(mpConfig);
-            MigrateSettings(mpSettings);
-            Program.Sessions.GenericSharedUser.SaveGenericData(SettingsService.DataName, MigratedKey, "true");
-            Logs.Info("[LLMAssistant] Successfully migrated settings from MagicPrompt.");
-        }
-        catch (Exception ex)
-        {
-            Logs.Error($"[LLMAssistant] Migration from MagicPrompt failed: {ex.Message}");
-        }
-    }
-
     /// <summary>Migrates existing instructions + custom instructions into the assistants model.</summary>
     private static void MigrateToAssistants()
     {
@@ -201,37 +172,4 @@ public static class MigrationService
         }
     }
 
-    private static void MigrateSettings(JObject mpSettings)
-    {
-        JObject newSettings = SettingsService.DefaultSettings;
-        // Migrate instructions
-        if (mpSettings["instructions"] is JObject mpInstructions)
-        {
-            JObject newInstructions = newSettings["instructions"] as JObject;
-            string[] builtInKeys = InstructionIds.All;
-            foreach (string key in builtInKeys)
-            {
-                if (mpInstructions[key] is JValue val && !string.IsNullOrEmpty(val.ToString()))
-                {
-                    newInstructions[key] = val.DeepClone();
-                }
-            }
-            // Migrate custom instructions
-            if (mpInstructions["custom"] is JObject mpCustom)
-            {
-                newInstructions["custom"] = mpCustom.DeepClone();
-            }
-        }
-        // Migrate model preferences (best-effort)
-        if (mpSettings["model"] is JValue model && !string.IsNullOrEmpty(model.ToString()))
-        {
-            newSettings["preferredModel"] = model.ToString();
-        }
-        if (mpSettings["visionmodel"] is JValue visionModel && !string.IsNullOrEmpty(visionModel.ToString()))
-        {
-            newSettings["preferredVisionModel"] = visionModel.ToString();
-        }
-        // Note: Backend URLs/auth NOT migrated — different architecture (Swarm native vs extension HTTP)
-        SettingsService.SaveSettings(newSettings);
-    }
 }

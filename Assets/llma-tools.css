@@ -10,10 +10,10 @@
 .llma-msg-text-segment:empty { display: none; }
 
 .llma-tool-call-bubble {
-    margin: 8px 0;
+    margin: 10px 0;
     border: 1px solid var(--light-border);
     border-radius: 8px;
-    background: color-mix(in srgb, var(--background-gray) 92%, transparent);
+    background: var(--background-soft);
     overflow: hidden;
     font-size: 12px;
 }

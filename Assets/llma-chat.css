@@ -11,76 +11,138 @@
     overflow: hidden;
 }
 
-/* Empty-chat state: center the input vertically, hide the messages container */
+/* Empty-chat state: center the input + greeting vertically, hide the messages
+   container. The greeting itself is a real DOM node populated by JS so it can
+   be personalized to the active assistant and the user. */
 .llma-chat-panel:has(.llma-messages:empty) .llma-messages {
     flex: 0 0 auto;
     min-height: 0;
     padding: 0;
 }
 .llma-chat-panel:has(.llma-messages:empty) .llma-input-area {
-    margin-top: auto;
+    margin-top: 0;
     margin-bottom: auto;
     padding-top: 0;
     padding-bottom: 0;
 }
-.llma-chat-panel:has(.llma-messages:empty) .llma-input-area::before {
-    content: "How can I help you today?";
-    display: block;
-    font-size: 22px;
-    font-weight: 500;
-    color: var(--text-strong);
-    opacity: 0.85;
-    margin-bottom: 18px;
-    text-align: center;
+.llma-chat-panel:has(.llma-messages:empty) .llma-empty-greeting {
+    margin-top: auto;
 }
 
-/* Messages */
+/* Personalized empty-chat greeting: round avatar above a centered greeting
+   with the assistant's name and a subtitle that adapts to the user's memory
+   profile. Sits directly above the input box. */
+.llma-empty-greeting {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 24px 16px 18px;
+    text-align: center;
+    animation: llma-greet-in 0.32s ease;
+}
+@keyframes llma-greet-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.llma-empty-greeting-avatar {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 28px color-mix(in srgb, var(--black) 35%, transparent);
+    border: 2px solid color-mix(in srgb, var(--emphasis) 60%, transparent);
+}
+.llma-empty-greeting-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.llma-empty-greeting-avatar .llma-greet-icon {
+    font-size: 38px;
+    line-height: 1;
+}
+.llma-empty-greeting-name {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--emphasis);
+    opacity: 0.9;
+}
+.llma-empty-greeting-heading {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin: 0;
+    line-height: 1.25;
+    max-width: 640px;
+}
+.llma-empty-greeting-sub {
+    font-size: 14px;
+    color: var(--text-soft);
+    opacity: 0.85;
+    margin: 0;
+    line-height: 1.5;
+    max-width: 560px;
+}
+.llma-empty-greeting-sub em {
+    font-style: normal;
+    color: var(--text-strong);
+    font-weight: 500;
+}
+
+/* Messages — centered column */
 .llma-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px max(14px, calc((100% - 820px) / 2)) 12px;
+    padding: 24px max(16px, calc((100% - 780px) / 2)) 16px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 20px;
     scroll-behavior: smooth;
 }
 /* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 
-/* Message row */
+/* Message row — column layout; Claude-style */
 .llma-msg-row {
     display: flex;
-    align-items: flex-start;
-    gap: 8px;
+    flex-direction: column;
+    gap: 4px;
     animation: llma-msg-in 0.2s ease;
 }
-.llma-msg-row.user { flex-direction: row-reverse; }
+.llma-msg-row.user {
+    align-items: flex-end;
+}
 @keyframes llma-msg-in {
     from { opacity: 0; transform: translateY(6px); }
     to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Message avatar */
+/* Assistant message header: small avatar + name */
+.llma-msg-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 2px;
+}
 .llma-msg-avatar {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
     flex-shrink: 0;
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 13px;
-    margin-top: 2px;
+    font-size: 10px;
 }
 .llma-msg-avatar.ai-avatar {
     background: var(--emphasis);
-}
-.llma-msg-avatar.user-avatar {
-    background: var(--background-soft);
-    border: 1px solid var(--border-color);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-soft);
 }
 .llma-msg-avatar img {
     width: 100%;
@@ -88,52 +150,54 @@
     object-fit: cover;
 }
 
-/* Message content wrapper */
-.llma-msg-content-wrap {
+/* Sender name */
+.llma-msg-sender {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+
+/* Assistant message body */
+.llma-msg-body {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-width: 76%;
-}
-.llma-msg-row.user .llma-msg-content-wrap { align-items: flex-end; }
-.llma-msg-sender {
-    font-size: 10.5px;
-    color: var(--text-soft);
-    opacity: 0.45;
-    padding: 0 2px;
 }
 
-/* Bubble */
+/* Bubble — base */
 .llma-msg-bubble {
-    padding: 9px 12px;
-    border-radius: 12px;
-    font-size: 13.5px;
-    line-height: 1.55;
+    font-size: 14px;
+    line-height: 1.65;
     word-break: break-word;
     position: relative;
 }
+/* AI: no bubble — flowing markdown on transparent background */
 .llma-msg-bubble.ai-bubble {
-    background: var(--background-soft);
-    border: 1px solid var(--light-border);
-    border-radius: 4px 12px 12px 12px;
+    background: transparent;
+    border: none;
     color: var(--text);
+    padding: 0;
 }
+/* User: right-aligned pill */
 .llma-msg-bubble.user-bubble {
     background: var(--emphasis);
     color: var(--emphasis-text);
-    border-radius: 12px 12px 4px 12px;
+    border-radius: 20px;
     border: none;
+    padding: 10px 18px;
+    max-width: 85%;
 }
 
 /* Message actions (hover) */
 .llma-msg-actions {
     display: flex;
     gap: 4px;
-    margin-top: 4px;
+    padding-top: 2px;
     opacity: 0;
     transition: opacity 0.15s;
 }
-.llma-msg-content-wrap:hover .llma-msg-actions { opacity: 1; }
+.llma-msg-body:hover .llma-msg-actions,
+.llma-msg-row.user:hover .llma-msg-actions { opacity: 1; }
 .llma-msg-action-btn {
     font-size: 10px;
     padding: 2px 7px;
@@ -147,76 +211,83 @@
 }
 .llma-msg-action-btn:hover { opacity: 1; background: var(--background-soft); }
 
-/* Markdown content inside bubbles */
-.llma-msg-bubble p { margin: 0 0 8px; }
+/* Markdown content inside messages */
+.llma-msg-bubble p { margin: 0 0 10px; }
 .llma-msg-bubble p:last-child { margin-bottom: 0; }
 .llma-msg-bubble pre {
-    background: color-mix(in srgb, var(--black) 35%, transparent);
-    border-radius: 7px;
-    padding: 10px 12px;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    padding: 12px 14px;
     overflow-x: auto;
-    margin: 8px 0;
-    font-size: 12.5px;
+    margin: 10px 0;
+    font-size: 13px;
     position: relative;
 }
-.llma-msg-bubble.user-bubble pre { background: color-mix(in srgb, var(--black) 25%, transparent); }
+.llma-msg-bubble.user-bubble pre {
+    background: color-mix(in srgb, var(--black) 25%, transparent);
+    border: none;
+}
 .llma-msg-bubble code {
     font-family: var(--font-monospace);
-    font-size: 12.5px;
+    font-size: 13px;
 }
 .llma-msg-bubble :not(pre) > code {
-    background: color-mix(in srgb, var(--black) 30%, transparent);
-    padding: 1px 5px;
-    border-radius: 4px;
+    background: color-mix(in srgb, var(--black) 18%, transparent);
+    padding: 2px 6px;
+    border-radius: 5px;
+    font-size: 0.9em;
 }
 .llma-msg-bubble.user-bubble :not(pre) > code { background: color-mix(in srgb, var(--black) 20%, transparent); }
-.llma-msg-bubble ul, .llma-msg-bubble ol { padding-left: 18px; margin: 6px 0; }
-.llma-msg-bubble li { margin-bottom: 3px; }
+.llma-msg-bubble ul, .llma-msg-bubble ol { padding-left: 20px; margin: 8px 0; }
+.llma-msg-bubble li { margin-bottom: 4px; }
 .llma-msg-bubble h1, .llma-msg-bubble h2, .llma-msg-bubble h3,
 .llma-msg-bubble h4, .llma-msg-bubble h5 {
     font-weight: 600;
-    margin: 10px 0 4px;
+    margin: 16px 0 6px;
     color: var(--text-strong);
 }
-.llma-msg-bubble h1 { font-size: 16px; }
-.llma-msg-bubble h2 { font-size: 14.5px; }
-.llma-msg-bubble h3, .llma-msg-bubble h4 { font-size: 13px; }
+.llma-msg-bubble h1 { font-size: 18px; }
+.llma-msg-bubble h2 { font-size: 16px; }
+.llma-msg-bubble h3 { font-size: 14.5px; }
+.llma-msg-bubble h4, .llma-msg-bubble h5 { font-size: 13.5px; }
 .llma-msg-bubble blockquote {
     border-left: 3px solid var(--emphasis);
-    padding-left: 10px;
-    margin: 8px 0;
-    opacity: 0.75;
+    padding-left: 12px;
+    margin: 10px 0;
+    opacity: 0.8;
 }
 .llma-msg-bubble a { color: var(--emphasis); text-decoration: none; }
 .llma-msg-bubble a:hover { text-decoration: underline; }
-.llma-msg-bubble table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 8px 0; }
-.llma-msg-bubble th, .llma-msg-bubble td { border: 1px solid var(--border-color); padding: 5px 9px; text-align: left; }
+.llma-msg-bubble table { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 10px 0; }
+.llma-msg-bubble th, .llma-msg-bubble td { border: 1px solid var(--border-color); padding: 6px 10px; text-align: left; }
 .llma-msg-bubble th { background: var(--background-panel-subtle); }
 
 /* Copy code button */
 .llma-copy-code-btn {
     position: absolute;
-    top: 6px;
-    right: 8px;
+    top: 8px;
+    right: 10px;
     font-size: 10px;
-    padding: 2px 7px;
-    border-radius: 4px;
+    padding: 3px 8px;
+    border-radius: 5px;
     border: 1px solid var(--border-color);
-    background: color-mix(in srgb, var(--black) 40%, transparent);
+    background: var(--background-panel-subtle);
     color: var(--text-soft);
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s;
 }
 .llma-msg-bubble pre:hover .llma-copy-code-btn { opacity: 1; }
-.llma-copy-code-btn:hover { opacity: 1 !important; background: color-mix(in srgb, var(--black) 60%, transparent); }
+.llma-copy-code-btn:hover { opacity: 1 !important; background: var(--background-soft); }
 
 /* Mermaid diagrams */
 .llma-mermaid-block {
-    margin: 8px 0;
-    padding: 12px;
+    margin: 10px 0;
+    padding: 14px;
     border-radius: 8px;
-    background: color-mix(in srgb, var(--black) 20%, transparent);
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
     overflow-x: auto;
     text-align: center;
 }

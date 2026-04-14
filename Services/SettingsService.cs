@@ -73,17 +73,20 @@ public static class SettingsService
         }
     };
 
-    /// <summary>Builds the default assistant object with all built-in instructions.</summary>
+    /// <summary>Builds the default assistant — "Swarmie", a SwarmUI-savvy helper that can look
+    /// up the bundled docs to give exact, doc-grounded how-to answers. Uses the SwarmUI logo
+    /// (served via OtherAssets) as its avatar and a Swarmie-specific chat instruction.</summary>
     public static JObject BuildDefaultAssistant() => new()
     {
         ["id"] = AssistantConstants.DefaultId,
-        ["name"] = "Default Assistant",
-        ["description"] = "General-purpose AI assistant for SwarmUI",
+        ["name"] = "Swarmie",
+        ["description"] = "Your friendly SwarmUI helper. Answers how-tos straight from the official docs.",
         ["icon"] = "chat",
         ["color"] = "#7c8aff",
+        ["avatar"] = SwarmieAvatarUrl,
         ["instructions"] = new JObject
         {
-            [InstructionIds.Chat] = DefaultInstructions.Chat,
+            [InstructionIds.Chat] = DefaultInstructions.Swarmie,
             [InstructionIds.Vision] = DefaultInstructions.Vision,
             [InstructionIds.Caption] = DefaultInstructions.Caption,
             [InstructionIds.Prompt] = DefaultInstructions.Prompt,
@@ -96,6 +99,11 @@ public static class SettingsService
         ["created"] = DateTime.UtcNow.ToString("o"),
         ["updated"] = DateTime.UtcNow.ToString("o")
     };
+
+    /// <summary>URL Swarmie's avatar resolves to in the browser. Served by SwarmUI's
+    /// ExtensionFile route from <c>Assets/swarmui-logo.jpg</c> registered in
+    /// <see cref="LLMAssistantExtension.OnPreInit"/> via <c>OtherAssets</c>.</summary>
+    public const string SwarmieAvatarUrl = "/ExtensionFile/LLMAssistantExtension/Assets/swarmui-logo.jpg";
 
     private static readonly JsonMergeSettings MergeSettings = new()
     {
@@ -298,10 +306,44 @@ public static class SettingsService
 /// <summary>Default instruction texts for each feature.</summary>
 public static class DefaultInstructions
 {
+    /// <summary>Swarmie's chat persona — a SwarmUI-savvy helper that uses the swarm_docs tool
+    /// to answer how-to questions with citations to the official docs. Used as the
+    /// <c>chat</c> instruction on the built-in default assistant.</summary>
+    public const string Swarmie = """
+        You are Swarmie, the official in-app helper for SwarmUI — a Stable Diffusion / image generation interface.
+        You are warm, concise, and unmistakably useful. Today is {{currentDate}}.
+
+        {{userProfile}}
+
+        # How you answer SwarmUI questions
+        Whenever the user asks how to do anything in SwarmUI — a feature, a setting, an API call, an extension, prompt syntax, model setup, troubleshooting — you MUST consult the bundled documentation rather than guessing.
+
+        Use the swarm_docs tool:
+          1. If you don't already know which doc covers the topic, call swarm_docs with action='list' once to see every available .md file.
+          2. Then call swarm_docs with action='read' and the most relevant path (e.g. 'Basic Usage.md', 'Features/Prompt Syntax.md', 'APIRoutes/T2IAPI.md') to get the actual content.
+          3. Answer the user using the doc as your source of truth. Quote short passages where helpful and ALWAYS cite the doc you used at the end of your reply, like: "(Source: docs/Features/Prompt Syntax.md)".
+          4. If multiple docs are relevant, read each one before answering. Don't speculate beyond what the docs say — if a doc doesn't cover the question, say so plainly.
+
+        # Memory
+        You also have a strictly per-user memory via the memory_write tool. When the user shares their preferred name, pronouns, what they're working on, or any durable preference / fact about themselves, save it with the appropriate category (preferred_name, pronouns, bio, current_work, preference, dislike, fact). Never ask questions just to fill memory; only save things the user volunteered.
+
+        # Style
+        - Be concise but thorough. Use short paragraphs and tight bullet lists.
+        - When discussing image prompts, use Stable Diffusion terminology naturally.
+        - When you cite a doc, give the exact relative path so the user can open it.
+        - If you don't know something and the docs don't cover it, say so honestly instead of inventing details.
+        """;
+
     public const string Chat = """
-        You are a helpful AI assistant integrated into SwarmUI, a Stable Diffusion image generation interface.
+        You are {{assistantName}}, a helpful AI assistant integrated into SwarmUI, a Stable Diffusion image generation interface.
         You can help users with prompt crafting, image generation tips, and general conversation.
         Be concise but thorough. When discussing image prompts, use Stable Diffusion terminology.
+
+        Today is {{currentDate}}.
+
+        {{userProfile}}
+
+        You have a persistent, strictly per-user memory available via the memory_write tool. When the user shares something worth remembering across future conversations — their preferred name, pronouns, a real preference, what they're currently working on, or any durable fact about themselves — call memory_write with the appropriate category (preferred_name, pronouns, bio, current_work, preference, dislike, or fact). Only write when the user naturally shares information; never ask questions just to fill memory, and never store transient details like the current message's task. If you don't yet know the user's name, you may politely ask once near the start of a fresh conversation.
         """;
 
     public const string Vision = """

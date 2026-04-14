@@ -119,6 +119,10 @@ async function llmaCreateThread(assistantId) {
     if (LLMAState.activeAssistantId) {
         llmaRenderAssistantPanel(LLMAState.activeAssistantId);
     }
+    // Empty new thread → show the personalized assistant greeting above the input.
+    if (typeof llmaRenderEmptyChatGreeting === 'function') {
+        llmaRenderEmptyChatGreeting();
+    }
 
     // Focus input
     setTimeout(() => document.getElementById('llma-input')?.focus(), 100);
@@ -339,6 +343,16 @@ function llmaShowWelcome() {
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = 'LLM Assistant';
     llmaUpdateContextBar();
+    // Refresh the cached user profile so the personalized hero reflects any
+    // memory_write tool calls from the previous conversation. Fire-and-forget
+    // — we render now with what we have, then re-render once the fetch lands.
+    if (typeof llmaLoadUserProfile === 'function') {
+        llmaLoadUserProfile().then(() => {
+            if (typeof llmaRenderPersonalizedWelcome === 'function') {
+                llmaRenderPersonalizedWelcome();
+            }
+        }).catch(() => {});
+    }
     llmaRenderWelcomeAssistants();
     llmaRenderAssistantPanelEmpty();
 }

@@ -24,6 +24,7 @@ const LLMAState = {
     showTokens:        true,
     assets:            [],
     activeAssetId:     null,
+    userProfile:       null,
 };
 
 // -- API Helper --

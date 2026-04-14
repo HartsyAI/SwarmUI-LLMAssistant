@@ -118,8 +118,6 @@ The extension registers a parameter group called **LLM Prompt Processing** in th
 - `<llmresponse:...>` — Marks an LLM-generated segment (used internally for caching)
 - `<llmoriginal>` — Re-adds the original unprocessed tag content back into the prompt. Useful if your model also benefits from the raw tag-style prompt
 
-**Backward compatibility:** When the MagicPrompt extension is **not** installed, the same handlers are also registered under `<mpprompt>`, `<mpresponse>`, and `<mporiginal>` aliases so prompts authored for MagicPrompt continue to work.
-
 ## Architecture
 
 ```
@@ -249,5 +247,4 @@ MIT License — see [LICENSE](LICENSE).
 ## Acknowledgments
 
 - [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva) — Base platform and the LLM backend infrastructure this extension is waiting on
-- [MagicPrompt](https://github.com/HartsyAI/SwarmUI-MagicPromptExtension) — The original Hartsy prompt enhancement extension; `<llmprompt>` tag aliasing to `<mpprompt>` is provided for backward compatibility when MagicPrompt is not installed
 - [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/) — Markdown, code, math, and diagram rendering inside chat bubbles

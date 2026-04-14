@@ -110,6 +110,9 @@
         <div class="llma-content">
             <!-- Welcome / Gallery -->
             <div class="llma-welcome" id="llma-welcome">
+                <!-- Personalized hero (assistant avatar + greeting + rotating tip).
+                     Populated by llmaRenderPersonalizedWelcome(). Hidden until first render. -->
+                <div class="llma-welcome-hero" id="llma-welcome-hero" style="display:none;"></div>
                 <div class="llma-gallery-header">
                     <h2 class="llma-gallery-title">LLM Assistant</h2>
                     <p class="llma-gallery-sub">Choose an assistant to start a conversation.</p>
@@ -120,6 +123,10 @@
             <!-- Chat Panel -->
             <div class="llma-chat-panel" id="llma-chat-panel" style="display:none;">
                 <div class="llma-messages" id="llma-messages"></div>
+                <!-- Empty-chat greeting: rendered above the input only when the
+                     thread has zero messages. Personalized to the active
+                     assistant + the user's memory profile. -->
+                <div class="llma-empty-greeting" id="llma-empty-greeting" style="display:none;"></div>
                 <div class="llma-attachment-preview" id="llma-attachment-preview" style="display:none;"></div>
                 <div class="llma-input-area">
                     <div class="llma-input-wrap">

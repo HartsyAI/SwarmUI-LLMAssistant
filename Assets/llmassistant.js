@@ -9,6 +9,22 @@
 // -- Instruction Keys --
 const LLMA_INSTRUCTION_KEYS = ['chat', 'vision', 'caption', 'prompt', 'randomprompt', 'instructiongen'];
 
+// Rotating tips shown on the personalized welcome hero. One is picked at random
+// each time llmaRenderPersonalizedWelcome() runs (per the user's "change each time" pref).
+// Keep these short, useful, and Swarm/extension-specific.
+const LLMA_WELCOME_TIPS = [
+    "Tip: I can write to long-term memory — share your name, what you're working on, or any preference and I'll remember it next time.",
+    "Tip: Use the <b>generate_image</b> tool in chat to spin up a SwarmUI render without leaving the conversation.",
+    "Tip: Drop an image into the input area to ask questions about it (vision-capable assistants only).",
+    "Tip: Each assistant has its own personality and tool set — try creating a coding agent, a prompt-crafter, and a research agent and switching between them.",
+    "Tip: Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump straight to the input box.",
+    "Tip: Threads are grouped by date in the sidebar — search by title to find an old conversation fast.",
+    "Tip: Click any code block in a reply to copy it. Markdown, mermaid diagrams, and KaTeX math all render inline.",
+    "Tip: Adjust temperature, max tokens, and the model per-thread from the assistant panel on the right.",
+    "Tip: Tool calls (web search, file read, image gen) show as compact cards in chat — click to expand.",
+    "Tip: Your memory profile is strictly per-user — no other Swarm user can read it, ever.",
+];
+
 // -- Editing state --
 let llmaEditingAsstId = null;
 let llmaActiveInstrTab = 'chat';
@@ -22,12 +38,13 @@ async function llmaInit() {
         llmaLoadSettings(),
     ]);
 
-    const [, , , , sessionStateResult] = await Promise.allSettled([
+    const [, , , , sessionStateResult, ] = await Promise.allSettled([
         llmaLoadAssistants(),
         llmaLoadThreads(),
         llmaLoadModels(),
         llmaLoadTools(),
         llmaGetSessionState(),
+        llmaLoadUserProfile(),
     ]);
     const sessionState = sessionStateResult?.status === 'fulfilled' ? (sessionStateResult.value || {}) : {};
 
@@ -89,6 +106,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     llmaUpdateContextBar();
     llmaRenderThreadList(LLMAState.threads);
     llmaRenderAssistantPanel(assistantId);
+    llmaRenderEmptyChatGreeting();
 
     if (persist) {
         llmaRequest('LLMAssistantSetActiveAssistant', { assistantId }).catch(() => {});
@@ -595,8 +613,155 @@ async function llmaRefreshExactTotalTokens() {
     }
 }
 
+// -- User profile (per-user memory) --
+// The profile is strictly per-user and stored server-side via UserProfileService.
+// We cache it here so the welcome hero can personalize without an extra round-trip.
+async function llmaLoadUserProfile() {
+    try {
+        const result = await llmaRequest('LLMAssistantGetUserProfile', {});
+        LLMAState.userProfile = result?.profile || null;
+    } catch {
+        LLMAState.userProfile = null;
+    }
+}
+
+// -- Personalized Welcome Hero --
+// Builds the avatar + greeting + rotating tip block at the top of the welcome screen.
+// Picks a random tip every call (per user preference). Greeting wording adapts to
+// what we know about the user from their memory profile.
+function llmaRenderPersonalizedWelcome() {
+    const hero = document.getElementById('llma-welcome-hero');
+    if (!hero) return;
+
+    // Pick a featured assistant: prefer the active one, then the last-used,
+    // otherwise the first available. The hero is hidden if there are zero assistants.
+    const assistant = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId)
+        || LLMAState.assistants[0];
+    if (!assistant) {
+        hero.style.display = 'none';
+        return;
+    }
+
+    const profile     = LLMAState.userProfile || {};
+    const userName    = (profile.preferredName || '').trim();
+    const currentWork = (profile.currentWork || '').trim();
+    const asstName    = assistant.name || 'Assistant';
+
+    // Greeting strategy:
+    //  - Have name + currentWork → familiar "still working on X?" line
+    //  - Have name only          → friendly welcome back
+    //  - First-time user         → introductory ask-for-name
+    //  - Otherwise               → neutral how-can-i-help
+    let heading;
+    let sub;
+    if (userName && currentWork) {
+        heading = `Welcome back, ${llmaEscapeHtml(userName)}.`;
+        sub     = `I'm ${llmaEscapeHtml(asstName)}. Still working on <em>${llmaEscapeHtml(currentWork)}</em>?`;
+    } else if (userName) {
+        heading = `Welcome back, ${llmaEscapeHtml(userName)}.`;
+        sub     = `I'm ${llmaEscapeHtml(asstName)}. What are we working on today?`;
+    } else if (LLMAState.userProfile === null || (!profile.preferredName && !profile.bio && !(profile.facts || []).length)) {
+        heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
+        sub     = `Tell me what to call you and what you're working on — I'll remember it for next time.`;
+    } else {
+        heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
+        sub     = `How can I help you today?`;
+    }
+
+    // Pick a fresh tip on every render.
+    const tip = LLMA_WELCOME_TIPS[Math.floor(Math.random() * LLMA_WELCOME_TIPS.length)];
+
+    // Avatar: real image if assigned, otherwise gradient + category icon.
+    const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
+    const avatarHtml = assistant.avatar
+        ? `<img class="llma-welcome-avatar-img" src="${llmaEscapeHtml(assistant.avatar)}" alt="${llmaEscapeHtml(asstName)}">`
+        : `<div class="llma-welcome-avatar-gradient" style="background:${llmaGradientBg(assistant.color)};"><span class="llma-welcome-avatar-icon">${icon}</span></div>`;
+
+    // Layout: avatar on the left, a chat-style speech bubble on the right (with a
+    // little tail pointing back at the avatar) so the greeting visually reads as
+    // the assistant *talking to* the user. The rotating tip is rendered as a
+    // separate, lighter system note below the bubble.
+    hero.innerHTML = `
+        <div class="llma-welcome-avatar" title="${llmaEscapeHtml(asstName)}">${avatarHtml}</div>
+        <div class="llma-welcome-text">
+            <div class="llma-welcome-bubble">
+                <div class="llma-welcome-bubble-name">${llmaEscapeHtml(asstName)}</div>
+                <h1 class="llma-welcome-heading">${heading}</h1>
+                <p class="llma-welcome-sub">${sub}</p>
+            </div>
+            <div class="llma-welcome-tip"><span class="llma-welcome-tip-icon">💡</span><span class="llma-welcome-tip-text">${tip}</span></div>
+        </div>`;
+    hero.style.display = '';
+}
+
+// -- Empty-chat greeting --
+// Renders the personalized greeting block that sits above the input box when
+// the active thread has zero messages. The block shows the active assistant's
+// circular avatar, their name, and a greeting that adapts to the user's
+// memory profile (preferred name + current work). Hidden automatically as
+// soon as the thread has any messages.
+function llmaRenderEmptyChatGreeting() {
+    const greet = document.getElementById('llma-empty-greeting');
+    if (!greet) return;
+
+    if (LLMAState.messages && LLMAState.messages.length > 0) {
+        greet.style.display = 'none';
+        greet.innerHTML = '';
+        return;
+    }
+
+    const assistant = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId)
+        || LLMAState.assistants[0];
+    if (!assistant) {
+        greet.style.display = 'none';
+        return;
+    }
+
+    const profile     = LLMAState.userProfile || {};
+    const userName    = (profile.preferredName || '').trim();
+    const currentWork = (profile.currentWork || '').trim();
+    const asstName    = assistant.name || 'Assistant';
+
+    // Greeting strategy mirrors the welcome hero so the assistant feels
+    // consistent across both surfaces. Description fallback gives the
+    // assistant a "voice" even on first contact.
+    let heading;
+    let sub;
+    if (userName && currentWork) {
+        heading = `Welcome back, ${llmaEscapeHtml(userName)}.`;
+        sub     = `Still working on <em>${llmaEscapeHtml(currentWork)}</em>? I'm ready when you are.`;
+    } else if (userName) {
+        heading = `Hey ${llmaEscapeHtml(userName)} — what should we work on?`;
+        sub     = assistant.description
+            ? llmaEscapeHtml(assistant.description)
+            : `I'm ${llmaEscapeHtml(asstName)}. Ask me anything.`;
+    } else {
+        heading = `Hi, I'm ${llmaEscapeHtml(asstName)}. How can I help?`;
+        sub     = assistant.description
+            ? llmaEscapeHtml(assistant.description)
+            : `Tell me what to call you and what you're working on — I'll remember it next time.`;
+    }
+
+    const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
+    const avatarInner = assistant.avatar
+        ? `<img src="${llmaEscapeHtml(assistant.avatar)}" alt="${llmaEscapeHtml(asstName)}">`
+        : `<span class="llma-greet-icon">${icon}</span>`;
+    const avatarStyle = assistant.avatar ? '' : ` style="background:${llmaGradientBg(assistant.color)};"`;
+
+    greet.innerHTML = `
+        <div class="llma-empty-greeting-avatar"${avatarStyle}>${avatarInner}</div>
+        <div class="llma-empty-greeting-name">${llmaEscapeHtml(asstName)}</div>
+        <h2 class="llma-empty-greeting-heading">${heading}</h2>
+        <p class="llma-empty-greeting-sub">${sub}</p>`;
+    greet.style.display = '';
+}
+
 // -- Welcome Screen Assistant Grid --
 function llmaRenderWelcomeAssistants() {
+    // Refresh the personalized hero alongside the gallery so the tip rotates
+    // each time the user lands on / returns to the welcome view.
+    llmaRenderPersonalizedWelcome();
+
     const grid = document.getElementById('llma-assistant-grid');
     if (!grid) return;
 
@@ -677,12 +842,30 @@ function llmaSetupSettingsModal() {
 
     if (resetBtn) {
         resetBtn.addEventListener('click', async () => {
-            if (!confirm('Reset all settings to defaults?')) return;
-            LLMAState.settings = { ...LLMA_DEFAULT_SETTINGS };
-            llmaWriteSettingsToModal();
-            await llmaSaveSettings();
-            llmaApplySettingsToState();
-            llmaShowToast('Settings reset to defaults', 'info');
+            // Full factory reset: hits the server's LLMAssistantResetSettings with
+            // scope=shared so the persisted shared blob (assistants, tools, instructions,
+            // params) is rebuilt from C#-side DefaultSettings. The local scalar fallback
+            // alone is not enough — the assistants dict lives server-side.
+            const sharedReset = !!LLMAState.canWriteShared;
+            const msg = sharedReset
+                ? 'Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.'
+                : 'Reset your personal LLM Assistant settings to defaults?';
+            if (!confirm(msg)) return;
+            try {
+                await llmaRequest('LLMAssistantResetSettings', sharedReset ? { scope: 'shared' } : {});
+                // Reload everything so the newly-defaulted Swarmie (and its avatar) show up.
+                await llmaLoadSettings();
+                await llmaLoadAssistants();
+                llmaWriteSettingsToModal();
+                llmaRenderAssistantList?.();
+                if (LLMAState.activeAssistantId) {
+                    llmaRenderAssistantPanel(LLMAState.activeAssistantId);
+                }
+                llmaRenderWelcomeAssistants?.();
+                llmaShowToast('Settings reset to defaults', 'success');
+            } catch (e) {
+                llmaShowToast('Reset failed: ' + (e?.message || 'unknown error'), 'error');
+            }
         });
     }
 

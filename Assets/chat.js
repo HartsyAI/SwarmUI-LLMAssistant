@@ -18,101 +18,115 @@ function llmaRenderMessageHistory(messages) {
         }
     }
     llmaRebuildAssetsForThread();
+    // Refresh the empty-chat greeting: it shows when the rendered list is
+    // empty and hides itself otherwise.
+    if (typeof llmaRenderEmptyChatGreeting === 'function') {
+        llmaRenderEmptyChatGreeting();
+    }
     llmaScrollToBottom();
 }
 
-// -- Append Single Message --
+// -- Append Single Message (Claude-style layout) --
 function llmaAppendMessageToDOM(role, content, imageBase64, msgId, meta) {
     const container = document.getElementById('llma-messages');
     if (!container) return null;
+
+    // First message of the thread: hide the empty-chat greeting since the
+    // CSS empty-state selectors only check the messages list (not state).
+    const greet = document.getElementById('llma-empty-greeting');
+    if (greet && greet.style.display !== 'none') {
+        greet.style.display = 'none';
+        greet.innerHTML = '';
+    }
 
     const id = msgId || llmaGenerateId();
     const isUser = role === 'user';
     const assistant = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId);
 
-    // Message row
+    // Message row — column layout; user right-aligned, assistant left-aligned
     const row = document.createElement('div');
     row.className = `llma-msg-row ${isUser ? 'user' : 'assistant'}`;
     row.setAttribute('data-msg-id', id);
 
-    // Avatar
-    const avatar = document.createElement('div');
-    avatar.className = `llma-msg-avatar ${isUser ? 'user-avatar' : 'ai-avatar'}`;
     if (isUser) {
-        avatar.textContent = 'U';
-    } else if (assistant?.avatar) {
-        const img = document.createElement('img');
-        img.src = assistant.avatar;
-        avatar.appendChild(img);
+        // ── User: right-aligned pill, no avatar ──
+        const bubble = document.createElement('div');
+        bubble.className = 'llma-msg-bubble user-bubble';
+        if (imageBase64) {
+            const img = document.createElement('img');
+            img.src = imageBase64;
+            img.className = 'llma-msg-image';
+            bubble.appendChild(img);
+        }
+        if (content) bubble.appendChild(document.createTextNode(content));
+
+        const actions = document.createElement('div');
+        actions.className = 'llma-msg-actions';
+        actions.appendChild(llmaCreateActionBtn('Copy', () => llmaCopyMessage(id)));
+        actions.appendChild(llmaCreateActionBtn('Edit', () => llmaStartEdit(id)));
+        actions.appendChild(llmaCreateActionBtn('Del', () => llmaDeleteMessage(id)));
+
+        row.appendChild(bubble);
+        row.appendChild(actions);
     } else {
-        avatar.style.background = assistant?.color || 'var(--emphasis)';
-        avatar.textContent = llmaCategoryIcon(assistant?.icon || assistant?.category || 'chat');
-    }
+        // ── Assistant: header (avatar + name) → body (content + meta + actions) ──
+        const header = document.createElement('div');
+        header.className = 'llma-msg-header';
 
-    // Content wrapper
-    const wrap = document.createElement('div');
-    wrap.className = 'llma-msg-content-wrap';
-
-    // Sender label
-    const sender = document.createElement('div');
-    sender.className = 'llma-msg-sender';
-    sender.textContent = isUser ? 'You' : (assistant?.name || 'Assistant');
-
-    // Bubble
-    const bubble = document.createElement('div');
-    bubble.className = `llma-msg-bubble ${isUser ? 'user-bubble' : 'ai-bubble'}`;
-
-    // Image attachment
-    if (imageBase64) {
-        const img = document.createElement('img');
-        img.src = imageBase64;
-        img.className = 'llma-msg-image';
-        bubble.appendChild(img);
-    }
-
-    if (content) {
-        if (isUser) {
-            bubble.appendChild(document.createTextNode(content));
+        const avatar = document.createElement('div');
+        avatar.className = 'llma-msg-avatar ai-avatar';
+        if (assistant?.avatar) {
+            const img = document.createElement('img');
+            img.src = assistant.avatar;
+            avatar.appendChild(img);
         } else {
+            avatar.style.background = assistant?.color || 'var(--emphasis)';
+            avatar.textContent = llmaCategoryIcon(assistant?.icon || assistant?.category || 'chat');
+        }
+        const sender = document.createElement('span');
+        sender.className = 'llma-msg-sender';
+        sender.textContent = assistant?.name || 'Assistant';
+        header.appendChild(avatar);
+        header.appendChild(sender);
+
+        const body = document.createElement('div');
+        body.className = 'llma-msg-body';
+
+        const bubble = document.createElement('div');
+        bubble.className = 'llma-msg-bubble ai-bubble';
+        if (content) {
             bubble.innerHTML = llmaRenderAssistantContent(content, id);
             llmaPostRenderMermaid(bubble);
+        } else {
+            bubble.innerHTML = '<div class="llma-typing"><span></span><span></span><span></span></div>';
         }
-    } else if (!isUser) {
-        // Typing indicator
-        bubble.innerHTML = '<div class="llma-typing"><span></span><span></span><span></span></div>';
-    }
 
-    // Meta (generation time, model)
-    const metaDiv = document.createElement('div');
-    metaDiv.className = 'llma-msg-meta';
-    if (meta) {
-        const parts = [];
-        if (meta.model) parts.push(meta.model);
-        parts.push(`${meta.genTime || '?'}s`);
-        metaDiv.textContent = parts.join(' \u00b7 ');
-    }
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'llma-msg-meta';
+        if (meta) {
+            const parts = [];
+            if (meta.model) parts.push(meta.model);
+            parts.push(`${meta.genTime || '?'}s`);
+            metaDiv.textContent = parts.join(' \u00b7 ');
+        }
 
-    // Actions
-    const actions = document.createElement('div');
-    actions.className = 'llma-msg-actions';
-    actions.appendChild(llmaCreateActionBtn('Copy', () => llmaCopyMessage(id)));
-    if (isUser) {
-        actions.appendChild(llmaCreateActionBtn('Edit', () => llmaStartEdit(id)));
-    } else {
+        const actions = document.createElement('div');
+        actions.className = 'llma-msg-actions';
+        actions.appendChild(llmaCreateActionBtn('Copy', () => llmaCopyMessage(id)));
         actions.appendChild(llmaCreateActionBtn('Regen', () => llmaRegenerateMessage(id)));
         actions.appendChild(llmaCreateActionBtn('Use as Prompt', () => {
             const msg = LLMAState.messages.find(m => m.id === id);
             if (msg) llmaSendToPromptBox(msg.content);
         }));
-    }
-    actions.appendChild(llmaCreateActionBtn('Del', () => llmaDeleteMessage(id)));
+        actions.appendChild(llmaCreateActionBtn('Del', () => llmaDeleteMessage(id)));
 
-    wrap.appendChild(sender);
-    wrap.appendChild(bubble);
-    if (!isUser) wrap.appendChild(metaDiv);
-    wrap.appendChild(actions);
-    row.appendChild(avatar);
-    row.appendChild(wrap);
+        body.appendChild(bubble);
+        body.appendChild(metaDiv);
+        body.appendChild(actions);
+        row.appendChild(header);
+        row.appendChild(body);
+    }
+
     container.appendChild(row);
     llmaScrollToBottom();
     return id;

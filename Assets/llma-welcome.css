@@ -9,6 +9,166 @@
     overflow-y: auto;
     padding: 20px 16px;
 }
+
+/* ── Personalized Welcome Hero ──────────────────────────────── */
+/* Shown above the assistant gallery. Avatar on the left, a chat-style speech
+   bubble on the right (with a little tail pointing at the avatar) so the
+   greeting visually reads as the assistant *talking to* the user. The rotating
+   system tip sits below the bubble in a lighter style. */
+.llma-welcome-hero {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 22px 20px 18px;
+    margin-bottom: 18px;
+    border: 1px solid var(--light-border);
+    border-radius: 14px;
+    background: linear-gradient(135deg,
+        color-mix(in srgb, var(--background-panel-subtle) 85%, transparent) 0%,
+        color-mix(in srgb, var(--background-soft) 70%, transparent) 100%);
+}
+.llma-welcome-avatar {
+    flex: 0 0 auto;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    overflow: hidden;
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--black) 28%, transparent);
+    border: 2px solid color-mix(in srgb, var(--emphasis) 55%, transparent);
+}
+.llma-welcome-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.llma-welcome-avatar-gradient {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-welcome-avatar-icon { font-size: 32px; line-height: 1; }
+.llma-welcome-text {
+    flex: 1;
+    min-width: 0;
+}
+/* Speech bubble with a left-pointing tail aimed at the avatar. Uses two
+   pseudo-elements to draw the border + fill triangle so the tail respects
+   theme variables. */
+.llma-welcome-bubble {
+    position: relative;
+    padding: 12px 16px 14px;
+    border-radius: 14px;
+    background: var(--background-panel);
+    border: 1px solid var(--light-border);
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--black) 20%, transparent);
+    margin-left: 6px;
+}
+.llma-welcome-bubble::before,
+.llma-welcome-bubble::after {
+    content: '';
+    position: absolute;
+    top: 18px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+.llma-welcome-bubble::before {
+    left: -10px;
+    border-width: 8px 10px 8px 0;
+    border-color: transparent var(--light-border) transparent transparent;
+}
+.llma-welcome-bubble::after {
+    left: -8px;
+    border-width: 7px 9px 7px 0;
+    border-color: transparent var(--background-panel) transparent transparent;
+}
+.llma-welcome-bubble-name {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--emphasis);
+    opacity: 0.9;
+    margin-bottom: 4px;
+}
+.llma-welcome-heading {
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin: 0 0 4px;
+    line-height: 1.25;
+}
+.llma-welcome-sub {
+    font-size: 13px;
+    color: var(--text-soft);
+    opacity: 0.92;
+    margin: 0;
+    line-height: 1.5;
+}
+.llma-welcome-sub em {
+    font-style: normal;
+    color: var(--text-strong);
+    font-weight: 500;
+}
+.llma-welcome-tip {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 10px;
+    margin-left: 6px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--background-soft) 50%, transparent);
+    border: 1px dashed color-mix(in srgb, var(--light-border) 70%, transparent);
+    font-size: 12px;
+    color: var(--text-soft);
+    opacity: 0.85;
+    line-height: 1.45;
+}
+.llma-welcome-tip-icon {
+    flex: 0 0 auto;
+    font-size: 13px;
+    line-height: 1.45;
+}
+.llma-welcome-tip-text { flex: 1; min-width: 0; }
+.llma-welcome-tip-text kbd {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 4px;
+    border: 1px solid var(--light-border);
+    background: var(--background-panel-subtle);
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    color: var(--text-strong);
+    line-height: 1.4;
+}
+@media (max-width: 680px) {
+    .llma-welcome-hero {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 14px;
+    }
+    .llma-welcome-avatar { width: 56px; height: 56px; }
+    .llma-welcome-heading { font-size: 17px; }
+    /* On mobile the bubble's tail flips upward to point at the avatar above. */
+    .llma-welcome-bubble { margin-left: 0; }
+    .llma-welcome-bubble::before,
+    .llma-welcome-bubble::after { top: -10px; left: 22px; }
+    .llma-welcome-bubble::before {
+        border-width: 0 8px 10px 8px;
+        border-color: transparent transparent var(--light-border) transparent;
+    }
+    .llma-welcome-bubble::after {
+        top: -8px;
+        border-width: 0 7px 9px 7px;
+        border-color: transparent transparent var(--background-panel) transparent;
+    }
+    .llma-welcome-tip { margin-left: 0; }
+}
 /* Scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 .llma-gallery-header { margin-bottom: 16px; }
 .llma-gallery-title {

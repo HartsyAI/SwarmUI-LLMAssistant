@@ -20,6 +20,9 @@ public static class ToolExecutorService
         [ToolConstants.FileRead] = LLMAssistantAPI.PermToolFileRead,
         [ToolConstants.HttpRequest] = LLMAssistantAPI.PermToolHttpRequest,
         [ToolConstants.ShellExec] = LLMAssistantAPI.PermToolShellExec,
+        [ToolConstants.MemoryWrite] = LLMAssistantAPI.PermToolMemory,
+        [ToolConstants.MemoryRead] = LLMAssistantAPI.PermToolMemory,
+        [ToolConstants.SwarmDocs] = LLMAssistantAPI.PermToolSwarmDocs,
     };
 
     /// <summary>Executes a tool by ID with the given arguments.</summary>

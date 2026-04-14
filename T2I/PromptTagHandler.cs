@@ -89,28 +89,11 @@ public static class PromptTagHandler
 
     private static void RegisterPromptTags()
     {
-        // Register our primary tags
         PromptRegion.RegisterCustomPrefix("llmprompt");
         PromptRegion.RegisterCustomPrefix("llmresponse");
         PromptRegion.RegisterCustomPrefix("llmoriginal");
-        // Register backward-compatible aliases (only if MagicPrompt is not installed)
-        bool magicPromptInstalled = SwarmUI.Core.Program.Extensions.Extensions.Any(
-            e => e.GetType().Name == "MagicPromptExtension");
-        if (!magicPromptInstalled)
-        {
-            PromptRegion.RegisterCustomPrefix("mpprompt");
-            PromptRegion.RegisterCustomPrefix("mpresponse");
-            PromptRegion.RegisterCustomPrefix("mporiginal");
-        }
-        // Register post-processors for our tags
         T2IPromptHandling.PromptTagPostProcessors["llmprompt"] = (tag, _) => tag;
         T2IPromptHandling.PromptTagPostProcessors["llmresponse"] = (tag, _) => tag;
         T2IPromptHandling.PromptTagPostProcessors["llmoriginal"] = (tag, _) => tag;
-        if (!magicPromptInstalled)
-        {
-            T2IPromptHandling.PromptTagPostProcessors["mpprompt"] = (tag, _) => tag;
-            T2IPromptHandling.PromptTagPostProcessors["mpresponse"] = (tag, _) => tag;
-            T2IPromptHandling.PromptTagPostProcessors["mporiginal"] = (tag, _) => tag;
-        }
     }
 }
