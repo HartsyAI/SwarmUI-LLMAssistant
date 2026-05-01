@@ -127,6 +127,56 @@ public static class ThreadStorageService
         return null;
     }
 
+    /// <summary>Creates a new empty thread for the given assistant and saves it. Used by the
+    /// chat endpoint when the user sends a first message without an existing thread.
+    /// Returns the freshly-created thread blob (caller can read the assigned <c>id</c>).</summary>
+    public static JObject CreateThread(User user, string assistantId, string title = null)
+    {
+        string threadId = GenerateThreadId();
+        string now = DateTime.UtcNow.ToString("o");
+        JObject thread = new()
+        {
+            ["id"] = threadId,
+            ["title"] = title ?? "New Thread",
+            ["assistantId"] = assistantId ?? "",
+            ["createdAt"] = now,
+            ["updatedAt"] = now,
+            ["messages"] = new JArray(),
+            ["messageCount"] = 0
+        };
+        SaveThread(user, thread);
+        return thread;
+    }
+
+    /// <summary>Appends a single message to a thread and persists. The message is expected to
+    /// have at minimum <c>role</c> and <c>content</c>; <c>id</c> and <c>timestamp</c> are filled
+    /// in if missing. Returns the updated thread, or null if not found.</summary>
+    public static JObject AppendMessage(User user, string threadId, JObject message)
+    {
+        if (message is null)
+        {
+            return null;
+        }
+        JObject thread = GetThread(user, threadId);
+        if (thread is null)
+        {
+            return null;
+        }
+        JArray messages = thread["messages"] as JArray ?? [];
+        if (message["id"] is null)
+        {
+            message["id"] = Guid.NewGuid().ToString("N");
+        }
+        if (message["timestamp"] is null)
+        {
+            message["timestamp"] = DateTime.UtcNow.ToString("o");
+        }
+        messages.Add(message);
+        thread["messages"] = messages;
+        SaveThread(user, thread);
+        return thread;
+    }
+
     /// <summary>Deletes a thread and removes it from the index.</summary>
     public static bool DeleteThread(User user, string threadId)
     {

@@ -2,10 +2,12 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
+using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: read a text file from the SwarmUI Data directory (sandboxed).</summary>
+/// <summary>Built-in tool: read a text file from the SwarmUI Data directory (sandboxed via
+/// <see cref="WebServer.CheckFilePath"/>).</summary>
 public class FileReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FileRead;
@@ -24,17 +26,13 @@ public class FileReadTool : ToolHandler
         }
         try
         {
-            // Sandbox: must be within SwarmUI's Data directory
             string dataRoot = Path.GetFullPath("Data");
-            string fullPath = Path.GetFullPath(Path.Combine(dataRoot, path));
-            if (!fullPath.StartsWith(dataRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                && !fullPath.Equals(dataRoot, StringComparison.OrdinalIgnoreCase))
+            // SwarmUI's canonical sandbox check (handles traversal, symlinks, normalization).
+            (string fullPath, string consoleError, string userError) = WebServer.CheckFilePath(dataRoot, path);
+            if (fullPath is null)
             {
-                return new JObject
-                {
-                    ["success"] = false,
-                    ["error"] = "Path is outside the SwarmUI Data directory (sandbox violation)."
-                };
+                if (consoleError is not null) Logs.Warning($"[LLMAssistant] file_read rejected path: {consoleError}");
+                return new JObject { ["success"] = false, ["error"] = userError ?? "Invalid path." };
             }
             if (!File.Exists(fullPath))
             {

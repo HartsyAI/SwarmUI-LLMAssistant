@@ -62,12 +62,16 @@
 
 /* ── Responsive ─────────────────────────────────────────────── */
 
-/* Tablet: hide right panel, show toggle in topbar */
+/* Tablet: hide right panel, show toggle in topbar.
+   The grid drops to 2 columns (sidebar + main), so the right split bar has no column
+   to live in and would overflow into the overlay panel — hide it. The panel itself
+   becomes a position:absolute overlay with z-index 100. */
 @media (max-width: 1050px) {
     .llma-container {
-        grid-template-columns: var(--llma-sidebar-w, 200px) 1fr;
+        grid-template-columns: var(--llma-sidebar-w, 200px) var(--llma-splitbar-w, 5px) 1fr;
         --llma-panel-w: 0px;
     }
+    #llma-split-right { display: none; }
     .llma-asst-panel {
         position: absolute;
         right: 0;
@@ -87,12 +91,13 @@
     .llma-asst-toggle { display: flex !important; }
 }
 
-/* Mobile: sidebar also becomes overlay */
+/* Mobile: sidebar also becomes overlay (single column, no split bars) */
 @media (max-width: 680px) {
     .llma-container {
         grid-template-columns: 1fr;
         --llma-sidebar-w: 0px;
     }
+    #llma-split-left { display: none; }
     .llma-sidebar {
         position: absolute;
         left: 0;

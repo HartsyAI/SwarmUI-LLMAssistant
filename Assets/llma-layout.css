@@ -21,8 +21,11 @@
     border-radius: 6px;
     border: 1px solid var(--light-border);
 }
-.llma-container.sidebar-collapsed { --llma-sidebar-w: 0px; --llma-splitbar-left-w: 0px; }
-.llma-container.panel-collapsed   { --llma-panel-w:   0px; --llma-splitbar-right-w: 0px; }
+/* `!important` is required: drag-to-resize sets the var inline via element.style, which
+   beats a regular class selector. Custom properties respect !important and this lets the
+   collapsed class win over the inline width without us having to clear the inline style. */
+.llma-container.sidebar-collapsed { --llma-sidebar-w: 0px !important; }
+.llma-container.panel-collapsed   { --llma-panel-w:   0px !important; }
 
 /* ── Splitter bars (resizable dividers) ─────────────────────────
    Reuses SwarmUI's global .splitter-bar class (genpage.css) for the
@@ -53,9 +56,10 @@
     transform: translate(-50%, -50%);
     z-index: 3;
 }
-/* Hide the sidebar/panel content when collapsed, but keep the split bar visible for the quickbutton */
-.llma-container.sidebar-collapsed .llma-sidebar    { display: none; }
-.llma-container.panel-collapsed   .llma-asst-panel { display: none; }
+/* When collapsed, the sidebar/panel column is 0px wide and the element's `overflow: hidden`
+   clips the content. Do NOT use `display: none` — that removes the element from the grid and
+   causes the remaining children to shift left into the wrong columns (the right split bar
+   would inherit the `1fr` column and visually fill the screen). */
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 .llma-sidebar {

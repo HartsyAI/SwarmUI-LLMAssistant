@@ -47,6 +47,7 @@ public class LLMAssistantExtension : Extension
         LLMAssistantAPI.Register();
         PromptTagHandler.RegisterAll();
         MigrationService.RunIfNeeded();
+        OrphanedFileGC.Start();
         Logs.Info("[LLMAssistant] Initialized.");
     }
 

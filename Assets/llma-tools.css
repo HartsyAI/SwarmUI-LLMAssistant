@@ -271,15 +271,58 @@
     margin-bottom: 10px;
 }
 .llma-tool-schema-section,
-.llma-tool-test-section {
+.llma-tool-test-section,
+.llma-tool-config-section {
     margin-top: 10px;
 }
 .llma-tool-schema-section h5,
-.llma-tool-test-section h5 {
+.llma-tool-test-section h5,
+.llma-tool-config-section h5 {
     margin: 0 0 6px;
     font-size: 12px;
     font-weight: 600;
     color: var(--text-strong);
+}
+.llma-config-hint {
+    font-weight: 400;
+    color: var(--text-soft);
+    font-size: 11px;
+    margin-left: 4px;
+}
+.llma-tool-config-block {
+    padding: 8px 10px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    margin-bottom: 6px;
+}
+.llma-tool-config-block label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 4px;
+}
+.llma-tool-config-block select,
+.llma-tool-config-block input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+}
+.llma-config-help {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-soft);
+    line-height: 1.4;
+}
+.llma-config-help code {
+    background: var(--background-soft, var(--background));
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10.5px;
 }
 .llma-tool-schema,
 .llma-tool-test-args {

@@ -75,22 +75,21 @@ function llmaBindThreadListEvents(list) {
 }
 
 // -- Create Thread --
+// Server creates the thread (assigns id/timestamps/title); we trust the returned blob.
 async function llmaCreateThread(assistantId) {
     const assistant = LLMAState.assistants.find(a => a.id === assistantId);
-    const thread = {
-        id:          llmaGenerateId(),
-        title:       assistant ? `Chat with ${assistant.name}` : 'New Chat',
-        assistantId: assistantId || null,
-        created:     new Date().toISOString(),
-        updated:     new Date().toISOString(),
-        messages:    [],
-        params:      {},
-    };
+    const initialTitle = assistant ? `Chat with ${assistant.name}` : 'New Chat';
 
+    let thread;
     try {
-        await llmaRequest('LLMAssistantSaveThread', { thread });
+        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle });
+        if (!result?.success || !result.thread) {
+            llmaShowToast(result?.error || 'Failed to create thread', 'error');
+            return;
+        }
+        thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
     } catch {
-        llmaShowToast('Failed to save thread', 'error');
+        llmaShowToast('Failed to create thread', 'error');
         return;
     }
 
@@ -98,8 +97,8 @@ async function llmaCreateThread(assistantId) {
         id:           thread.id,
         title:        thread.title,
         assistantId:  thread.assistantId,
-        created:      thread.created,
-        updated:      thread.updated,
+        created:      thread.createdAt || thread.created,
+        updated:      thread.updatedAt || thread.updated,
         messageCount: 0,
     });
 
@@ -241,39 +240,33 @@ async function llmaDeleteThread(threadId) {
 }
 
 // -- Save Thread --
-// Title auto-derivation happens server-side in ThreadStorageService.SaveThread.
-// We send our current title (may be a placeholder) and trust the server's returned thread.
+// Server-authoritative chat: saves happen on the server during the chat WS endpoint
+// (user message + assistant reply + tool events). This client-side function used to
+// PUT the entire thread on every change. That endpoint (LLMAssistantSaveThread) was
+// removed because it allowed clients to spoof history.
+//
+// Remaining callers are: stop-generation (need nothing — server saved what it had),
+// delete-message (TODO: needs a server endpoint), edit-message (TODO: same), and
+// the chat send-done path (server already persisted). We refresh local thread metadata
+// from the server when needed via a re-fetch — this function does that re-fetch only.
 async function llmaSaveActiveThread() {
     if (!LLMAState.activeThreadId) return;
-
     const meta = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);
     if (!meta) return;
-
-    const thread = {
-        id:          LLMAState.activeThreadId,
-        title:       meta.title,
-        assistantId: LLMAState.activeAssistantId,
-        created:     meta.created,
-        updated:     new Date().toISOString(),
-        messages:    LLMAState.messages,
-        params:      LLMAState.threadParams[LLMAState.activeThreadId] || {},
-        assets:      Array.isArray(LLMAState.assets) ? LLMAState.assets : [],
-    };
-
-    let saved = thread;
+    let saved = null;
     try {
-        const result = await llmaRequest('LLMAssistantSaveThread', { thread });
-        if (result?.thread) {
+        const result = await llmaRequest('LLMAssistantGetThread', { threadId: LLMAState.activeThreadId });
+        if (result?.success && result.thread) {
             saved = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
         }
     } catch {
-        console.warn('[LLMAssistant] Failed to persist thread');
+        return;
     }
-
-    // Trust the server's view of the thread (title may have been auto-derived).
+    if (!saved) return;
+    // Trust the server's view of the thread.
     meta.title        = saved.title || meta.title;
-    meta.updated      = saved.updatedAt || saved.updated || thread.updated;
-    meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : thread.messages.length;
+    meta.updated      = saved.updatedAt || saved.updated || meta.updated;
+    meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : meta.messageCount;
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = meta.title;

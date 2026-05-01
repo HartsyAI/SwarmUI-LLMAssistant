@@ -9,6 +9,10 @@
 let llmaEditingToolId = null;
 LLMAState.tools = LLMAState.tools || [];
 
+// IDs of built-in tools whose editor shows a per-user "Tool Config" block.
+// Add new IDs here when wiring config support for additional tools.
+const LLMA_TOOLS_WITH_CONFIG = new Set(['generate_image', 'file_write']);
+
 // -- Load Tools --
 async function llmaLoadTools() {
     try {
@@ -155,6 +159,102 @@ function llmaShowToolEditor(tool) {
     if (testArgs) testArgs.value = '{}';
     const testResult = document.getElementById('llma-tool-test-result');
     if (testResult) testResult.textContent = '';
+
+    // Per-user tool config (eg generate_image's default preset, file_write's extra extensions).
+    // Only meaningful for built-in tools that opt in via LLMA_TOOLS_WITH_CONFIG.
+    llmaSetupToolConfigPanel(tool);
+}
+
+// -- Per-tool config panel --
+// Shows the right config block for the tool being edited and loads its current values.
+function llmaSetupToolConfigPanel(tool) {
+    const section = document.getElementById('llma-tool-config-section');
+    if (!section) return;
+    // Hide every config block first.
+    section.querySelectorAll('.llma-tool-config-block').forEach(el => el.style.display = 'none');
+    if (!tool || !LLMA_TOOLS_WITH_CONFIG.has(tool.id)) {
+        section.style.display = 'none';
+        return;
+    }
+    const block = document.getElementById(`llma-tool-config-${tool.id}`);
+    if (!block) {
+        section.style.display = 'none';
+        return;
+    }
+    section.style.display = '';
+    block.style.display = '';
+    if (tool.id === 'generate_image') {
+        llmaPopulateImagePresetConfig();
+    } else if (tool.id === 'file_write') {
+        llmaPopulateFileWriteConfig();
+    }
+}
+
+async function llmaPopulateImagePresetConfig() {
+    const sel = document.getElementById('llma-config-default-preset');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">Loading…</option>';
+    try {
+        const [presetsRes, configRes] = await Promise.all([
+            llmaRequest('LLMAssistantGetImagePresets', {}),
+            llmaRequest('LLMAssistantGetToolConfig', { toolId: 'generate_image' }),
+        ]);
+        const presets = Array.isArray(presetsRes?.presets) ? presetsRes.presets : [];
+        const current = configRes?.config?.defaultPreset || '';
+        sel.innerHTML = '';
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = presets.length ? '(none — let the LLM pick or error if it doesn\'t)' : '(no presets saved — create one on the Generate tab first)';
+        sel.appendChild(noneOpt);
+        for (const p of presets) {
+            const opt = document.createElement('option');
+            opt.value = p.title;
+            opt.textContent = p.description ? `${p.title} — ${p.description}` : p.title;
+            if (p.title === current) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    } catch {
+        sel.innerHTML = '<option value="">(failed to load presets)</option>';
+    }
+}
+
+async function llmaPopulateFileWriteConfig() {
+    const input = document.getElementById('llma-config-extra-extensions');
+    if (!input) return;
+    input.value = '';
+    try {
+        const res = await llmaRequest('LLMAssistantGetToolConfig', { toolId: 'file_write' });
+        const extras = res?.config?.extraExtensions;
+        if (Array.isArray(extras)) {
+            input.value = extras.join(', ');
+        }
+    } catch { /* leave empty */ }
+}
+
+// Reads the current values out of the visible config block and sends them to the server.
+// Returns true on success, false on any error (caller decides whether to surface a toast).
+async function llmaSaveCurrentToolConfig(toolId) {
+    if (!toolId || !LLMA_TOOLS_WITH_CONFIG.has(toolId)) return true;
+    let config = {};
+    if (toolId === 'generate_image') {
+        const sel = document.getElementById('llma-config-default-preset');
+        const val = sel?.value?.trim() || '';
+        if (val) config.defaultPreset = val;
+    } else if (toolId === 'file_write') {
+        const input = document.getElementById('llma-config-extra-extensions');
+        const raw = input?.value || '';
+        const exts = raw.split(',').map(s => s.trim().replace(/^\./, '')).filter(Boolean);
+        if (exts.length) config.extraExtensions = exts;
+    }
+    try {
+        const res = await llmaRequest('LLMAssistantSetToolConfig', {
+            toolId,
+            config: JSON.stringify(config),
+        });
+        return res?.success !== false;
+    } catch {
+        return false;
+    }
 }
 
 async function llmaSaveToolFromEditor() {
@@ -200,9 +300,12 @@ async function llmaSaveToolFromEditor() {
             llmaShowToast(result.error || 'Failed to save tool', 'error');
             return;
         }
+        // Persist the per-user tool config block alongside the tool def.
+        // Failure here doesn't roll back the tool save — surface a softer warning instead.
+        const cfgOk = await llmaSaveCurrentToolConfig(id);
         document.getElementById('llma-tool-editor').style.display = 'none';
         await llmaLoadTools();
-        llmaShowToast('Tool saved', 'success');
+        llmaShowToast(cfgOk ? 'Tool saved' : 'Tool saved, but config failed to save', cfgOk ? 'success' : 'warning');
     } catch {
         llmaShowToast('Failed to save tool', 'error');
     }

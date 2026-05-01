@@ -96,6 +96,7 @@ public static class LLMAssistantAPI
         // Chat
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCountTokens, false, PermChat);
         // Settings
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);
@@ -106,7 +107,6 @@ public static class LLMAssistantAPI
         // Threads
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThreads, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
-        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSaveThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);
@@ -134,6 +134,9 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSaveTool, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantDeleteTool, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantExecuteTool, true, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantGetToolConfig, false, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantSetToolConfig, true, PermSettings);
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantGetImagePresets, false, PermSettings);
         // User memory / profile (strictly per-user, gated behind PermChat since it's personal
         // conversation state rather than extension configuration)
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetUserProfile, false, PermChat);

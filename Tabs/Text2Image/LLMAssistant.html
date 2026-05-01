@@ -397,6 +397,21 @@
                             <h5>Parameters Schema (JSON)</h5>
                             <textarea class="llma-tool-schema" id="llma-tool-schema" rows="8" spellcheck="false"></textarea>
                         </div>
+                        <!-- Per-user tool config. Shown only for built-in tools that support it; the JS swaps
+                             which inner block is visible based on the tool being edited. -->
+                        <div class="llma-tool-config-section" id="llma-tool-config-section" style="display:none;">
+                            <h5>Tool Config <span class="llma-config-hint">(applies to your account only)</span></h5>
+                            <div class="llma-tool-config-block" id="llma-tool-config-generate_image" style="display:none;">
+                                <label for="llma-config-default-preset">Default image preset</label>
+                                <select id="llma-config-default-preset"></select>
+                                <div class="llma-config-help">The LLM will use this preset when it generates an image without specifying one. Picked from the presets you've saved on the Generate tab.</div>
+                            </div>
+                            <div class="llma-tool-config-block" id="llma-tool-config-file_write" style="display:none;">
+                                <label for="llma-config-extra-extensions">Extra allowed extensions</label>
+                                <input type="text" id="llma-config-extra-extensions" placeholder="py, html, css">
+                                <div class="llma-config-help">Comma-separated. Always-allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition. Only add extensions you trust the LLM to write — combined with shell_exec these can become a foot-gun.</div>
+                            </div>
+                        </div>
                         <div class="llma-tool-test-section">
                             <h5>Test Execution</h5>
                             <label for="llma-tool-test-args">Arguments (JSON)</label>

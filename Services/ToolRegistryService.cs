@@ -297,7 +297,7 @@ public static class ToolRegistryService
         {
             ["id"] = ToolConstants.FileWrite,
             ["name"] = "Write File",
-            ["description"] = "Write a text file into a sandboxed output folder managed by the LLM Assistant extension. Returns a URL/path to the written file.",
+            ["description"] = "Write a text file into a sandboxed output folder managed by the LLM Assistant extension. Returns a URL/path to the written file. ALWAYS pick a short, descriptive filename that reflects the file's actual content — never use generic placeholders like 'untitled', 'file', 'output', or numbered defaults. The user sees this name in their asset list, so a good name is the difference between 'pizza-recipe.md' and 'untitled-1.md'.",
             ["parameters"] = new JObject
             {
                 ["type"] = "object",
@@ -306,7 +306,7 @@ public static class ToolRegistryService
                     ["path"] = new JObject
                     {
                         ["type"] = "string",
-                        ["description"] = "Relative path within the extension's file_write sandbox (eg 'notes/output.md' or 'data/config.json')."
+                        ["description"] = "Relative path within the file_write sandbox. The filename MUST describe the content — derive it from what the file contains or the user's request. Good examples: 'pizza-recipe.md', 'config-prod.json', 'todos-2026-01.txt'. Bad examples: 'untitled.md', 'file.json', 'output.txt', 'untitled-1.json'. Use lowercase with hyphens. Subfolders are allowed (eg 'notes/2026/january.md')."
                     },
                     ["content"] = new JObject
                     {

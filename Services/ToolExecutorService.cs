@@ -11,9 +11,12 @@ public static class ToolExecutorService
 {
     private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
 
-    /// <summary>Maps built-in tool IDs to the permission required to execute them.
-    /// Custom (user-defined) tools have no entry and pass through.</summary>
-    private static readonly Dictionary<string, PermInfo> BuiltInToolPermissions = new()
+    /// <summary>Maps built-in tool <b>handler IDs</b> to the permission required to execute them.
+    /// Keyed on the handler (the code that actually runs), not the tool definition's id alias —
+    /// otherwise a user could define a custom tool <c>{ id: "harmless", handlerId: "shell_exec" }</c>
+    /// and bypass the shell_exec permission gate. Custom handlers (no entry here) require an
+    /// explicit entry to run; if none, the tool runs with no permission gate beyond enable-state.</summary>
+    private static readonly Dictionary<string, PermInfo> HandlerPermissions = new()
     {
         [ToolConstants.GenerateImage] = LLMAssistantAPI.PermToolGenerateImage,
         [ToolConstants.WebSearch] = LLMAssistantAPI.PermToolWebSearch,
@@ -40,21 +43,22 @@ public static class ToolExecutorService
             {
                 return Error($"Tool is disabled: {toolId}");
             }
-            // Per-tool SwarmUI permission check for built-ins
-            if (BuiltInToolPermissions.TryGetValue(toolId, out PermInfo requiredPerm))
-            {
-                User user = session?.User;
-                if (user is null || !user.HasPermission(requiredPerm))
-                {
-                    Logs.Warning($"[LLMAssistant] User {(user?.UserID ?? "<none>")} lacks permission '{requiredPerm.ID}' to run tool {toolId}");
-                    return Error($"You do not have permission to use the '{toolId}' tool. Ask an admin to grant '{requiredPerm.DisplayName}'.");
-                }
-            }
             string handlerId = tool["handlerId"]?.ToString();
             ToolHandler handler = ToolRegistryService.GetHandler(handlerId);
             if (handler is null)
             {
                 return Error($"No handler registered for tool: {toolId} (handlerId={handlerId})");
+            }
+            // Per-handler permission check. Keyed on handlerId so custom tool aliases can't
+            // escape the perm gate of the underlying handler.
+            if (HandlerPermissions.TryGetValue(handlerId, out PermInfo requiredPerm))
+            {
+                User user = session?.User;
+                if (user is null || !user.HasPermission(requiredPerm))
+                {
+                    Logs.Warning($"[LLMAssistant] User {(user?.UserID ?? "<none>")} lacks permission '{requiredPerm.ID}' to run handler {handlerId} (via tool {toolId})");
+                    return Error($"You do not have permission to use the '{toolId}' tool (handler: {handlerId}). Ask an admin to grant '{requiredPerm.DisplayName}'.");
+                }
             }
             // Basic validation: ensure required params are present
             string validationError = ValidateArgs(tool["parameters"] as JObject, args);

@@ -74,6 +74,61 @@ public static class ToolEndpoints
         };
     }
 
+    /// <summary>Returns the calling user's per-tool config block (eg generate_image's default
+    /// preset, file_write's extra extensions). Returns an empty object if nothing is configured.</summary>
+    public static async Task<JObject> LLMAssistantGetToolConfig(Session session, string toolId)
+    {
+        if (string.IsNullOrEmpty(toolId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "toolId is required" };
+        }
+        return new JObject
+        {
+            ["success"] = true,
+            ["toolId"] = toolId,
+            ["config"] = ToolConfigService.GetConfig(toolId, session.User)
+        };
+    }
+
+    /// <summary>Replaces the calling user's per-tool config block. The <c>config</c> field may
+    /// be a JObject or a JSON string. Pass an empty object to clear it.</summary>
+    public static async Task<JObject> LLMAssistantSetToolConfig(Session session, JObject rawInput)
+    {
+        string toolId = rawInput["toolId"]?.ToString();
+        if (string.IsNullOrEmpty(toolId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "toolId is required" };
+        }
+        JObject config = rawInput["config"] as JObject;
+        if (config is null && rawInput["config"]?.Type == JTokenType.String)
+        {
+            try { config = JObject.Parse(rawInput["config"].ToString()); }
+            catch { /* fall through */ }
+        }
+        config ??= [];
+        ToolConfigService.SetConfig(toolId, config, session.User);
+        return new JObject { ["success"] = true, ["toolId"] = toolId, ["config"] = config };
+    }
+
+    /// <summary>Lists the calling user's saved T2I presets — used by the generate_image tool
+    /// config UI to populate the default-preset dropdown.</summary>
+    public static async Task<JObject> LLMAssistantGetImagePresets(Session session)
+    {
+        JArray presets = [];
+        if (session?.User is not null)
+        {
+            foreach (Text2Image.T2IPreset preset in session.User.GetAllPresets())
+            {
+                presets.Add(new JObject
+                {
+                    ["title"] = preset.Title,
+                    ["description"] = preset.Description ?? ""
+                });
+            }
+        }
+        return new JObject { ["success"] = true, ["presets"] = presets };
+    }
+
     /// <summary>Manually execute a tool (dev affordance, bypasses LLM).
     /// The <c>arguments</c> field may be a JObject or a JSON string.</summary>
     public static async Task<JObject> LLMAssistantExecuteTool(Session session, JObject rawInput)

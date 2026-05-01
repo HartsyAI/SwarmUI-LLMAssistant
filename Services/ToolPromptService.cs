@@ -101,10 +101,48 @@ public static partial class ToolPromptService
         return text.Contains("</tool_call>");
     }
 
-    /// <summary>Formats a tool execution result for injection back into conversation history.</summary>
+    /// <summary>Formats a tool execution result for injection back into conversation history.
+    /// Strings inside the result are sanitized so a tool returning literal text like
+    /// <c>&lt;tool_call&gt;...&lt;/tool_call&gt;</c> (eg from a web search snippet) can't be re-parsed as a
+    /// real tool call on the next agentic iteration. We replace <c>&lt;</c> with <c>&amp;lt;</c> in every
+    /// string value before serializing.</summary>
     public static string FormatToolResult(string toolName, JObject result)
     {
-        string json = result?.ToString(Formatting.None) ?? "{}";
+        if (result is null)
+        {
+            return $"<tool_result name=\"{toolName}\">{{}}</tool_result>";
+        }
+        JObject sanitized = (JObject)result.DeepClone();
+        SanitizeAngleBrackets(sanitized);
+        string json = sanitized.ToString(Formatting.None);
         return $"<tool_result name=\"{toolName}\">{json}</tool_result>";
+    }
+
+    /// <summary>Recursively replaces <c>&lt;</c> with <c>&amp;lt;</c> in every string value of the
+    /// given token. Mutates in place. Numeric/bool/null values are left alone.</summary>
+    private static void SanitizeAngleBrackets(JToken token)
+    {
+        if (token is JObject obj)
+        {
+            foreach (JProperty prop in obj.Properties())
+            {
+                SanitizeAngleBrackets(prop.Value);
+            }
+        }
+        else if (token is JArray arr)
+        {
+            foreach (JToken item in arr)
+            {
+                SanitizeAngleBrackets(item);
+            }
+        }
+        else if (token is JValue val && val.Type == JTokenType.String)
+        {
+            string s = val.Value<string>();
+            if (s is not null && s.Contains('<'))
+            {
+                val.Value = s.Replace("<", "&lt;");
+            }
+        }
     }
 }

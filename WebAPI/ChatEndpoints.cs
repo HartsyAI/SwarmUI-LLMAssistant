@@ -5,6 +5,7 @@ using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.Extensions.LLMAssistant.Tools;
 using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
@@ -14,7 +15,31 @@ public static class ChatEndpoints
 {
     private static readonly PromptCacheService _cache = new(500);
 
-    /// <summary>Sends a message to an LLM and returns the full response.</summary>
+    /// <summary>Creates a new empty chat thread for the given assistant. The frontend calls this
+    /// before sending the first message in a fresh chat; subsequent messages reference the returned
+    /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used.</summary>
+    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null)
+    {
+        if (session?.User is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        JObject settings = SettingsService.GetMergedSettings(session.User);
+        if (string.IsNullOrEmpty(assistantId))
+        {
+            assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
+        }
+        JObject thread = ThreadStorageService.CreateThread(session.User, assistantId, title);
+        return new JObject
+        {
+            ["success"] = true,
+            ["thread"] = thread
+        };
+    }
+
+    /// <summary>Non-streaming completion for instruction/utility callers (eg prompt enhancement,
+    /// magic vision). Does NOT touch chat threads — pass an explicit <paramref name="message"/>
+    /// and you get back the raw model output. For chat use the WS endpoint with a threadId.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
         double temperature = -1, int maxTokens = -1, bool noCache = false,
@@ -57,49 +82,69 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Sends a message with streaming response over WebSocket.</summary>
+    /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
+    /// the thread is the source of truth for history. Request shape:
+    /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, instructionId? }</c>.
+    /// The server loads the thread, appends the user message, builds the LLM input from the stored
+    /// history, streams the response, and persists the assistant reply when done.</summary>
     public static async Task<JObject> LLMAssistantSendMessageWS(WebSocket socket, Session session, JObject rawInput)
     {
         try
         {
+            string threadId = rawInput["threadId"]?.ToString();
             string message = rawInput["message"]?.ToString();
             string instructionId = rawInput["instructionId"]?.ToString();
             string model = rawInput["model"]?.ToString();
             double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
-            string assistantId = rawInput["assistantId"]?.ToString();
-            JArray historyArray = rawInput["history"] as JArray;
+            if (string.IsNullOrEmpty(threadId))
+            {
+                return new JObject { ["success"] = false, ["error"] = "threadId is required. Call LLMAssistantCreateThread first." };
+            }
+            if (string.IsNullOrEmpty(message))
+            {
+                return new JObject { ["success"] = false, ["error"] = "message is required." };
+            }
+            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+            if (thread is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            }
+            // Assistant is locked to the thread (set at thread creation). Per-message override would
+            // make history confusing — assistant identity is part of the thread's identity.
+            string assistantId = thread["assistantId"]?.ToString();
             JObject settings = SettingsService.GetMergedSettings(session.User);
-            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            if (string.IsNullOrEmpty(assistantId))
+            {
+                assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
+            }
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
-            ExtendedLLMInput input;
-            if (historyArray is not null && historyArray.Count > 0)
-            {
-                List<ChatMessageData> history = [];
-                foreach (JToken msg in historyArray)
-                {
-                    history.Add(new ChatMessageData
-                    {
-                        Role = msg["role"]?.ToString() ?? Roles.User,
-                        Content = msg["content"]?.ToString() ?? ""
-                    });
-                }
-                history = TruncateHistory(history, settings, rawInput);
-                input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
-            }
-            else
-            {
-                input = ExtendedLLMInput.Create(message, systemPrompt, model);
-            }
+            // Append the user message to the thread BEFORE generation so it persists even if
+            // generation fails or the client disconnects mid-stream.
+            JObject userMsg = new() { ["role"] = Roles.User, ["content"] = message };
+            ThreadStorageService.AppendMessage(session.User, threadId, userMsg);
+            // Reload to get the canonical (just-saved) thread for input building.
+            thread = ThreadStorageService.GetThread(session.User, threadId);
+            // Build LLM input from the stored thread history (truncated to maxContextMessages).
+            List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
+            ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
             input.RequestSession = session;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
-            // Load tools enabled for this assistant and inject their descriptions into the system prompt
+            // Load tools enabled for this assistant and inject their descriptions into the system prompt.
+            // Tool handlers may enrich their descriptions per-user (eg generate_image injecting the
+            // user's presets) — apply enrichment before building the prompt.
             List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
             if (enabledTools.Count > 0)
             {
-                input.Tools = enabledTools;
-                string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enabledTools);
+                List<JObject> enrichedTools = [];
+                foreach (JObject tool in enabledTools)
+                {
+                    ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
+                    enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session));
+                }
+                input.Tools = enrichedTools;
+                string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
                 input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
                 if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
                 {
@@ -110,7 +155,7 @@ public static class ChatEndpoints
                     input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
                 }
             }
-            await LLMStreamHelper.StreamToWebSocket(socket, input, session);
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId);
             return null;
         }
         catch (Exception ex)
@@ -121,6 +166,25 @@ public static class ChatEndpoints
                 ["error"] = ex.Message
             };
         }
+    }
+
+    /// <summary>Reads stored thread messages, applies maxContextMessages truncation.
+    /// Source of truth is the saved thread — the client cannot inject fake history.</summary>
+    private static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
+    {
+        List<ChatMessageData> history = [];
+        if (thread?["messages"] is JArray messages)
+        {
+            foreach (JToken msg in messages)
+            {
+                history.Add(new ChatMessageData
+                {
+                    Role = msg["role"]?.ToString() ?? Roles.User,
+                    Content = msg["content"]?.ToString() ?? ""
+                });
+            }
+        }
+        return TruncateHistory(history, settings, rawInput);
     }
 
     /// <summary>Resolves instruction text for a request, routing through AssistantService for

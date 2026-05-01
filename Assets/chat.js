@@ -224,9 +224,8 @@ async function llmaSendMessage() {
     LLMAState.exactTokenCountForLen = -1;
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
-    // Build payload
-    const history = LLMAState.messages.map(m => ({ role: m.role, content: m.content }));
-    const payload = llmaBuildPayload(message, 'chat', history);
+    // Build payload — server is authoritative for history; we only send threadId + new message.
+    const payload = llmaBuildPayload(message, 'chat');
 
     // Attach image if present
     if (LLMAState.attachedImage) {
@@ -238,9 +237,11 @@ async function llmaSendMessage() {
 }
 
 // -- Build Payload --
-function llmaBuildPayload(message, instructionId, history, options = {}) {
-    const payload = { message, instructionId, history };
-    if (LLMAState.activeAssistantId) payload.assistantId = LLMAState.activeAssistantId;
+// Server is authoritative for chat history — we send the active threadId and the new message;
+// the server loads the thread, appends, generates, and persists. We do NOT send history arrays.
+function llmaBuildPayload(message, instructionId, options = {}) {
+    const payload = { message, instructionId };
+    if (LLMAState.activeThreadId) payload.threadId = LLMAState.activeThreadId;
     if (LLMAState.currentModel) payload.model = LLMAState.currentModel;
 
     // Thread params
@@ -450,11 +451,13 @@ function llmaCopyMessage(msgId) {
 }
 
 function llmaDeleteMessage(msgId) {
+    // TODO(server-authoritative): The local-only mutation here is now lost on next thread fetch.
+    // Add a `LLMAssistantDeleteMessage(threadId, messageId)` endpoint that mutates the saved
+    // thread server-side, then call it here and refetch — matching the new chat ownership model.
     LLMAState.messages = LLMAState.messages.filter(m => m.id !== msgId);
     const el = document.querySelector(`[data-msg-id="${msgId}"]`);
     if (el) el.remove();
     llmaRebuildAssetsForThread();
-    llmaSaveActiveThread();
     llmaUpdateContextBar();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 }
@@ -482,9 +485,10 @@ function llmaStartEdit(msgId) {
     saveBtn.addEventListener('click', () => {
         const newContent = textarea.value.trim();
         if (newContent) {
+            // TODO(server-authoritative): edit only mutates local state; lost on next thread fetch.
+            // Add LLMAssistantEditMessage(threadId, messageId, content) endpoint and call it here.
             msg.content = newContent;
             bubble.textContent = newContent;
-            llmaSaveActiveThread();
         }
     });
     const cancelBtn = document.createElement('button');

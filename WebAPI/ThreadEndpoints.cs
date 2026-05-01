@@ -37,24 +37,10 @@ public static class ThreadEndpoints
         };
     }
 
-    public static async Task<JObject> LLMAssistantSaveThread(Session session, JObject rawInput)
-    {
-        JObject thread = rawInput["thread"] as JObject;
-        if (thread is null)
-        {
-            return new JObject
-            {
-                ["success"] = false,
-                ["error"] = "No thread data provided."
-            };
-        }
-        ThreadStorageService.SaveThread(session.User, thread);
-        return new JObject
-        {
-            ["success"] = true,
-            ["thread"] = thread
-        };
-    }
+    // LLMAssistantSaveThread removed: chat is now server-authoritative — the WS chat endpoint
+    // and ThreadStorageService.AppendMessage own all writes. Thread metadata edits use the
+    // dedicated rename endpoint. To re-add an "import thread" affordance, build a separate
+    // ImportThread endpoint that is gated and explicit, not implicit on every send.
 
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)
     {
