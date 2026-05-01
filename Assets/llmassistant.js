@@ -80,7 +80,7 @@ async function llmaInit() {
             llmaShowWelcome();
         }
     }
-    llmaUpdateModelPill();
+    llmaUpdateModelStatus();
 }
 
 // Start a fresh empty chat session with an assistant without persisting
@@ -155,21 +155,48 @@ async function llmaLoadModels() {
     try {
         const result = await llmaRequest('LLMAssistantGetModels', {});
         const models = Array.isArray(result?.models) ? result.models : [];
+        LLMAState.availableModels = models;
 
         const sel = document.getElementById('llma-model-select');
         if (sel) {
-            sel.innerHTML = models.length
-                ? models.map(m => `<option value="${llmaEscapeHtml(m.name)}">${llmaEscapeHtml(m.title || m.name)}</option>`).join('')
-                : '<option value="" disabled>No models found</option>';
+            if (models.length > 0) {
+                // Group models by provider for clearer display
+                const byProvider = {};
+                for (const m of models) {
+                    const prov = m.provider || 'unknown';
+                    if (!byProvider[prov]) byProvider[prov] = [];
+                    byProvider[prov].push(m);
+                }
+                const providerKeys = Object.keys(byProvider);
+                if (providerKeys.length === 1) {
+                    sel.innerHTML = models.map(m =>
+                        `<option value="${llmaEscapeHtml(m.id)}">${llmaEscapeHtml(m.name || m.id)}</option>`
+                    ).join('');
+                } else {
+                    sel.innerHTML = providerKeys.map(prov =>
+                        `<optgroup label="${llmaEscapeHtml(prov)}">` +
+                        byProvider[prov].map(m =>
+                            `<option value="${llmaEscapeHtml(m.id)}">${llmaEscapeHtml(m.name || m.id)}</option>`
+                        ).join('') +
+                        `</optgroup>`
+                    ).join('');
+                }
+            } else {
+                sel.innerHTML = '<option value="" disabled>No models found</option>';
+            }
         }
 
         if (models.length > 0) {
             if (statusEl) statusEl.className = 'llma-model-status';
-            // Restore saved model
+            // Restore saved model if it still exists in the list
             const saved = LLMAState.settings?.currentModel;
-            if (saved && sel) {
+            if (saved && sel && models.some(m => m.id === saved)) {
                 sel.value = saved;
                 LLMAState.currentModel = saved;
+            } else if (sel && models.length > 0) {
+                // Auto-select first model if no saved preference or saved model is gone
+                sel.selectedIndex = 0;
+                LLMAState.currentModel = sel.value;
             }
         } else {
             if (statusEl) statusEl.className = 'llma-model-status offline';
@@ -177,12 +204,12 @@ async function llmaLoadModels() {
     } catch {
         if (statusEl) statusEl.className = 'llma-model-status offline';
     }
-    llmaUpdateModelPill();
+    llmaUpdateModelStatus();
 }
 
 // -- Top Bar --
 function llmaSetupTopBar() {
-    llmaSetupModelPill();
+    llmaSetupModelSelect();
     llmaSetupParamsPopover();
     llmaSetupExportMenu();
 
@@ -200,61 +227,24 @@ function llmaSetupTopBar() {
     }
 }
 
-function llmaSetupModelPill() {
-    const pill    = document.getElementById('llma-model-pill');
-    const popover = document.getElementById('llma-model-popover');
-    const apply   = document.getElementById('llma-pop-apply');
-    if (!pill || !popover) return;
-
-    let cleanup = null;
-    pill.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const open = popover.style.display === 'none';
-        popover.style.display = open ? '' : 'none';
-        pill.setAttribute('aria-expanded', String(open));
-        if (open) {
-            cleanup = llmaPopoverClickAway(popover, pill, () => {
-                popover.style.display = 'none';
-                pill.setAttribute('aria-expanded', 'false');
-            });
-        } else if (cleanup) { cleanup(); }
+function llmaSetupModelSelect() {
+    const sel = document.getElementById('llma-model-select');
+    if (!sel) return;
+    sel.addEventListener('change', async () => {
+        const model = sel.value;
+        if (!model) return;
+        LLMAState.currentModel = model;
+        LLMAState.settings.currentModel = model;
+        await llmaSaveSettings();
+        llmaSetSessionState({ currentModel: model });
+        llmaUpdateModelStatus();
     });
-
-    if (apply) {
-        apply.addEventListener('click', async () => {
-            const modelSel = document.getElementById('llma-model-select');
-            const model    = modelSel?.value;
-            if (!model) { llmaShowToast('Select a model', 'info'); return; }
-
-            LLMAState.currentModel = model;
-            LLMAState.settings.currentModel = model;
-            await llmaSaveSettings();
-            // Mirror to per-user session state so a headless client sees the same model.
-            llmaSetSessionState({ currentModel: model });
-
-            llmaUpdateModelPill();
-            popover.style.display = 'none';
-            pill.setAttribute('aria-expanded', 'false');
-            llmaShowToast('Model applied', 'success');
-        });
-    }
 }
 
-function llmaUpdateModelPill() {
-    const label  = document.getElementById('llma-model-label');
+function llmaUpdateModelStatus() {
     const status = document.getElementById('llma-model-status');
-    if (!label) return;
-
-    if (LLMAState.currentModel) {
-        const shortModel = LLMAState.currentModel.length > 24
-            ? LLMAState.currentModel.slice(0, 24) + '\u2026'
-            : LLMAState.currentModel;
-        label.textContent = shortModel;
-        if (status) status.className = 'llma-model-status';
-    } else {
-        label.textContent = 'No model selected';
-        if (status) status.className = 'llma-model-status offline';
-    }
+    if (!status) return;
+    status.className = LLMAState.currentModel ? 'llma-model-status' : 'llma-model-status offline';
 }
 
 // -- Params Popover --
@@ -361,13 +351,19 @@ function llmaSetupSidebar() {
     const toggle = document.getElementById('llma-sidebar-toggle');
     if (toggle) {
         toggle.addEventListener('click', () => {
-            const sidebar = document.getElementById('llma-sidebar');
-            if (!sidebar) return;
+            const cont = document.getElementById('llma-container');
+            if (!cont) return;
             const mobile = window.innerWidth <= 680;
             if (mobile) {
-                sidebar.classList.toggle('sidebar-open');
+                document.getElementById('llma-sidebar')?.classList.toggle('sidebar-open');
             } else {
-                sidebar.classList.toggle('collapsed');
+                const isCollapsed = cont.classList.contains('sidebar-collapsed');
+                cont.classList.toggle('sidebar-collapsed', !isCollapsed);
+                localStorage.setItem('llma_sidebar_collapsed', !isCollapsed ? 'true' : 'false');
+                const leftBtn = document.getElementById('llma-split-left-btn');
+                if (leftBtn) {
+                    leftBtn.innerHTML = !isCollapsed ? '&#x21DB;' : '&#x21DA;';
+                }
             }
         });
     }
@@ -401,18 +397,22 @@ function llmaSetupAssistantPanel() {
     const collapse = document.getElementById('llma-panel-collapse');
     if (collapse) {
         collapse.addEventListener('click', () => {
-            const panel = document.getElementById('llma-asst-panel');
-            if (!panel) return;
+            const cont = document.getElementById('llma-container');
+            if (!cont) return;
             const tablet = window.innerWidth <= 1050;
             if (tablet) {
-                panel.classList.remove('panel-open');
+                const panel = document.getElementById('llma-asst-panel');
+                panel?.classList.remove('panel-open');
                 document.getElementById('llma-asst-toggle')?.classList.remove('active');
             } else {
-                panel.classList.toggle('collapsed');
-                const isCollapsed = panel.classList.contains('collapsed');
-                collapse.querySelector('svg path')?.setAttribute('d',
-                    isCollapsed ? 'M4 1.5L7.5 5.5L4 9.5' : 'M7 1.5L3.5 5.5L7 9.5'
-                );
+                // Use the same container-level toggle as the split bar quickbutton
+                const isCollapsed = cont.classList.contains('panel-collapsed');
+                cont.classList.toggle('panel-collapsed', !isCollapsed);
+                localStorage.setItem('llma_panel_collapsed', !isCollapsed ? 'true' : 'false');
+                const rightBtn = document.getElementById('llma-split-right-btn');
+                if (rightBtn) {
+                    rightBtn.innerHTML = !isCollapsed ? '&#x21DA;' : '&#x21DB;';
+                }
             }
         });
     }
@@ -477,7 +477,19 @@ function llmaSetupSplitBars() {
         };
 
         bar.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return;
+            if (e.button !== 0 || e.target.classList.contains('t2i-split-quickbutton')) return;
+            // Uncollapse if collapsed — user is dragging to resize
+            if (which === 'left' && container.classList.contains('sidebar-collapsed')) {
+                container.classList.remove('sidebar-collapsed');
+                localStorage.setItem('llma_sidebar_collapsed', 'false');
+                const lb = document.getElementById('llma-split-left-btn');
+                if (lb) lb.innerHTML = '&#x21DA;';
+            } else if (which === 'right' && container.classList.contains('panel-collapsed')) {
+                container.classList.remove('panel-collapsed');
+                localStorage.setItem('llma_panel_collapsed', 'false');
+                const rb = document.getElementById('llma-split-right-btn');
+                if (rb) rb.innerHTML = '&#x21DB;';
+            }
             dragging = true;
             bar.classList.add('dragging');
             document.body.style.cursor = 'col-resize';
@@ -501,6 +513,49 @@ function llmaSetupSplitBars() {
 
     attach(leftBar,  'left');
     attach(rightBar, 'right');
+
+    // Quickbutton toggle handlers
+    const leftBtn  = document.getElementById('llma-split-left-btn');
+    const rightBtn = document.getElementById('llma-split-right-btn');
+
+    const applySidebarState = (collapsed) => {
+        container.classList.toggle('sidebar-collapsed', collapsed);
+        localStorage.setItem('llma_sidebar_collapsed', collapsed ? 'true' : 'false');
+        if (leftBtn) {
+            leftBtn.innerHTML = collapsed ? '&#x21DB;' : '&#x21DA;';
+        }
+    };
+
+    const applyPanelState = (collapsed) => {
+        container.classList.toggle('panel-collapsed', collapsed);
+        localStorage.setItem('llma_panel_collapsed', collapsed ? 'true' : 'false');
+        if (rightBtn) {
+            rightBtn.innerHTML = collapsed ? '&#x21DA;' : '&#x21DB;';
+        }
+    };
+
+    // Restore persisted collapsed states
+    const sidebarCollapsed = localStorage.getItem('llma_sidebar_collapsed') === 'true';
+    const panelCollapsed   = localStorage.getItem('llma_panel_collapsed')   === 'true';
+    if (sidebarCollapsed) { applySidebarState(true); }
+    if (panelCollapsed)   { applyPanelState(true);   }
+
+    if (leftBtn) {
+        leftBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isCollapsed = container.classList.contains('sidebar-collapsed');
+            applySidebarState(!isCollapsed);
+        });
+    }
+    if (rightBtn) {
+        rightBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const isCollapsed = container.classList.contains('panel-collapsed');
+            applyPanelState(!isCollapsed);
+        });
+    }
 }
 
 function llmaRenderAssistantPanel(assistantId) {
@@ -1262,13 +1317,12 @@ function llmaSetupResponsive() {
 
 // -- Popover Management --
 function llmaCloseAllPopovers(except) {
-    const popovers = ['llma-model-popover', 'llma-params-popover', 'llma-export-menu'];
+    const popovers = ['llma-params-popover', 'llma-export-menu'];
     for (const id of popovers) {
         const el = document.getElementById(id);
         if (el && el !== except) el.style.display = 'none';
     }
     document.querySelectorAll('.llma-icon-btn.active').forEach(b => b.classList.remove('active'));
-    document.getElementById('llma-model-pill')?.setAttribute('aria-expanded', 'false');
 }
 
 // -- Prompt Buttons (Generate Tab) --

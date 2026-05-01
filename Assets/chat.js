@@ -795,6 +795,40 @@ function llmaRenderToolResult(bubble, toolResult) {
         pre.className = 'llma-tool-result-filecontent';
         pre.textContent = result.content;
         resultWrap.appendChild(pre);
+    } else if (success && name === 'file_write') {
+        const info = document.createElement('div');
+        info.className = 'llma-tool-result-fileinfo';
+        info.textContent = `${result.path || ''} (${result.bytesWritten ?? '?'} bytes)`;
+        resultWrap.appendChild(info);
+
+        if (result.url) {
+            const linkWrap = document.createElement('div');
+            linkWrap.className = 'llma-tool-result-filelink';
+            const a = document.createElement('a');
+            a.href = result.url;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = result.url;
+            a.addEventListener('click', (e) => {
+                // Left-click opens the in-tab artifact viewer; allow normal browser behavior
+                // for ctrl/cmd-click, middle-click, etc.
+                if (e.button != 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                    return;
+                }
+                if (typeof llmaOpenAsset === 'function') {
+                    e.preventDefault();
+                    llmaRebuildAssetsForThread?.();
+                    const msgEl = bubble.closest?.('[data-msg-id]');
+                    const msgId = msgEl ? msgEl.getAttribute('data-msg-id') : null;
+                    const assetId = msgId ? `${msgId}-tool-${toolResult.id}` : null;
+                    if (assetId) {
+                        llmaOpenAsset(assetId);
+                    }
+                }
+            });
+            linkWrap.appendChild(a);
+            resultWrap.appendChild(linkWrap);
+        }
     } else if (success && name === 'http_request') {
         const info = document.createElement('div');
         info.className = 'llma-tool-result-fileinfo';

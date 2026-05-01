@@ -18,6 +18,7 @@ public static class ToolExecutorService
         [ToolConstants.GenerateImage] = LLMAssistantAPI.PermToolGenerateImage,
         [ToolConstants.WebSearch] = LLMAssistantAPI.PermToolWebSearch,
         [ToolConstants.FileRead] = LLMAssistantAPI.PermToolFileRead,
+        [ToolConstants.FileWrite] = LLMAssistantAPI.PermToolFileWrite,
         [ToolConstants.HttpRequest] = LLMAssistantAPI.PermToolHttpRequest,
         [ToolConstants.ShellExec] = LLMAssistantAPI.PermToolShellExec,
         [ToolConstants.MemoryWrite] = LLMAssistantAPI.PermToolMemory,

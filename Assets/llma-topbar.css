@@ -67,29 +67,12 @@
     color: var(--emphasis);
 }
 
-/* Model pill */
-.llma-model-pill-wrap {
-    position: relative;
-}
-.llma-model-pill {
+/* Model select — uses SwarmUI's native form-select */
+.llma-model-select-wrap {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 5px 10px 5px 8px;
-    border-radius: 20px;
-    border: 1px solid var(--border-color);
-    background: var(--background-panel-subtle);
-    color: var(--text);
-    cursor: pointer;
-    font-size: 12.5px;
-    font-weight: 500;
-    white-space: nowrap;
-    transition: border-color 0.15s, background 0.15s;
-    outline: none;
-}
-.llma-model-pill:hover {
-    border-color: var(--emphasis);
-    background: var(--background-soft);
+    flex-shrink: 0;
 }
 .llma-model-status {
     width: 7px;
@@ -101,21 +84,13 @@
 }
 .llma-model-status.offline { background: var(--backend-errored); }
 .llma-model-status.loading { background: var(--backend-disabled); animation: llma-pulse 1s infinite; }
-.llma-model-label {
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.llma-model-select {
+    font-size: 12.5px;
+    max-width: 220px;
+    padding: 4px 8px;
 }
-.llma-chevron {
-    color: var(--text-soft);
-    opacity: 0.5;
-    flex-shrink: 0;
-    transition: transform 0.18s;
-}
-.llma-model-pill[aria-expanded="true"] .llma-chevron { transform: rotate(180deg); }
 
-/* Model popover */
-.llma-model-popover,
+/* Shared popover base (params, export) */
 .llma-params-popover,
 .llma-export-menu {
     position: absolute;
@@ -130,39 +105,9 @@
     min-width: 200px;
     animation: llma-popover-in 0.14s ease;
 }
-.llma-model-popover { min-width: 220px; }
 @keyframes llma-popover-in {
     from { opacity: 0; transform: translateY(-4px); }
     to   { opacity: 1; transform: translateY(0); }
-}
-.llma-pop-row {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-bottom: 8px;
-}
-.llma-pop-label {
-    font-size: 10.5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: var(--text-soft);
-    opacity: 0.5;
-}
-.llma-pop-select {
-    padding: 5px 8px;
-    border-radius: 7px;
-    border: 1px solid var(--light-border);
-    background: var(--background);
-    color: var(--text);
-    font-size: 12.5px;
-    outline: none;
-    cursor: pointer;
-}
-.llma-pop-apply {
-    width: 100%;
-    margin-top: 2px;
-    font-size: 12px;
 }
 .llma-popover-anchor {
     position: relative;

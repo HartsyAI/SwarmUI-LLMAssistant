@@ -1,11 +1,11 @@
 using System.Net.WebSockets;
-using LLama.Common;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 
@@ -26,6 +26,7 @@ public static class ChatEndpoints
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
+            input.RequestSession = session;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
             string response;
@@ -90,6 +91,7 @@ public static class ChatEndpoints
             {
                 input = ExtendedLLMInput.Create(message, systemPrompt, model);
             }
+            input.RequestSession = session;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt
@@ -99,20 +101,13 @@ public static class ChatEndpoints
                 input.Tools = enabledTools;
                 string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enabledTools);
                 input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
-                // Replace the system message at position 0 of the ChatHistory if present
-                if (input.ChatHistory.Messages.Count > 0 && input.ChatHistory.Messages[0].AuthorRole == LLama.Common.AuthorRole.System)
+                if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
                 {
-                    input.ChatHistory.Messages[0] = new LLama.Common.ChatHistory.Message(LLama.Common.AuthorRole.System, input.SystemPrompt);
+                    input.Messages[0].Content = input.SystemPrompt;
                 }
-                else
+                else if (!string.IsNullOrEmpty(input.SystemPrompt))
                 {
-                    LLama.Common.ChatHistory newHistory = new();
-                    newHistory.AddMessage(LLama.Common.AuthorRole.System, input.SystemPrompt);
-                    foreach (LLama.Common.ChatHistory.Message msg in input.ChatHistory.Messages)
-                    {
-                        newHistory.AddMessage(msg.AuthorRole, msg.Content);
-                    }
-                    input.ChatHistory = newHistory;
+                    input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
                 }
             }
             await LLMStreamHelper.StreamToWebSocket(socket, input, session);

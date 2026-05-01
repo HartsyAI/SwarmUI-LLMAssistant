@@ -1,8 +1,8 @@
 using System.Net.WebSockets;
-using LLama.Common;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.LLMs;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
@@ -68,7 +68,7 @@ public static class LLMStreamHelper
             }
             // Append round output (with tool call tags) to the accumulated response and to history
             fullResponse.Append(roundText);
-            input.ChatHistory.AddMessage(AuthorRole.Assistant, roundText);
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = roundText });
             // Execute each tool call and feed the result back
             foreach (ToolPromptService.ParsedToolCall call in toolCalls)
             {
@@ -102,7 +102,7 @@ public static class LLMStreamHelper
                 });
                 // Inject formatted result back into history as a user-role message so the model sees it
                 string formatted = ToolPromptService.FormatToolResult(call.Name, result);
-                input.ChatHistory.AddMessage(AuthorRole.User, formatted);
+                input.Messages.Add(new LLMMessage() { Role = LLMRoles.User, Content = formatted });
             }
             // Loop: regenerate with extended history
         }

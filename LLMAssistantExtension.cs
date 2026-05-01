@@ -56,6 +56,7 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new GenerateImageTool());
         ToolRegistryService.RegisterHandler(new WebSearchTool());
         ToolRegistryService.RegisterHandler(new FileReadTool());
+        ToolRegistryService.RegisterHandler(new FileWriteTool());
         ToolRegistryService.RegisterHandler(new HttpRequestTool());
         ToolRegistryService.RegisterHandler(new ShellExecTool());
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());

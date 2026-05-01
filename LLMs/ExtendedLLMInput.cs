@@ -1,4 +1,3 @@
-using LLama.Common;
 using Newtonsoft.Json.Linq;
 using SwarmUI.LLMs;
 
@@ -7,24 +6,6 @@ namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 /// <summary>Extends SwarmUI's LLMParamInput with richer generation parameters.</summary>
 public class ExtendedLLMInput : LLMParamInput
 {
-    /// <summary>System prompt / instruction to prepend to the conversation.</summary>
-    public string SystemPrompt { get; set; }
-
-    /// <summary>Controls randomness. 0.0 = deterministic, 2.0 = very creative.</summary>
-    public double Temperature { get; set; } = 1.0;
-
-    /// <summary>Maximum number of tokens to generate.</summary>
-    public int MaxTokens { get; set; } = 1024;
-
-    /// <summary>Nucleus sampling cutoff (0.0-1.0).</summary>
-    public double TopP { get; set; } = 0.9;
-
-    /// <summary>Random seed. -1 = random.</summary>
-    public long Seed { get; set; } = -1;
-
-    /// <summary>Whether to stream the response token-by-token.</summary>
-    public bool Stream { get; set; } = true;
-
     /// <summary>Media attachments for vision requests.</summary>
     public List<MediaAttachment> Media { get; set; }
 
@@ -38,14 +19,13 @@ public class ExtendedLLMInput : LLMParamInput
         {
             UserMessage = userMessage,
             Model = model,
-            SystemPrompt = systemPrompt,
-            ChatHistory = new ChatHistory()
+            SystemPrompt = systemPrompt
         };
         if (!string.IsNullOrEmpty(systemPrompt))
         {
-            input.ChatHistory.AddMessage(AuthorRole.System, systemPrompt);
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.System, Content = systemPrompt });
         }
-        input.ChatHistory.AddMessage(AuthorRole.User, userMessage);
+        input.Messages.Add(new LLMMessage() { Role = LLMRoles.User, Content = userMessage });
         return input;
     }
 
@@ -55,23 +35,22 @@ public class ExtendedLLMInput : LLMParamInput
         ExtendedLLMInput input = new()
         {
             Model = model,
-            SystemPrompt = systemPrompt,
-            ChatHistory = new ChatHistory()
+            SystemPrompt = systemPrompt
         };
         if (!string.IsNullOrEmpty(systemPrompt))
         {
-            input.ChatHistory.AddMessage(AuthorRole.System, systemPrompt);
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.System, Content = systemPrompt });
         }
         foreach (ChatMessageData msg in messages)
         {
-            AuthorRole role = msg.Role.ToLowerInvariant() switch
+            string llmRole = msg.Role.ToLowerInvariant() switch
             {
-                Roles.User => AuthorRole.User,
-                Roles.Assistant => AuthorRole.Assistant,
-                Roles.System => AuthorRole.System,
-                _ => AuthorRole.User
+                Roles.User => LLMRoles.User,
+                Roles.Assistant => LLMRoles.Assistant,
+                Roles.System => LLMRoles.System,
+                _ => LLMRoles.User
             };
-            input.ChatHistory.AddMessage(role, msg.Content);
+            input.Messages.Add(new LLMMessage() { Role = llmRole, Content = msg.Content });
         }
         if (messages.Count > 0)
         {

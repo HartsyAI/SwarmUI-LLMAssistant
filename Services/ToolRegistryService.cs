@@ -293,6 +293,43 @@ public static class ToolRegistryService
             ["updated"] = now
         };
 
+        tools[ToolConstants.FileWrite] = new JObject
+        {
+            ["id"] = ToolConstants.FileWrite,
+            ["name"] = "Write File",
+            ["description"] = "Write a text file into a sandboxed output folder managed by the LLM Assistant extension. Returns a URL/path to the written file.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["path"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Relative path within the extension's file_write sandbox (eg 'notes/output.md' or 'data/config.json')."
+                    },
+                    ["content"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Full file content to write."
+                    },
+                    ["overwrite"] = new JObject
+                    {
+                        ["type"] = "boolean",
+                        ["description"] = "Whether to overwrite an existing file at the same path (default false).",
+                        ["default"] = false
+                    }
+                },
+                ["required"] = new JArray("path", "content")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.FileWrite,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
         tools[ToolConstants.WebSearch] = new JObject
         {
             ["id"] = ToolConstants.WebSearch,

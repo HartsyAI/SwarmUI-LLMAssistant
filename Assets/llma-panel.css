@@ -14,11 +14,7 @@
     min-width: 0;
     position: relative;
 }
-.llma-asst-panel.collapsed {
-    width: 0 !important;
-    opacity: 0;
-    pointer-events: none;
-}
+/* Old per-element collapsed class no longer used — container-level .panel-collapsed handles this */
 .llma-panel-header {
     display: flex;
     align-items: center;

@@ -12,7 +12,7 @@
     </aside>
 
     <!-- ── Splitter (sidebar / main) ─────────────────────────── -->
-    <div class="llma-splitbar splitter-bar" id="llma-split-left" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <div class="llma-splitbar splitter-bar" id="llma-split-left" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton" id="llma-split-left-btn" title="Toggle sidebar">&#x21DA;</div></div>
 
     <!-- ── Main ──────────────────────────────────────────────── -->
     <main class="llma-main">
@@ -25,22 +25,12 @@
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
             <div class="llma-topbar-right">
-                <!-- Model pill -->
-                <div class="llma-model-pill-wrap llma-popover-anchor">
-                    <button class="llma-model-pill" id="llma-model-pill" aria-expanded="false" aria-haspopup="true">
-                        <span class="llma-model-status" id="llma-model-status"></span>
-                        <span class="llma-model-label" id="llma-model-label">No model</span>
-                        <svg class="llma-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 3.5L5 7L8 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    </button>
-                    <div class="llma-model-popover" id="llma-model-popover" style="display:none;">
-                        <div class="llma-pop-row">
-                            <span class="llma-pop-label">Model</span>
-                            <select class="llma-pop-select" id="llma-model-select">
-                                <option value="" disabled selected>No models found</option>
-                            </select>
-                        </div>
-                        <button class="basic-button llma-pop-apply" id="llma-pop-apply">Apply</button>
-                    </div>
+                <!-- Model select -->
+                <div class="llma-model-select-wrap">
+                    <span class="llma-model-status" id="llma-model-status"></span>
+                    <select class="form-select llma-model-select" id="llma-model-select" autocomplete="off">
+                        <option value="" disabled selected>No models found</option>
+                    </select>
                 </div>
                 <!-- Params -->
                 <div class="llma-popover-anchor">
@@ -154,7 +144,7 @@
     </main>
 
     <!-- ── Splitter (main / assistant panel) ─────────────────── -->
-    <div class="llma-splitbar splitter-bar" id="llma-split-right" role="separator" aria-orientation="vertical" title="Drag to resize"></div>
+    <div class="llma-splitbar splitter-bar" id="llma-split-right" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton" id="llma-split-right-btn" title="Toggle panel">&#x21DB;</div></div>
 
     <!-- ── Assistant Panel (right) ───────────────────────────── -->
     <aside class="llma-asst-panel" id="llma-asst-panel">

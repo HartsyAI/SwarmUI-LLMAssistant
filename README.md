@@ -12,7 +12,7 @@ A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/S
 - **Persistent Threads** — Chats are saved per-user. Search, rename, and delete from the sidebar. Empty threads are not saved until the first message is sent
 - **Assistants** — Multiple customizable personalities, each with its own avatar, color, category, per-mode system prompts, and parameter overrides (temperature, max tokens, top-p)
 - **Instruction Modes** — 6 built-in instruction types per assistant: `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`
-- **Tool Calling** — Agentic loop with prompt-injection-based tool calls. Ships with 3 built-in tools: `generate_image` (calls SwarmUI's T2I engine), `web_search`, and `file_read` (sandboxed). Up to 8 iterations per user turn. Extensible via a `ToolHandler` base class
+- **Tool Calling** — Agentic loop with prompt-injection-based tool calls. Ships with built-in tools including `generate_image` (calls SwarmUI's T2I engine), `web_search`, `file_read` (sandboxed), and `file_write` (sandboxed). Up to 8 iterations per user turn. Extensible via a `ToolHandler` base class
 - **Vision Support** — Attach images to messages, send them to vision-capable models, generate captions, and feed them back into T2I generation
 - **Streaming Responses** — WebSocket-based token streaming with typing indicator and stop button
 - **Markdown Rendering** — Full markdown, syntax-highlighted code blocks, tables, KaTeX math, and Mermaid diagrams inside bubbles
@@ -88,6 +88,7 @@ The extension implements tool calling via **prompt injection** (no native OpenAI
 | `generate_image` | `GenerateImageTool` | Generates an image via SwarmUI's T2I engine and returns the image URL. Useful for assistants that suggest visual content mid-conversation |
 | `web_search` | `WebSearchTool` | HTTP-based web search, returns `{ title, url, snippet }` results |
 | `file_read` | `FileReadTool` | Sandboxed file read from within SwarmUI's data directories. Rejects `..` traversal and absolute paths outside the data root |
+| `file_write` | `FileWriteTool` | Sandboxed text file write into `Output/LLMAssistantFiles/`. Supports safe relative paths + overwrite gating. Returns a URL/path to the created file |
 
 **Custom tools:** Open `Settings > Tools > + Create Tool` to register a new tool. You can set an ID, name, description, JSON Schema for parameters, and a handler ID that must map to a registered `ToolHandler`. There's a built-in "Run Test" panel that lets you execute a tool with arbitrary arguments for development.
 
@@ -98,6 +99,25 @@ Custom handler types are exposed via the `handlerType` field (`builtin`, and res
 Assistants with a `vision` instruction set can accept image attachments. Click the paperclip icon in the input bar to upload an image — it gets encoded and sent alongside the message text to the selected LLM model. Uses the assistant's `vision` instruction as the system prompt instead of `chat`.
 
 Vision is also used by the `magic-vision` generate tab action to caption an existing image.
+
+### Assets / Artifacts (Claude-style)
+
+The extension maintains a per-thread **Assets** index (shown in the right assistant panel) and a full-size **asset viewer** modal.
+
+- Assets are extracted from:
+  - assistant messages that contain fenced code blocks (non-mermaid fences are promoted into assets)
+  - tool results (for example, `generate_image`, `file_read`, and `file_write`)
+- Click an asset card in the right panel to open it.
+- `file_write` results:
+  - are written to `Output/LLMAssistantFiles/<relative path>`
+  - appear in chat as a clickable link
+  - are promoted into an asset entry
+  - lazy-load their contents from the returned URL when opened
+- The asset viewer includes:
+  - **Copy** (copies text assets to clipboard)
+  - **Download** (downloads the asset content)
+  - **Use as Prompt** (sends text assets to the Generate prompt box)
+  - **Use as Init** (images only: sets the init image on the Generate tab)
 
 ### Generate Tab Integration
 

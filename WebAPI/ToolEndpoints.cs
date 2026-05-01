@@ -36,10 +36,16 @@ public static class ToolEndpoints
         };
     }
 
-    /// <summary>Creates or updates a tool definition. Accepts an optional <c>scope</c>.</summary>
+    /// <summary>Creates or updates a tool definition. Accepts an optional <c>scope</c>.
+    /// The <c>tool</c> field may be either a JObject or a JSON string (the UI sends the latter).</summary>
     public static async Task<JObject> LLMAssistantSaveTool(Session session, JObject rawInput)
     {
         JObject toolData = rawInput["tool"] as JObject;
+        if (toolData is null && rawInput["tool"]?.Type == JTokenType.String)
+        {
+            try { toolData = JObject.Parse(rawInput["tool"].ToString()); }
+            catch { /* fall through to error */ }
+        }
         if (toolData is null)
         {
             return new JObject { ["success"] = false, ["error"] = "No tool data provided." };
@@ -68,11 +74,22 @@ public static class ToolEndpoints
         };
     }
 
-    /// <summary>Manually execute a tool (dev affordance, bypasses LLM).</summary>
+    /// <summary>Manually execute a tool (dev affordance, bypasses LLM).
+    /// The <c>arguments</c> field may be a JObject or a JSON string.</summary>
     public static async Task<JObject> LLMAssistantExecuteTool(Session session, JObject rawInput)
     {
         string toolId = rawInput["toolId"]?.ToString();
-        JObject args = rawInput["args"] as JObject ?? new JObject();
+        JObject args = (rawInput["arguments"] ?? rawInput["args"]) as JObject;
+        if (args is null)
+        {
+            JToken argToken = rawInput["arguments"] ?? rawInput["args"];
+            if (argToken?.Type == JTokenType.String)
+            {
+                try { args = JObject.Parse(argToken.ToString()); }
+                catch { /* fall through */ }
+            }
+        }
+        args ??= new JObject();
         if (string.IsNullOrEmpty(toolId))
         {
             return new JObject { ["success"] = false, ["error"] = "toolId is required" };

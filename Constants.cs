@@ -59,6 +59,7 @@ public static class ToolConstants
     public const string GenerateImage = "generate_image";
     public const string WebSearch = "web_search";
     public const string FileRead = "file_read";
+    public const string FileWrite = "file_write";
     public const string HttpRequest = "http_request";
     public const string ShellExec = "shell_exec";
     public const string MemoryWrite = "memory_write";
@@ -66,5 +67,5 @@ public static class ToolConstants
     public const string SwarmDocs = "swarm_docs";
 
     /// <summary>All built-in tool IDs.</summary>
-    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs];
+    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs];
 }

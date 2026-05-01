@@ -30,6 +30,7 @@
    cursor, z-index) and an unscoped hover state, since SwarmUI's hover
    is gated on the .large-window body class which this tab may not set. */
 .llma-splitbar {
+    position: relative;
     height: 100%;
     cursor: col-resize;
     user-select: none;
@@ -43,9 +44,18 @@
         -0.4rem 0 0.5rem 0 color-mix(in srgb, transparent 55%, var(--emphasis)),
          0.4rem 0 0.5rem 0 color-mix(in srgb, transparent 55%, var(--emphasis));
 }
-/* Hide the corresponding bar if a side is collapsed */
-.llma-container.sidebar-collapsed #llma-split-left  { display: none; }
-.llma-container.panel-collapsed   #llma-split-right { display: none; }
+/* Quickbutton — reuses SwarmUI's t2i-split-quickbutton base styles,
+   positioned vertically centered on the bar */
+.llma-split-quickbutton {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 3;
+}
+/* Hide the sidebar/panel content when collapsed, but keep the split bar visible for the quickbutton */
+.llma-container.sidebar-collapsed .llma-sidebar    { display: none; }
+.llma-container.panel-collapsed   .llma-asst-panel { display: none; }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 .llma-sidebar {
@@ -57,11 +67,7 @@
     transition: width 0.22s ease, opacity 0.22s ease;
     min-width: 0;
 }
-.llma-sidebar.collapsed {
-    width: 0 !important;
-    opacity: 0;
-    pointer-events: none;
-}
+/* Collapsed state is handled at the container level via .sidebar-collapsed / .panel-collapsed */
 .llma-sidebar-header {
     display: flex;
     align-items: center;

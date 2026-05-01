@@ -55,6 +55,12 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the built-in file_read tool. Sandboxed to SwarmUI's Data directory, but still lets the LLM read arbitrary files within it.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.RISKY));
 
+    /// <summary>Permission to use the <c>file_write</c> built-in tool (sandboxed to SwarmUI/Output).</summary>
+    public static readonly PermInfo PermToolFileWrite = Permissions.Register(new(
+        "llm_tool_file_write", "[LLM Tool] Write File",
+        "Allows the LLM to call the built-in file_write tool. Sandboxed to an Output subfolder managed by the extension, but still lets the LLM create/overwrite files within that sandbox.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.RISKY));
+
     /// <summary>Permission to use the <c>http_request</c> built-in tool.</summary>
     public static readonly PermInfo PermToolHttpRequest = Permissions.Register(new(
         "llm_tool_http_request", "[LLM Tool] HTTP Request",

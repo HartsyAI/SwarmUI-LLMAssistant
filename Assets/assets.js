@@ -220,6 +220,27 @@ function llmaExtractAssetsFromToolCalls(toolCalls, msgId) {
                 idx: i,
                 title: r.prompt ? (r.prompt.slice(0, 40).replace(/\s+/g, '_') + '.png') : null,
             }));
+        } else if (name === 'file_write' && r.url) {
+            const path = r.path || '';
+            const filename = path ? path.split(/[\\/]/).pop() : null;
+            const ext = (path.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
+            const lang = ext;
+            const type = LLMA_LANG_TO_TYPE[ext] || (ext ? 'code' : 'text');
+            const asset = llmaBuildAsset({
+                id: baseId,
+                type,
+                language: lang || null,
+                content: '',
+                msgId,
+                source: 'tool',
+                toolId: tc.id || null,
+                idx: i,
+                title: filename || null,
+            });
+            asset.meta = asset.meta || {};
+            asset.meta.url = r.url;
+            asset.meta.writtenPath = r.path || null;
+            out.push(asset);
         } else if (name === 'file_read' && typeof r.content === 'string') {
             const path = r.path || '';
             const ext = (path.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase() || '';
@@ -346,11 +367,38 @@ function llmaOpenAsset(id) {
     }
 
     bodyEl.innerHTML = '';
-    try {
-        const viewEl = def.renderViewer ? def.renderViewer(asset) : llmaRenderViewerText(asset);
-        if (viewEl) bodyEl.appendChild(viewEl);
-    } catch (ex) {
-        bodyEl.innerHTML = `<div class="llma-asset-error">Failed to render: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
+
+    const renderNow = () => {
+        bodyEl.innerHTML = '';
+        try {
+            const viewEl = def.renderViewer ? def.renderViewer(asset) : llmaRenderViewerText(asset);
+            if (viewEl) bodyEl.appendChild(viewEl);
+        } catch (ex) {
+            bodyEl.innerHTML = `<div class="llma-asset-error">Failed to render: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
+        }
+    };
+
+    // Lazy-load content for URL-backed assets (eg file_write)
+    if ((!asset.content || asset.content.length === 0) && asset.meta?.url) {
+        const loading = document.createElement('div');
+        loading.className = 'llma-asset-error';
+        loading.style.color = 'var(--text-soft)';
+        loading.textContent = 'Loading…';
+        bodyEl.appendChild(loading);
+        fetch(asset.meta.url, { method: 'GET' })
+            .then(r => r.text())
+            .then(txt => {
+                asset.content = txt;
+                asset.meta.size = llmaByteSize(txt);
+                asset.meta.lines = (asset.type === 'code' || asset.type === 'text') ? llmaLineCount(txt) : asset.meta.lines;
+                renderNow();
+                llmaRenderAssetSidebar();
+            })
+            .catch(err => {
+                bodyEl.innerHTML = `<div class="llma-asset-error">Failed to load asset from URL: ${llmaEscapeHtml(err?.message || String(err))}</div>`;
+            });
+    } else {
+        renderNow();
     }
 
     // Show/hide "Use as Prompt" for text-like assets
