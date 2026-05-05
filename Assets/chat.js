@@ -450,16 +450,30 @@ function llmaCopyMessage(msgId) {
     }
 }
 
-function llmaDeleteMessage(msgId) {
-    // TODO(server-authoritative): The local-only mutation here is now lost on next thread fetch.
-    // Add a `LLMAssistantDeleteMessage(threadId, messageId)` endpoint that mutates the saved
-    // thread server-side, then call it here and refetch — matching the new chat ownership model.
-    LLMAState.messages = LLMAState.messages.filter(m => m.id !== msgId);
+async function llmaDeleteMessage(msgId) {
+    if (!LLMAState.activeThreadId || !msgId) return;
+    // Optimistic local removal so the UI feels snappy; if the server rejects we re-fetch to recover.
+    const prevMessages = LLMAState.messages;
+    LLMAState.messages = prevMessages.filter(m => m.id !== msgId);
     const el = document.querySelector(`[data-msg-id="${msgId}"]`);
     if (el) el.remove();
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+    try {
+        const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: LLMAState.activeThreadId, messageId: msgId });
+        if (!res?.success) {
+            llmaShowToast(res?.error || 'Failed to delete message', 'error');
+            await llmaReloadActiveThread();
+            return;
+        }
+    } catch {
+        llmaShowToast('Failed to delete message', 'error');
+        await llmaReloadActiveThread();
+        return;
+    }
+    // Sidebar metadata refresh (title may have changed if first message was deleted, etc.)
+    llmaSaveActiveThread();
 }
 
 function llmaStartEdit(msgId) {
@@ -482,13 +496,27 @@ function llmaStartEdit(msgId) {
     const saveBtn = document.createElement('button');
     saveBtn.className = 'basic-button';
     saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', async () => {
         const newContent = textarea.value.trim();
-        if (newContent) {
-            // TODO(server-authoritative): edit only mutates local state; lost on next thread fetch.
-            // Add LLMAssistantEditMessage(threadId, messageId, content) endpoint and call it here.
-            msg.content = newContent;
-            bubble.textContent = newContent;
+        if (!newContent || !LLMAState.activeThreadId) return;
+        // Optimistic local update; revert by re-rendering on failure.
+        msg.content = newContent;
+        bubble.textContent = newContent;
+        try {
+            const res = await llmaRequest('LLMAssistantEditMessage', {
+                threadId: LLMAState.activeThreadId,
+                messageId: msgId,
+                content: newContent,
+            });
+            if (!res?.success) {
+                llmaShowToast(res?.error || 'Failed to save edit', 'error');
+                await llmaReloadActiveThread();
+                return;
+            }
+            llmaSaveActiveThread();
+        } catch {
+            llmaShowToast('Failed to save edit', 'error');
+            await llmaReloadActiveThread();
         }
     });
     const cancelBtn = document.createElement('button');

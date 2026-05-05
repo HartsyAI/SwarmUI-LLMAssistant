@@ -109,6 +109,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);
         // Per-user session state (active thread / last model / etc.)
         API.RegisterAPICall(SessionEndpoints.LLMAssistantGetSessionState, false, PermThreads);

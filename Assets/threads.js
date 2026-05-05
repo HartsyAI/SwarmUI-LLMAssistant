@@ -192,6 +192,37 @@ async function llmaSwitchThread(threadId) {
     }
 }
 
+// -- Reload active thread --
+// Re-fetches the active thread from the server and re-renders the message history.
+// Used to recover after a server-side mutation (eg edit/delete message) fails or returns
+// an authoritative thread state we should adopt.
+async function llmaReloadActiveThread() {
+    if (!LLMAState.activeThreadId) return;
+    let thread = null;
+    try {
+        const result = await llmaRequest('LLMAssistantGetThread', { threadId: LLMAState.activeThreadId });
+        if (result?.thread) {
+            thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
+        }
+    } catch { /* fall through */ }
+    if (!thread) return;
+    LLMAState.messages = Array.isArray(thread.messages) ? thread.messages : [];
+    llmaRenderMessageHistory(LLMAState.messages);
+    llmaRebuildAssetsForThread();
+    llmaUpdateContextBar();
+    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+    // Update sidebar metadata too.
+    const meta = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);
+    if (meta) {
+        meta.title        = thread.title || meta.title;
+        meta.updated      = thread.updatedAt || thread.updated || meta.updated;
+        meta.messageCount = LLMAState.messages.length;
+        const titleEl = document.getElementById('llma-thread-title');
+        if (titleEl) titleEl.textContent = meta.title;
+        llmaRenderThreadList(LLMAState.threads);
+    }
+}
+
 // -- Session state helpers --
 // Per-user active state (activeThreadId, currentModel, etc.) is persisted server-side
 // via LLMAssistantGetSessionState / LLMAssistantSetSessionState so headless clients
@@ -239,16 +270,12 @@ async function llmaDeleteThread(threadId) {
     llmaShowToast('Chat deleted', 'info');
 }
 
-// -- Save Thread --
-// Server-authoritative chat: saves happen on the server during the chat WS endpoint
-// (user message + assistant reply + tool events). This client-side function used to
-// PUT the entire thread on every change. That endpoint (LLMAssistantSaveThread) was
-// removed because it allowed clients to spoof history.
-//
-// Remaining callers are: stop-generation (need nothing — server saved what it had),
-// delete-message (TODO: needs a server endpoint), edit-message (TODO: same), and
-// the chat send-done path (server already persisted). We refresh local thread metadata
-// from the server when needed via a re-fetch — this function does that re-fetch only.
+// -- Save Thread (sidebar metadata refresh) --
+// Server-authoritative chat: every write (append message on send, edit/delete via dedicated
+// endpoints, rename via dedicated endpoint) is server-side. This function never PUTs the full
+// thread anymore (LLMAssistantSaveThread was removed). It just re-fetches the saved thread
+// from the server so the sidebar's title / updated / messageCount stay in sync after a mutation.
+// Use llmaReloadActiveThread() if you also need to re-render the message history itself.
 async function llmaSaveActiveThread() {
     if (!LLMAState.activeThreadId) return;
     const meta = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);

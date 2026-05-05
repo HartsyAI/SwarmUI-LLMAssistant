@@ -52,6 +52,54 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Deletes a single message from a thread by message id. Server-authoritative: the
+    /// frontend calls this instead of mutating its local <c>messages</c> array and saving the
+    /// whole thread (which would let clients spoof history).</summary>
+    public static async Task<JObject> LLMAssistantDeleteMessage(Session session, string threadId, string messageId)
+    {
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "messageId is required." };
+        }
+        JObject thread = ThreadStorageService.DeleteMessage(session.User, threadId, messageId);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Thread or message not found." };
+        }
+        return new JObject { ["success"] = true, ["thread"] = thread };
+    }
+
+    /// <summary>Edits the text content of a single message in a thread. Server-authoritative —
+    /// see <see cref="LLMAssistantDeleteMessage"/> for the same rationale.</summary>
+    public static async Task<JObject> LLMAssistantEditMessage(Session session, JObject rawInput)
+    {
+        string threadId = rawInput["threadId"]?.ToString();
+        string messageId = rawInput["messageId"]?.ToString();
+        string content = rawInput["content"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "messageId is required." };
+        }
+        if (content is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "content is required (use empty string to blank a message)." };
+        }
+        JObject thread = ThreadStorageService.EditMessage(session.User, threadId, messageId, content);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Thread or message not found." };
+        }
+        return new JObject { ["success"] = true, ["thread"] = thread };
+    }
+
     /// <summary>Renames a thread. The UI calls this instead of re-sending the entire thread on rename.</summary>
     public static async Task<JObject> LLMAssistantRenameThread(Session session, string threadId, string title)
     {

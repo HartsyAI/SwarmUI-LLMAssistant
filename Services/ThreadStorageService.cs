@@ -177,6 +177,54 @@ public static class ThreadStorageService
         return thread;
     }
 
+    /// <summary>Removes a single message from a thread by message id and persists. Returns the
+    /// updated thread, or null if the thread or message wasn't found.</summary>
+    public static JObject DeleteMessage(User user, string threadId, string messageId)
+    {
+        if (string.IsNullOrEmpty(messageId))
+        {
+            return null;
+        }
+        JObject thread = GetThread(user, threadId);
+        if (thread is null || thread["messages"] is not JArray messages)
+        {
+            return null;
+        }
+        JToken target = messages.FirstOrDefault(m => m["id"]?.ToString() == messageId);
+        if (target is null)
+        {
+            return null;
+        }
+        messages.Remove(target);
+        thread["messages"] = messages;
+        SaveThread(user, thread);
+        return thread;
+    }
+
+    /// <summary>Replaces the <c>content</c> field of a single message and persists. Other fields
+    /// (role, toolCalls, timestamp) are left intact. Returns the updated thread, or null if not found.</summary>
+    public static JObject EditMessage(User user, string threadId, string messageId, string newContent)
+    {
+        if (string.IsNullOrEmpty(messageId))
+        {
+            return null;
+        }
+        JObject thread = GetThread(user, threadId);
+        if (thread is null || thread["messages"] is not JArray messages)
+        {
+            return null;
+        }
+        JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+        if (target is null)
+        {
+            return null;
+        }
+        target["content"] = newContent ?? "";
+        target["editedAt"] = DateTime.UtcNow.ToString("o");
+        SaveThread(user, thread);
+        return thread;
+    }
+
     /// <summary>Deletes a thread and removes it from the index.</summary>
     public static bool DeleteThread(User user, string threadId)
     {
