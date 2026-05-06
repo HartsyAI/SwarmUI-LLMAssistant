@@ -2,6 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
@@ -51,45 +52,31 @@ public static class AssistantService
         return GetAssistant(GetActiveAssistantId(settings, user), settings, user);
     }
 
-    /// <summary>Resolves instruction text for a feature from the given assistant.
-    /// Falls back to Default assistant if the assistant doesn't define it.</summary>
-    public static string ResolveInstruction(string featureInstructionId, string assistantId = null, JObject settings = null, User user = null)
+    /// <summary>Resolves instruction text for a feature from the given assistant. Routes through
+    /// <see cref="AssistantResolver"/> so inheritance (<c>extends</c>) and per-model variants are
+    /// applied. Pass <paramref name="modelInfo"/> when known so model-specific variants can win.
+    /// Falls back to <see cref="DefaultInstructions.Prompt"/> if no candidate matches.</summary>
+    public static string ResolveInstruction(string featureInstructionId, string assistantId = null, JObject settings = null, User user = null, LLMModelInfo modelInfo = null)
     {
         settings ??= SettingsService.GetMergedSettings(user);
         assistantId ??= GetActiveAssistantId(settings, user);
-        JObject assistant = GetAssistant(assistantId, settings, user);
-        JObject instructions = assistant["instructions"] as JObject;
-        string text = instructions?[featureInstructionId]?.ToString();
-        if (!string.IsNullOrEmpty(text))
-        {
-            return text;
-        }
-        // Fall back to default assistant
-        if (assistantId != AssistantConstants.DefaultId)
-        {
-            JObject defaultAssistant = GetAssistant(AssistantConstants.DefaultId, settings, user);
-            JObject defaultInstructions = defaultAssistant["instructions"] as JObject;
-            text = defaultInstructions?[featureInstructionId]?.ToString();
-            if (!string.IsNullOrEmpty(text))
-            {
-                return text;
-            }
-        }
-        return DefaultInstructions.Prompt;
+        ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, user, settings);
+        string text = resolved.ResolveInstruction(featureInstructionId, modelInfo);
+        return string.IsNullOrEmpty(text) ? DefaultInstructions.Prompt : text;
     }
 
-    /// <summary>Resolves parameters by merging global defaults with assistant defaults.</summary>
+    /// <summary>Resolves parameters by merging global defaults with the resolved assistant
+    /// (which already has inheritance applied).</summary>
     public static JObject ResolveParameters(string assistantId = null, JObject settings = null, User user = null)
     {
         settings ??= SettingsService.GetMergedSettings(user);
         assistantId ??= GetActiveAssistantId(settings, user);
         JObject globalParams = settings["parameters"] as JObject ?? new JObject();
-        JObject assistant = GetAssistant(assistantId, settings, user);
-        JObject assistantParams = assistant["parameters"] as JObject;
+        ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, user, settings);
         JObject result = (JObject)globalParams.DeepClone();
-        if (assistantParams is not null && assistantParams.Count > 0)
+        if (resolved.Parameters.Count > 0)
         {
-            result.Merge(assistantParams, MergeSettings);
+            result.Merge(resolved.Parameters, MergeSettings);
         }
         return result;
     }
@@ -155,6 +142,8 @@ public static class AssistantService
             assistants[id] = stripped;
             shared["assistants"] = assistants;
             SettingsService.ReplaceSharedSettings(shared);
+            // Shared changes affect every user.
+            AssistantResolver.InvalidateAll();
             // If the shared version previously existed as a personal override and the user is just
             // pushing it "up", we don't auto-delete the personal copy — that's an explicit user action.
         }
@@ -165,6 +154,7 @@ public static class AssistantService
             assistants[id] = stripped;
             personal["assistants"] = assistants;
             SettingsService.ReplaceUserSettings(user, personal);
+            AssistantResolver.Invalidate(user);
         }
         return id;
     }
@@ -213,6 +203,7 @@ public static class AssistantService
                 shared["activeAssistantId"] = AssistantConstants.DefaultId;
             }
             SettingsService.ReplaceSharedSettings(shared);
+            AssistantResolver.InvalidateAll();
             return true;
         }
         else
@@ -227,6 +218,7 @@ public static class AssistantService
                 personal.Remove("activeAssistantId");
             }
             SettingsService.ReplaceUserSettings(user, personal);
+            AssistantResolver.Invalidate(user);
             return true;
         }
     }

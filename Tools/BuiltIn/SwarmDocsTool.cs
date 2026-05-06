@@ -26,8 +26,10 @@ public class SwarmDocsTool : ToolHandler
     /// <summary>Hard cap on bytes returned for a single read, to keep the LLM context bounded.</summary>
     private const int MaxReadBytes = 256 * 1024;
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        CancellationToken ct = ctx.Ct;
         string action = args["action"]?.ToString()?.Trim().ToLowerInvariant() ?? "list";
         try
         {

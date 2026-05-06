@@ -14,9 +14,9 @@ public class MemoryReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.MemoryRead;
 
-    public override Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
-        JObject profile = UserProfileService.GetProfile(session?.User);
+        JObject profile = UserProfileService.GetProfile(ctx.Session?.User);
         return Task.FromResult(new JObject
         {
             ["success"] = true,

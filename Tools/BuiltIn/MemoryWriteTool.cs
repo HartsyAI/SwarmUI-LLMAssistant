@@ -16,8 +16,9 @@ public class MemoryWriteTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.MemoryWrite;
 
-    public override Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
         string category = args["category"]?.ToString();
         string content = args["content"]?.ToString();
         if (string.IsNullOrWhiteSpace(category))
@@ -28,7 +29,7 @@ public class MemoryWriteTool : ToolHandler
         {
             return Task.FromResult(new JObject { ["success"] = false, ["error"] = "content is required" });
         }
-        string summary = UserProfileService.WriteMemory(session?.User, category, content);
+        string summary = UserProfileService.WriteMemory(ctx.Session?.User, category, content);
         return Task.FromResult(new JObject
         {
             ["success"] = true,

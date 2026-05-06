@@ -16,8 +16,10 @@ public class ShellExecTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.ShellExec;
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        CancellationToken ct = ctx.Ct;
         string command = args["command"]?.ToString();
         if (string.IsNullOrWhiteSpace(command))
         {

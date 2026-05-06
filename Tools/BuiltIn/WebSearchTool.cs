@@ -20,8 +20,10 @@ public partial class WebSearchTool : ToolHandler
     [GeneratedRegex(@"<a rel=""nofollow"" class=""result__a"" href=""([^""]+)"">([^<]+)</a>.*?<a class=""result__snippet""[^>]*>([^<]*)</a>", RegexOptions.Singleline)]
     private static partial Regex ResultRegex();
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        CancellationToken ct = ctx.Ct;
         string query = args["query"]?.ToString();
         if (string.IsNullOrWhiteSpace(query))
         {

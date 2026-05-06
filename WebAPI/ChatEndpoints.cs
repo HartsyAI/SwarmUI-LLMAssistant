@@ -15,6 +15,53 @@ public static class ChatEndpoints
 {
     private static readonly PromptCacheService _cache = new(500);
 
+    /// <summary>Test-runs an unsaved instruction text against the LLM with a sample user message,
+    /// without persisting anything (no thread, no memory write). Used by the assistant editor's
+    /// per-tab "Test" button so users can verify a persona/instruction <i>before</i> saving.
+    /// <para>Variable substitution (<c>{{userName}}</c>, <c>{{currentDate}}</c>, etc.) is applied
+    /// just like a real chat call, so previews honor the user's profile.</para></summary>
+    public static async Task<JObject> LLMAssistantTestInstruction(Session session, JObject rawInput)
+    {
+        if (session?.User is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        string instructionText = rawInput["instructionText"]?.ToString();
+        string sampleInput = rawInput["sampleInput"]?.ToString();
+        string model = rawInput["model"]?.ToString();
+        if (string.IsNullOrWhiteSpace(instructionText))
+        {
+            return new JObject { ["success"] = false, ["error"] = "instructionText is required." };
+        }
+        if (string.IsNullOrWhiteSpace(sampleInput))
+        {
+            return new JObject { ["success"] = false, ["error"] = "sampleInput is required." };
+        }
+        try
+        {
+            // Substitute the standard variables so previews accurately reflect what the model
+            // sees in real chat. Use a synthetic assistant name since the assistant being edited
+            // isn't saved yet.
+            string assistantName = (rawInput["assistantName"]?.ToString() ?? "").Trim();
+            if (string.IsNullOrEmpty(assistantName)) { assistantName = "Test Assistant"; }
+            JObject syntheticAssistant = new() { ["name"] = assistantName };
+            Dictionary<string, string> vars = UserProfileService.BuildPromptVariables(session.User, syntheticAssistant);
+            string systemPrompt = InstructionService.SubstituteVariables(instructionText, vars);
+            ExtendedLLMInput input = ExtendedLLMInput.Create(sampleInput, systemPrompt, model);
+            input.RequestSession = session;
+            // Apply the user's global parameter defaults (so the preview's temperature etc.
+            // matches what their real chat would use).
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            ApplyParameters(input, settings["parameters"] as JObject, -1, -1);
+            string response = await LLMDispatcher.Generate(input);
+            return new JObject { ["success"] = true, ["response"] = response };
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
     /// <summary>Creates a new empty chat thread for the given assistant. The frontend calls this
     /// before sending the first message in a fresh chat; subsequent messages reference the returned
     /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used.</summary>
@@ -118,7 +165,10 @@ public static class ChatEndpoints
             {
                 assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
             }
-            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
+            // Resolve model facts once so per-model instruction variants can pick the right text.
+            // Tolerates unknown models (returns null; only Default/Exact/Glob matchers will then match).
+            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
             // Append the user message to the thread BEFORE generation so it persists even if
             // generation fails or the client disconnects mid-stream.
             JObject userMsg = new() { ["role"] = Roles.User, ["content"] = message };
@@ -141,7 +191,7 @@ public static class ChatEndpoints
                 foreach (JObject tool in enabledTools)
                 {
                     ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
-                    enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session));
+                    enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
                 }
                 input.Tools = enrichedTools;
                 string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
@@ -155,7 +205,7 @@ public static class ChatEndpoints
                     input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
                 }
             }
-            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId);
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId);
             return null;
         }
         catch (Exception ex)
@@ -190,8 +240,9 @@ public static class ChatEndpoints
     /// <summary>Resolves instruction text for a request, routing through AssistantService for
     /// canonical IDs and substituting <c>{{userName}}</c>, <c>{{userProfile}}</c>,
     /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's profile.
-    /// User-profile lookups are scoped strictly to <paramref name="user"/>.</summary>
-    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user)
+    /// User-profile lookups are scoped strictly to <paramref name="user"/>. Pass
+    /// <paramref name="modelInfo"/> to enable per-model instruction variants.</summary>
+    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null)
     {
         if (string.IsNullOrEmpty(instructionId))
         {
@@ -201,7 +252,7 @@ public static class ChatEndpoints
         if (InstructionIds.All.Contains(instructionId))
         {
             // Canonical instruction IDs resolve from the assistant
-            text = AssistantService.ResolveInstruction(instructionId, assistantId, settings, user);
+            text = AssistantService.ResolveInstruction(instructionId, assistantId, settings, user, modelInfo);
         }
         else
         {

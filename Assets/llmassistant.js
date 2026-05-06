@@ -1080,7 +1080,8 @@ function llmaShowAssistantEditor(assistant) {
     const editor = document.getElementById('llma-asst-editor');
     if (!editor) return;
     editor.style.display = '';
-    llmaEditingAsstId = assistant ? assistant.id : null;
+    // Pre-assign an id for new assistants so avatar upload can target a stable file before save.
+    llmaEditingAsstId = assistant ? assistant.id : ('assistant-' + llmaGenerateId());
 
     const title = document.getElementById('llma-editor-title');
     if (title) title.textContent = assistant ? `Edit: ${assistant.name}` : 'New Assistant';
@@ -1123,15 +1124,17 @@ function llmaShowAssistantEditor(assistant) {
         }
     }
 
-    // Instruction fields
-    const instructions = assistant?.instructions || {};
-    for (const key of LLMA_INSTRUCTION_KEYS) {
-        const hidden = document.getElementById(`llma-instr-${key}`);
-        if (hidden) hidden.value = instructions[key] || '';
-    }
-    // Show first tab
+    // Instructions: parse into editing state. Each instruction can be a plain string (legacy)
+    // or { default, variants[] } (new shape with per-model overrides).
+    LLMAState._editingInstructions = llmaParseInstructionsForEditor(assistant?.instructions);
     llmaActiveInstrTab = 'chat';
-    llmaSwitchInstrTab('chat');
+    llmaRenderInstructionTab('chat');
+    document.querySelectorAll('.llma-instr-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.mode === 'chat');
+    });
+
+    // Extends dropdown — list every other assistant the user can see as a possible parent
+    llmaPopulateExtendsDropdown(assistant);
 
     // Parameters
     llmaSetEl('llma-asst-temperature', assistant?.parameters?.temperature ?? '');
@@ -1142,14 +1145,55 @@ function llmaShowAssistantEditor(assistant) {
     llmaRenderAssistantToolsChecklist(assistant?.enabledToolIds || []);
 }
 
+// Normalizes any instruction value into the editing-state shape.
+// Accepts plain string (legacy), { default, variants[] } (new shape), or null/undefined.
+function llmaParseInstructionsForEditor(rawInstructions) {
+    const out = {};
+    const src = rawInstructions || {};
+    for (const key of LLMA_INSTRUCTION_KEYS) {
+        const node = src[key];
+        if (typeof node === 'string') {
+            out[key] = { default: node, variants: [] };
+        } else if (node && typeof node === 'object') {
+            out[key] = {
+                default: typeof node.default === 'string' ? node.default : '',
+                variants: Array.isArray(node.variants) ? node.variants.map(v => ({
+                    matchKind: v.matchKind || 'glob',
+                    match:     v.match || '',
+                    text:      v.text || ''
+                })) : []
+            };
+        } else {
+            out[key] = { default: '', variants: [] };
+        }
+    }
+    return out;
+}
+
+// Populates the "Extends" dropdown with every assistant except the one being edited
+// (preventing self-parenting). Cycles further down the chain are caught by the resolver.
+function llmaPopulateExtendsDropdown(assistant) {
+    const sel = document.getElementById('llma-asst-extends');
+    if (!sel) return;
+    const current = assistant?.extends || '';
+    sel.innerHTML = '<option value="">(no parent — standalone)</option>';
+    for (const a of LLMAState.assistants) {
+        if (assistant && a.id === assistant.id) continue;
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.name + (a._scope === 'shared' ? ' (shared)' : '');
+        if (a.id === current) opt.selected = true;
+        sel.appendChild(opt);
+    }
+}
+
 async function llmaSaveAssistantFromEditor() {
     const name = document.getElementById('llma-asst-name')?.value?.trim();
     if (!name) { llmaShowToast('Name is required', 'error'); return; }
 
-    // Save current instruction tab content
-    const area = document.getElementById('llma-instr-area');
-    const hidden = document.getElementById(`llma-instr-${llmaActiveInstrTab}`);
-    if (area && hidden) hidden.value = area.value;
+    // Sync the currently-visible instruction tab into the editing state, then serialize all tabs.
+    llmaSyncCurrentInstructionTabToState();
+    const extendsId = document.getElementById('llma-asst-extends')?.value?.trim() || '';
 
     const assistant = {
         id:          llmaEditingAsstId || null,
@@ -1157,14 +1201,10 @@ async function llmaSaveAssistantFromEditor() {
         description: document.getElementById('llma-asst-desc')?.value?.trim() || '',
         icon:        document.getElementById('llma-asst-category')?.value || 'chat',
         color:       document.getElementById('llma-asst-color')?.value || '',
-        instructions: {},
+        instructions: llmaSerializeInstructionsForSave(),
         parameters:   {},
     };
-
-    for (const key of LLMA_INSTRUCTION_KEYS) {
-        const val = document.getElementById(`llma-instr-${key}`)?.value?.trim();
-        if (val) assistant.instructions[key] = val;
-    }
+    if (extendsId) assistant.extends = extendsId;
 
     const temp = document.getElementById('llma-asst-temperature');
     const maxTok = document.getElementById('llma-asst-max-tokens');
@@ -1176,8 +1216,15 @@ async function llmaSaveAssistantFromEditor() {
     assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
 
     const avatarPreview = document.getElementById('llma-avatar-preview');
-    if (avatarPreview?.dataset.avatarData) {
-        assistant.avatar = avatarPreview.dataset.avatarData;
+    const avatarData = avatarPreview?.dataset.avatarData;
+    if (avatarData) {
+        // Only persist URL-shaped avatars — never inline data: URIs (those bloat the assistant
+        // blob and were already uploaded to a real file by the file-pick handler).
+        if (avatarData.startsWith('data:')) {
+            llmaShowToast('Avatar upload didn\'t complete — saved without avatar.', 'warning');
+        } else {
+            assistant.avatar = avatarData;
+        }
     }
 
     // Scope: only send "shared" if the admin explicitly opted in AND has the permission.
@@ -1224,6 +1271,10 @@ async function llmaDeleteAssistant(id) {
 }
 
 // -- Avatar Upload --
+// Picks a file → reads as data URI for preview → uploads to the per-user OutputDirectory
+// via LLMAssistantUploadAssistantAvatar → stores the returned URL on the preview's dataset.
+// We upload eagerly (on file pick, not on save) so the assistant JSON never carries base64 —
+// it carries a URL. The /Output/{*Path} route already enforces per-user auth.
 function llmaSetupAvatarUpload() {
     const uploadBtn = document.getElementById('llma-avatar-upload-btn');
     const fileInput = document.getElementById('llma-avatar-file');
@@ -1231,13 +1282,31 @@ function llmaSetupAvatarUpload() {
         uploadBtn.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', async () => {
             if (!fileInput.files?.length) return;
-            const dataUrl = await llmaFileToBase64(fileInput.files[0]);
+            const file = fileInput.files[0];
+            const dataUrl = await llmaFileToBase64(file);
             const preview = document.getElementById('llma-avatar-preview');
             if (preview) {
                 preview.innerHTML = `<img src="${dataUrl}">`;
-                preview.dataset.avatarData = dataUrl;
+                preview.dataset.avatarData = dataUrl; // shown immediately while upload runs
             }
             fileInput.value = '';
+            try {
+                const result = await llmaRequest('LLMAssistantUploadAssistantAvatar', {
+                    assistantId: llmaEditingAsstId,
+                    imageData: dataUrl
+                });
+                if (!result?.success || !result.url) {
+                    llmaShowToast(result?.error || 'Avatar upload failed', 'error');
+                    return;
+                }
+                if (preview) {
+                    // Swap the preview to the served URL so we know the upload landed.
+                    preview.innerHTML = `<img src="${llmaEscapeHtml(result.url)}">`;
+                    preview.dataset.avatarData = result.url;
+                }
+            } catch (ex) {
+                llmaShowToast('Avatar upload failed', 'error');
+            }
         });
     }
 
@@ -1261,23 +1330,106 @@ function llmaSetupInstrTabs() {
             if (mode) llmaSwitchInstrTab(mode);
         });
     });
+    document.getElementById('llma-add-variant')?.addEventListener('click', () => {
+        llmaSyncCurrentInstructionTabToState();
+        const state = llmaGetEditingInstructionState(llmaActiveInstrTab);
+        state.variants.push({ matchKind: 'glob', match: '', text: '' });
+        llmaRenderInstructionVariants(llmaActiveInstrTab);
+    });
+}
+
+function llmaGetEditingInstructionState(mode) {
+    LLMAState._editingInstructions = LLMAState._editingInstructions || {};
+    LLMAState._editingInstructions[mode] = LLMAState._editingInstructions[mode] || { default: '', variants: [] };
+    return LLMAState._editingInstructions[mode];
 }
 
 function llmaSwitchInstrTab(mode) {
-    // Save current tab content
-    const area = document.getElementById('llma-instr-area');
-    const prevHidden = document.getElementById(`llma-instr-${llmaActiveInstrTab}`);
-    if (area && prevHidden) prevHidden.value = area.value;
-
-    // Switch to new tab
+    // Save the currently-edited tab into state before switching.
+    llmaSyncCurrentInstructionTabToState();
     llmaActiveInstrTab = mode;
     document.querySelectorAll('.llma-instr-tab').forEach(t => {
         t.classList.toggle('active', t.dataset.mode === mode);
     });
+    llmaRenderInstructionTab(mode);
+}
 
-    // Load new tab content
-    const newHidden = document.getElementById(`llma-instr-${mode}`);
-    if (area && newHidden) area.value = newHidden.value;
+// Pulls the editor controls' current values into LLMAState._editingInstructions[currentMode].
+function llmaSyncCurrentInstructionTabToState() {
+    const mode = llmaActiveInstrTab;
+    if (!mode) return;
+    const state = llmaGetEditingInstructionState(mode);
+    const area = document.getElementById('llma-instr-area');
+    if (area) state.default = area.value;
+    const rows = document.querySelectorAll('#llma-instr-variants .llma-variant-row');
+    state.variants = Array.from(rows).map(row => ({
+        matchKind: row.querySelector('.llma-variant-kind')?.value || 'glob',
+        match:     (row.querySelector('.llma-variant-pattern')?.value || '').trim(),
+        text:      row.querySelector('.llma-variant-text')?.value || ''
+    }));
+}
+
+// Renders the editor controls from LLMAState._editingInstructions[mode].
+function llmaRenderInstructionTab(mode) {
+    const state = llmaGetEditingInstructionState(mode);
+    const area = document.getElementById('llma-instr-area');
+    if (area) area.value = state.default || '';
+    llmaRenderInstructionVariants(mode);
+}
+
+function llmaRenderInstructionVariants(mode) {
+    const container = document.getElementById('llma-instr-variants');
+    if (!container) return;
+    container.innerHTML = '';
+    const state = llmaGetEditingInstructionState(mode);
+    state.variants.forEach((variant, idx) => {
+        const row = document.createElement('div');
+        row.className = 'llma-variant-row';
+        row.innerHTML = `
+            <div class="llma-variant-row-head">
+                <select class="llma-variant-kind" title="How to interpret the pattern">
+                    <option value="exact">Exact</option>
+                    <option value="family">Family</option>
+                    <option value="provider">Provider</option>
+                    <option value="tag">Tag</option>
+                    <option value="glob">Glob</option>
+                </select>
+                <input type="text" class="llma-variant-pattern" placeholder="claude-* | family:llama | provider:anthropic" autocomplete="off">
+                <button type="button" class="llma-variant-remove" title="Remove variant">&times;</button>
+            </div>
+            <textarea class="llma-variant-text" rows="3" placeholder="System prompt used for this matcher (overrides Default when matched)..."></textarea>
+        `;
+        row.querySelector('.llma-variant-kind').value = variant.matchKind || 'glob';
+        row.querySelector('.llma-variant-pattern').value = variant.match || '';
+        row.querySelector('.llma-variant-text').value = variant.text || '';
+        row.querySelector('.llma-variant-remove').addEventListener('click', () => {
+            llmaSyncCurrentInstructionTabToState();
+            llmaGetEditingInstructionState(mode).variants.splice(idx, 1);
+            llmaRenderInstructionVariants(mode);
+        });
+        container.appendChild(row);
+    });
+}
+
+// Builds the assistant.instructions JSON to ship to the server.
+// Empty defaults with no variants are dropped so we don't bloat the saved blob.
+function llmaSerializeInstructionsForSave() {
+    const out = {};
+    for (const key of LLMA_INSTRUCTION_KEYS) {
+        const state = llmaGetEditingInstructionState(key);
+        const variants = (state.variants || [])
+            .filter(v => v.match || v.text)
+            .map(v => ({
+                matchKind: v.matchKind || 'glob',
+                match:     v.match || '',
+                text:      v.text || ''
+            }));
+        const defaultText = state.default || '';
+        if (defaultText || variants.length > 0) {
+            out[key] = { default: defaultText, variants };
+        }
+    }
+    return out;
 }
 
 // -- Keyboard Shortcuts --

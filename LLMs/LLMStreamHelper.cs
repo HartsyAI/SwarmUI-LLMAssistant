@@ -22,8 +22,10 @@ public static class LLMStreamHelper
     /// <summary>Streams LLM generation output over a WebSocket connection.
     /// If <paramref name="threadId"/> is non-null and the session has a user, the assistant's
     /// reply (and any tool events that happened during the agentic loop) is appended to the
-    /// stored thread when generation completes — server is authoritative for chat history.</summary>
-    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, CancellationToken ct = default)
+    /// stored thread when generation completes — server is authoritative for chat history.
+    /// <paramref name="assistantId"/> flows through to tool execution so per-assistant tool
+    /// config (eg <c>generate_image</c>'s default preset) takes effect.</summary>
+    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default)
     {
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel, ct);
         bool hasTools = input.Tools is not null && input.Tools.Count > 0;
@@ -113,7 +115,7 @@ public static class LLMStreamHelper
                 JObject result;
                 try
                 {
-                    result = await ToolExecutorService.ExecuteTool(call.Name, call.Arguments, session, linked.Token);
+                    result = await ToolExecutorService.ExecuteTool(call.Name, call.Arguments, session, assistantId, threadId, input.Model, linked.Token);
                 }
                 catch (OperationCanceledException)
                 {

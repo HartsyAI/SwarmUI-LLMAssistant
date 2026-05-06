@@ -149,7 +149,9 @@ public static class ToolEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "toolId is required" };
         }
-        JObject result = await ToolExecutorService.ExecuteTool(toolId, args, session);
+        // Manual exec doesn't carry assistant/thread context; tools receive null and fall back
+        // to user-level config. Honors the same per-handler perm gate as agentic execution.
+        JObject result = await ToolExecutorService.ExecuteTool(toolId, args, session, assistantId: null, threadId: null, modelId: null);
         return new JObject
         {
             ["success"] = true,

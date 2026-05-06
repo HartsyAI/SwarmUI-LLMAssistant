@@ -18,7 +18,7 @@ public class GenerateImageTool : ToolHandler
 
     public const string ConfigDefaultPreset = "defaultPreset";
 
-    public override JObject EnrichForUser(JObject toolDef, Session session)
+    public override JObject EnrichForUser(JObject toolDef, Session session, string assistantId = null)
     {
         if (toolDef is null || session?.User is null)
         {
@@ -45,11 +45,13 @@ public class GenerateImageTool : ToolHandler
             }
             sb.AppendLine();
         }
-        string defaultPreset = ToolConfigService.GetConfig(HandlerId, session.User)[ConfigDefaultPreset]?.ToString();
+        // Default preset comes from per-assistant config first (so each character can have its own
+        // visual identity), falling back to the user's per-account default.
+        string defaultPreset = ToolConfigService.GetConfig(HandlerId, session.User, assistantId)[ConfigDefaultPreset]?.ToString();
         if (!string.IsNullOrEmpty(defaultPreset))
         {
             sb.AppendLine();
-            sb.Append("If no `preset` is provided, the user's default preset (`").Append(defaultPreset).AppendLine("`) will be used.");
+            sb.Append("If no `preset` is provided, the default preset (`").Append(defaultPreset).AppendLine("`) will be used.");
         }
         enriched["description"] = sb.ToString().TrimEnd();
         // Add a `preset` property with an enum so the LLM picks from the actual list.
@@ -70,8 +72,10 @@ public class GenerateImageTool : ToolHandler
         return enriched;
     }
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        Session session = ctx.Session;
         string prompt = args["prompt"]?.ToString();
         if (string.IsNullOrWhiteSpace(prompt))
         {
@@ -84,11 +88,11 @@ public class GenerateImageTool : ToolHandler
             "landscape" => (1216, 832),
             _ => (1024, 1024)
         };
-        // Resolve which preset to apply: explicit arg → user's configured default → error.
+        // Resolve which preset to apply: explicit arg → assistant's default → user's default → error.
         string requestedPreset = args["preset"]?.ToString();
         string defaultPreset = session?.User is null
             ? null
-            : ToolConfigService.GetConfig(HandlerId, session.User)[ConfigDefaultPreset]?.ToString();
+            : ToolConfigService.GetConfig(HandlerId, session.User, ctx.AssistantId)[ConfigDefaultPreset]?.ToString();
         string presetToUse = !string.IsNullOrWhiteSpace(requestedPreset) ? requestedPreset : defaultPreset;
         if (string.IsNullOrWhiteSpace(presetToUse))
         {

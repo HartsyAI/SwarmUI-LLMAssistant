@@ -99,25 +99,39 @@ public static class OrphanedFileGC
         }
     }
 
-    /// <summary>Sweeps one user. Returns the number of files deleted.</summary>
+    /// <summary>Sweeps one user. Returns the number of files deleted across both the file_write
+    /// sandbox and the assistant-avatars folder.</summary>
     private static int SweepUser(User user)
     {
-        string sandboxRoot = FileWriteTool.GetSandboxRoot(user);
-        if (!Directory.Exists(sandboxRoot))
+        int deleted = 0;
+        HashSet<string> referenced = CollectReferencedPaths(user);
+        DateTime cutoff = DateTime.UtcNow - FileGracePeriod;
+        // file_write sandbox
+        string fileWriteRoot = FileWriteTool.GetSandboxRoot(user);
+        deleted += SweepRoot(user, fileWriteRoot, referenced, cutoff);
+        // Assistant avatars
+        string avatarRoot = Path.GetFullPath(Path.Combine(user.OutputDirectory, WebAPI.AssistantEndpoints.AvatarSubdir));
+        deleted += SweepRoot(user, avatarRoot, referenced, cutoff);
+        return deleted;
+    }
+
+    /// <summary>Sweeps one root directory. Files older than the cutoff that aren't in the
+    /// referenced set are deleted; empty subdirs are pruned afterward.</summary>
+    private static int SweepRoot(User user, string root, HashSet<string> referenced, DateTime cutoff)
+    {
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
         {
             return 0;
         }
-        HashSet<string> referenced = CollectReferencedPaths(user);
-        DateTime cutoff = DateTime.UtcNow - FileGracePeriod;
         int deleted = 0;
-        foreach (string filePath in Directory.EnumerateFiles(sandboxRoot, "*", SearchOption.AllDirectories))
+        foreach (string filePath in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
         {
             FileInfo info;
             try { info = new FileInfo(filePath); }
             catch { continue; }
             if (info.LastWriteTimeUtc > cutoff)
             {
-                continue; // grace window
+                continue;
             }
             string normalized = Path.GetFullPath(filePath).Replace('\\', '/');
             if (referenced.Contains(normalized))
@@ -135,8 +149,7 @@ public static class OrphanedFileGC
                 Logs.Warning($"[LLMAssistant] OrphanedFileGC could not delete {filePath}: {ex.Message}");
             }
         }
-        // Best-effort: prune empty subdirs left behind so the sandbox doesn't grow forever.
-        foreach (string dir in Directory.EnumerateDirectories(sandboxRoot, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
+        foreach (string dir in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories).OrderByDescending(d => d.Length))
         {
             try
             {
@@ -150,14 +163,32 @@ public static class OrphanedFileGC
         return deleted;
     }
 
-    /// <summary>Builds the set of full file paths still referenced by any tool_result on any
-    /// of the user's saved threads. The reference uses the result's <c>fullPath</c> field
-    /// (set by <see cref="FileWriteTool"/>); falls back to resolving <c>url</c> relative to
-    /// the OutputPath root for older entries.</summary>
+    /// <summary>Builds the set of full file paths still referenced by either:
+    /// <list type="bullet">
+    /// <item>any <c>file_write</c> tool_result on any of the user's saved threads (using
+    /// the result's <c>fullPath</c>, with <c>url</c> as fallback for older entries), OR</item>
+    /// <item>any <c>avatar</c> URL on any of the user's assistants (per-user and shared).</item>
+    /// </list>
+    /// Anything else in the swept folders is fair game for deletion.</summary>
     private static HashSet<string> CollectReferencedPaths(User user)
     {
         HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
         string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
+        // Avatar refs from every assistant the user can see (shared + personal). A shared
+        // assistant's avatar shouldn't be deleted just because nobody chats with it.
+        JObject settings = SettingsService.GetMergedSettings(user);
+        if (settings["assistants"] is JObject assistants)
+        {
+            foreach (KeyValuePair<string, JToken> kv in assistants)
+            {
+                string avatar = (kv.Value as JObject)?["avatar"]?.ToString();
+                if (!string.IsNullOrEmpty(avatar) && avatar.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+                {
+                    string rel = avatar["Output/".Length..];
+                    result.Add(Path.GetFullPath(Path.Combine(outputRoot, rel)).Replace('\\', '/'));
+                }
+            }
+        }
         JArray index = ThreadStorageService.GetThreadIndex(user);
         foreach (JToken summary in index)
         {

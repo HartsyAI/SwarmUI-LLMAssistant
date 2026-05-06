@@ -29,8 +29,8 @@ public static class ToolExecutorService
         [ToolConstants.SwarmDocs] = LLMAssistantAPI.PermToolSwarmDocs,
     };
 
-    /// <summary>Executes a tool by ID with the given arguments.</summary>
-    public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, CancellationToken ct = default)
+    /// <summary>Executes a tool by ID with the given arguments and request context.</summary>
+    public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default)
     {
         try
         {
@@ -66,10 +66,19 @@ public static class ToolExecutorService
             {
                 return Error(validationError);
             }
-            Logs.Debug($"[LLMAssistant] Executing tool {toolId} with args: {args?.ToString(Newtonsoft.Json.Formatting.None)}");
+            Logs.Debug($"[LLMAssistant] Executing tool {toolId} (handler {handlerId}, assistant {assistantId ?? "<none>"}) with args: {args?.ToString(Newtonsoft.Json.Formatting.None)}");
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeoutCts.CancelAfter(DefaultTimeout);
-            JObject result = await handler.Execute(args ?? new JObject(), session, timeoutCts.Token);
+            ToolExecutionContext context = new()
+            {
+                Args = args ?? new JObject(),
+                Session = session,
+                AssistantId = assistantId,
+                ThreadId = threadId,
+                ModelId = modelId,
+                Ct = timeoutCts.Token
+            };
+            JObject result = await handler.Execute(context);
             if (result is null)
             {
                 return Error("Tool returned null result.");

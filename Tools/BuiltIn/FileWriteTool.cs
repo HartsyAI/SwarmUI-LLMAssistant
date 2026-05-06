@@ -34,8 +34,11 @@ public class FileWriteTool : ToolHandler
         return Path.GetFullPath(Path.Combine(user.OutputDirectory, SandboxSubdir));
     }
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        Session session = ctx.Session;
+        CancellationToken ct = ctx.Ct;
         if (session?.User is null)
         {
             return new JObject { ["success"] = false, ["error"] = "file_write requires an authenticated user." };
@@ -66,7 +69,7 @@ public class FileWriteTool : ToolHandler
         {
             return new JObject { ["success"] = false, ["error"] = "content is too large (max 1MB)" };
         }
-        HashSet<string> allowed = ResolveAllowedExtensions(session);
+        HashSet<string> allowed = ResolveAllowedExtensions(session, ctx.AssistantId);
         string ext = Path.GetExtension(path);
         if (!string.IsNullOrEmpty(ext) && !allowed.Contains(ext))
         {
@@ -138,16 +141,17 @@ public class FileWriteTool : ToolHandler
         return PlaceholderStems.Contains(normalized);
     }
 
-    /// <summary>Returns the effective allowed-extension set: defaults ∪ the user's configured extras.
-    /// Each user-supplied entry is normalized to a leading dot and lowercased; empty entries are skipped.</summary>
-    private static HashSet<string> ResolveAllowedExtensions(Session session)
+    /// <summary>Returns the effective allowed-extension set: defaults ∪ the user's configured extras
+    /// ∪ the assistant's configured extras. Each user-supplied entry is normalized to a leading
+    /// dot and lowercased; empty entries are skipped.</summary>
+    private static HashSet<string> ResolveAllowedExtensions(Session session, string assistantId)
     {
         HashSet<string> allowed = new(DefaultExtensions, StringComparer.OrdinalIgnoreCase);
         if (session?.User is null)
         {
             return allowed;
         }
-        if (ToolConfigService.GetConfig(ToolConstants.FileWrite, session.User)[ConfigExtraExtensions] is JArray extras)
+        if (ToolConfigService.GetConfig(ToolConstants.FileWrite, session.User, assistantId)[ConfigExtraExtensions] is JArray extras)
         {
             foreach (JToken t in extras)
             {

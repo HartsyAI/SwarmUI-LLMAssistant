@@ -301,6 +301,12 @@
                                 <label for="llma-asst-desc">Description</label>
                                 <input type="text" id="llma-asst-desc" placeholder="Short description shown on welcome screen">
                             </div>
+                            <div class="llma-editor-field llma-editor-field-full">
+                                <label for="llma-asst-extends" title="Inherit instructions, parameters, and tools from another assistant. Child assistants can override or add per-model variants without re-typing the parent's defaults.">Extends</label>
+                                <select id="llma-asst-extends">
+                                    <option value="">(no parent — standalone)</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="llma-instr-section">
                             <h5>Instructions</h5>
@@ -312,13 +318,26 @@
                                 <button class="llma-instr-tab" data-mode="randomprompt">Random</button>
                                 <button class="llma-instr-tab" data-mode="instructiongen">Instruct</button>
                             </div>
-                            <textarea class="llma-instr-area" id="llma-instr-area" rows="4" placeholder="System prompt for this mode..."></textarea>
-                            <input type="hidden" id="llma-instr-chat">
-                            <input type="hidden" id="llma-instr-vision">
-                            <input type="hidden" id="llma-instr-caption">
-                            <input type="hidden" id="llma-instr-prompt">
-                            <input type="hidden" id="llma-instr-randomprompt">
-                            <input type="hidden" id="llma-instr-instructiongen">
+                            <div class="llma-instr-default-wrap">
+                                <label class="llma-instr-sublabel" for="llma-instr-area">Default <small>(used when no variant matches)</small></label>
+                                <textarea class="llma-instr-area" id="llma-instr-area" rows="4" placeholder="System prompt for this mode..."></textarea>
+                                <div class="llma-instr-test-wrap">
+                                    <button type="button" class="basic-button llma-instr-test-btn" id="llma-instr-test-btn">Test</button>
+                                    <div class="llma-instr-test-panel" id="llma-instr-test-panel" style="display:none;">
+                                        <input type="text" class="llma-instr-test-input" id="llma-instr-test-input" placeholder="Sample user message..." autocomplete="off">
+                                        <button type="button" class="basic-button llma-instr-test-run" id="llma-instr-test-run">Run</button>
+                                        <pre class="llma-instr-test-result" id="llma-instr-test-result"></pre>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="llma-instr-variants-wrap">
+                                <div class="llma-instr-variants-header">
+                                    <span>Per-model variants</span>
+                                    <button type="button" class="basic-button llma-add-variant-btn" id="llma-add-variant">+ Add variant</button>
+                                </div>
+                                <div class="llma-instr-variants" id="llma-instr-variants"></div>
+                                <div class="llma-instr-variants-help">Variants override the default for matching models. Specificity order: Exact &gt; Family &gt; Provider &gt; Tag &gt; Glob.</div>
+                            </div>
                         </div>
                         <div class="llma-params-section">
                             <h5>Parameter Defaults <small>(leave blank for global)</small></h5>

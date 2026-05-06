@@ -12,11 +12,13 @@ public static class PromptTagHandler
     private static T2IRegisteredParam<bool> _paramUseCache;
     private static T2IRegisteredParam<string> _paramModelId;
     private static T2IRegisteredParam<string> _paramInstructions;
+    private static T2IRegisteredParam<string> _paramAssistantId;
     private static T2IRegisteredParam<bool> _paramWildcardSeed;
 
     public static T2IRegisteredParam<bool> ParamUseCache => _paramUseCache;
     public static T2IRegisteredParam<string> ParamModelId => _paramModelId;
     public static T2IRegisteredParam<string> ParamInstructions => _paramInstructions;
+    public static T2IRegisteredParam<string> ParamAssistantId => _paramAssistantId;
     public static T2IRegisteredParam<bool> ParamWildcardSeed => _paramWildcardSeed;
 
     public static void RegisterAll()
@@ -74,6 +76,36 @@ public static class PromptTagHandler
                     if (!string.IsNullOrEmpty(id) && !values.Contains(id))
                     {
                         values.Add(id);
+                    }
+                }
+                return values;
+            }
+        ));
+
+        // Lets the user pin a generation to a specific assistant's instructions/persona —
+        // overrides the active-assistant default. Empty string ("default") means "use the
+        // user's current active assistant" — the same one Chat is using.
+        _paramAssistantId = T2IParamTypes.Register<string>(new(
+            "LLM Assistant ID",
+            "Which assistant's instructions (and per-model variants) to use for <llmprompt> processing. Default = active assistant.",
+            "default",
+            IgnoreIf: "default",
+            Group: _paramGroup,
+            OrderPriority: 5,
+            ValidateValues: false,
+            GetValues: session =>
+            {
+                List<string> values = ["default"];
+                if (session?.User is not null)
+                {
+                    JArray list = AssistantService.GetAssistantList(user: session.User);
+                    foreach (JToken a in list)
+                    {
+                        string id = a["id"]?.ToString();
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            values.Add(id);
+                        }
                     }
                 }
                 return values;

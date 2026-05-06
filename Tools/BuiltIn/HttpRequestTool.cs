@@ -18,8 +18,10 @@ public class HttpRequestTool : ToolHandler
 
     private static readonly HttpClient _http = NetworkBackendUtils.MakeHttpClient();
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        CancellationToken ct = ctx.Ct;
         string url = args["url"]?.ToString();
         if (string.IsNullOrWhiteSpace(url))
         {

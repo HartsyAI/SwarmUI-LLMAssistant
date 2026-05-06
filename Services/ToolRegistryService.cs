@@ -62,7 +62,9 @@ public static class ToolRegistryService
         return tools?[toolId] as JObject;
     }
 
-    /// <summary>Returns the list of tools that are both globally enabled AND enabled on the given assistant.</summary>
+    /// <summary>Returns the list of tools that are both globally enabled AND enabled on the
+    /// resolved assistant (inheritance-aware via <see cref="AssistantResolver"/> — child assistants
+    /// inherit their parent's enabled tools).</summary>
     public static List<JObject> GetEnabledTools(string assistantId, JObject settings = null, User user = null)
     {
         settings ??= SettingsService.GetMergedSettings(user);
@@ -71,16 +73,7 @@ public static class ToolRegistryService
         {
             return [];
         }
-        JObject assistant = AssistantService.GetAssistant(assistantId, settings, user);
-        JArray enabledIds = assistant?["enabledToolIds"] as JArray;
-        HashSet<string> enabledSet = [];
-        if (enabledIds is not null)
-        {
-            foreach (JToken t in enabledIds)
-            {
-                enabledSet.Add(t.ToString());
-            }
-        }
+        ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, user, settings);
         List<JObject> result = [];
         foreach (KeyValuePair<string, JToken> kvp in tools)
         {
@@ -93,7 +86,7 @@ public static class ToolRegistryService
             {
                 continue;
             }
-            if (!enabledSet.Contains(kvp.Key))
+            if (!resolved.EnabledToolIds.Contains(kvp.Key))
             {
                 continue;
             }

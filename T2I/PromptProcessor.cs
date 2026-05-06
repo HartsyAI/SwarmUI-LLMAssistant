@@ -43,7 +43,12 @@ public static class PromptProcessor
         bool useCache = input.TryGet(PromptTagHandler.ParamUseCache, out bool cacheVal) && cacheVal;
         string instructionOverride = input.TryGet(PromptTagHandler.ParamInstructions, out string instrVal) ? instrVal : null;
         string modelOverride = input.TryGet(PromptTagHandler.ParamModelId, out string modelVal) ? modelVal : null;
+        string assistantOverride = input.TryGet(PromptTagHandler.ParamAssistantId, out string asstVal) ? asstVal : null;
         User user = input.SourceSession?.User;
+        // Resolve which assistant to use (T2I param override → user's active → fall back to default).
+        string assistantId = !string.IsNullOrEmpty(assistantOverride) && assistantOverride != "default"
+            ? assistantOverride
+            : (user is not null ? AssistantService.GetActiveAssistantId(user: user) : null);
         string originalPrompt = prompt;
         List<string> responses = [];
         // Process all LLM tags
@@ -59,12 +64,12 @@ public static class PromptProcessor
                 {
                     response = Cache.GetOrCreate(content, effectiveInstruction, async () =>
                     {
-                        return await CallLLM(content, effectiveInstruction, modelOverride, user);
+                        return await CallLLM(content, effectiveInstruction, modelOverride, user, assistantId);
                     }).Result;
                 }
                 else
                 {
-                    response = CallLLM(content, effectiveInstruction, modelOverride, user).Result;
+                    response = CallLLM(content, effectiveInstruction, modelOverride, user, assistantId).Result;
                 }
                 responses.Add(response);
                 return response;
@@ -89,11 +94,16 @@ public static class PromptProcessor
         input.Set(T2IParamTypes.Prompt, prompt);
     }
 
-    private static async Task<string> CallLLM(string content, string instructionId, string model, User user)
+    /// <summary>One LLM call from a T2I prompt tag. Resolves the system prompt through the
+    /// chosen assistant (so the persona/character active in chat shapes prompt enhancement too)
+    /// with per-model instruction variants applied.</summary>
+    private static async Task<string> CallLLM(string content, string instructionId, string model, User user, string assistantId)
     {
-        // Use active assistant for canonical instruction IDs, fallback to legacy resolution
+        // Look up model facts so per-model variants can pick the right text. Tolerates unknown
+        // models (returns null; only Default/Exact/Glob matchers will then match).
+        SwarmUI.LLMs.LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
         string systemPrompt = InstructionIds.All.Contains(instructionId)
-            ? AssistantService.ResolveInstruction(instructionId, user: user)
+            ? AssistantService.ResolveInstruction(instructionId, assistantId, user: user, modelInfo: modelInfo)
             : InstructionService.ResolveInstruction(instructionId, user: user);
         ExtendedLLMInput input = ExtendedLLMInput.Create(content, systemPrompt, model);
         return await LLMDispatcher.Generate(input);

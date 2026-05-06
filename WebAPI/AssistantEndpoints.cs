@@ -1,6 +1,9 @@
+using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 
@@ -80,6 +83,113 @@ public static class AssistantEndpoints
     {
         AssistantService.SetActiveAssistant(assistantId, session.User);
         return new JObject { ["success"] = true };
+    }
+
+    /// <summary>Subdirectory under the user's OutputDirectory where assistant avatars live.
+    /// Sandboxed via the per-user output route (see <see cref="WebServer.ViewOutput"/>) so
+    /// served avatars are auth-checked just like any other Output asset.</summary>
+    public const string AvatarSubdir = "llm_assistant/avatars";
+
+    /// <summary>Allowed extensions for avatar uploads, derived from the data-URI MIME type.</summary>
+    private static readonly Dictionary<string, string> _avatarMimeToExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/png"]  = ".png",
+        ["image/jpeg"] = ".jpg",
+        ["image/jpg"]  = ".jpg",
+        ["image/webp"] = ".webp",
+        ["image/gif"]  = ".gif"
+    };
+
+    /// <summary>Hard cap on avatar file size, decoded. 2 MB is plenty — assistant avatars
+    /// are tiny by nature and we don't need to host actual photographs here.</summary>
+    private const int MaxAvatarBytes = 2 * 1024 * 1024;
+
+    /// <summary>Uploads an assistant avatar from a data URI to the user's per-user output
+    /// directory and returns the URL the UI should store in <c>assistant.avatar</c>.
+    /// <para>This replaces the old base64-inline approach where avatars bloated the assistant
+    /// JSON (and every settings merge) — instead we write a real file once and store just a URL.
+    /// The <c>/Output/{*Path}</c> route already enforces per-user auth via
+    /// <see cref="WebServer.ViewOutput"/>, so URL-based avatars are no less safe than embedded
+    /// ones — they're just smaller and cacheable.</para></summary>
+    public static async Task<JObject> LLMAssistantUploadAssistantAvatar(Session session, JObject rawInput)
+    {
+        if (session?.User is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        string assistantId = rawInput["assistantId"]?.ToString();
+        string imageData = rawInput["imageData"]?.ToString();
+        if (string.IsNullOrWhiteSpace(assistantId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "assistantId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(imageData))
+        {
+            return new JObject { ["success"] = false, ["error"] = "imageData (data URI) is required." };
+        }
+        // Parse data URI: data:image/png;base64,<payload>
+        if (!imageData.StartsWith("data:", StringComparison.Ordinal))
+        {
+            return new JObject { ["success"] = false, ["error"] = "imageData must be a data URI." };
+        }
+        int commaIdx = imageData.IndexOf(',');
+        if (commaIdx <= 0)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Malformed data URI." };
+        }
+        string header = imageData[5..commaIdx];
+        string payload = imageData[(commaIdx + 1)..];
+        string[] headerParts = header.Split(';');
+        string mime = headerParts.Length > 0 ? headerParts[0] : "";
+        if (!_avatarMimeToExt.TryGetValue(mime, out string ext))
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Unsupported image type: {mime}. Allowed: png, jpg, webp, gif." };
+        }
+        if (!header.Contains("base64", StringComparison.OrdinalIgnoreCase))
+        {
+            return new JObject { ["success"] = false, ["error"] = "Only base64-encoded data URIs are supported." };
+        }
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(payload); }
+        catch { return new JObject { ["success"] = false, ["error"] = "Invalid base64 payload." }; }
+        if (bytes.Length > MaxAvatarBytes)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Image too large ({bytes.Length} bytes; max {MaxAvatarBytes})." };
+        }
+        // Sanitize the assistant id into a safe filename component (UUIDs are already safe but
+        // legacy ids may contain odd chars). Strip everything that isn't alnum/dash/underscore.
+        string safeId = new string([.. assistantId.Where(c => char.IsLetterOrDigit(c) || c == '-' || c == '_')]);
+        if (string.IsNullOrEmpty(safeId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "assistantId contains no valid filename characters." };
+        }
+        try
+        {
+            string avatarsDir = Path.Combine(session.User.OutputDirectory, AvatarSubdir);
+            Directory.CreateDirectory(avatarsDir);
+            // Remove any existing avatar files for this id (could be a different extension).
+            foreach (string existing in Directory.EnumerateFiles(avatarsDir, $"{safeId}.*"))
+            {
+                try { File.Delete(existing); } catch { /* tolerated; new write will overwrite */ }
+            }
+            string fullPath = Path.Combine(avatarsDir, safeId + ext);
+            await File.WriteAllBytesAsync(fullPath, bytes);
+            // Return the URL relative to the OutputPath root so the existing /Output/{*Path}
+            // route serves it (per-user auth is already enforced there).
+            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
+            string relPath = Path.GetRelativePath(outputRoot, Path.GetFullPath(fullPath)).Replace('\\', '/');
+            return new JObject
+            {
+                ["success"] = true,
+                ["url"] = $"Output/{relPath}",
+                ["bytesWritten"] = bytes.Length
+            };
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Avatar upload failed for {session.User.UserID}/{assistantId}: {ex.Message}");
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
     }
 
     /// <summary>Returns the resolved active assistant object for the caller.</summary>

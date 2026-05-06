@@ -342,6 +342,97 @@ input[type="color"]#llma-asst-color {
 }
 .llma-instr-area:focus { border-color: var(--emphasis); }
 
+/* Per-tab default + variants editor */
+.llma-instr-default-wrap { margin-bottom: 10px; }
+.llma-instr-sublabel {
+    display: block;
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 4px;
+    opacity: 0.7;
+}
+.llma-instr-sublabel small { opacity: 0.7; }
+.llma-instr-variants-wrap {
+    margin-top: 4px;
+    border-top: 1px dashed var(--light-border);
+    padding-top: 8px;
+}
+.llma-instr-variants-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+.llma-instr-variants-header > span {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-soft);
+    opacity: 0.55;
+}
+.llma-add-variant-btn { font-size: 11px; padding: 3px 9px; }
+.llma-instr-variants-help {
+    margin-top: 6px;
+    font-size: 10.5px;
+    color: var(--text-soft);
+    opacity: 0.55;
+}
+.llma-variant-row {
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 6px;
+    padding: 7px 8px;
+    margin-bottom: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-variant-row-head {
+    display: grid;
+    grid-template-columns: 105px 1fr auto;
+    gap: 6px;
+    align-items: center;
+}
+.llma-variant-kind,
+.llma-variant-pattern {
+    padding: 4px 7px;
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    background: var(--background-soft);
+    color: var(--text);
+    font-size: 11.5px;
+}
+.llma-variant-pattern { font-family: var(--font-monospace); }
+.llma-variant-text {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    background: var(--background-soft);
+    color: var(--text);
+    font-size: 11.5px;
+    font-family: var(--font-monospace);
+    line-height: 1.45;
+    resize: vertical;
+}
+.llma-variant-remove {
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    opacity: 0.55;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+.llma-variant-remove:hover {
+    opacity: 1;
+    background: color-mix(in srgb, var(--backend-errored) 18%, transparent);
+}
+
 /* Params override section */
 .llma-params-section { margin-bottom: 14px; }
 .llma-params-section h5 {

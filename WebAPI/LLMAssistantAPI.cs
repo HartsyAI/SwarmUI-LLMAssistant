@@ -97,6 +97,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCountTokens, false, PermChat);
         // Settings
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);
@@ -130,6 +131,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantSaveAssistant, true, PermSettings);
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantDeleteAssistant, true, PermSettings);
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantSetActiveAssistant, true, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantUploadAssistantAvatar, true, PermSettings);
         // Tools
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTools, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTool, false, PermSettings);

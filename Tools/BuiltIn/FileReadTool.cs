@@ -12,8 +12,10 @@ public class FileReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FileRead;
 
-    public override async Task<JObject> Execute(JObject args, Session session, CancellationToken ct)
+    public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        JObject args = ctx.Args;
+        CancellationToken ct = ctx.Ct;
         string path = args["path"]?.ToString();
         if (string.IsNullOrWhiteSpace(path))
         {
