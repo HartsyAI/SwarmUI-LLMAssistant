@@ -55,6 +55,10 @@ public class LLMAssistantExtension : Extension
     private static void RegisterBuiltInTools()
     {
         ToolRegistryService.RegisterHandler(new GenerateImageTool());
+        ToolRegistryService.RegisterHandler(new CreateImagePresetTool());
+        ToolRegistryService.RegisterHandler(new CaptionImageTool());
+        ToolRegistryService.RegisterHandler(new FuseImageDescriptionsTool());
+        ToolRegistryService.RegisterHandler(new BatchCaptionFolderTool());
         ToolRegistryService.RegisterHandler(new WebSearchTool());
         ToolRegistryService.RegisterHandler(new FileReadTool());
         ToolRegistryService.RegisterHandler(new FileWriteTool());

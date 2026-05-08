@@ -391,9 +391,134 @@ function llmaRenderAssistantToolsChecklist(enabledToolIds) {
     }
     html += '</div>';
     container.innerHTML = html;
+    // When the user toggles a tool on/off, the per-assistant config section needs to add/remove
+    // that tool's config block. Re-render whatever the config section was last given.
+    container.querySelectorAll('.llma-assist-tool-check').forEach(box => {
+        box.addEventListener('change', () => {
+            // We pass null as assistant so the renderer rebuilds from current checklist state +
+            // whatever values are currently in the form (preserved by reading from DOM first).
+            llmaRenderAssistantToolConfig(null);
+        });
+    });
 }
 
 function llmaReadAssistantEnabledToolIds() {
     const boxes = document.querySelectorAll('.llma-assist-tool-check:checked');
     return Array.from(boxes).map(b => b.dataset.toolId);
+}
+
+// -- Per-assistant tool config (assistant editor) --
+//
+// Renders one config sub-form per enabled tool that opts into config (today: generate_image,
+// file_write — the same set the global Tools tab supports, see LLMA_TOOLS_WITH_CONFIG above).
+//
+// Saved into `assistant.toolConfig[toolId]` on the assistant blob. Precedence at runtime
+// (handled server-side by ToolConfigService): assistant config > user config > tool default.
+//
+// Calling with `assistant=null` re-renders from the live checklist + currently-typed values
+// (so toggling a tool on/off doesn't blow away unsaved config from the other tools).
+function llmaRenderAssistantToolConfig(assistant) {
+    const container = document.getElementById('llma-asst-tool-config');
+    if (!container) return;
+    // Snapshot current form values BEFORE wiping, so toggling a tool checkbox doesn't lose
+    // config the user has been typing into another tool's block.
+    const liveValues = llmaSnapshotAssistantToolConfigForms();
+    const baseValues = (assistant && assistant.toolConfig) || liveValues || {};
+    const enabledIds = new Set(llmaReadAssistantEnabledToolIds());
+    container.innerHTML = '';
+    let renderedCount = 0;
+    for (const toolId of LLMA_TOOLS_WITH_CONFIG) {
+        if (!enabledIds.has(toolId)) continue;
+        const tool = LLMAState.tools.find(t => t.id === toolId);
+        if (!tool) continue;
+        const block = document.createElement('div');
+        block.className = 'llma-asst-tool-config-block';
+        block.dataset.toolId = toolId;
+        const heading = document.createElement('div');
+        heading.className = 'llma-asst-tool-config-heading';
+        heading.textContent = tool.name || toolId;
+        block.appendChild(heading);
+        const cfg = baseValues[toolId] || {};
+        const inner = llmaBuildAssistantToolConfigInner(toolId, cfg);
+        if (inner) block.appendChild(inner);
+        container.appendChild(block);
+        renderedCount++;
+    }
+    if (renderedCount === 0) {
+        container.innerHTML = '<div class="llma-asst-tool-config-empty">No configurable tools enabled. Enable Generate Image or Write File above to set this assistant\'s defaults.</div>';
+    }
+}
+
+function llmaBuildAssistantToolConfigInner(toolId, config) {
+    if (toolId === 'generate_image') {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = `
+            <label>Default image preset</label>
+            <select class="llma-asst-cfg-input" data-key="defaultPreset"></select>
+            <div class="llma-asst-tool-config-help">When this assistant generates an image without picking a preset, it uses this one. Leave blank to fall back to your account default.</div>
+        `;
+        const sel = wrap.querySelector('select');
+        llmaPopulateAssistantPresetSelect(sel, config.defaultPreset || '');
+        return wrap;
+    }
+    if (toolId === 'file_write') {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = `
+            <label>Extra allowed extensions</label>
+            <input type="text" class="llma-asst-cfg-input" data-key="extraExtensions" placeholder="py, html, css">
+            <div class="llma-asst-tool-config-help">Comma-separated. Always allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition (only for this assistant).</div>
+        `;
+        const input = wrap.querySelector('input');
+        if (Array.isArray(config.extraExtensions)) {
+            input.value = config.extraExtensions.join(', ');
+        }
+        return wrap;
+    }
+    return null;
+}
+
+async function llmaPopulateAssistantPresetSelect(sel, currentValue) {
+    sel.innerHTML = '<option value="">(use account default)</option>';
+    try {
+        const res = await llmaRequest('LLMAssistantGetImagePresets', {});
+        const presets = Array.isArray(res?.presets) ? res.presets : [];
+        for (const p of presets) {
+            const opt = document.createElement('option');
+            opt.value = p.title;
+            opt.textContent = p.description ? `${p.title} — ${p.description}` : p.title;
+            if (p.title === currentValue) opt.selected = true;
+            sel.appendChild(opt);
+        }
+    } catch { /* leave with the empty option */ }
+}
+
+// Snapshots whatever's currently typed into the per-assistant config forms, so re-renders
+// (eg from toggling a tool checkbox) don't wipe in-progress edits.
+function llmaSnapshotAssistantToolConfigForms() {
+    const out = {};
+    document.querySelectorAll('#llma-asst-tool-config .llma-asst-tool-config-block').forEach(block => {
+        const toolId = block.dataset.toolId;
+        if (!toolId) return;
+        const cfg = {};
+        block.querySelectorAll('.llma-asst-cfg-input').forEach(input => {
+            const key = input.dataset.key;
+            if (!key) return;
+            if (toolId === 'file_write' && key === 'extraExtensions') {
+                const exts = (input.value || '').split(',').map(s => s.trim().replace(/^\./, '')).filter(Boolean);
+                if (exts.length) cfg[key] = exts;
+            } else {
+                const val = (input.value || '').trim();
+                if (val) cfg[key] = val;
+            }
+        });
+        if (Object.keys(cfg).length > 0) out[toolId] = cfg;
+    });
+    return out;
+}
+
+// Returns the per-assistant tool config object to ship in the assistant save payload.
+// Empty/all-defaults yields undefined so we don't pollute the assistant blob.
+function llmaSerializeAssistantToolConfig() {
+    const snap = llmaSnapshotAssistantToolConfigForms();
+    return Object.keys(snap).length > 0 ? snap : undefined;
 }

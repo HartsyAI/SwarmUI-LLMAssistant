@@ -956,6 +956,17 @@ function llmaSetupSettingsModal() {
 
     // Assistant editor buttons
     document.getElementById('llma-create-asst-btn')?.addEventListener('click', llmaOpenCreateEditor);
+    // Starter template dropdown — populated lazily on first use, cloned into the editor on pick.
+    const tmplSelect = document.getElementById('llma-template-select');
+    if (tmplSelect) {
+        tmplSelect.addEventListener('focus', llmaPopulateTemplatesDropdown, { once: true });
+        tmplSelect.addEventListener('change', () => {
+            const id = tmplSelect.value;
+            if (!id) return;
+            llmaOpenEditorFromTemplate(id);
+            tmplSelect.value = '';
+        });
+    }
     document.getElementById('llma-asst-save')?.addEventListener('click', llmaSaveAssistantFromEditor);
     document.getElementById('llma-asst-delete')?.addEventListener('click', () => llmaDeleteAssistant(llmaEditingAsstId));
     document.getElementById('llma-asst-cancel')?.addEventListener('click', () => {
@@ -1076,6 +1087,43 @@ function llmaOpenCreateEditor() {
     llmaShowAssistantEditor(null);
 }
 
+// Lazy load: only ask the server for templates the first time the dropdown is interacted with.
+let _llmaTemplateCache = null;
+async function llmaPopulateTemplatesDropdown() {
+    const sel = document.getElementById('llma-template-select');
+    if (!sel) return;
+    try {
+        if (!_llmaTemplateCache) {
+            const result = await llmaRequest('LLMAssistantGetStarterTemplates', {});
+            _llmaTemplateCache = Array.isArray(result?.templates) ? result.templates : [];
+        }
+        // Replace options (preserving the placeholder).
+        sel.innerHTML = '<option value="">Clone from template…</option>';
+        for (const tmpl of _llmaTemplateCache) {
+            const opt = document.createElement('option');
+            opt.value = tmpl.id;
+            opt.textContent = tmpl.name + (tmpl.description ? ' — ' + tmpl.description : '');
+            sel.appendChild(opt);
+        }
+    } catch {
+        // Silent — the +Create button still works.
+    }
+}
+
+// Clones the template into a fresh editor with a new id so the user can tweak before save.
+function llmaOpenEditorFromTemplate(templateId) {
+    if (!_llmaTemplateCache) return;
+    const tmpl = _llmaTemplateCache.find(t => t.id === templateId);
+    if (!tmpl) return;
+    // Build a draft assistant from the template. Strip the template's id so we don't collide with
+    // anything already saved; llmaShowAssistantEditor will assign a fresh one.
+    const draft = JSON.parse(JSON.stringify(tmpl));
+    delete draft.id;
+    delete draft._scope;
+    draft.isBuiltIn = false;
+    llmaShowAssistantEditor(draft);
+}
+
 function llmaShowAssistantEditor(assistant) {
     const editor = document.getElementById('llma-asst-editor');
     if (!editor) return;
@@ -1141,8 +1189,9 @@ function llmaShowAssistantEditor(assistant) {
     llmaSetEl('llma-asst-max-tokens',  assistant?.parameters?.maxTokens ?? '');
     llmaSetEl('llma-asst-top-p',       assistant?.parameters?.topP ?? '');
 
-    // Enabled tools checklist
+    // Enabled tools checklist (and the per-assistant tool config blocks below it)
     llmaRenderAssistantToolsChecklist(assistant?.enabledToolIds || []);
+    llmaRenderAssistantToolConfig(assistant);
 }
 
 // Normalizes any instruction value into the editing-state shape.
@@ -1214,6 +1263,8 @@ async function llmaSaveAssistantFromEditor() {
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
     assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
+    const toolConfig = llmaSerializeAssistantToolConfig();
+    if (toolConfig) assistant.toolConfig = toolConfig;
 
     const avatarPreview = document.getElementById('llma-avatar-preview');
     const avatarData = avatarPreview?.dataset.avatarData;
@@ -1336,6 +1387,50 @@ function llmaSetupInstrTabs() {
         state.variants.push({ matchKind: 'glob', match: '', text: '' });
         llmaRenderInstructionVariants(llmaActiveInstrTab);
     });
+    // Test button: toggles the inline preview panel; Run actually fires the LLM call.
+    document.getElementById('llma-instr-test-btn')?.addEventListener('click', () => {
+        const panel = document.getElementById('llma-instr-test-panel');
+        if (panel) panel.style.display = panel.style.display === 'none' ? '' : 'none';
+        const input = document.getElementById('llma-instr-test-input');
+        if (input && panel?.style.display === '') input.focus();
+    });
+    document.getElementById('llma-instr-test-run')?.addEventListener('click', llmaRunInstructionTest);
+    document.getElementById('llma-instr-test-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            llmaRunInstructionTest();
+        }
+    });
+}
+
+// Runs an unsaved instruction's Default text against the LLM with the user-supplied sample
+// input. No persistence, no thread — pure preview. Picks up the assistant's name from the
+// editor so {{assistantName}} substitutes correctly.
+async function llmaRunInstructionTest() {
+    const area = document.getElementById('llma-instr-area');
+    const sample = document.getElementById('llma-instr-test-input');
+    const result = document.getElementById('llma-instr-test-result');
+    if (!area || !sample || !result) return;
+    const instructionText = area.value;
+    const sampleInput = (sample.value || '').trim();
+    if (!instructionText) { llmaShowToast('Default instruction is empty', 'info'); return; }
+    if (!sampleInput) { llmaShowToast('Enter a sample message first', 'info'); return; }
+    result.textContent = 'Running…';
+    try {
+        const res = await llmaRequest('LLMAssistantTestInstruction', {
+            instructionText,
+            sampleInput,
+            model: LLMAState.currentModel || '',
+            assistantName: document.getElementById('llma-asst-name')?.value || ''
+        });
+        if (res?.success) {
+            result.textContent = res.response || '(empty response)';
+        } else {
+            result.textContent = 'Error: ' + (res?.error || 'unknown');
+        }
+    } catch (ex) {
+        result.textContent = 'Error: ' + (ex?.message || String(ex));
+    }
 }
 
 function llmaGetEditingInstructionState(mode) {

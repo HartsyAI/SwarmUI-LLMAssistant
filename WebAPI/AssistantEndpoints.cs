@@ -192,6 +192,20 @@ public static class AssistantEndpoints
         }
     }
 
+    /// <summary>Returns the bundled starter assistant templates. Read once from disk on first
+    /// call and cached for the process lifetime — these are baseline reference data, not user data.
+    /// The frontend uses them to populate the "Clone from template" dropdown in the assistant
+    /// editor, giving users a working baseline (with per-model variants demoed) instead of a
+    /// blank form.</summary>
+    public static async Task<JObject> LLMAssistantGetStarterTemplates(Session session)
+    {
+        return new JObject
+        {
+            ["success"] = true,
+            ["templates"] = StarterAssistantsCache.GetTemplates()
+        };
+    }
+
     /// <summary>Returns the resolved active assistant object for the caller.</summary>
     public static async Task<JObject> LLMAssistantGetActiveAssistant(Session session)
     {

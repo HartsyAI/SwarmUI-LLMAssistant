@@ -112,6 +112,9 @@ public static class OrphanedFileGC
         // Assistant avatars
         string avatarRoot = Path.GetFullPath(Path.Combine(user.OutputDirectory, WebAPI.AssistantEndpoints.AvatarSubdir));
         deleted += SweepRoot(user, avatarRoot, referenced, cutoff);
+        // Chat-attached image uploads (per-thread subfolders).
+        string uploadsRoot = MediaStorageService.GetAllUploadsRoot(user);
+        deleted += SweepRoot(user, uploadsRoot, referenced, cutoff);
         return deleted;
     }
 
@@ -167,7 +170,9 @@ public static class OrphanedFileGC
     /// <list type="bullet">
     /// <item>any <c>file_write</c> tool_result on any of the user's saved threads (using
     /// the result's <c>fullPath</c>, with <c>url</c> as fallback for older entries), OR</item>
-    /// <item>any <c>avatar</c> URL on any of the user's assistants (per-user and shared).</item>
+    /// <item>any <c>avatar</c> URL on any of the user's assistants (per-user and shared), OR</item>
+    /// <item>any <c>media[].url</c> on any user message in any of the user's saved threads
+    /// (chat-attached image uploads).</item>
     /// </list>
     /// Anything else in the swept folders is fair game for deletion.</summary>
     private static HashSet<string> CollectReferencedPaths(User user)
@@ -204,6 +209,19 @@ public static class OrphanedFileGC
             }
             foreach (JToken msg in messages)
             {
+                // Chat-attached uploads — referenced via msg.media[].url.
+                if (msg?["media"] is JArray mediaArr)
+                {
+                    foreach (JToken m in mediaArr)
+                    {
+                        string url = m?["url"]?.ToString();
+                        if (!string.IsNullOrEmpty(url) && url.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+                        {
+                            string rel = url["Output/".Length..];
+                            result.Add(Path.GetFullPath(Path.Combine(outputRoot, rel)).Replace('\\', '/'));
+                        }
+                    }
+                }
                 if (msg?["toolCalls"] is not JArray toolCalls)
                 {
                     continue;

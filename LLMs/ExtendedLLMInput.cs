@@ -3,12 +3,12 @@ using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 
-/// <summary>Extends SwarmUI's LLMParamInput with richer generation parameters.</summary>
+/// <summary>Extends SwarmUI's LLMParamInput with richer generation parameters.
+/// Per-message media now lives on <see cref="LLMMessage.Media"/> (in core) so backends can
+/// emit multimodal content blocks message-by-message; this class no longer carries a flat
+/// media list.</summary>
 public class ExtendedLLMInput : LLMParamInput
 {
-    /// <summary>Media attachments for vision requests.</summary>
-    public List<MediaAttachment> Media { get; set; }
-
     /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
     public List<JObject> Tools { get; set; } = [];
 
@@ -50,7 +50,14 @@ public class ExtendedLLMInput : LLMParamInput
                 Roles.System => LLMRoles.System,
                 _ => LLMRoles.User
             };
-            input.Messages.Add(new LLMMessage() { Role = llmRole, Content = msg.Content });
+            input.Messages.Add(new LLMMessage()
+            {
+                Role = llmRole,
+                Content = msg.Content,
+                // Convert URL-shaped attachments (eg local Output paths) to base64 so backends
+                // can ship them inline. External HTTPS URLs pass through untouched.
+                Media = Services.MediaResolver.ResolveForLLM(msg.Media)
+            });
         }
         if (messages.Count > 0)
         {
@@ -60,21 +67,15 @@ public class ExtendedLLMInput : LLMParamInput
     }
 }
 
-/// <summary>A single message in a conversation.</summary>
+/// <summary>A single message in a conversation, used by the chat endpoint when reconstructing
+/// LLM input from saved thread history.</summary>
 public class ChatMessageData
 {
     public string Role { get; set; }
     public string Content { get; set; }
     public string Timestamp { get; set; }
     public string Id { get; set; }
-}
-
-/// <summary>Media attachment for vision requests.</summary>
-public class MediaAttachment
-{
-    /// <summary>"base64" or "url".</summary>
-    public string Type { get; set; }
-    public string Data { get; set; }
-    /// <summary>MIME type, e.g. "image/jpeg".</summary>
-    public string MediaType { get; set; }
+    /// <summary>Media URLs persisted on the saved message (eg user-attached images). Built into
+    /// <see cref="LLMMessage.Media"/> when the chat endpoint constructs the LLM input.</summary>
+    public List<LLMMediaAttachment> Media { get; set; }
 }

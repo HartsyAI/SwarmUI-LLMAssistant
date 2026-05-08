@@ -373,6 +373,51 @@
     border: 1px solid var(--light-border);
     object-fit: cover;
 }
+/* Quick-caption popover under the "Caption ▾" button on the attached-image preview */
+.llma-attach-caption-wrap {
+    position: relative;
+    display: inline-flex;
+}
+.llma-quick-caption-panel {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 5;
+    min-width: 260px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 7px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--black) 30%, transparent);
+}
+.llma-quick-caption-style {
+    padding: 5px 8px;
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    background: var(--background-soft);
+    color: var(--text);
+    font-size: 12px;
+}
+.llma-quick-caption-run { font-size: 11.5px; padding: 3px 11px; align-self: flex-start; }
+.llma-quick-caption-result {
+    margin-top: 4px;
+    padding: 7px 8px;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 11.5px;
+    line-height: 1.45;
+    max-height: 220px;
+    overflow: auto;
+}
+.llma-quick-caption-text { white-space: pre-wrap; word-break: break-word; }
+.llma-quick-caption-actions { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+.llma-quick-caption-actions button { font-size: 10.5px; padding: 2px 9px; }
+
 .llma-attachment-remove {
     position: absolute;
     top: 4px;

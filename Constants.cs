@@ -57,6 +57,10 @@ public static class ToolConstants
 
     // Built-in tool IDs
     public const string GenerateImage = "generate_image";
+    public const string CreateImagePreset = "create_image_preset";
+    public const string CaptionImage = "caption_image";
+    public const string FuseImageDescriptions = "fuse_image_descriptions";
+    public const string BatchCaptionFolder = "batch_caption_folder";
     public const string WebSearch = "web_search";
     public const string FileRead = "file_read";
     public const string FileWrite = "file_write";
@@ -67,5 +71,5 @@ public static class ToolConstants
     public const string SwarmDocs = "swarm_docs";
 
     /// <summary>All built-in tool IDs.</summary>
-    public static readonly string[] BuiltInIds = [GenerateImage, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs];
+    public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs];
 }

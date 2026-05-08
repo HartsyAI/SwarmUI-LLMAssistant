@@ -19,6 +19,10 @@ public static class ToolExecutorService
     private static readonly Dictionary<string, PermInfo> HandlerPermissions = new()
     {
         [ToolConstants.GenerateImage] = LLMAssistantAPI.PermToolGenerateImage,
+        [ToolConstants.CreateImagePreset] = LLMAssistantAPI.PermToolCreateImagePreset,
+        [ToolConstants.CaptionImage] = LLMAssistantAPI.PermToolVision,
+        [ToolConstants.FuseImageDescriptions] = LLMAssistantAPI.PermToolVision,
+        [ToolConstants.BatchCaptionFolder] = LLMAssistantAPI.PermToolVision,
         [ToolConstants.WebSearch] = LLMAssistantAPI.PermToolWebSearch,
         [ToolConstants.FileRead] = LLMAssistantAPI.PermToolFileRead,
         [ToolConstants.FileWrite] = LLMAssistantAPI.PermToolFileWrite,

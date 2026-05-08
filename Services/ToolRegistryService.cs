@@ -257,7 +257,7 @@ public static class ToolRegistryService
         {
             ["id"] = ToolConstants.GenerateImage,
             ["name"] = "Generate Image",
-            ["description"] = "Generate an image from a text prompt using SwarmUI's built-in text-to-image engine. Returns a URL to the generated image.",
+            ["description"] = "Generate an image via SwarmUI's text-to-image engine. Returns a URL to the generated image. Supports four modes (mix freely): pick saved preset(s) by name (presets bundle a model + sampler + steps + dimensions etc.), pass raw T2I `params` for a one-off generation or to override a preset, supply an `initImage` (URL or data URI) for image-edit / img2img / inpainting workflows (combine with a preset whose model supports image input — Flux Kontext, OmniGen, SDXL inpaint, etc.), or use `aspect` shorthand for dimensions when no preset/params provide them. Resolution order: presets stack first (later overrides earlier), then `params` override the preset stack, then `aspect` only applies if neither set width/height.",
             ["parameters"] = new JObject
             {
                 ["type"] = "object",
@@ -266,14 +266,29 @@ public static class ToolRegistryService
                     ["prompt"] = new JObject
                     {
                         ["type"] = "string",
-                        ["description"] = "Detailed text prompt describing the image to generate."
+                        ["description"] = "Text prompt describing the image to generate. For image edits (when `initImage` is set), describe the change — eg 'remove the person on the left' or 'recolor the sky to sunset'."
                     },
                     ["aspect"] = new JObject
                     {
                         ["type"] = "string",
                         ["enum"] = new JArray("square", "portrait", "landscape"),
-                        ["description"] = "Aspect ratio of the image.",
+                        ["description"] = "Quick aspect ratio shorthand. Only takes effect if no preset and no `params.width/height` set dimensions explicitly. For image edits, the init image's dimensions are usually preserved automatically — leave aspect off.",
                         ["default"] = "square"
+                    },
+                    ["params"] = new JObject
+                    {
+                        ["type"] = "object",
+                        ["description"] = "Raw T2I parameters. Any SwarmUI T2I parameter id is accepted (model, steps, sampler, cfgscale, width, height, negativeprompt, loras, seed, ...). Applied AFTER any presets, so use this to override a preset for a single call. Use this alone (without `preset`) for a fully one-off generation. Unknown keys are silently dropped by the engine."
+                    },
+                    ["initImage"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Source image to edit / use as a starting point. Accepts an Output-relative URL (eg the user's last attached image's url, or an `imageUrl` from a prior generate_image result), a full https:// URL, a data: URI, or raw base64. REQUIRES a preset (or `params.model`) whose model supports image input — generic SDXL won't take it, but Flux Kontext / OmniGen / SDXL-inpaint will."
+                    },
+                    ["initImageCreativity"] = new JObject
+                    {
+                        ["type"] = "number",
+                        ["description"] = "How much to deviate from the init image, 0..1 (default 0.6). Lower = closer to the source; higher = more creative. Only applied when `initImage` is set."
                     }
                 },
                 ["required"] = new JArray("prompt")
@@ -281,6 +296,164 @@ public static class ToolRegistryService
             ["handlerType"] = ToolConstants.HandlerBuiltIn,
             ["handlerId"] = ToolConstants.GenerateImage,
             ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.CreateImagePreset] = new JObject
+        {
+            ["id"] = ToolConstants.CreateImagePreset,
+            ["name"] = "Create Image Preset",
+            ["description"] = "Save a new T2I preset to the calling user's account so it can be referenced by name in future generate_image calls (and used directly on the Generate tab). Use this when the user asks for a recipe they'll want to reuse — eg \"save an anime preset that uses Pony XL with 30 steps\". Pick a short descriptive title and a one-sentence description. The `params` object accepts any T2I parameter id (model, steps, sampler, cfgscale, width, height, negativeprompt, loras, ...). Pass overwrite=true to replace an existing preset of the same name; otherwise the call fails if the name is taken.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["title"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Short, descriptive name for the preset (eg 'Anime Style XL', 'Quick Sketch'). Filename-safe characters only."
+                    },
+                    ["description"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "One-sentence description of what the preset is for (eg 'Vibrant anime style with strong line work'). Helps the LLM pick this preset in future calls."
+                    },
+                    ["params"] = new JObject
+                    {
+                        ["type"] = "object",
+                        ["description"] = "T2I parameter map. Required keys: model. Common keys: steps, sampler, cfgscale, width, height, negativeprompt, loras."
+                    },
+                    ["overwrite"] = new JObject
+                    {
+                        ["type"] = "boolean",
+                        ["description"] = "Whether to replace an existing preset of the same name (default false).",
+                        ["default"] = false
+                    }
+                },
+                ["required"] = new JArray("title", "params")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.CreateImagePreset,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.CaptionImage] = new JObject
+        {
+            ["id"] = ToolConstants.CaptionImage,
+            ["name"] = "Caption Image",
+            ["description"] = "Run a vision-model pass on a single image and return a caption in the chosen style. Use for: 'describe this image', 'generate a SD prompt from this image', 'what art style is this'. Image input accepts a data URI, an Output/... URL (eg an asset from chat), an https:// URL, or raw base64. The `style` enum is filled in dynamically based on which styles are configured for this user (defaults: natural, detailed, simple, danbooru, artistic, technical, color-palette, facial-features, lora-trigger, story).",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["image"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "The image to caption. Same input shapes as generate_image's initImage."
+                    },
+                    ["style"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Captioning style. Picks the system prompt the vision model receives.",
+                        ["enum"] = new JArray("natural")  // Replaced at request time by EnrichForUser
+                    },
+                    ["prependText"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Optional text prepended to the caption (eg a LoRA trigger word like 'myStyle_v1, ')."
+                    }
+                },
+                ["required"] = new JArray("image")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.CaptionImage,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.FuseImageDescriptions] = new JObject
+        {
+            ["id"] = ToolConstants.FuseImageDescriptions,
+            ["name"] = "Fuse Image Descriptions",
+            ["description"] = "Caption multiple images with role-specific prompts (style / subject / setting / reference) and merge the results into a single unified image-generation prompt. Use when the user wants to combine the look of one image with the subject of another (eg 'use this style with this character'). Each image accepts the same input shapes as caption_image.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["images"] = new JObject
+                    {
+                        ["type"] = "array",
+                        ["description"] = "Array of `{ url: string, role: string }` entries. `role` is one of: style, subject, setting, reference.",
+                        ["items"] = new JObject
+                        {
+                            ["type"] = "object",
+                            ["properties"] = new JObject
+                            {
+                                ["url"] = new JObject { ["type"] = "string" },
+                                ["role"] = new JObject
+                                {
+                                    ["type"] = "string",
+                                    ["enum"] = new JArray("style", "subject", "setting", "reference")
+                                }
+                            },
+                            ["required"] = new JArray("url", "role")
+                        }
+                    }
+                },
+                ["required"] = new JArray("images")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.FuseImageDescriptions,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.BatchCaptionFolder] = new JObject
+        {
+            ["id"] = ToolConstants.BatchCaptionFolder,
+            ["name"] = "Batch Caption Folder",
+            ["description"] = "Caption every image in a folder (under the user's Output sandbox) and write a `.txt` next to each one. Used for LoRA training dataset preparation. Supports the same `style` enum as caption_image. The `folder` argument is a relative path under the user's Output directory; sandbox-checked.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["folder"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Folder path relative to the user's Output directory (eg 'datasets/my-lora')."
+                    },
+                    ["style"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Captioning style; same enum as caption_image. Default: lora-trigger.",
+                        ["enum"] = new JArray("natural")  // Replaced at request time
+                    },
+                    ["prependText"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Optional text prepended to every caption (eg 'myLora_v1, ' to add a trigger word to all generated captions)."
+                    }
+                },
+                ["required"] = new JArray("folder")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.BatchCaptionFolder,
+            // Disabled by default — it's a power-user / dataset-prep workflow that can run for a
+            // long time and produce many files. Users opt in per-assistant.
+            ["enabled"] = false,
             ["isBuiltIn"] = true,
             ["created"] = now,
             ["updated"] = now

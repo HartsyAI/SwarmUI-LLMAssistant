@@ -174,6 +174,17 @@
     opacity: 0.7;
 }
 .llma-asst-list-wrap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.llma-asst-create-row { display: flex; gap: 8px; align-items: center; }
+.llma-template-select {
+    flex: 1;
+    padding: 6px 10px;
+    border: 1px solid var(--light-border);
+    border-radius: 6px;
+    background: var(--background);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+}
 .llma-asst-list-item {
     display: flex;
     align-items: center;
@@ -431,6 +442,113 @@ input[type="color"]#llma-asst-color {
 .llma-variant-remove:hover {
     opacity: 1;
     background: color-mix(in srgb, var(--backend-errored) 18%, transparent);
+}
+
+/* Inline instruction-test panel ("verify before save") */
+.llma-instr-test-wrap {
+    margin-top: 6px;
+    text-align: right;
+}
+.llma-instr-test-btn {
+    font-size: 11px;
+    padding: 3px 11px;
+}
+.llma-instr-test-panel {
+    margin-top: 6px;
+    padding: 8px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 6px;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-instr-test-input {
+    padding: 5px 8px;
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    background: var(--background-soft);
+    color: var(--text);
+    font-size: 11.5px;
+}
+.llma-instr-test-run { font-size: 11px; padding: 3px 11px; align-self: flex-start; }
+.llma-instr-test-result {
+    margin: 0;
+    padding: 7px 9px;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    color: var(--text);
+    font-size: 11px;
+    font-family: var(--font-monospace);
+    line-height: 1.45;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    min-height: 14px;
+}
+.llma-instr-test-result:empty { display: none; }
+
+/* Per-assistant tool config (assistant editor) */
+.llma-assist-tool-config-section { margin-top: 14px; margin-bottom: 14px; }
+.llma-assist-tool-config-section h5 {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-soft);
+    opacity: 0.4;
+    margin: 0 0 8px;
+}
+.llma-asst-tool-config-block {
+    padding: 9px 10px;
+    background: var(--background);
+    border: 1px solid var(--light-border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+.llma-asst-tool-config-heading {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin-bottom: 6px;
+}
+.llma-asst-tool-config-block label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-soft);
+    margin-bottom: 4px;
+}
+.llma-asst-cfg-input {
+    width: 100%;
+    padding: 5px 8px;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    border-radius: 4px;
+    color: var(--text);
+    font-size: 12px;
+}
+.llma-asst-tool-config-help {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.65;
+    line-height: 1.45;
+}
+.llma-asst-tool-config-help code {
+    background: var(--background-soft);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 10.5px;
+}
+.llma-asst-tool-config-empty {
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.5;
+    padding: 8px 4px;
+    font-style: italic;
 }
 
 /* Params override section */

@@ -7,6 +7,7 @@ using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Extensions.LLMAssistant.Tools;
 using SwarmUI.LLMs;
+using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 
@@ -14,6 +15,60 @@ namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 public static class ChatEndpoints
 {
     private static readonly PromptCacheService _cache = new(500);
+
+    /// <summary>Uploads an image the user just attached to chat: parses the data URI, resizes if
+    /// needed (long edge capped at <see cref="MediaStorageService.MaxDimension"/>), writes to the
+    /// user's per-user uploads dir, and returns the served URL. The frontend stores the URL —
+    /// not the base64 — on the message so thread blobs stay slim.</summary>
+    public static async Task<JObject> LLMAssistantUploadChatImage(Session session, JObject rawInput)
+    {
+        if (session?.User is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        string threadId = rawInput["threadId"]?.ToString();
+        string messageId = rawInput["messageId"]?.ToString();
+        string imageData = rawInput["imageData"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "messageId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(imageData))
+        {
+            return new JObject { ["success"] = false, ["error"] = "imageData (data URI) is required." };
+        }
+        try
+        {
+            MediaStorageService.StoredImage stored = await MediaStorageService.SaveDataUriAsync(
+                session.User, threadId, messageId, imageData);
+            if (stored is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = "Malformed data URI." };
+            }
+            return new JObject
+            {
+                ["success"] = true,
+                ["url"] = stored.Url,
+                ["mediaType"] = stored.MimeType,
+                ["width"] = stored.Width,
+                ["height"] = stored.Height,
+                ["bytesWritten"] = stored.BytesWritten
+            };
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Chat image upload failed for {session.User.UserID}: {ex.Message}");
+            return new JObject { ["success"] = false, ["error"] = "Upload failed (see server logs)." };
+        }
+    }
 
     /// <summary>Test-runs an unsaved instruction text against the LLM with a sample user message,
     /// without persisting anything (no thread, no memory write). Used by the assistant editor's
@@ -170,8 +225,14 @@ public static class ChatEndpoints
             LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
             // Append the user message to the thread BEFORE generation so it persists even if
-            // generation fails or the client disconnects mid-stream.
+            // generation fails or the client disconnects mid-stream. Image attachments — uploaded
+            // via LLMAssistantUploadChatImage and shipped here as `media: [{ url, mediaType }]` —
+            // are persisted as URLs, never base64 (the upload step already wrote them to disk).
             JObject userMsg = new() { ["role"] = Roles.User, ["content"] = message };
+            if (rawInput["media"] is JArray mediaArr && mediaArr.Count > 0)
+            {
+                userMsg["media"] = mediaArr.DeepClone();
+            }
             ThreadStorageService.AppendMessage(session.User, threadId, userMsg);
             // Reload to get the canonical (just-saved) thread for input building.
             thread = ThreadStorageService.GetThread(session.User, threadId);
@@ -219,7 +280,9 @@ public static class ChatEndpoints
     }
 
     /// <summary>Reads stored thread messages, applies maxContextMessages truncation.
-    /// Source of truth is the saved thread — the client cannot inject fake history.</summary>
+    /// Source of truth is the saved thread — the client cannot inject fake history.
+    /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
+    /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.</summary>
     private static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
     {
         List<ChatMessageData> history = [];
@@ -227,11 +290,41 @@ public static class ChatEndpoints
         {
             foreach (JToken msg in messages)
             {
-                history.Add(new ChatMessageData
+                ChatMessageData entry = new()
                 {
                     Role = msg["role"]?.ToString() ?? Roles.User,
                     Content = msg["content"]?.ToString() ?? ""
-                });
+                };
+                if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
+                {
+                    entry.Media = [];
+                    List<string> urlsForContext = [];
+                    foreach (JToken m in mediaArr)
+                    {
+                        string url = m["url"]?.ToString();
+                        if (string.IsNullOrEmpty(url))
+                        {
+                            continue;
+                        }
+                        entry.Media.Add(new LLMMediaAttachment
+                        {
+                            Type = "url",
+                            Data = url,
+                            MediaType = m["mediaType"]?.ToString() ?? "image/png"
+                        });
+                        urlsForContext.Add(url);
+                    }
+                    // Inline the URL(s) as a system-style annotation so the LLM has the path
+                    // accessible as text — needed for tool calls like generate_image's initImage.
+                    // The LLM sees the image natively via vision; this just lets it *reference*
+                    // the URL string when chaining tools.
+                    if (urlsForContext.Count > 0)
+                    {
+                        string suffix = string.Join("\n", urlsForContext.Select(u => $"[Attached image URL: {u}]"));
+                        entry.Content = string.IsNullOrEmpty(entry.Content) ? suffix : $"{entry.Content}\n\n{suffix}";
+                    }
+                }
+                history.Add(entry);
             }
         }
         return TruncateHistory(history, settings, rawInput);

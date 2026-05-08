@@ -264,7 +264,12 @@
                 <!-- Assistants -->
                 <div class="llma-modal-panel" id="llma-settings-assistants" style="display:none;">
                     <div class="llma-asst-list-wrap" id="llma-assistant-list"></div>
-                    <button class="basic-button" id="llma-create-asst-btn">+ Create Assistant</button>
+                    <div class="llma-asst-create-row">
+                        <button class="basic-button" id="llma-create-asst-btn">+ Create Assistant</button>
+                        <select id="llma-template-select" class="llma-template-select" title="Clone from a starter template">
+                            <option value="">Clone from template…</option>
+                        </select>
+                    </div>
 
                     <!-- Assistant Editor -->
                     <div class="llma-asst-editor" id="llma-asst-editor" style="display:none;">
@@ -359,6 +364,10 @@
                         <div class="llma-assist-tools-section">
                             <h5>Enabled Tools</h5>
                             <div id="llma-assist-tools"></div>
+                        </div>
+                        <div class="llma-assist-tool-config-section">
+                            <h5>Tool Config <span class="llma-config-hint">(this assistant only — overrides your account defaults)</span></h5>
+                            <div id="llma-asst-tool-config"></div>
                         </div>
                         <div class="llma-editor-actions">
                             <label class="llma-scope-toggle" id="llma-asst-scope-toggle" style="display:none;" title="Save this assistant to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">

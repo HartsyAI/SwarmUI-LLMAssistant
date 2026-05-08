@@ -1,10 +1,10 @@
 using System.Net;
 using System.Net.Http;
-using System.Net.Sockets;
 using System.Text;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Backends;
+using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
@@ -31,7 +31,7 @@ public class HttpRequestTool : ToolHandler
         {
             return new JObject { ["success"] = false, ["error"] = "url must be an absolute http(s) URL" };
         }
-        if (IsPrivateOrLoopback(uri))
+        if (NetworkSafety.IsPrivateOrLoopback(uri))
         {
             return new JObject { ["success"] = false, ["error"] = "Requests to loopback/private/link-local addresses are blocked." };
         }
@@ -170,74 +170,4 @@ public class HttpRequestTool : ToolHandler
         }
     }
 
-    /// <summary>Returns true if the URI resolves to a loopback, private, link-local, or otherwise non-routable address.
-    /// Prevents SSRF to internal SwarmUI services, cloud metadata endpoints, LAN hosts, etc.</summary>
-    private static bool IsPrivateOrLoopback(Uri uri)
-    {
-        string host = uri.Host;
-        if (string.IsNullOrEmpty(host))
-        {
-            return true;
-        }
-        // Explicit metadata endpoints
-        if (host.Equals("metadata.google.internal", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-        if (IPAddress.TryParse(host, out IPAddress ip))
-        {
-            return IsPrivateIp(ip);
-        }
-        // Resolve and check all addresses
-        try
-        {
-            IPAddress[] addrs = Dns.GetHostAddresses(host);
-            foreach (IPAddress a in addrs)
-            {
-                if (IsPrivateIp(a))
-                {
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-            // DNS failure — let the request attempt so the caller sees a real error
-            return false;
-        }
-        return false;
-    }
-
-    private static bool IsPrivateIp(IPAddress ip)
-    {
-        if (IPAddress.IsLoopback(ip))
-        {
-            return true;
-        }
-        if (ip.AddressFamily == AddressFamily.InterNetwork)
-        {
-            byte[] b = ip.GetAddressBytes();
-            // 10.0.0.0/8
-            if (b[0] == 10) return true;
-            // 172.16.0.0/12
-            if (b[0] == 172 && b[1] >= 16 && b[1] <= 31) return true;
-            // 192.168.0.0/16
-            if (b[0] == 192 && b[1] == 168) return true;
-            // 169.254.0.0/16 (link-local, includes cloud metadata 169.254.169.254)
-            if (b[0] == 169 && b[1] == 254) return true;
-            // 127.0.0.0/8
-            if (b[0] == 127) return true;
-            // 0.0.0.0/8
-            if (b[0] == 0) return true;
-        }
-        else if (ip.AddressFamily == AddressFamily.InterNetworkV6)
-        {
-            if (ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal) return true;
-            // fc00::/7 unique-local
-            byte[] b = ip.GetAddressBytes();
-            if ((b[0] & 0xFE) == 0xFC) return true;
-            // ::1 loopback handled above
-        }
-        return false;
-    }
 }

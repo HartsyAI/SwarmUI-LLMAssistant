@@ -11,7 +11,10 @@ function llmaRenderMessageHistory(messages) {
     if (!container) return;
     container.innerHTML = '';
     for (const msg of messages) {
-        llmaAppendMessageToDOM(msg.role, msg.content, msg.imageBase64, msg.id, msg.meta);
+        // Prefer the persisted media URL (server-authoritative) over a legacy/in-memory base64.
+        // <img src> handles both transparently.
+        const imgSrc = (Array.isArray(msg.media) && msg.media[0]?.url) || msg.imageBase64 || null;
+        llmaAppendMessageToDOM(msg.role, msg.content, imgSrc, msg.id, msg.meta);
         if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
             const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
             if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
@@ -210,14 +213,25 @@ async function llmaSendMessage() {
     // Hide welcome, show chat
     llmaShowChatPanel();
 
-    // Add user message
     const userMsgId = llmaGenerateId();
+    let mediaPayload = null;
+    let mediaForRender = null;
+    if (LLMAState.attachedImage) {
+        const upload = await llmaUploadAttachedImage(userMsgId);
+        if (!upload) return; // toast already shown
+        mediaPayload = [upload];
+        mediaForRender = upload.url;
+        llmaClearAttachment();
+    }
+
+    // Add user message (uses the served URL; no base64 in the in-memory message either)
     const userMsg = {
         id: userMsgId, role: 'user', content: message || '(image)',
-        timestamp: new Date().toISOString(), imageBase64: LLMAState.attachedImage?.base64 || null,
+        timestamp: new Date().toISOString(),
+        media: mediaPayload || undefined,
     };
     LLMAState.messages.push(userMsg);
-    llmaAppendMessageToDOM('user', userMsg.content, userMsg.imageBase64, userMsgId);
+    llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId);
     // The previous exact count is stale now that a new message was added;
     // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
     LLMAState.exactTokenCount = null;
@@ -226,11 +240,8 @@ async function llmaSendMessage() {
 
     // Build payload — server is authoritative for history; we only send threadId + new message.
     const payload = llmaBuildPayload(message, 'chat');
-
-    // Attach image if present
-    if (LLMAState.attachedImage) {
-        payload.media = [{ type: 'base64', data: LLMAState.attachedImage.base64, mediaType: LLMAState.attachedImage.mediaType }];
-        llmaClearAttachment();
+    if (mediaPayload) {
+        payload.media = mediaPayload;
     }
 
     llmaStreamResponse(payload);
@@ -586,12 +597,20 @@ function llmaShowAttachmentPreview(dataUrl) {
     img.src = dataUrl;
     preview.appendChild(img);
 
-    // Vision action buttons
+    // Vision action buttons.
+    // "Caption \u25be" opens an inline style picker that runs caption_image directly via the tool
+    // execute endpoint \u2014 no chat round-trip, no thread persistence. Result actions: copy /
+    // send-to-chat / send-to-prompt.
+    const captionWrap = document.createElement('div');
+    captionWrap.className = 'llma-attach-caption-wrap';
+
     const captionBtn = document.createElement('button');
     captionBtn.className = 'llma-msg-action-btn';
-    captionBtn.textContent = 'Caption';
-    captionBtn.addEventListener('click', () => llmaCaptionImage());
-    preview.appendChild(captionBtn);
+    captionBtn.textContent = 'Caption \u25be';
+    captionBtn.addEventListener('click', () => llmaToggleQuickCaption(captionWrap));
+    captionWrap.appendChild(captionBtn);
+
+    preview.appendChild(captionWrap);
 
     const promptBtn = document.createElement('button');
     promptBtn.className = 'llma-msg-action-btn';
@@ -616,10 +635,125 @@ function llmaShowAttachmentPreview(dataUrl) {
     preview.appendChild(removeBtn);
 }
 
+// Caption styles. Mirrors CaptionImageTool.StyleInstructions on the server. If you add a style
+// in C# also add it here so the dropdown stays in sync (defaults match the server's enum).
+const LLMA_CAPTION_STYLES = [
+    ['natural', 'Natural'],
+    ['detailed', 'Detailed'],
+    ['simple', 'Simple'],
+    ['danbooru', 'Danbooru tags'],
+    ['artistic', 'Artistic style'],
+    ['technical', 'Technical'],
+    ['color-palette', 'Color palette'],
+    ['facial-features', 'Facial features'],
+    ['lora-trigger', 'LoRA trigger'],
+    ['story', 'Story']
+];
+
+// Toggles the quick-caption popover under the "Caption" button. Renders style picker + Run +
+// (after run) the caption text + copy/send-to-chat/send-to-prompt actions.
+function llmaToggleQuickCaption(wrap) {
+    if (!LLMAState.attachedImage) return;
+    let panel = wrap.querySelector('.llma-quick-caption-panel');
+    if (panel) {
+        panel.remove();
+        return;
+    }
+    panel = document.createElement('div');
+    panel.className = 'llma-quick-caption-panel';
+    panel.innerHTML = `
+        <select class="llma-quick-caption-style">
+            ${LLMA_CAPTION_STYLES.map(([k, label]) => `<option value="${llmaEscapeHtml(k)}">${llmaEscapeHtml(label)}</option>`).join('')}
+        </select>
+        <button class="basic-button llma-quick-caption-run">Run</button>
+        <div class="llma-quick-caption-result" style="display:none;"></div>
+    `;
+    wrap.appendChild(panel);
+    panel.querySelector('.llma-quick-caption-run').addEventListener('click', async () => {
+        const style = panel.querySelector('.llma-quick-caption-style').value;
+        const result = panel.querySelector('.llma-quick-caption-result');
+        result.style.display = '';
+        result.textContent = 'Captioning\u2026';
+        try {
+            // Pass the data URI directly \u2014 ImageInputResolver accepts it, no upload needed.
+            const res = await llmaRequest('LLMAssistantExecuteTool', {
+                toolId: 'caption_image',
+                arguments: JSON.stringify({
+                    image: LLMAState.attachedImage.dataUrl,
+                    style: style
+                })
+            });
+            const inner = res?.result || res;
+            if (inner?.success && inner.caption) {
+                llmaRenderQuickCaptionResult(result, inner.caption);
+            } else {
+                result.textContent = 'Error: ' + (inner?.error || 'unknown');
+            }
+        } catch (ex) {
+            result.textContent = 'Error: ' + (ex?.message || String(ex));
+        }
+    });
+}
+
+// Renders the caption text + a row of action buttons below it.
+function llmaRenderQuickCaptionResult(container, caption) {
+    container.innerHTML = '';
+    const text = document.createElement('div');
+    text.className = 'llma-quick-caption-text';
+    text.textContent = caption;
+    container.appendChild(text);
+    const actions = document.createElement('div');
+    actions.className = 'llma-quick-caption-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'basic-button';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(caption).then(() => llmaShowToast('Copied', 'success'));
+    });
+    const chatBtn = document.createElement('button');
+    chatBtn.className = 'basic-button';
+    chatBtn.textContent = 'Send to chat';
+    chatBtn.addEventListener('click', () => {
+        const input = document.getElementById('llma-input');
+        if (input) input.value = caption;
+    });
+    const promptBtn = document.createElement('button');
+    promptBtn.className = 'basic-button';
+    promptBtn.textContent = 'Send to prompt';
+    promptBtn.addEventListener('click', () => llmaSendToPromptBox(caption));
+    actions.append(copyBtn, chatBtn, promptBtn);
+    container.appendChild(actions);
+}
+
 function llmaClearAttachment() {
     LLMAState.attachedImage = null;
     const preview = document.getElementById('llma-attachment-preview');
     if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
+}
+
+// Shared helper: uploads the currently-attached image to the per-user uploads dir and returns
+// `{ url, mediaType }` (the shape both the WS media payload and the DOM render expect), or null
+// on failure (toast surfaced). Caller must clear the attachment after a successful return.
+async function llmaUploadAttachedImage(messageId) {
+    if (!LLMAState.attachedImage) return null;
+    if (!LLMAState.activeThreadId) {
+        llmaShowToast('Cannot upload image without an active thread', 'error');
+        return null;
+    }
+    try {
+        const result = await llmaRequest('LLMAssistantUploadChatImage', {
+            threadId: LLMAState.activeThreadId,
+            messageId,
+            imageData: LLMAState.attachedImage.dataUrl,
+        });
+        if (result?.success && result.url) {
+            return { url: result.url, mediaType: result.mediaType || LLMAState.attachedImage.mediaType };
+        }
+        llmaShowToast(result?.error || 'Image upload failed', 'error');
+    } catch {
+        llmaShowToast('Image upload failed', 'error');
+    }
+    return null;
 }
 
 function llmaCaptionImage() {
@@ -639,17 +773,16 @@ function llmaCaptionAndSendToPrompt() {
     }
 }
 
-function llmaDoCaptionPrompt() {
+async function llmaDoCaptionPrompt() {
     const captionMsg = 'Describe this image for use as an image generation prompt.';
     const userMsgId = llmaGenerateId();
-    LLMAState.messages.push({ id: userMsgId, role: 'user', content: captionMsg, timestamp: new Date().toISOString() });
-    llmaAppendMessageToDOM('user', captionMsg, LLMAState.attachedImage?.dataUrl, userMsgId);
-
-    const history = LLMAState.messages.map(m => ({ role: m.role, content: m.content }));
-    const payload = llmaBuildPayload(captionMsg, 'caption', history, {
-        media: [{ type: 'base64', data: LLMAState.attachedImage.base64, mediaType: LLMAState.attachedImage.mediaType }],
-    });
+    const upload = await llmaUploadAttachedImage(userMsgId);
+    if (!upload) return;
+    LLMAState.messages.push({ id: userMsgId, role: 'user', content: captionMsg, timestamp: new Date().toISOString(), media: [upload] });
+    llmaAppendMessageToDOM('user', captionMsg, upload.url, userMsgId);
     llmaClearAttachment();
+    const payload = llmaBuildPayload(captionMsg, 'caption');
+    payload.media = [upload];
     llmaStreamResponse(payload, text => llmaSendToPromptBox(text));
 }
 

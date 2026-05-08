@@ -43,6 +43,23 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the built-in generate_image tool to create images via the user's backends.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.UNTESTED));
 
+    /// <summary>Permission to use the <c>create_image_preset</c> built-in tool. The actual preset
+    /// save also requires SwarmUI's core <c>manage_presets</c> permission (checked at the
+    /// AddNewPreset endpoint level), so this gate is purely about whether the LLM is allowed to
+    /// initiate the operation.</summary>
+    public static readonly PermInfo PermToolCreateImagePreset = Permissions.Register(new(
+        "llm_tool_create_image_preset", "[LLM Tool] Create Image Preset",
+        "Allows the LLM to call the built-in create_image_preset tool, which saves a new T2I preset to the calling user's account. The user must also have SwarmUI's core 'Manage Presets' permission for the save to actually succeed.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.UNTESTED));
+
+    /// <summary>Permission to use the vision-related built-in tools (<c>caption_image</c>,
+    /// <c>fuse_image_descriptions</c>, <c>batch_caption_folder</c>). These all run a vision LLM
+    /// pass on user-supplied imagery; gating them as a group keeps role config simple.</summary>
+    public static readonly PermInfo PermToolVision = Permissions.Register(new(
+        "llm_tool_vision", "[LLM Tool] Vision",
+        "Allows the LLM to call the built-in vision tools (caption_image, fuse_image_descriptions, batch_caption_folder). Each runs a vision-model pass on user-supplied images.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>web_search</c> built-in tool.</summary>
     public static readonly PermInfo PermToolWebSearch = Permissions.Register(new(
         "llm_tool_web_search", "[LLM Tool] Web Search",
@@ -98,6 +115,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCountTokens, false, PermChat);
         // Settings
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);
@@ -132,6 +150,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantDeleteAssistant, true, PermSettings);
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantSetActiveAssistant, true, PermSettings);
         API.RegisterAPICall(AssistantEndpoints.LLMAssistantUploadAssistantAvatar, true, PermSettings);
+        API.RegisterAPICall(AssistantEndpoints.LLMAssistantGetStarterTemplates, false, PermSettings);
         // Tools
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTools, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTool, false, PermSettings);
