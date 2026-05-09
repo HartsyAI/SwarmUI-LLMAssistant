@@ -1,0 +1,196 @@
+/* ================================================================
+   LLM Assistant — Floating Companion Overlay (Phase 1)
+
+   Lives at document.body level (not inside the LLM Assistant tab),
+   so it floats over every SwarmUI tab. Uses theme variables only.
+   Compact state = portrait + button row + small bubble.
+   Expanded state = compact + visible input field below.
+   ================================================================ */
+
+.llma-companion {
+    position: fixed;
+    /* corner is set inline by JS via top/right/bottom/left */
+    z-index: 600;
+    width: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    user-select: none;
+    pointer-events: auto;
+    transition: opacity 0.18s ease;
+    /* fall back if no inline opacity is set */
+    opacity: 0.95;
+}
+
+.llma-companion-portrait-wrap {
+    position: relative;
+    align-self: center;
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    border: 2px solid var(--emphasis, #7c8aff);
+    background: var(--background-soft, #1c1c24);
+    overflow: hidden;
+    cursor: grab;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.llma-companion-portrait-wrap:hover {
+    transform: scale(1.05);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+.llma-companion-portrait-wrap:active {
+    cursor: grabbing;
+}
+.llma-companion-portrait {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+    -webkit-user-drag: none;
+}
+.llma-companion-close {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 14px;
+    line-height: 14px;
+    padding: 0;
+    cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s ease;
+}
+.llma-companion-close:hover { background: rgba(220, 60, 60, 0.85); }
+.llma-companion-portrait-wrap:hover .llma-companion-close { display: flex; }
+
+/* ── Speech bubble ────────────────────────────────────────── */
+.llma-companion-bubble {
+    background: var(--background, #15151c);
+    color: var(--text, #d8d8e2);
+    border: 1px solid var(--border-color, #3a3a48);
+    border-radius: 10px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    line-height: 1.45;
+    min-height: 38px;
+    max-height: 220px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    /* Subtle tail using a triangle pseudo-element pointing up at the portrait */
+    position: relative;
+}
+.llma-companion-bubble:empty::before {
+    content: 'Hi! Click an action or expand to chat.';
+    color: var(--text-soft, #8a8a98);
+    font-style: italic;
+}
+.llma-companion-bubble-streaming { border-color: var(--emphasis, #7c8aff); }
+.llma-companion-typing {
+    display: inline-block;
+    color: var(--text-soft, #8a8a98);
+    animation: llma-companion-pulse 1.1s ease-in-out infinite;
+}
+@keyframes llma-companion-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+.llma-companion-tool-pill {
+    display: inline-block;
+    margin: 4px 4px 0 0;
+    padding: 1px 6px;
+    font-size: 10.5px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--emphasis, #7c8aff) 14%, transparent);
+    color: var(--emphasis, #7c8aff);
+    border: 1px solid color-mix(in srgb, var(--emphasis, #7c8aff) 30%, transparent);
+}
+
+/* ── Action button row ────────────────────────────────────── */
+.llma-companion-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    justify-content: center;
+}
+.llma-companion-action {
+    flex: 1 1 auto;
+    min-width: 56px;
+    padding: 5px 8px;
+    font-size: 11.5px;
+    background: var(--background-soft, #1c1c24);
+    color: var(--text, #d8d8e2);
+    border: 1px solid var(--border-color, #3a3a48);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+.llma-companion-action:hover {
+    background: color-mix(in srgb, var(--emphasis, #7c8aff) 18%, var(--background-soft, #1c1c24));
+    border-color: var(--emphasis, #7c8aff);
+}
+
+/* ── Inline input (expanded state) ───────────────────────── */
+.llma-companion-input-wrap {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+.llma-companion-input {
+    flex: 1;
+    padding: 5px 8px;
+    font-size: 12px;
+    background: var(--background, #15151c);
+    color: var(--text, #d8d8e2);
+    border: 1px solid var(--border-color, #3a3a48);
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.12s ease;
+}
+.llma-companion-input:focus { border-color: var(--emphasis, #7c8aff); }
+
+/* Pending-action state: button queued an action (eg "explain a feature") and is waiting
+   for the user to type what they want. Highlights the input so it's clear *why* the
+   placeholder changed. */
+.llma-companion-input-wrap.llma-companion-pending .llma-companion-input {
+    border-color: var(--emphasis, #7c8aff);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--emphasis, #7c8aff) 22%, transparent);
+}
+.llma-companion-send {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #3a3a48);
+    background: var(--background-soft, #1c1c24);
+    color: var(--text, #d8d8e2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+.llma-companion-send:hover {
+    background: var(--emphasis, #7c8aff);
+    color: #fff;
+    border-color: var(--emphasis, #7c8aff);
+}
+
+/* ── Expanded state (visual hint that the bubble is the focus) ── */
+.llma-companion-expanded .llma-companion-bubble {
+    min-height: 60px;
+}
+
+/* ── Reduce visual weight when not in focus ───────────────── */
+.llma-companion:not(:hover):not(.llma-companion-expanded) .llma-companion-actions {
+    opacity: 0.85;
+}

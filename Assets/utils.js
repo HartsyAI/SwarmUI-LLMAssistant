@@ -370,6 +370,36 @@ const LLMA_DEFAULT_SETTINGS = {
         enterToSend:     true,
         showTokens:      true,
     },
+    // Floating Companion overlay (Clippy-style helper). Defaults to OFF — opt-in.
+    companion: {
+        enabled: false,
+        // Empty = follow whichever assistant the user has marked active. Otherwise an explicit id.
+        personaId: '',
+        corner: 'bottom-right',
+        offsetX: 24,
+        offsetY: 24,
+        opacity: 0.95,
+        expanded: false,
+        buttons: {
+            ask: true,
+            critique_last_image: true,
+            help_with_prompt: true,
+            suggest_preset: true,
+            explain_feature: true,
+            daily_tip: true,
+        },
+        chatter: {
+            quietMode: false,
+            greeting: true,
+            reactions: false,
+            idle: false,
+            idleMinutes: 8,
+            maxPerSession: 5,
+            quietHours: false,
+            quietStart: 22,
+            quietEnd: 8,
+        },
+    },
     currentModel: null,
 };
 

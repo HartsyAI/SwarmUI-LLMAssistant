@@ -191,6 +191,7 @@
                 <button class="llma-modal-tab active" data-tab="general" role="tab" aria-selected="true">General</button>
                 <button class="llma-modal-tab" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
                 <button class="llma-modal-tab" data-tab="tools" role="tab" aria-selected="false">Tools</button>
+                <button class="llma-modal-tab" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
                 <!-- General Settings -->
@@ -322,6 +323,7 @@
                                 <button class="llma-instr-tab" data-mode="prompt">Prompt</button>
                                 <button class="llma-instr-tab" data-mode="randomprompt">Random</button>
                                 <button class="llma-instr-tab" data-mode="instructiongen">Instruct</button>
+                                <button class="llma-instr-tab" data-mode="companion" title="Short, glanceable replies for the floating Companion overlay">Companion</button>
                             </div>
                             <div class="llma-instr-default-wrap">
                                 <label class="llma-instr-sublabel" for="llma-instr-area">Default <small>(used when no variant matches)</small></label>
@@ -455,6 +457,117 @@
                                 <input type="checkbox" id="llma-tool-scope-shared">
                                 <span>Shared (visible to all users)</span>
                             </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Companion -->
+                <div class="llma-modal-panel" id="llma-settings-companion" style="display:none;">
+                    <div class="llma-setting-section">
+                        <h4>Floating Companion</h4>
+                        <div class="llma-setting-note">
+                            A small in-page helper that floats over the SwarmUI UI. Click the persona's
+                            avatar to ask a quick question, send your last image for a critique, or get
+                            prompt suggestions — all powered by the assistant you pick below.
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-enabled">Enable Companion</label>
+                            <input type="checkbox" id="llma-s-companion-enabled">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-persona">Persona</label>
+                            <select id="llma-s-companion-persona">
+                                <option value="">(Use my active assistant)</option>
+                            </select>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-corner">Snap Corner</label>
+                            <select id="llma-s-companion-corner">
+                                <option value="bottom-right">Bottom-right</option>
+                                <option value="bottom-left">Bottom-left</option>
+                                <option value="top-right">Top-right</option>
+                                <option value="top-left">Top-left</option>
+                            </select>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-opacity">Opacity</label>
+                            <div class="llma-range-wrap">
+                                <input type="range" id="llma-s-companion-opacity" min="0.4" max="1" step="0.05" value="0.95">
+                                <span class="llma-range-val" id="llma-s-companion-opacity-val">0.95</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="llma-setting-section">
+                        <h4>Quick Actions</h4>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-ask">Ask anything</label>
+                            <input type="checkbox" id="llma-s-companion-btn-ask" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-critique">Critique my last image</label>
+                            <input type="checkbox" id="llma-s-companion-btn-critique" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-prompt">Help with my prompt</label>
+                            <input type="checkbox" id="llma-s-companion-btn-prompt" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-preset" title="Suggest one of your saved Generate-tab presets that matches what you're trying to make">Suggest a preset</label>
+                            <input type="checkbox" id="llma-s-companion-btn-preset" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-explain" title="Open an inline question; the companion will look up the answer in SwarmUI's bundled docs">Explain a feature</label>
+                            <input type="checkbox" id="llma-s-companion-btn-explain" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-btn-tip" title="Surface one quick, useful SwarmUI tip">Daily tip</label>
+                            <input type="checkbox" id="llma-s-companion-btn-tip" checked>
+                        </div>
+                    </div>
+                    <div class="llma-setting-section">
+                        <h4>Ambient Chatter</h4>
+                        <div class="llma-settings-note">
+                            Lets the companion speak up on its own. Each trigger has its own toggle —
+                            keep what you like, turn off what you don't. <strong>Quiet Mode</strong>
+                            is a master mute that overrides every trigger below.
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-quiet" title="Master mute — keeps the overlay visible but suppresses every unsolicited message">Quiet Mode (master mute)</label>
+                            <input type="checkbox" id="llma-s-companion-chat-quiet">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-greeting" title="Say hi once per browser session when you first load SwarmUI">Greet on session start</label>
+                            <input type="checkbox" id="llma-s-companion-chat-greeting" checked>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-reactions" title="One-line comment after a Generate-tab image finishes (throttled and capped)">React to generations</label>
+                            <input type="checkbox" id="llma-s-companion-chat-reactions">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-idle" title="Pipe up after you've been idle for the configured number of minutes">Idle nudges</label>
+                            <input type="checkbox" id="llma-s-companion-chat-idle">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-idle-min">Idle threshold (minutes)</label>
+                            <input type="number" id="llma-s-companion-chat-idle-min" min="2" max="120" value="8">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-cap" title="Hard cap on how many unsolicited messages the companion sends per browser session, across all triggers">Max chatter per session</label>
+                            <input type="number" id="llma-s-companion-chat-cap" min="0" max="50" value="5">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-qh" title="Suppress all chatter between the hours below (24h clock). Useful if you leave SwarmUI open overnight.">Use quiet hours</label>
+                            <input type="checkbox" id="llma-s-companion-chat-qh">
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-qh-start">Quiet hours start</label>
+                            <input type="number" id="llma-s-companion-chat-qh-start" min="0" max="23" value="22">
+                            <span class="llma-setting-hint">0–23</span>
+                        </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-companion-chat-qh-end">Quiet hours end</label>
+                            <input type="number" id="llma-s-companion-chat-qh-end" min="0" max="23" value="8">
+                            <span class="llma-setting-hint">0–23</span>
                         </div>
                     </div>
                 </div>

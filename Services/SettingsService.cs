@@ -59,6 +59,7 @@ public static class SettingsService
             [InstructionIds.Prompt] = DefaultInstructions.Prompt,
             [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
             [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen,
+            [InstructionIds.Companion] = DefaultInstructions.Companion,
             ["custom"] = new JObject()
         },
         ["featureMappings"] = new JObject
@@ -69,7 +70,52 @@ public static class SettingsService
             [FeatureKeys.VisionMode] = InstructionIds.Vision,
             [FeatureKeys.PromptMode] = InstructionIds.Prompt,
             [FeatureKeys.RandomPrompt] = InstructionIds.RandomPrompt,
-            [FeatureKeys.GenerateInstruction] = InstructionIds.InstructionGen
+            [FeatureKeys.GenerateInstruction] = InstructionIds.InstructionGen,
+            [FeatureKeys.CompanionMode] = InstructionIds.Companion
+        },
+        ["companion"] = BuildDefaultCompanionSettings()
+    };
+
+    /// <summary>Default companion overlay settings — a per-user block controlling whether the
+    /// floating in-page helper is visible, which assistant powers it, and which quick-action
+    /// buttons / chatter triggers are enabled. Per-user only; no shared layer (each user picks
+    /// their own companion experience).</summary>
+    public static JObject BuildDefaultCompanionSettings() => new()
+    {
+        // Master on/off. Defaults to OFF so the companion is always opt-in.
+        ["enabled"] = false,
+        // Which assistant powers the companion. Empty string = follow the user's active assistant.
+        ["personaId"] = "",
+        // Snap corner: top-left | top-right | bottom-left | bottom-right. Free-drag offsets stack on top.
+        ["corner"] = "bottom-right",
+        ["offsetX"] = 24,
+        ["offsetY"] = 24,
+        ["opacity"] = 0.95,
+        ["expanded"] = false,
+        ["buttons"] = new JObject
+        {
+            [InstructionIds.Companion + "_ask"] = true,
+            ["critique_last_image"] = true,
+            ["help_with_prompt"] = true,
+            ["suggest_preset"] = true,
+            ["explain_feature"] = true,
+            ["daily_tip"] = true
+        },
+        // Ambient chatter — unsolicited messages from the companion. Default values are
+        // deliberately conservative: greeting on, reactions and idle off, so a fresh install
+        // doesn't surprise the user. Quiet mode is the master mute the user can hit if any
+        // of the other triggers ever feel intrusive.
+        ["chatter"] = new JObject
+        {
+            ["quietMode"] = false,
+            ["greeting"] = true,
+            ["reactions"] = false,
+            ["idle"] = false,
+            ["idleMinutes"] = 8,
+            ["maxPerSession"] = 5,
+            ["quietHours"] = false,
+            ["quietStart"] = 22,
+            ["quietEnd"] = 8
         }
     };
 
@@ -91,7 +137,8 @@ public static class SettingsService
             [InstructionIds.Caption] = DefaultInstructions.Caption,
             [InstructionIds.Prompt] = DefaultInstructions.Prompt,
             [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
-            [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen
+            [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen,
+            [InstructionIds.Companion] = DefaultInstructions.Companion
         },
         ["parameters"] = new JObject(),
         ["enabledToolIds"] = new JArray(ToolConstants.BuiltInIds.Cast<object>().ToArray()),
@@ -377,5 +424,25 @@ public static class DefaultInstructions
         create a clear, effective system prompt / instruction set. The instruction should be specific,
         well-structured, and optimized for LLM performance.
         Output ONLY the instruction text, no meta-commentary.
+        """;
+
+    /// <summary>Companion overlay persona — short, glanceable, single-paragraph replies designed for
+    /// the small floating speech bubble. Borrows the Swarmie chat persona's helpfulness but trims it to
+    /// fit a Clippy-style ambient helper rather than a full chat transcript.</summary>
+    public const string Companion = """
+        You are {{assistantName}}, a friendly floating helper inside SwarmUI — a Stable Diffusion image generation interface.
+        You appear as a small character in the corner of the user's screen and reply in a tiny speech bubble. Today is {{currentDate}}.
+
+        {{userProfile}}
+
+        # How you respond
+        - Keep replies to ONE short paragraph (about 1–4 sentences). No headings, no long bullet lists, no preamble.
+        - Be concrete and useful. If the user is asking about an image they made, look at the image and its metadata, point at the most likely fix first, and only mention secondary suggestions if they're clearly worth it.
+        - When citing a SwarmUI doc via the swarm_docs tool, mention the doc name briefly (e.g. "the Prompt Syntax doc covers this") instead of a full source citation footer.
+        - When suggesting parameter changes, state the current value and the recommended one ("CFG 2 → try 4–6") so the user can act on it immediately.
+        - If you genuinely don't know, say so in one line — don't invent details.
+
+        # Tools
+        Prefer fast tools (swarm_docs read, memory) over slow ones in companion mode. Don't kick off image generation unless the user explicitly asks ("make it" / "generate"). Avoid long agentic chains — one or two tool calls at most before answering.
         """;
 }

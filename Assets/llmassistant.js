@@ -7,7 +7,7 @@
 'use strict';
 
 // -- Instruction Keys --
-const LLMA_INSTRUCTION_KEYS = ['chat', 'vision', 'caption', 'prompt', 'randomprompt', 'instructiongen'];
+const LLMA_INSTRUCTION_KEYS = ['chat', 'vision', 'caption', 'prompt', 'randomprompt', 'instructiongen', 'companion'];
 
 // Rotating tips shown on the personalized welcome hero. One is picked at random
 // each time llmaRenderPersonalizedWelcome() runs (per the user's "change each time" pref).
@@ -594,6 +594,7 @@ function llmaRenderAssistantPanel(assistantId) {
                 ${assistant.instructions?.caption ? '<span class="llma-mem-chip">Caption</span>' : ''}
                 ${assistant.instructions?.prompt ? '<span class="llma-mem-chip">Prompt</span>' : ''}
                 ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip">Random</span>' : ''}
+                ${assistant.instructions?.companion ? '<span class="llma-mem-chip">Companion</span>' : ''}
             </div>
         </div>
         <div class="llma-panel-assets">
@@ -942,9 +943,10 @@ function llmaSetupSettingsModal() {
 
     // Sync range sliders
     const rangeMap = [
-        { range: 'llma-s-temperature',    val: 'llma-s-temperature-val'    },
-        { range: 'llma-s-top-p',          val: 'llma-s-top-p-val'          },
-        { range: 'llma-s-repeat-penalty', val: 'llma-s-repeat-penalty-val' },
+        { range: 'llma-s-temperature',        val: 'llma-s-temperature-val'        },
+        { range: 'llma-s-top-p',              val: 'llma-s-top-p-val'              },
+        { range: 'llma-s-repeat-penalty',     val: 'llma-s-repeat-penalty-val'     },
+        { range: 'llma-s-companion-opacity',  val: 'llma-s-companion-opacity-val'  },
     ];
     for (const { range, val } of rangeMap) {
         const input = document.getElementById(range);
@@ -1013,6 +1015,32 @@ function llmaReadSettingsFromModal() {
     u.enterToSend     = document.getElementById('llma-s-enter-send')?.checked ?? true;
     u.showTokens      = document.getElementById('llma-s-show-tokens')?.checked ?? true;
     LLMAState.settings.ui = u;
+
+    // Companion settings — preserve unread fields (offsetX/Y, expanded) so dragging the
+    // overlay on screen and saving from the modal don't fight each other.
+    const c = LLMAState.settings.companion || {};
+    c.enabled   = document.getElementById('llma-s-companion-enabled')?.checked ?? false;
+    c.personaId = document.getElementById('llma-s-companion-persona')?.value ?? '';
+    c.corner    = document.getElementById('llma-s-companion-corner')?.value ?? 'bottom-right';
+    c.opacity   = parseFloat(document.getElementById('llma-s-companion-opacity')?.value) || 0.95;
+    c.buttons = c.buttons || {};
+    c.buttons.ask                 = document.getElementById('llma-s-companion-btn-ask')?.checked ?? true;
+    c.buttons.critique_last_image = document.getElementById('llma-s-companion-btn-critique')?.checked ?? true;
+    c.buttons.help_with_prompt    = document.getElementById('llma-s-companion-btn-prompt')?.checked ?? true;
+    c.buttons.suggest_preset      = document.getElementById('llma-s-companion-btn-preset')?.checked ?? true;
+    c.buttons.explain_feature     = document.getElementById('llma-s-companion-btn-explain')?.checked ?? true;
+    c.buttons.daily_tip           = document.getElementById('llma-s-companion-btn-tip')?.checked ?? true;
+    c.chatter = c.chatter || {};
+    c.chatter.quietMode      = document.getElementById('llma-s-companion-chat-quiet')?.checked ?? false;
+    c.chatter.greeting       = document.getElementById('llma-s-companion-chat-greeting')?.checked ?? true;
+    c.chatter.reactions      = document.getElementById('llma-s-companion-chat-reactions')?.checked ?? false;
+    c.chatter.idle           = document.getElementById('llma-s-companion-chat-idle')?.checked ?? false;
+    c.chatter.idleMinutes    = Math.max(2, parseInt(document.getElementById('llma-s-companion-chat-idle-min')?.value, 10) || 8);
+    c.chatter.maxPerSession  = Math.max(0, parseInt(document.getElementById('llma-s-companion-chat-cap')?.value, 10) || 5);
+    c.chatter.quietHours     = document.getElementById('llma-s-companion-chat-qh')?.checked ?? false;
+    c.chatter.quietStart     = Math.max(0, Math.min(23, parseInt(document.getElementById('llma-s-companion-chat-qh-start')?.value, 10) || 22));
+    c.chatter.quietEnd       = Math.max(0, Math.min(23, parseInt(document.getElementById('llma-s-companion-chat-qh-end')?.value, 10) || 8));
+    LLMAState.settings.companion = c;
 }
 
 function llmaWriteSettingsToModal() {
@@ -1033,6 +1061,49 @@ function llmaWriteSettingsToModal() {
     llmaSetElChecked('llma-s-markdown',     u.markdownEnabled !== false);
     llmaSetElChecked('llma-s-enter-send',   u.enterToSend     !== false);
     llmaSetElChecked('llma-s-show-tokens',  u.showTokens      !== false);
+
+    // Companion section
+    const c = LLMAState.settings?.companion || LLMA_DEFAULT_SETTINGS.companion;
+    llmaSetElChecked('llma-s-companion-enabled', !!c.enabled);
+    llmaSetEl('llma-s-companion-corner', c.corner ?? 'bottom-right');
+    llmaSetEl('llma-s-companion-opacity', c.opacity ?? 0.95);
+    llmaSetEl('llma-s-companion-opacity-val', c.opacity ?? 0.95, 'text');
+    llmaPopulateCompanionPersonaSelect(c.personaId ?? '');
+    llmaSetElChecked('llma-s-companion-btn-ask',      c.buttons?.ask                 !== false);
+    llmaSetElChecked('llma-s-companion-btn-critique', c.buttons?.critique_last_image !== false);
+    llmaSetElChecked('llma-s-companion-btn-prompt',   c.buttons?.help_with_prompt    !== false);
+    llmaSetElChecked('llma-s-companion-btn-preset',   c.buttons?.suggest_preset      !== false);
+    llmaSetElChecked('llma-s-companion-btn-explain',  c.buttons?.explain_feature     !== false);
+    llmaSetElChecked('llma-s-companion-btn-tip',      c.buttons?.daily_tip           !== false);
+
+    const ch = c.chatter || LLMA_DEFAULT_SETTINGS.companion.chatter;
+    llmaSetElChecked('llma-s-companion-chat-quiet',     !!ch.quietMode);
+    llmaSetElChecked('llma-s-companion-chat-greeting',  ch.greeting !== false);
+    llmaSetElChecked('llma-s-companion-chat-reactions', !!ch.reactions);
+    llmaSetElChecked('llma-s-companion-chat-idle',      !!ch.idle);
+    llmaSetEl('llma-s-companion-chat-idle-min', ch.idleMinutes ?? 8);
+    llmaSetEl('llma-s-companion-chat-cap',      ch.maxPerSession ?? 5);
+    llmaSetElChecked('llma-s-companion-chat-qh',         !!ch.quietHours);
+    llmaSetEl('llma-s-companion-chat-qh-start', ch.quietStart ?? 22);
+    llmaSetEl('llma-s-companion-chat-qh-end',   ch.quietEnd   ?? 8);
+}
+
+// Populates the Companion persona dropdown from the loaded assistants list. Selects
+// the persisted personaId, or "" (= follow active assistant) when none is saved or the
+// saved id is no longer valid (e.g. assistant was deleted).
+function llmaPopulateCompanionPersonaSelect(selectedId) {
+    const sel = document.getElementById('llma-s-companion-persona');
+    if (!sel) return;
+    const opts = ['<option value="">(Use my active assistant)</option>'];
+    for (const a of (LLMAState.assistants || [])) {
+        const id = llmaEscapeHtml(a.id);
+        const name = llmaEscapeHtml(a.name || a.id);
+        opts.push(`<option value="${id}">${name}</option>`);
+    }
+    sel.innerHTML = opts.join('');
+    // Only restore the saved value if it still matches one of the options; otherwise blank.
+    const exists = !selectedId || (LLMAState.assistants || []).some(a => a.id === selectedId);
+    sel.value = exists ? (selectedId || '') : '';
 }
 
 function llmaApplySettingsToState() {
@@ -1040,6 +1111,11 @@ function llmaApplySettingsToState() {
     LLMAState.enterToSend     = LLMAState.settings?.ui?.enterToSend     !== false;
     LLMAState.showTokens      = LLMAState.settings?.ui?.showTokens      !== false;
     llmaUpdateContextBar();
+    // Companion overlay lives outside the LLM Assistant tab — re-apply visibility / position
+    // / opacity now that settings have been saved.
+    if (typeof llmaCompanionApplySettings === 'function') {
+        llmaCompanionApplySettings();
+    }
 }
 
 // -- Assistant List in Settings --

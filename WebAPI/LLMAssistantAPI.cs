@@ -108,6 +108,15 @@ public static class LLMAssistantAPI
         "Allows the LLM to list and read SwarmUI's bundled documentation files (docs/*.md). Sandboxed strictly to the docs folder — cannot access user data or other files. Used by Swarmie and other helper assistants to give exact, doc-grounded how-to answers.",
         PermissionDefault.USER, LLMAssistantPermGroup));
 
+    /// <summary>Permission to use the floating Companion overlay (Clippy-style helper). Gates
+    /// both the overlay itself and the <c>LLMAssistantGetCompanionContext</c> endpoint that
+    /// surfaces the user's most recent generated image to the companion. Default POWERUSERS so
+    /// it stays opt-in; admins can grant or deny instance-wide.</summary>
+    public static readonly PermInfo PermCompanion = Permissions.Register(new(
+        "llm_companion", "LLM Companion Overlay",
+        "Allows using the floating Companion overlay — a small in-page helper that can critique your last image, suggest prompt fixes, and answer quick questions through the LLM Assistant.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     public static void Register()
     {
         // Chat
@@ -160,6 +169,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetToolConfig, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSetToolConfig, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetImagePresets, false, PermSettings);
+        // Companion overlay
+        API.RegisterAPICall(CompanionEndpoints.LLMAssistantGetCompanionContext, false, PermCompanion);
         // User memory / profile (strictly per-user, gated behind PermChat since it's personal
         // conversation state rather than extension configuration)
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetUserProfile, false, PermChat);

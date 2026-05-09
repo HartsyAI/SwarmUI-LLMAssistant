@@ -16,6 +16,58 @@ public static class MigrationService
         MigrateToAssistants();
         MigrateTools();
         BackfillBuiltInTools();
+        BackfillCompanionDefaults();
+    }
+
+    /// <summary>Idempotent top-up for the floating Companion overlay. Adds the default
+    /// <c>companion</c> instruction text to any existing built-in assistant that doesn't
+    /// have one yet, and seeds the shared <c>companion</c> settings block. Does NOT touch
+    /// custom user assistants — those keep whatever the user authored, and the resolver
+    /// already falls back to the global default instruction if they leave it blank.</summary>
+    private static void BackfillCompanionDefaults()
+    {
+        try
+        {
+            JObject settings = SettingsService.GetSettings();
+            bool changed = false;
+            // Seed the global instructions[companion] entry (used as the resolver fallback)
+            if (settings["instructions"] is JObject instr && instr[InstructionIds.Companion] is null)
+            {
+                instr[InstructionIds.Companion] = DefaultInstructions.Companion;
+                changed = true;
+            }
+            // Top up the default (built-in) assistant. Custom assistants keep whatever the user has.
+            if (settings["assistants"] is JObject assistants
+                && assistants[AssistantConstants.DefaultId] is JObject defaultAssistant
+                && defaultAssistant["instructions"] is JObject defaultInstr
+                && defaultInstr[InstructionIds.Companion] is null)
+            {
+                defaultInstr[InstructionIds.Companion] = DefaultInstructions.Companion;
+                changed = true;
+            }
+            // Seed the global companion settings block (only used as the baseline; per-user
+            // overrides live in the user's personal layer).
+            if (settings["companion"] is null)
+            {
+                settings["companion"] = SettingsService.BuildDefaultCompanionSettings();
+                changed = true;
+            }
+            // Wire the feature mapping so InstructionService can resolve `companion-mode`.
+            if (settings["featureMappings"] is JObject mappings && mappings[FeatureKeys.CompanionMode] is null)
+            {
+                mappings[FeatureKeys.CompanionMode] = InstructionIds.Companion;
+                changed = true;
+            }
+            if (changed)
+            {
+                SettingsService.SaveSettings(settings);
+                Logs.Info("[LLMAssistant] Backfilled companion instruction + settings defaults.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Companion backfill failed: {ex.Message}");
+        }
     }
 
     /// <summary>Seeds built-in tools into settings and enables them on the default assistant for existing installs.</summary>

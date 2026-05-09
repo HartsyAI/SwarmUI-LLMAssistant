@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 
@@ -111,7 +112,10 @@ public static class ToolEndpoints
     }
 
     /// <summary>Lists the calling user's saved T2I presets — used by the generate_image tool
-    /// config UI to populate the default-preset dropdown.</summary>
+    /// config UI to populate the default-preset dropdown, and by the Companion overlay's
+    /// "Suggest a preset" button. The <c>summary</c> field surfaces the same one-line breakdown
+    /// (model, steps, sampler, dimensions, LoRAs) that the LLM sees when picking presets via
+    /// the agentic tool flow, so the Companion has enough context to recommend intelligently.</summary>
     public static async Task<JObject> LLMAssistantGetImagePresets(Session session)
     {
         JArray presets = [];
@@ -122,7 +126,8 @@ public static class ToolEndpoints
                 presets.Add(new JObject
                 {
                     ["title"] = preset.Title,
-                    ["description"] = preset.Description ?? ""
+                    ["description"] = preset.Description ?? "",
+                    ["summary"] = GenerateImageTool.FormatPresetSummary(preset)
                 });
             }
         }

@@ -9,9 +9,13 @@ public static class InstructionIds
     public const string Prompt = "prompt";
     public const string RandomPrompt = "randomprompt";
     public const string InstructionGen = "instructiongen";
+    /// <summary>Short, glanceable single-paragraph replies tuned for the floating Companion overlay
+    /// (Clippy-style helper). Used when a Companion message is sent — falls back to <see cref="Chat"/>
+    /// if an assistant has not defined its own companion text.</summary>
+    public const string Companion = "companion";
 
     /// <summary>All built-in instruction IDs in display order.</summary>
-    public static readonly string[] All = [Chat, Vision, Caption, Prompt, RandomPrompt, InstructionGen];
+    public static readonly string[] All = [Chat, Vision, Caption, Prompt, RandomPrompt, InstructionGen, Companion];
 }
 
 /// <summary>Feature mapping keys that bind UI features to instruction IDs.</summary>
@@ -24,6 +28,7 @@ public static class FeatureKeys
     public const string PromptMode = "prompt-mode";
     public const string RandomPrompt = "random-prompt";
     public const string GenerateInstruction = "generate-instruction";
+    public const string CompanionMode = "companion-mode";
 }
 
 /// <summary>Message role identifiers.</summary>
