@@ -135,6 +135,131 @@ function llmaAppendMessageToDOM(role, content, imageBase64, msgId, meta) {
     return id;
 }
 
+// -- In-thread find --
+// Cmd/Ctrl+Shift+F opens an inline find bar over the current thread's messages. Browser's
+// native Cmd/Ctrl+F is left alone so power users keep it. Wraps matched text in <mark> elements
+// scoped to .llma-msg-bubble; navigation between matches scrolls the active one into view.
+let llmaFindState = { matches: [], index: -1, query: '' };
+
+function llmaOpenFindBar() {
+    const bar = document.getElementById('llma-find-bar');
+    const input = document.getElementById('llma-find-input');
+    if (!bar || !input) return;
+    bar.style.display = '';
+    input.focus();
+    input.select();
+}
+
+function llmaCloseFindBar() {
+    const bar = document.getElementById('llma-find-bar');
+    if (!bar) return;
+    bar.style.display = 'none';
+    llmaClearFindHighlights();
+    llmaFindState = { matches: [], index: -1, query: '' };
+}
+
+function llmaClearFindHighlights() {
+    const container = document.getElementById('llma-messages');
+    if (!container) return;
+    // Replace each mark with its text. Walk a static copy of the NodeList since we mutate the DOM.
+    const marks = Array.from(container.querySelectorAll('mark.llma-find-mark'));
+    for (const m of marks) {
+        const parent = m.parentNode;
+        if (!parent) continue;
+        parent.replaceChild(document.createTextNode(m.textContent || ''), m);
+        parent.normalize();
+    }
+}
+
+function llmaRunFind(query) {
+    llmaClearFindHighlights();
+    llmaFindState = { matches: [], index: -1, query: query || '' };
+    const container = document.getElementById('llma-messages');
+    const countEl = document.getElementById('llma-find-count');
+    if (!container || !query) {
+        if (countEl) countEl.textContent = '0 / 0';
+        return;
+    }
+    const needle = query.toLowerCase();
+    // Walk all text nodes inside message bubbles. Skip nodes inside <code>/<pre> only to keep
+    // the highlight cheap on assistant messages with lots of code (search still hits inline text).
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+        acceptNode: (node) => {
+            if (!node.nodeValue || !node.nodeValue.toLowerCase().includes(needle)) return NodeFilter.FILTER_REJECT;
+            if (node.parentElement?.closest('mark.llma-find-mark')) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+        }
+    });
+    const toProcess = [];
+    let n; while ((n = walker.nextNode())) toProcess.push(n);
+    for (const text of toProcess) {
+        const value = text.nodeValue;
+        const lower = value.toLowerCase();
+        let start = 0;
+        const frag = document.createDocumentFragment();
+        let idx;
+        while ((idx = lower.indexOf(needle, start)) !== -1) {
+            if (idx > start) frag.appendChild(document.createTextNode(value.slice(start, idx)));
+            const mark = document.createElement('mark');
+            mark.className = 'llma-find-mark';
+            mark.textContent = value.slice(idx, idx + needle.length);
+            frag.appendChild(mark);
+            llmaFindState.matches.push(mark);
+            start = idx + needle.length;
+        }
+        if (start < value.length) frag.appendChild(document.createTextNode(value.slice(start)));
+        text.parentNode?.replaceChild(frag, text);
+    }
+    if (llmaFindState.matches.length > 0) {
+        llmaFindState.index = 0;
+        llmaScrollToCurrentMatch();
+    }
+    if (countEl) {
+        countEl.textContent = llmaFindState.matches.length === 0
+            ? '0 / 0'
+            : `${llmaFindState.index + 1} / ${llmaFindState.matches.length}`;
+    }
+}
+
+function llmaScrollToCurrentMatch() {
+    const m = llmaFindState.matches[llmaFindState.index];
+    if (!m) return;
+    for (const other of llmaFindState.matches) other.classList.remove('active');
+    m.classList.add('active');
+    m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function llmaFindNext(dir) {
+    const len = llmaFindState.matches.length;
+    if (len === 0) return;
+    llmaFindState.index = (llmaFindState.index + dir + len) % len;
+    llmaScrollToCurrentMatch();
+    const countEl = document.getElementById('llma-find-count');
+    if (countEl) countEl.textContent = `${llmaFindState.index + 1} / ${len}`;
+}
+
+function llmaSetupFindBar() {
+    const input = document.getElementById('llma-find-input');
+    const close = document.getElementById('llma-find-close');
+    const prev  = document.getElementById('llma-find-prev');
+    const next  = document.getElementById('llma-find-next');
+    if (input) {
+        input.addEventListener('input', llmaDebounce(() => llmaRunFind(input.value.trim()), 150));
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                llmaFindNext(e.shiftKey ? -1 : 1);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                llmaCloseFindBar();
+            }
+        });
+    }
+    close?.addEventListener('click', llmaCloseFindBar);
+    prev?.addEventListener('click',  () => llmaFindNext(-1));
+    next?.addEventListener('click',  () => llmaFindNext(+1));
+}
+
 function llmaCreateActionBtn(text, onClick) {
     const btn = document.createElement('button');
     btn.className = 'llma-msg-action-btn';
@@ -167,7 +292,18 @@ function llmaSetupInput() {
         input.addEventListener('paste', e => llmaHandlePaste(e));
     }
 
-    // File attach
+    // File attach. The label opens a file picker via the hidden input; intercept the click
+    // on the label so users on a confirmed text-only model get a toast instead of attaching
+    // an image the backend will silently ignore.
+    const attachLabel = document.getElementById('llma-attach-label');
+    if (attachLabel) {
+        attachLabel.addEventListener('click', (e) => {
+            if (attachLabel.getAttribute('aria-disabled') === 'true') {
+                e.preventDefault();
+                llmaShowToast("This model doesn't support image input. Pick a vision model first.", 'info');
+            }
+        });
+    }
     const attachFile = document.getElementById('llma-attach-file');
     if (attachFile) {
         attachFile.addEventListener('change', () => {
@@ -175,7 +311,8 @@ function llmaSetupInput() {
         });
     }
 
-    // Drag & drop on input area
+    // Drag & drop on input area. Honors the same gate as the paperclip — dropping an image
+    // onto a text-only model would just be silently discarded by the backend, so block early.
     const inputArea = document.querySelector('.llma-input-wrap');
     if (inputArea) {
         inputArea.addEventListener('dragover', e => { e.preventDefault(); inputArea.style.borderColor = 'var(--emphasis)'; });
@@ -186,7 +323,14 @@ function llmaSetupInput() {
             const files = e.dataTransfer?.files;
             if (files?.length > 0) {
                 for (const f of files) {
-                    if (f.type.startsWith('image/')) { llmaHandleAttach(f); return; }
+                    if (f.type.startsWith('image/')) {
+                        if (attachLabel?.getAttribute('aria-disabled') === 'true') {
+                            llmaShowToast("This model doesn't support image input.", 'info');
+                            return;
+                        }
+                        llmaHandleAttach(f);
+                        return;
+                    }
                 }
             }
         });
@@ -263,6 +407,9 @@ function llmaBuildPayload(message, instructionId, options = {}) {
     if (get('temperature') !== undefined) payload.temperature = get('temperature');
     if (get('maxTokens'))   payload.maxTokens = get('maxTokens');
     if (get('contextMessages') > 0) payload.maxContextMessages = get('contextMessages');
+    // Seed: -1 means "random, let the backend pick"; only forward when the user pinned a value.
+    const seed = get('seed');
+    if (typeof seed === 'number' && seed >= 0) payload.seed = seed;
     if (options.media) payload.media = options.media;
     return payload;
 }
@@ -307,11 +454,24 @@ function llmaStreamResponse(payload, onComplete) {
                 llmaSetStreaming(false);
                 return;
             }
+            // Backend status events — eg LlamaSharp's "loading_model" before the disk read kicks
+            // off. The typing-indicator dots already exist in the bubble; we swap them for a labeled
+            // spinner so the user knows something is happening during a multi-second model load.
+            if (data.status) {
+                if (data.status === 'loading_model') {
+                    llmaShowLoadStatusInBubble(bubble, `Loading model ${data.model || ''}…`);
+                } else if (data.status === 'model_ready') {
+                    llmaShowLoadStatusInBubble(bubble, null);
+                }
+                return;
+            }
             if (data.chunk) {
                 if (firstChunk) {
                     firstChunk = false;
                     const typing = bubble?.querySelector('.llma-typing');
                     if (typing) typing.remove();
+                    // Drop any lingering load-status indicator the moment real tokens start flowing.
+                    llmaShowLoadStatusInBubble(bubble, null);
                 }
                 streamingText += data.chunk;
                 LLMAState._streamingText = streamingText;
@@ -421,6 +581,29 @@ function llmaStreamResponse(payload, onComplete) {
 function llmaShowErrorInBubble(bubble, error) {
     if (!bubble) return;
     bubble.innerHTML = `<span class="llma-msg-error">Error: ${llmaEscapeHtml(error)}</span>`;
+}
+
+// Replaces (or removes) the bubble's typing indicator with a labeled spinner. Used for slow
+// backend startup events — most importantly LlamaSharp model loads which can take 10+ seconds
+// on a cold start. Passing label=null clears the indicator (called once the first real chunk arrives).
+function llmaShowLoadStatusInBubble(bubble, label) {
+    if (!bubble) return;
+    let banner = bubble.querySelector('.llma-load-status');
+    if (label === null || label === undefined) {
+        banner?.remove();
+        return;
+    }
+    if (!banner) {
+        // Hide the typing dots while the status banner is up; we re-insert dots once load finishes.
+        const typing = bubble.querySelector('.llma-typing');
+        if (typing) typing.style.display = 'none';
+        banner = document.createElement('div');
+        banner.className = 'llma-load-status';
+        banner.innerHTML = '<span class="llma-spinner" aria-hidden="true"></span><span class="llma-load-status-text"></span>';
+        bubble.insertBefore(banner, bubble.firstChild);
+    }
+    const text = banner.querySelector('.llma-load-status-text');
+    if (text) text.textContent = label;
 }
 
 function llmaStopGeneration() {
@@ -827,6 +1010,11 @@ function llmaRenderToolCall(bubble, call) {
     const wrap = document.createElement('div');
     wrap.className = 'llma-tool-call-bubble pending';
     wrap.setAttribute('data-tool-id', call.id || '');
+    // Persist the tool name + args on the bubble so D3's retry button can re-issue the same call
+    // without needing to round-trip through the message history (which the user might have edited).
+    wrap.setAttribute('data-tool-name', call.name || '');
+    try { wrap.setAttribute('data-tool-args', JSON.stringify(call.arguments ?? {})); }
+    catch { wrap.setAttribute('data-tool-args', '{}'); }
 
     const header = document.createElement('div');
     header.className = 'llma-tool-call-header';
@@ -843,13 +1031,18 @@ function llmaRenderToolCall(bubble, call) {
 
     const status = document.createElement('span');
     status.className = 'llma-tool-call-status';
-    status.textContent = 'running\u2026';
+    // Spinner stays in the DOM next to the status text while the call is pending.
+    // The tool-result handler swaps the bubble class from .pending to .success/.error,
+    // which hides the spinner via a CSS rule keyed on the parent .pending state.
+    status.innerHTML = '<span class="llma-spinner" aria-hidden="true"></span><span>running\u2026</span>';
     header.appendChild(status);
 
     const toggle = document.createElement('button');
     toggle.className = 'llma-tool-call-toggle';
     toggle.textContent = '\u25be'; // down-arrow
     toggle.title = 'Toggle details';
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-label', 'Toggle tool call details');
     header.appendChild(toggle);
 
     const body = document.createElement('div');
@@ -874,8 +1067,9 @@ function llmaRenderToolCall(bubble, call) {
     body.appendChild(resultSlot);
 
     toggle.addEventListener('click', () => {
-        wrap.classList.toggle('collapsed');
-        toggle.textContent = wrap.classList.contains('collapsed') ? '\u25b8' : '\u25be';
+        const collapsed = wrap.classList.toggle('collapsed');
+        toggle.textContent = collapsed ? '\u25b8' : '\u25be';
+        toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
     });
 
     wrap.appendChild(header);
@@ -1040,7 +1234,47 @@ function llmaRenderToolResult(bubble, toolResult) {
         resultWrap.appendChild(pre);
     }
 
+    // Retry affordance — only when the call failed AND the wrapper has the original args.
+    // Re-runs via LLMAssistantExecuteTool (the standalone tool runner) and shows the new
+    // result in place. Does NOT amend the conversation history server-side — purely a manual
+    // "did the tool start working?" check the user can fire without re-prompting the LLM.
+    if (!success && callBubble) {
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'basic-button llma-tool-retry-btn';
+        retryBtn.type = 'button';
+        retryBtn.textContent = 'Retry';
+        retryBtn.title = 'Re-run this tool with the same arguments. Does not affect the chat history.';
+        retryBtn.addEventListener('click', () => llmaRetryToolCall(callBubble, retryBtn));
+        resultWrap.appendChild(retryBtn);
+    }
+
     slot.appendChild(resultWrap);
+}
+
+// Re-runs a tool call standalone. Doesn't mutate the saved thread — the original tool result
+// stays in the LLM's view of history. This is purely a user-facing "did the tool start working?"
+// check after, eg, fixing a config / restoring network access.
+async function llmaRetryToolCall(callBubble, button) {
+    const toolName = callBubble.getAttribute('data-tool-name');
+    let args = {};
+    try { args = JSON.parse(callBubble.getAttribute('data-tool-args') || '{}'); }
+    catch { /* leave empty — server will error and we'll display that */ }
+    if (button) { button.disabled = true; button.textContent = 'Retrying…'; }
+    const result = await llmaUserAction(
+        () => llmaRequest('LLMAssistantExecuteTool', { toolId: toolName, arguments: JSON.stringify(args) }),
+        'Retry failed'
+    );
+    if (button) { button.disabled = false; button.textContent = 'Retry'; }
+    if (!result) return;
+    // Surface success/failure as a toast — the original error bubble stays put (it's part of
+    // the persisted transcript) but the user gets confirmation of the new attempt's outcome.
+    const innerResult = result.result || result;
+    const ok = innerResult?.success !== false && !innerResult?.error;
+    if (ok) {
+        llmaShowToast(`${toolName} succeeded on retry.`, 'info');
+    } else {
+        llmaShowToast(`${toolName} still failing: ${innerResult?.error || 'unknown error'}`, 'error');
+    }
 }
 
 // -- Replay tool calls for a stored assistant message (used on thread reload) --

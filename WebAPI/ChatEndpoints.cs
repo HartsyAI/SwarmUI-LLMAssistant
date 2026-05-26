@@ -199,6 +199,8 @@ public static class ChatEndpoints
             string model = rawInput["model"]?.ToString();
             double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
+            // Seed: -1 (or absent) means "random, let the backend pick".
+            long seed = rawInput["seed"]?.Value<long>() ?? -1;
             if (string.IsNullOrEmpty(threadId))
             {
                 return new JObject { ["success"] = false, ["error"] = "threadId is required. Call LLMAssistantCreateThread first." };
@@ -241,7 +243,7 @@ public static class ChatEndpoints
             ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
             input.RequestSession = session;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-            ApplyParameters(input, resolvedParams, temperature, maxTokens);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt.
             // Tool handlers may enrich their descriptions per-user (eg generate_image injecting the
             // user's presets) — apply enrichment before building the prompt.
@@ -374,12 +376,20 @@ public static class ChatEndpoints
         return history;
     }
 
-    /// <summary>Applies per-request parameter overrides on top of resolved parameters.</summary>
-    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens)
+    /// <summary>Applies per-request parameter overrides on top of resolved parameters.
+    /// <paramref name="seed"/> <c>-1</c> means "random, let the backend pick"; any non-negative
+    /// value pins the seed (only backends that honor <see cref="LLMParamInput.Seed"/> will use it).</summary>
+    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1)
     {
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 1024;
         input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;
+        if (seed < 0)
+        {
+            // Pull a default from saved parameters if the request didn't pin one. Saved value -1 means random.
+            seed = parameters?["seed"]?.Value<long>() ?? -1;
+        }
+        input.Seed = seed;
     }
 
     /// <summary>Counts tokens for a block of text or a chat history array.

@@ -130,6 +130,9 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantSaveSettings, true, PermSettings);
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantResetSettings, true, PermSettings);
+        // Audit log — admin-only. The endpoint itself re-checks PermSharedWrite for defense-in-depth.
+        API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetAuditLog, false, PermSharedWrite);
+        API.RegisterAPICall(SettingsEndpoints.LLMAssistantSetAuditLogEnabled, true, PermSharedWrite);
         // Models
         API.RegisterAPICall(ModelEndpoints.LLMAssistantGetModels, false, PermModels);
         // Threads

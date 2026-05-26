@@ -64,6 +64,23 @@ public static class ToolExecutorService
                     return Error($"You do not have permission to use the '{toolId}' tool (handler: {handlerId}). Ask an admin to grant '{requiredPerm.DisplayName}'.");
                 }
             }
+            // Per-user-per-hour rate limit. Applied AFTER perms so a permission-denied caller
+            // doesn't poison their own rate budget. No-op for handlers without a default limit
+            // and for users who explicitly disabled the limit via their tool config.
+            (bool allowed, int limit, int currentCount, TimeSpan retryAfter) = ToolRateLimitService.TryAcquire(session?.User, handlerId);
+            if (!allowed)
+            {
+                int retryMinutes = (int)Math.Ceiling(retryAfter.TotalMinutes);
+                if (retryMinutes < 1) { retryMinutes = 1; }
+                Logs.Warning($"[LLMAssistant] Rate limit hit for user {session?.User?.UserID ?? "<none>"} on handler {handlerId} ({currentCount}/{limit}/hr).");
+                return new JObject
+                {
+                    ["success"] = false,
+                    ["error"] = $"Rate limit exceeded for '{toolId}' ({limit}/hour). Try again in ~{retryMinutes} minute{(retryMinutes == 1 ? "" : "s")}.",
+                    ["rateLimited"] = true,
+                    ["retryAfterSeconds"] = (int)retryAfter.TotalSeconds,
+                };
+            }
             // Basic validation: ensure required params are present
             string validationError = ValidateArgs(tool["parameters"] as JObject, args);
             if (validationError is not null)
@@ -85,23 +102,41 @@ public static class ToolExecutorService
             JObject result = await handler.Execute(context);
             if (result is null)
             {
-                return Error("Tool returned null result.");
+                result = Error("Tool returned null result.");
             }
             if (result["success"] is null)
             {
                 result["success"] = true;
             }
+            // Audit the call after execution so we capture the outcome (success/failure + error).
+            // No-op for non-audited handlers and when the audit flag is off.
+            AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, result);
             return result;
         }
         catch (OperationCanceledException)
         {
-            return Error("Tool execution timed out or was cancelled.");
+            JObject cancelled = Error("Tool execution timed out or was cancelled.");
+            // Still audit cancellations — long-running shell/file operations that get killed are
+            // exactly the events an admin would want to see post-incident.
+            AuditLogService.RecordToolCall(GetHandlerIdSafe(toolId, session), toolId, session?.User, assistantId, threadId, args, cancelled);
+            return cancelled;
         }
         catch (Exception ex)
         {
             Logs.Error($"[LLMAssistant] Tool {toolId} threw: {ex.Message}");
-            return Error(ex.Message);
+            JObject err = Error(ex.Message);
+            AuditLogService.RecordToolCall(GetHandlerIdSafe(toolId, session), toolId, session?.User, assistantId, threadId, args, err);
+            return err;
         }
+    }
+
+    /// <summary>Best-effort handler-id lookup for the audit path on the exception branches.
+    /// We've already left the scope where handlerId was a local, so re-resolve. Returns empty
+    /// string on any failure so the audit call is still a safe no-op.</summary>
+    private static string GetHandlerIdSafe(string toolId, Session session)
+    {
+        try { return ToolRegistryService.GetTool(toolId, user: session?.User)?["handlerId"]?.ToString() ?? ""; }
+        catch { return ""; }
     }
 
     private static JObject Error(string message)

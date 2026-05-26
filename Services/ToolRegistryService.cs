@@ -123,9 +123,12 @@ public static class ToolRegistryService
         {
             JObject shared = SettingsService.GetSettings();
             JObject tools = shared["tools"] as JObject ?? [];
+            bool isUpdate = tools.ContainsKey(id);
             ApplyToolUpsert(tools, id, stripped);
             shared["tools"] = tools;
             SettingsService.ReplaceSharedSettings(shared);
+            AuditLogService.RecordSharedWrite(isUpdate ? "update" : "create", $"tool:{id}", user,
+                new JObject { ["name"] = stripped["name"]?.ToString(), ["handlerId"] = stripped["handlerId"]?.ToString() });
         }
         else
         {
@@ -213,6 +216,7 @@ public static class ToolRegistryService
             }
             sharedTools.Remove(toolId);
             SettingsService.ReplaceSharedSettings(shared);
+            AuditLogService.RecordSharedWrite("delete", $"tool:{toolId}", user);
             return true;
         }
         else

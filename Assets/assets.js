@@ -414,11 +414,13 @@ function llmaOpenAsset(id) {
     }
 
     overlay.style.display = '';
+    if (typeof llmaInstallFocusTrap === 'function') llmaInstallFocusTrap(overlay);
 }
 
 function llmaCloseAssetViewer() {
     const overlay = document.getElementById('llma-asset-overlay');
     if (overlay) overlay.style.display = 'none';
+    if (typeof llmaRemoveFocusTrap === 'function') llmaRemoveFocusTrap(overlay);
     LLMAState.activeAssetId = null;
 }
 
@@ -767,9 +769,13 @@ function llmaRenderJsonTree(value, key) {
         tail.className = 'llma-json-tail';
         tail.innerHTML = '<span class="llma-json-bracket">]</span>';
         node.appendChild(tail);
-        head.querySelector('.llma-json-toggle').addEventListener('click', (e) => {
+        const toggleBtn = head.querySelector('.llma-json-toggle');
+        toggleBtn.setAttribute('aria-expanded', 'true');
+        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            node.classList.toggle('collapsed');
+            const collapsed = node.classList.toggle('collapsed');
+            toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         });
     } else if (typeof value === 'object') {
         const keys = Object.keys(value);
@@ -785,9 +791,13 @@ function llmaRenderJsonTree(value, key) {
         tail.className = 'llma-json-tail';
         tail.innerHTML = '<span class="llma-json-bracket">}</span>';
         node.appendChild(tail);
-        head.querySelector('.llma-json-toggle').addEventListener('click', (e) => {
+        const toggleBtn = head.querySelector('.llma-json-toggle');
+        toggleBtn.setAttribute('aria-expanded', 'true');
+        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            node.classList.toggle('collapsed');
+            const collapsed = node.classList.toggle('collapsed');
+            toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
         });
     }
     return node;

@@ -183,6 +183,16 @@
     overflow: auto;
 }
 
+/* Retry button on failed tool-result bubbles. Subtle outline so it doesn't fight the error
+   styling, but clearly clickable. */
+.llma-tool-retry-btn {
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 3px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
 /* ── Tool List (Settings Tab) ───────────────────────────────── */
 .llma-tool-list-wrap {
     display: flex;

@@ -129,6 +129,64 @@
     color: var(--text-soft);
     opacity: 0.35;
 }
+/* Select-mode toggle in the sidebar header — checkbox icon, dims when inactive. */
+.llma-select-toggle {
+    width: 22px;
+    height: 22px;
+    margin-right: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    opacity: 0.55;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 3px;
+}
+.llma-select-toggle:hover { opacity: 0.9; background: color-mix(in srgb, var(--emphasis) 12%, transparent); }
+.llma-select-toggle[aria-pressed="true"] {
+    opacity: 1;
+    color: var(--emphasis);
+    background: color-mix(in srgb, var(--emphasis) 14%, transparent);
+}
+
+/* Bulk-action bar — appears between search and thread list while select mode is on. */
+.llma-bulk-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin: 0 8px 6px;
+    background: color-mix(in srgb, var(--emphasis) 10%, transparent);
+    border-radius: 4px;
+    font-size: 12px;
+}
+.llma-bulk-count { flex: 1; color: var(--text-soft); }
+.llma-bulk-delete { padding: 3px 10px; font-size: 11px; }
+.llma-bulk-delete:disabled { opacity: 0.5; cursor: not-allowed; }
+.llma-bulk-cancel {
+    width: 20px;
+    height: 20px;
+    border: none;
+    background: transparent;
+    color: var(--text-soft);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 3px;
+}
+.llma-bulk-cancel:hover { background: color-mix(in srgb, var(--text-soft) 18%, transparent); color: var(--text); }
+
+/* Checkboxes only show on the row in select mode. Forced-visible rename/delete buttons stay
+   in their normal flow but render dimmer to keep the row focus on the checkbox. */
+.llma-thread-item.select-mode .llma-thread-rename,
+.llma-thread-item.select-mode .llma-thread-del { display: none; }
+.llma-thread-checkbox {
+    flex: 0 0 auto;
+    margin: 0 4px 0 0;
+    cursor: pointer;
+}
+
 .llma-thread-item {
     display: flex;
     align-items: center;
@@ -167,7 +225,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.llma-thread-del {
+.llma-thread-del,
+.llma-thread-rename {
     visibility: hidden;
     flex-shrink: 0;
     width: 16px;
@@ -177,7 +236,7 @@
     color: var(--text-soft);
     opacity: 0.4;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 12px;
     line-height: 1;
     padding: 0;
     border-radius: 3px;
@@ -185,8 +244,24 @@
     align-items: center;
     justify-content: center;
 }
-.llma-thread-item:hover .llma-thread-del { visibility: visible; }
+.llma-thread-del { font-size: 14px; }
+.llma-thread-item:hover .llma-thread-del,
+.llma-thread-item:hover .llma-thread-rename { visibility: visible; }
 .llma-thread-del:hover { opacity: 0.9; background: color-mix(in srgb, var(--backend-errored) 15%, transparent); }
+.llma-thread-rename:hover { opacity: 0.9; background: color-mix(in srgb, var(--emphasis) 18%, transparent); }
+/* Inline rename input replaces the name span. Keep it tight so it fits the row height. */
+.llma-thread-rename-input {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    padding: 0 4px;
+    font: inherit;
+    color: inherit;
+    background: var(--background);
+    border: 1px solid var(--emphasis);
+    border-radius: 3px;
+    outline: none;
+}
 
 /* ── Main Area ──────────────────────────────────────────────── */
 .llma-main {

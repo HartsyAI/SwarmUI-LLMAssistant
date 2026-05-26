@@ -139,11 +139,14 @@ public static class AssistantService
         {
             JObject shared = SettingsService.GetSettings();
             JObject assistants = shared["assistants"] as JObject ?? [];
+            bool isUpdate = assistants.ContainsKey(id);
             assistants[id] = stripped;
             shared["assistants"] = assistants;
             SettingsService.ReplaceSharedSettings(shared);
             // Shared changes affect every user.
             AssistantResolver.InvalidateAll();
+            AuditLogService.RecordSharedWrite(isUpdate ? "update" : "create", $"assistant:{id}", user,
+                new JObject { ["name"] = stripped["name"]?.ToString() });
             // If the shared version previously existed as a personal override and the user is just
             // pushing it "up", we don't auto-delete the personal copy — that's an explicit user action.
         }
@@ -204,6 +207,7 @@ public static class AssistantService
             }
             SettingsService.ReplaceSharedSettings(shared);
             AssistantResolver.InvalidateAll();
+            AuditLogService.RecordSharedWrite("delete", $"assistant:{assistantId}", user);
             return true;
         }
         else

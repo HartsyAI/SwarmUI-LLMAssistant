@@ -50,6 +50,8 @@ public static class SettingsEndpoints
             sharedCurrent.Merge(filtered, MergeSettings);
             SettingsService.ReplaceSharedSettings(sharedCurrent);
             saved = sharedCurrent;
+            AuditLogService.RecordSharedWrite("update", "settings", session.User,
+                new JObject { ["keys"] = string.Join(",", filtered.Properties().Select(p => p.Name)) });
         }
         else
         {
@@ -79,6 +81,7 @@ public static class SettingsEndpoints
                 return new JObject { ["success"] = false, ["error"] = "Shared reset requires llm_shared_write permission." };
             }
             JObject defaults = SettingsService.ResetSettings();
+            AuditLogService.RecordSharedWrite("reset", "settings", session.User);
             return new JObject { ["success"] = true, ["settings"] = defaults, ["scope"] = SettingsService.ScopeShared };
         }
         SettingsService.ResetUserSettings(session.User);
@@ -88,5 +91,39 @@ public static class SettingsEndpoints
             ["settings"] = SettingsService.GetMergedSettings(session.User),
             ["scope"] = SettingsService.ScopePersonal
         };
+    }
+
+    /// <summary>Returns the current audit log state — enabled flag and the most recent N entries.
+    /// Admin-only (requires <see cref="LLMAssistantAPI.PermSharedWrite"/>) because the log contains
+    /// other users' tool invocations. Default tail size is 200; callable with <c>{ max: N }</c>.</summary>
+    public static async Task<JObject> LLMAssistantGetAuditLog(Session session, JObject rawInput)
+    {
+        if (session.User?.HasPermission(LLMAssistantAPI.PermSharedWrite) != true)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Audit log access requires llm_shared_write permission." };
+        }
+        int max = rawInput?["max"]?.Value<int>() ?? 200;
+        if (max < 1) { max = 1; }
+        if (max > 5000) { max = 5000; }
+        return new JObject
+        {
+            ["success"] = true,
+            ["enabled"] = AuditLogService.IsEnabled(),
+            ["entries"] = AuditLogService.ReadRecent(max)
+        };
+    }
+
+    /// <summary>Toggles the audit log on/off. Admin-only. Persists across restarts.</summary>
+    public static async Task<JObject> LLMAssistantSetAuditLogEnabled(Session session, JObject rawInput)
+    {
+        if (session.User?.HasPermission(LLMAssistantAPI.PermSharedWrite) != true)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Audit log toggle requires llm_shared_write permission." };
+        }
+        bool enabled = rawInput?["enabled"]?.Value<bool>() ?? false;
+        AuditLogService.SetEnabled(enabled);
+        // Self-audit the toggle so we can see who turned auditing off (only logged if it was already on).
+        AuditLogService.RecordSharedWrite("audit_" + (enabled ? "enabled" : "disabled"), "audit_log", session.User);
+        return new JObject { ["success"] = true, ["enabled"] = enabled };
     }
 }

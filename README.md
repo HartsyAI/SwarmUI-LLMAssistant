@@ -1,30 +1,113 @@
 # SwarmUI LLM Assistant Extension
 
-> [!WARNING]
-> **WORK IN PROGRESS — NOT YET FUNCTIONAL.**
-> This extension depends on SwarmUI's native LLM backend infrastructure (`AbstractLLMBackend`, the `LLM` model type, and per-backend model discovery), which is still being implemented upstream. Until that work lands, this extension will load but cannot actually send messages to a model — the chat UI, threads, assistants, and tool system are all wired up and ready, but there are no LLM backends for the dispatcher to route requests to. Track SwarmUI's LLM backend development before expecting this extension to do anything useful.
+A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI). Adds persistent chat threads, customizable assistants, agentic tool calling, vision support, a floating in-page companion, per-user memory, and deep Generate-tab prompt integration — all built on SwarmUI's native LLM backend registry (`AbstractLLMBackend`, `Models/llm/`, the new `LLM` model type).
 
-A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) that adds persistent chat threads, customizable assistants, tool/function calling, vision support, and deep Generate-tab prompt integration — all using SwarmUI's native LLM backend registry. The extension itself does not manage backends; it only talks to whatever LLM backends SwarmUI already knows about.
+The extension never spawns or talks directly to an LLM runtime. It dispatches into whatever backends SwarmUI already knows about — local llama.cpp, Anthropic Claude, or any OpenAI-compatible HTTP API (Ollama, LM Studio, vLLM, OpenAI itself, …).
+
+> **Status:** Feature-complete for the v1.0 ship. See [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md) for the open polish items and the v1.1+ roadmap.
+
+---
 
 ## Features
 
-- **Full Chat Tab** — Dedicated tab with a resizable sidebar (thread list), message area, right-hand assistant panel, and split bars that save their widths to localStorage
-- **Persistent Threads** — Chats are saved per-user. Search, rename, and delete from the sidebar. Empty threads are not saved until the first message is sent
-- **Assistants** — Multiple customizable personalities, each with its own avatar, color, category, per-mode system prompts, and parameter overrides (temperature, max tokens, top-p)
-- **Instruction Modes** — 6 built-in instruction types per assistant: `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`
-- **Tool Calling** — Agentic loop with prompt-injection-based tool calls. Ships with built-in tools including `generate_image` (calls SwarmUI's T2I engine), `web_search`, `file_read` (sandboxed), and `file_write` (sandboxed). Up to 8 iterations per user turn. Extensible via a `ToolHandler` base class
-- **Vision Support** — Attach images to messages, send them to vision-capable models, generate captions, and feed them back into T2I generation
-- **Streaming Responses** — WebSocket-based token streaming with typing indicator and stop button
-- **Markdown Rendering** — Full markdown, syntax-highlighted code blocks, tables, KaTeX math, and Mermaid diagrams inside bubbles
-- **Generate Tab Integration** — Use `<llmprompt:your prompt>` tags directly in the positive prompt to have an LLM rewrite that segment at generation time
-- **LLM Model Type** — Registers a new `LLM` model type in SwarmUI's model registry (alongside `Stable-Diffusion`, `LoRA`, etc.), backed by `Models/llm/`
-- **Prompt Caching** — Cache LLM responses for identical prompts during batch generation
-- **Wildcard Seed Sync** — Generate a consistent wildcard seed per batch so `<wildcard>` selections match across a batch while the LLM is still called only once
+### Core chat
+- **Dedicated tab** — Resizable sidebar (threads), main chat area, right-hand assistant panel. Split bars persist their widths to localStorage; double-click to reset.
+- **Server-authoritative threads** — Chat history lives on the server. Edit, delete, rename, search, and export. Empty threads aren't saved until the first message; messages persist *before* the LLM is called so nothing is lost on disconnect.
+- **WebSocket streaming** with typing indicator and stop button.
+- **Markdown rendering** — Full GFM, syntax-highlighted code blocks, tables, KaTeX math, Mermaid diagrams. Output is sanitized through DOMPurify.
+- **Image attachments** — Paperclip or drag-drop. Uploaded once, downscaled to ≤1536px long edge, persisted as URLs on the message so thread blobs stay small.
+- **Token counting** — Exact via the running llama.cpp tokenizer when available; cheap `chars/4` heuristic otherwise.
+
+### Assistants
+- **Personalities with overrides** — Each has its own name, category, avatar, color, per-mode system prompts, and optional parameter overrides (temperature, max tokens, top-p, max context messages).
+- **Built-in default ("Swarmie")** — A SwarmUI-savvy helper that uses the `swarm_docs` tool to answer how-to questions straight from the bundled documentation, with citations.
+- **Starter templates** — Shipped templates include an anime persona, code reviewer, concise translator, story writer, and vision analyzer. Loaded lazily from `Assets/starter-assistants.json`.
+- **Inheritance (`extends`)** — Assistants can inherit from another assistant; instructions and enabled-tool lists merge with the parent. Cycle-safe.
+- **Per-model instruction variants** — Each instruction can carry alternates keyed on model `Family`, `Provider`, `Tag`, `Exact` ID, or `Glob` pattern, resolved at request time.
+- **7 built-in instruction modes** — `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`.
+- **Test runner** in the editor — Run a sample input through the unsaved instruction text before committing.
+
+### Tool calling (agentic)
+The extension implements tool calling via **prompt injection**, so it works with any LLM backend that streams plain text. The streaming layer watches for `</tool_call>`, parses the JSON, dispatches via `ToolExecutorService`, formats the result, and re-prompts. Up to `ToolConstants.MaxAgenticIterations` (8) rounds per user turn before forced termination with `truncated: true`.
+
+**Built-in tools** (13):
+
+| Tool ID | Purpose | Default permission |
+|---|---|---|
+| `generate_image` | Calls SwarmUI's T2I engine. Returns image URL. Per-assistant default preset; presets injected into description per-user. | POWERUSERS (UNTESTED safety) |
+| `create_image_preset` | Saves a T2I preset to the calling user's account. Also requires SwarmUI's core `Manage Presets` permission. | POWERUSERS (UNTESTED) |
+| `caption_image` | Runs a vision model on one image with a chosen caption style. | POWERUSERS |
+| `fuse_image_descriptions` | Captions multiple images with role-specific prompts (style/subject/setting/reference), merges into a unified prompt. | POWERUSERS |
+| `batch_caption_folder` | Captions every image in a folder, writes `.txt` sidecars. Sandboxed. | POWERUSERS |
+| `web_search` | DuckDuckGo HTML scrape. Returns `{title, url, snippet}`. | POWERUSERS (UNTESTED) |
+| `file_read` | Sandboxed read inside SwarmUI's `Data` directory. 65 KB cap. | POWERUSERS (RISKY) |
+| `file_write` | Sandboxed write into `Output/llm_assistant/`. Extension allowlist + per-user extras. 1 MB cap. | POWERUSERS (RISKY) |
+| `http_request` | GET/POST/PUT/DELETE/HEAD/PATCH. SSRF-blocked (loopback / RFC1918 / link-local / cloud metadata). Response capped at 262 KB. | POWERUSERS (RISKY) |
+| `shell_exec` | Arbitrary shell command on the host. **Default permission: NOBODY.** Sandboxed working dir, 30 s timeout, 64 KB output cap. | NOBODY (POWERFUL) |
+| `memory_write` | Writes a strictly per-user memory entry (name, pronouns, bio, current work, preferences, dislikes, facts). | POWERUSERS |
+| `memory_read` | Reads the calling user's profile. | POWERUSERS |
+| `swarm_docs` | Lists/reads SwarmUI's bundled docs. Sandboxed strictly to `docs/`. | USER |
+
+**Custom tools** — Open `Settings > Tools > + Create Tool` to register a new tool. ID, name, description, JSON Schema for parameters, and a handler ID that maps to a registered `ToolHandler`. There's a built-in "Run Test" panel for development. Handler types: `builtin`, plus reserved `mcp_stdio` / `mcp_http` for the planned MCP integration.
+
+### Vision
+Assistants with a `vision` instruction set accept image attachments. The chosen model receives the image inline; the assistant's `vision` prompt is used as system context. Vision also powers the `magic-vision` generate tab action and the `caption_image` tool.
+
+### Assets / Artifacts (Claude-style)
+The right panel maintains a per-thread Assets index, plus a full-size viewer modal.
+
+- Promoted from: assistant messages with fenced code blocks (non-Mermaid), tool results (`generate_image`, `file_read`, `file_write`, etc.).
+- Viewer actions: **Copy**, **Download**, **Use as Prompt** (text → Generate prompt box), **Use as Init** (image → Generate init image).
+- `file_write` results land in `Output/llm_assistant/<relative path>`, appear in chat as a clickable link, and lazy-load their contents in the viewer.
+
+### Companion overlay
+A floating in-page helper, opt-in per user. Snap-corner positioning with drag offsets, expandable text input, and quick action buttons (ask, critique last image, prompt help, suggest preset, explain feature, daily tip). Supports ambient chatter (greeting, reactions to Generate-tab images, idle nudges) with quiet mode, quiet hours, and a per-session cap. Persona resolves to an explicit assistant ID or follows the active assistant.
+
+### Per-user memory
+A strictly per-user profile. Categories: preferred name, pronouns, bio, current work, preferences, dislikes, facts. Capped at 50 list entries, 100 facts, 2000 chars per field. The Swarmie default assistant writes to memory naturally as the conversation reveals it; nothing is ever asked just to fill memory. Memory is never visible to any other user and there is no shared memory layer.
+
+### Multi-user model
+Settings live in two layers:
+
+- **Shared layer** — admin-managed baseline (shared assistants, shared tools, default instructions, default parameters). Gated behind the `llm_shared_write` permission.
+- **User layer** — per-user overrides + personal assistants + personal tools + preferred model.
+
+The UI tags each assistant / tool with a `_scope` badge (`shared` or `personal`) so users see which entries are theirs vs. inherited from the instance.
+
+### Generate-tab integration
+Registers a parameter group called **LLM Prompt Processing** in the Generate sidebar and hooks SwarmUI's prompt parser.
+
+**Parameters:**
+
+| Parameter | Default | Purpose |
+|---|---|---|
+| `LLM Use Cache` | `true` | Reuse responses for identical prompts in a batch. |
+| `LLM Generate Wildcard Seed` | `false` | Generate a shared wildcard seed per batch so `<wildcard>` selections stay consistent while the LLM is called once. |
+| `LLM Model ID` | `default` | Override the LLM model used for prompt processing. |
+| `LLM Instructions` | `prompt` | Instruction set to use. |
+
+**Prompt tags:**
+
+- `<llmprompt:your rough idea>` — At generation time, the inner text is sent to the LLM under the chosen instructions; the tag is replaced by the response.
+- `<llmresponse:…>` — Internal marker for cached responses.
+- `<llmoriginal>` — Re-inject the original (pre-LLM) text into the prompt.
+
+### LLM model registry
+On init, the extension registers an `LLM` model type via `Program.T2IModelSets["LLM"]` with `FolderPaths = Models/llm`. LLM weights appear in SwarmUI's model browser alongside `Stable-Diffusion`, `LoRA`, etc. The `LLM Model ID` parameter pulls from this same registry.
+
+---
 
 ## Prerequisites
 
 - SwarmUI installed and working
-- **One or more LLM backends registered in SwarmUI** — this extension does not install or manage LLM runtimes. Once SwarmUI's native LLM backend support ships, you will be able to add backends in `Server > Backends` the same way you add image generation backends today
+- At least one LLM backend registered. SwarmUI ships three:
+  - `LlamaSharp` (local llama.cpp, GGUF models)
+  - `Anthropic` (Claude API; uses per-user API keys)
+  - `SimpleRemote` (any OpenAI-compatible HTTP API — Ollama, LM Studio, vLLM, OpenAI, OpenRouter, …)
+
+Add backends under **Server > Backends** in the SwarmUI UI.
+
+---
 
 ## Installation
 
@@ -33,232 +116,262 @@ A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/S
    cd /path/to/SwarmUI/src/Extensions/
    git clone https://github.com/Hartsy/SwarmUI-LLMAssistant.git
    ```
-
 2. Run `update-windows.bat` or `update-linuxmac.sh` to recompile SwarmUI.
+3. Restart SwarmUI. The extension loads automatically and adds an **LLM Assistant** tab.
+4. Drop LLM weights (GGUF) into `Models/llm/` if you plan to use the local backend.
+5. Add an LLM backend in **Server > Backends**.
 
-3. Restart SwarmUI. The extension loads automatically and adds an **LLM Assistant** tab to the Text2Image tab group.
-
-4. Drop LLM model files into `Models/llm/` (the folder is created automatically on first run).
-
-5. Add an LLM backend in `Server > Backends` (once SwarmUI exposes this).
+---
 
 ## Usage
 
-### LLM Assistant Tab
+### Welcome → first chat
 
-1. **Pick or create an assistant** — On first open, the welcome gallery shows your assistants. Click one to start chatting. Your last-used assistant is remembered across sessions.
-2. **Chat** — Type in the rounded input bar at the bottom. Enter to send, Shift+Enter for newline. Click the paperclip icon to attach an image.
-3. **Switch assistants** — Click **Switch** in the right-hand panel to return to the welcome gallery, or **Edit** to modify the current assistant.
-4. **Manage threads** — The left sidebar lists all chats grouped by date. Click `+ New` to start a fresh thread with the current assistant (the thread is only saved once you send the first message). Hover a thread to reveal its delete button.
-5. **Resize layout** — Drag the split bars between sidebar / main / panel to resize. Double-click a split bar to reset. Widths are saved to localStorage.
+1. **Pick or create an assistant** — On first open the welcome gallery shows your assistants. Click one to start chatting. Your last-used assistant is remembered.
+2. **Chat** — Type in the rounded input bar at the bottom. Enter sends, Shift+Enter newlines. Paperclip attaches an image (drag-drop also works).
+3. **Switch assistants** — Click **Switch** in the right-hand panel to return to the gallery, **Edit** to modify the current assistant.
+4. **Manage threads** — The left sidebar groups by date. `+ New` starts a thread (only saved on first send). Hover a thread for delete; rename via the inline rename affordance (planned for v1.0 polish — see Roadmap).
+5. **Resize** — Drag the split bars; double-click to reset.
 
-### Top Bar Controls
+### Top bar
+- **Model pill** — Currently selected LLM with a colored status dot. Click to swap models.
+- **Parameters popover** — Per-thread overrides for temperature, max tokens, top-p, context window.
+- **Export** — Thread to JSON, Markdown, or plain text.
+- **Settings** — `General`, `Assistants`, `Tools`, `Companion` tabs.
+- **Sidebar / panel toggles** — Collapse the sidebar or right panel (the panel auto-hides at tablet width).
 
-- **Model pill** — Shows the currently selected LLM model with a colored status dot. Click to open a dropdown and switch models.
-- **Parameters popover** — Per-thread overrides for temperature, max tokens, top-p, and context window size.
-- **Export** — Export the current thread as JSON, Markdown, or plain text.
-- **Settings** — Opens the settings modal with `General`, `Assistants`, and `Tools` tabs.
-- **Sidebar toggle** / **Assistant panel toggle** — Collapse sidebar or right panel (panel toggle auto-shows on tablet-width viewports).
+### Settings — General
 
-### Assistants
+| Setting | Default | Description |
+|---|---|---|
+| Temperature | `1.0` | Sampling temperature |
+| Max Tokens | `1024` | Max response length |
+| Top P | `0.9` | Nucleus sampling cutoff |
+| Context Messages | `0` | Prior messages included per request (`0` = all) |
+| Stream | `true` | WebSocket streaming |
+| Markdown Rendering | `true` | Render markdown in assistant messages |
+| Enter to Send | `true` | Enter sends, Shift+Enter newlines |
+| Show Token Count | `true` | Char/token counter under input |
 
-Open `Settings > Assistants` to create, edit, or delete assistants. Each assistant has:
+> `Top K`, `Repeat Penalty`, and `Seed` fields are currently in the UI but not yet plumbed through to every backend. Tracked under v1.0 polish in [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md).
 
-- **Name, category, description, avatar, color** — Shown in the welcome gallery and right panel
-- **Per-mode system prompts** — Separate instructions for chat, vision, caption, prompt, randomprompt, and instructiongen modes
-- **Parameter overrides** — Optional temperature, max tokens, and top-p that override global defaults for this assistant
-- **Enabled tools** — Checklist of tools this assistant can call. Global tools must also be enabled in the Tools tab for them to actually run
-- **Built-in assistants** are read-only on their core fields but you can toggle enabled tools and per-mode prompts
+### Settings — Assistants
 
-### Tool Calling
+Create, edit, delete, and scope (personal/shared) assistants. Each assistant has name, category, description, avatar (upload supported), color, per-mode instructions with optional per-model variants, parameter overrides, and an enabled-tools checklist. Built-in assistants are read-only on core fields but you can toggle tools and edit per-mode prompts. Tools must also be enabled globally in the Tools tab for them to actually run.
 
-The extension implements tool calling via **prompt injection** (no native OpenAI `tools` / `tool_calls` fields required), so it works with any LLM backend that streams text. Flow:
+### Settings — Tools
 
-1. When the user sends a message, the enabled tools for the current assistant are compiled into a system prompt block listing each tool's name, description, and JSON Schema parameters.
-2. The model is instructed to emit tool calls as `<tool_call>{"name":"TOOL","arguments":{...}}</tool_call>` blocks in its response.
-3. The streaming layer watches for `</tool_call>` and, on match, stops the current generation round, parses all complete calls, and dispatches them to the registered `ToolHandler` via `ToolExecutorService`.
-4. Results are formatted as `<tool_result name="TOOL">...</tool_result>` and appended to the chat history.
-5. The backend is re-invoked with the extended history; the model reads the tool result and continues.
-6. This loops up to `ToolConstants.MaxAgenticIterations` (8) times before the backend forcibly terminates with a `truncated: true` response.
+Create, edit, delete, and test tools. Built-in tools have read-only handler config but their description / enabled state / per-user options (e.g. `generate_image` default preset, `file_write` extension allowlist) are editable.
 
-**Built-in tools:**
+### Settings — Companion
 
-| Tool ID | Handler | Description |
-| --- | --- | --- |
-| `generate_image` | `GenerateImageTool` | Generates an image via SwarmUI's T2I engine and returns the image URL. Useful for assistants that suggest visual content mid-conversation |
-| `web_search` | `WebSearchTool` | HTTP-based web search, returns `{ title, url, snippet }` results |
-| `file_read` | `FileReadTool` | Sandboxed file read from within SwarmUI's data directories. Rejects `..` traversal and absolute paths outside the data root |
-| `file_write` | `FileWriteTool` | Sandboxed text file write into `Output/LLMAssistantFiles/`. Supports safe relative paths + overwrite gating. Returns a URL/path to the created file |
+Master enable, persona (an assistant ID, or follow the active assistant), corner snap, opacity, button checklist, and chatter triggers (greeting / reactions / idle), with quiet mode and quiet hours.
 
-**Custom tools:** Open `Settings > Tools > + Create Tool` to register a new tool. You can set an ID, name, description, JSON Schema for parameters, and a handler ID that must map to a registered `ToolHandler`. There's a built-in "Run Test" panel that lets you execute a tool with arbitrary arguments for development.
-
-Custom handler types are exposed via the `handlerType` field (`builtin`, and reserved values `mcp_stdio`, `mcp_http` for a planned MCP integration).
-
-### Vision
-
-Assistants with a `vision` instruction set can accept image attachments. Click the paperclip icon in the input bar to upload an image — it gets encoded and sent alongside the message text to the selected LLM model. Uses the assistant's `vision` instruction as the system prompt instead of `chat`.
-
-Vision is also used by the `magic-vision` generate tab action to caption an existing image.
-
-### Assets / Artifacts (Claude-style)
-
-The extension maintains a per-thread **Assets** index (shown in the right assistant panel) and a full-size **asset viewer** modal.
-
-- Assets are extracted from:
-  - assistant messages that contain fenced code blocks (non-mermaid fences are promoted into assets)
-  - tool results (for example, `generate_image`, `file_read`, and `file_write`)
-- Click an asset card in the right panel to open it.
-- `file_write` results:
-  - are written to `Output/LLMAssistantFiles/<relative path>`
-  - appear in chat as a clickable link
-  - are promoted into an asset entry
-  - lazy-load their contents from the returned URL when opened
-- The asset viewer includes:
-  - **Copy** (copies text assets to clipboard)
-  - **Download** (downloads the asset content)
-  - **Use as Prompt** (sends text assets to the Generate prompt box)
-  - **Use as Init** (images only: sets the init image on the Generate tab)
-
-### Generate Tab Integration
-
-The extension registers a parameter group called **LLM Prompt Processing** in the Generate tab sidebar and hooks into SwarmUI's prompt parsing system:
-
-**Parameters:**
-
-| Parameter | Default | Description |
-| --- | --- | --- |
-| `LLM Use Cache` | `true` | Cache LLM responses for identical prompts during batch generation |
-| `LLM Generate Wildcard Seed` | `false` | Generate a shared wildcard seed per batch so `<wildcard>` selections stay consistent while the LLM is called once |
-| `LLM Model ID` | `default` | Override the LLM model used for prompt processing |
-| `LLM Instructions` | `prompt` | Which instruction set to use (defaults to the built-in `prompt` mode) |
-
-**Prompt tags:**
-
-- `<llmprompt:your rough idea>` — At generation time, the text inside this tag is sent to the LLM using the chosen instructions, and the tag is replaced with the response
-- `<llmresponse:...>` — Marks an LLM-generated segment (used internally for caching)
-- `<llmoriginal>` — Re-adds the original unprocessed tag content back into the prompt. Useful if your model also benefits from the raw tag-style prompt
+---
 
 ## Architecture
 
 ```
 SwarmUI-LLMAssistant/
-├── LLMAssistantExtension.cs        # Extension entry point (OnPreInit/OnInit)
+├── LLMAssistantExtension.cs        # Entry point — OnPreInit registers assets, OnInit registers model type / tools / API / migrations / GC
 ├── Constants.cs                    # Instruction IDs, feature keys, tool constants, roles
 ├── LLMs/
-│   ├── LLMDispatcher.cs            # Selects first running AbstractLLMBackend
-│   ├── ExtendedLLMInput.cs         # Extends LLMInput with tools, history, assistant ctx
-│   └── LLMStreamHelper.cs          # Agentic streaming loop + WS message plumbing
+│   ├── LLMDispatcher.cs            # Routes to the AbstractLLMBackend that advertises the requested model
+│   ├── LLMModelLookup.cs           # Cached backend.ListModels() lookups (5min TTL)
+│   ├── LLMModelMatcher.cs          # Generic matcher (Exact, Family, Provider, Tag, Glob, Default)
+│   ├── ExtendedLLMInput.cs         # Wraps LLMParamInput; adds Tools and chat-history conversion
+│   └── LLMStreamHelper.cs          # Agentic streaming loop, WS plumbing, server-side persistence
 ├── Services/
-│   ├── SettingsService.cs          # Global settings, default assistant, tool seeding
-│   ├── AssistantService.cs         # Assistant CRUD, per-assistant tool enable
-│   ├── InstructionService.cs       # Built-in + custom instruction sets
-│   ├── ThreadStorageService.cs     # Per-user thread persistence
-│   ├── MigrationService.cs         # Version upgrades (tool seeding, enabledToolIds)
-│   ├── PromptCacheService.cs       # Response cache keyed on prompt+model+instructions
-│   ├── ToolRegistryService.cs      # Tool CRUD + handler lookup
-│   ├── ToolExecutorService.cs      # Execute by tool ID, validate args, wrap errors
-│   └── ToolPromptService.cs        # Tool system prompt builder + <tool_call> parser
+│   ├── AssistantResolver.cs        # Flattens `extends` chains, applies variants — cached per-user
+│   ├── AssistantService.cs         # Assistant CRUD with scope gating
+│   ├── ImageInputResolver.cs       # data URI / local path / HTTPS → raw bytes + MIME
+│   ├── InstructionService.cs       # Built-in + custom instruction resolution with {{var}} substitution
+│   ├── MediaResolver.cs            # LLMMediaAttachment conversion (URL passthrough / local → base64)
+│   ├── MediaStorageService.cs      # Persist chat images; downscale ≤1536px; 10 MB cap
+│   ├── MigrationService.cs         # Idempotent one-time settings upgrades
+│   ├── NetworkSafety.cs            # SSRF guard (loopback / private / link-local / cloud metadata)
+│   ├── OrphanedFileGC.cs           # Daily sweep with 24h grace
+│   ├── PromptCacheService.cs       # LRU cache with request deduplication
+│   ├── SessionStateService.cs      # Per-user active thread / model / assistant
+│   ├── SettingsService.cs          # Shared + user layers; merge view with _scope tagging
+│   ├── StarterAssistantsCache.cs   # Lazy load of Assets/starter-assistants.json
+│   ├── ThreadStorageService.cs     # Per-user thread CRUD; index maintenance
+│   ├── ToolConfigService.cs        # User-default + per-assistant tool config with deep merge
+│   ├── ToolExecutorService.cs      # Dispatch + permission gating + param validation + 60s timeout
+│   ├── ToolPromptService.cs        # Build tool system prompt block; parse <tool_call> blocks
+│   ├── ToolRegistryService.cs      # Tool definitions (settings) + handlers (in-memory)
+│   ├── UserPresetCache.cs          # TTL cache around User.GetAllPresets()
+│   └── UserProfileService.cs       # Strictly per-user memory profile
 ├── Tools/
-│   ├── ToolHandler.cs              # Abstract base for tool handlers
-│   └── BuiltIn/
-│       ├── GenerateImageTool.cs    # Calls SwarmUI T2I engine
-│       ├── WebSearchTool.cs        # HTTPS web search
-│       └── FileReadTool.cs         # Sandboxed file read
+│   ├── ToolHandler.cs              # Abstract base, ExecutionContext shape, EnrichForUser hook
+│   └── BuiltIn/                    # 13 built-in tools (see table above)
 ├── T2I/
-│   ├── PromptProcessor.cs          # Runs on LateSpecialParameterHandlers
-│   └── PromptTagHandler.cs         # Registers params + <llmprompt>/<llmresponse>/<llmoriginal>
+│   ├── PromptProcessor.cs          # LateSpecialParameterHandlers — parses <llmprompt>, calls LLM, injects responses
+│   └── PromptTagHandler.cs         # Registers T2I parameters, hooks prompt parser
 ├── WebAPI/
-│   ├── LLMAssistantAPI.cs          # Endpoint registration under PermSettings
-│   ├── ChatEndpoints.cs            # LLMAssistantSendMessageWS (streaming chat)
-│   ├── AssistantEndpoints.cs       # Assistant CRUD
-│   ├── InstructionEndpoints.cs     # Instruction set CRUD
-│   ├── ThreadEndpoints.cs          # Thread CRUD, active-thread persistence
+│   ├── LLMAssistantAPI.cs          # Endpoint registration + 14 permission definitions
+│   ├── ChatEndpoints.cs            # LLMAssistantSendMessage(WS), CreateThread, TestInstruction, UploadChatImage, CountTokens
+│   ├── AssistantEndpoints.cs       # Assistant CRUD + avatar upload + starter templates
+│   ├── InstructionEndpoints.cs     # Custom instruction CRUD (legacy, kept for T2I tag compatibility)
+│   ├── ThreadEndpoints.cs          # Thread CRUD, message edit/delete, export
 │   ├── ModelEndpoints.cs           # Model listing per backend
-│   ├── SettingsEndpoints.cs        # Global settings get/save
-│   └── ToolEndpoints.cs            # Tool CRUD + manual test execution
-├── Tabs/
-│   └── Text2Image/
-│       └── LLMAssistant.html       # Tab markup (auto-registered by folder convention)
+│   ├── SettingsEndpoints.cs        # Global settings get/save/reset
+│   ├── ToolEndpoints.cs            # Tool CRUD, manual execution, config get/set, image preset list
+│   ├── AssetEndpoints.cs           # Per-thread asset CRUD
+│   ├── SessionEndpoints.cs         # Per-user session state get/set
+│   ├── MemoryEndpoints.cs          # Per-user profile read/clear
+│   └── CompanionEndpoints.cs       # Companion-specific context (last generated image, etc.)
+├── Tabs/Text2Image/
+│   └── LLMAssistant.html           # Tab markup
 └── Assets/
-    ├── llmassistant.js             # Main tab controller, state, welcome gallery
-    ├── chat.js                     # Message rendering, streaming, tool bubbles
-    ├── threads.js                  # Thread list, save/load, group-by-date
-    ├── tools.js                    # Tool management UI (list, editor, test)
-    ├── utils.js                    # CDN loader (marked, KaTeX, Mermaid, highlight.js)
-    ├── llma-layout.css             # Grid container, sidebar, split bars
-    ├── llma-topbar.css             # Top bar, model pill, popovers, context bar
-    ├── llma-welcome.css            # Welcome gallery, assistant cards
-    ├── llma-chat.css               # Messages, bubbles, input pill, attachments
-    ├── llma-panel.css              # Right assistant panel
-    ├── llma-settings.css           # Settings modal, assistant editor
-    ├── llma-tools.css              # Tool call/result bubbles, tool list/editor
-    └── llma-common.css             # Toasts, responsive breakpoints, shared animations
+    ├── llmassistant.js             # Top-level controller + state
+    ├── chat.js                     # Messages, streaming, attachments, message ops
+    ├── threads.js                  # Thread list, save/load, export, search
+    ├── tools.js                    # Tool management UI
+    ├── assets.js                   # Artifact panel + viewer modal
+    ├── companion.js                # Floating overlay
+    ├── utils.js                    # CDN loader (marked / highlight.js / KaTeX / Mermaid / DOMPurify), helpers
+    ├── starter-assistants.json     # Bundled starter templates
+    ├── swarmui-logo.jpg            # Swarmie's avatar
+    └── llma-*.css                  # Layout, topbar, welcome, chat, panel, settings, tools, companion, assets, common
 ```
 
-### Design Notes
+### Design notes
 
-- **No backend ownership.** The extension never spawns, configures, or talks directly to any external LLM process. It only calls into `Program.Backends.RunningBackendsOfType<AbstractLLMBackend>()` and dispatches via SwarmUI's native streaming API. This means adding support for a new LLM runtime is a SwarmUI-level change, not an extension-level change.
-- **Model registry integration.** On init, the extension calls `Program.T2IModelSets["LLM"] = handler` with `FolderPaths = Models/llm`, so LLM models appear in SwarmUI's model browser alongside image models. The `LLM Model ID` T2I parameter pulls from this same registry.
-- **In-tab modal.** The settings dialog is `position: absolute; inset: 0` anchored inside the tab pane, not `position: fixed` to the viewport. This is intentional — Bootstrap modals would float over the entire SwarmUI UI, which breaks the tab metaphor.
-- **Reused SwarmUI styles.** The HTML uses `.basic-button` for all primary buttons, `.splitter-bar` for the resizable dividers (alongside an extension-specific `.llma-splitbar` that adds layout-only rules), and all theme CSS variables (`--text`, `--emphasis`, `--light-border`, etc.). Global scrollbar styling from `site.css` is inherited directly.
-- **CSS `:has()` empty state.** The chat panel uses `:has(.llma-messages:empty)` to vertically center the input with a "How can I help you today?" headline when no messages exist yet, then drops to bottom on first send.
-- **Tool call format.** The prompt injection format is `<tool_call>{"name":"X","arguments":{...}}</tool_call>` / `<tool_result name="X">...</tool_result>`. This is deliberately text-based so it survives any backend that streams plain text — we can add native `tools` / `tool_calls` passthrough later for backends that support the OpenAI schema natively.
+- **No backend ownership.** The extension never spawns or talks directly to any external LLM process. It calls `Program.Backends.RunningBackendsOfType<AbstractLLMBackend>()` and dispatches via SwarmUI's native streaming API. Adding support for a new LLM runtime is a SwarmUI-level change.
+- **Server-authoritative chat history.** The client cannot inject fake history. The user message is appended to the saved thread *before* the LLM is called, so nothing is lost on disconnect. The assistant reply is appended after the agentic loop completes.
+- **In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not `position: fixed` to the viewport. Bootstrap modals would float over the entire SwarmUI UI, which breaks the tab metaphor.
+- **Tool call format.** `<tool_call>{"name":"X","arguments":{...}}</tool_call>` / `<tool_result name="X">…</tool_result>`. Deliberately text-based so it survives any backend that streams plain text. Native `tools` / `tool_calls` passthrough for OpenAI-schema backends is planned for v1.1.
+- **Layered security.** Permission checks at the endpoint level + per-tool gates + SSRF guards on outbound HTTP + path sandboxing on all file IO + dangerous tools defaulting to `NOBODY`.
+- **Reused SwarmUI styles.** `.basic-button`, `.splitter-bar`, all theme CSS variables (`--text`, `--emphasis`, `--light-border`, …). Global scrollbar styling inherited from `site.css`.
 
-### Permissions
+### Permissions (14)
 
-All endpoints are registered under the `PermSettings` permission so they follow SwarmUI's standard user permission system.
+Every endpoint and every dangerous built-in tool has an explicit permission. Defaults are tuned conservatively.
 
-## Configuration
+| Permission | Default | Notes |
+|---|---|---|
+| `llm_chat` | POWERUSERS | Send messages |
+| `llm_settings` | POWERUSERS | Read/write settings, assistants, tools |
+| `llm_models` | POWERUSERS | List available models |
+| `llm_threads` | POWERUSERS | Manage threads + assets + session state |
+| `llm_shared_write` | ADMINS | Write to the shared / admin baseline (vs personal overrides) |
+| `llm_companion` | POWERUSERS | Use the floating overlay |
+| `llm_tool_generate_image` | POWERUSERS (UNTESTED) | Tool gate |
+| `llm_tool_create_image_preset` | POWERUSERS (UNTESTED) | Tool gate |
+| `llm_tool_vision` | POWERUSERS | Caption / fuse / batch caption tools |
+| `llm_tool_web_search` | POWERUSERS (UNTESTED) | Tool gate |
+| `llm_tool_file_read` | POWERUSERS (RISKY) | Tool gate |
+| `llm_tool_file_write` | POWERUSERS (RISKY) | Tool gate |
+| `llm_tool_http_request` | POWERUSERS (RISKY) | Tool gate |
+| `llm_tool_shell_exec` | NOBODY (POWERFUL) | Effectively gives the LLM shell access |
+| `llm_tool_memory` | POWERUSERS | Per-user memory profile |
+| `llm_tool_swarm_docs` | USER | Read SwarmUI's bundled docs |
 
-### Settings Modal
+---
 
-Open the settings gear in the top-right of the LLM Assistant tab.
+## Roadmap
 
-**General tab:**
+See [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md) for the full polish punch list and feature roadmap. Highlights:
 
-| Setting | Default | Description |
-| --- | --- | --- |
-| Temperature | `0.8` | Sampling temperature |
-| Max Tokens | `2048` | Max response length |
-| Top P | `0.9` | Nucleus sampling cutoff |
-| Top K | `40` | Top-K sampling cutoff |
-| Repeat Penalty | `1.1` | Penalty for token repetition |
-| Seed | `-1` | `-1` = random |
-| Context Messages | `0` | How many prior messages to include in each request (`0` = all) |
-| Stream | `true` | Enable WebSocket streaming |
-| Markdown Rendering | `true` | Render markdown in assistant messages |
-| Enter to Send | `true` | Enter sends, Shift+Enter newlines |
-| Show Token Count | `true` | Show char/token counter under input |
+**v1.0 polish (in progress)**
+- Wire (or remove) the unused `Top K` / `Repeat Penalty` / `Seed` UI fields
+- Surface "no backend running" / "load failed" on the welcome gallery instead of silently rendering an empty grid
+- Thread rename UI
+- Include tool calls in thread exports
+- Vision-capable model badge
+- Reset Defaults confirm dialog
+- Keyboard navigation + a11y pass
+- Loading spinners + retry buttons
+- Audit logging for `shell_exec` / `file_write` / shared writes
+- Configurable orphan-GC interval, belt-and-braces sandbox check, per-user rate limits for outbound tools
 
-**Assistants tab:** Create, edit, delete assistants. Each has name, category, description, avatar, color, per-mode instructions, parameter overrides, and enabled tools.
+**v1.1 — Backends & models**
+- First-class Ollama backend (model browser, auto-pull, status)
+- Native OpenAI backend with structured outputs / `tools` passthrough
+- Gemini / Google AI Studio backend
+- Native tool-calling passthrough for backends that support OpenAI-schema `tools` (drops the prompt-injection middleman on those)
+- Model status pills (loading / running / error)
+- Per-user API key UI inside the tab
 
-**Tools tab:** Create, edit, delete, and test tools. Built-in tools can be toggled on/off and have their descriptions edited, but core fields (handler type, handler ID) are read-only.
+**v1.2 — Conversation features**
+- Thread folders / pinning / favorites
+- Fork / branch from a message
+- System-prompt diff view in the editor
+- Token-budget visualizer in the context bar
+- Auto-summarize old turns when context fills
+- Voice input (Whisper) and voice output (TTS, optionally via SwarmUI-AudioLab)
+
+**v1.3 — Tools & extensibility**
+- **MCP (Model Context Protocol)** support — the `mcp_stdio` / `mcp_http` handler types are already reserved
+- Tool marketplace (curated, community-contributed)
+- Per-tool sandbox limits in UI (max output, rate limits, host allowlists)
+- Streaming tool results for long-running tools
+- Tool composition / pipelines without re-prompting the model
+- Code interpreter tool (sandboxed Python)
+- Read-only DB query tool over SwarmUI's own data
+
+**v1.4 — Multi-modal & generation**
+- Inline image edit / refine via `generate_image` with `initImage` from the previous output
+- Audio attachments (STT backend)
+- Video frame extraction + vision
+- Multiple images per message
+- Drag images from the Generate tab history straight into chat
+
+**v1.5 — Collaboration & ops**
+- Shared threads (admin-pinned)
+- Share links with expiry
+- Read-only assistant preview mode
+- Usage dashboard (tokens / tool calls / generations per user, per assistant)
+- Audit log viewer in admin UI
+- Backup / restore (assistant + tool config bundles)
+
+**v1.6 — Agents**
+- Long-running agents persisting across sessions
+- Scheduled assistants
+- Webhook-triggered assistants
+- Multi-agent conversations in one thread
+
+**v1.7 — UX polish**
+- Theme picker beyond SwarmUI defaults
+- Compact / spacious density toggle
+- Mobile-first companion mode
+- First-run tour
+
+---
 
 ## Troubleshooting
 
-**The tab loads but I can't send messages — "No LLM backend is running":**
-- Expected. This extension requires SwarmUI's native LLM backend support, which is not yet shipped. See the warning at the top of this README.
+**"No LLM backend is running":**
+Add a backend under `Server > Backends`. The simplest path is a `SimpleRemoteLLMBackend` pointing at a local Ollama (`http://localhost:11434`).
 
 **Tool calls never fire:**
-- Verify the tool is enabled both globally (`Settings > Tools`) and on the current assistant (`Settings > Assistants > Edit > Enabled Tools`)
-- Check the system prompt preview — if the tool spec isn't in the prompt, the model has no way to discover it
-- Some small models don't follow the `<tool_call>` format reliably. Try a larger/instruction-tuned model
+- Check the tool is enabled both globally (`Settings > Tools`) and on the current assistant (`Settings > Assistants > Edit > Enabled Tools`).
+- Confirm the user has the matching `llm_tool_*` permission.
+- Some small models don't follow the `<tool_call>` format reliably — try a larger or more instruction-tuned model.
 
-**`<llmprompt>` tags are not being processed at generation time:**
-- Make sure the **LLM Prompt Processing** parameter group is toggled on in the Generate tab sidebar
-- Verify an LLM model is selected via `LLM Model ID` or that your assistant has a default model
-- Check the server logs for the `[LLMAssistant]` prefix
+**`<llmprompt>` tags are not processed at generation time:**
+- Make sure the **LLM Prompt Processing** parameter group is toggled on in the Generate sidebar.
+- Verify an LLM model is selected via `LLM Model ID`.
+- Check server logs for the `[LLMAssistant]` prefix.
 
 **Thread list is empty after sending messages:**
-- Threads are only persisted after the first message is sent (empty threads are intentionally not saved)
-- Check `ThreadStorageService` logs for write errors
+- Threads are persisted on first message — sending must have failed. Check `ThreadStorageService` logs.
 
-**Settings modal appears behind the page instead of floating in the tab:**
-- The modal is scoped to the tab pane (not the viewport). If it's rendering outside the tab, check that the `.llma-container` is still `position: relative` and the tab pane has `position: relative; height: 100%`
+**Settings modal appears behind the page:**
+- The modal is scoped to the tab pane (not the viewport). If it's rendering outside the tab, the `.llma-container` is no longer `position: relative` or the tab pane has lost `position: relative; height: 100%`.
+
+**Companion overlay doesn't appear:**
+- It's opt-in. Enable it under `Settings > Companion`. The user must have `llm_companion` permission.
+
+**An assistant says it can't see images:**
+- The current model is not vision-capable, or the model exists but the backend doesn't pass `Media` through. Switch to a known vision model (e.g. `claude-sonnet-4`, a vision-tagged Ollama model, or a multimodal GGUF).
+
+---
 
 ## Changelog
 
-- **1.0.0** — Initial structure. Chat UI, threads, assistants, instructions, tool calling, T2I prompt integration. Pending SwarmUI native LLM backend support to become functional.
+- **1.0.0 (in polish)** — Initial functional release. Chat UI, threads, assistants with inheritance and variants, agentic tool calling with 13 built-in tools, vision, asset system, floating companion, per-user memory, multi-user shared/personal layers, granular permissions, server-authoritative chat history, orphan GC, token counting, Generate-tab integration.
 
 ## License
 
@@ -266,5 +379,5 @@ MIT License — see [LICENSE](LICENSE).
 
 ## Acknowledgments
 
-- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva) — Base platform and the LLM backend infrastructure this extension is waiting on
-- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/) — Markdown, code, math, and diagram rendering inside chat bubbles
+- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva) — Base platform and the LLM backend infrastructure this extension dispatches into.
+- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify) — Markdown, code, math, diagrams, and sanitization.

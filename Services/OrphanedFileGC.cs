@@ -25,8 +25,9 @@ namespace SwarmUI.Extensions.LLMAssistant.Services;
 /// for each user — never touches anything outside that path. Logs every deletion.</para></summary>
 public static class OrphanedFileGC
 {
-    /// <summary>How often the sweep runs.</summary>
-    private static readonly TimeSpan SweepInterval = TimeSpan.FromHours(24);
+    /// <summary>Default sweep interval — overridable via the <see cref="IntervalSettingKey"/>
+    /// admin flag (range clamped to <see cref="MinIntervalHours"/>–<see cref="MaxIntervalHours"/>).</summary>
+    private static readonly TimeSpan DefaultSweepInterval = TimeSpan.FromHours(24);
 
     /// <summary>Minimum age a file must reach before it's eligible for deletion. Avoids racing
     /// in-flight writes that haven't been associated with a thread yet.</summary>
@@ -35,7 +36,54 @@ public static class OrphanedFileGC
     /// <summary>Initial delay before the first sweep, so startup logs aren't cluttered with GC.</summary>
     private static readonly TimeSpan StartupDelay = TimeSpan.FromMinutes(5);
 
+    /// <summary>Hard floor / ceiling for the sweep interval setting. The floor stops a typo
+    /// from burning CPU; the ceiling keeps the value reasonable.</summary>
+    public const double MinIntervalHours = 1.0;
+    public const double MaxIntervalHours = 24.0 * 7; // one week
+
+    /// <summary>GenericData key on the shared user where the configured interval lives.</summary>
+    public const string IntervalDataName = "llmassistant_gc";
+    public const string IntervalSettingKey = "intervalHours";
+
     private static int _started;
+
+    /// <summary>Reads the configured sweep interval. Falls back to the default on any error
+    /// (parse failure, missing setting, etc.) and clamps to the allowed range.</summary>
+    public static TimeSpan GetCurrentInterval()
+    {
+        try
+        {
+            string raw = Program.Sessions?.GenericSharedUser?.GetGenericData(IntervalDataName, IntervalSettingKey);
+            if (string.IsNullOrEmpty(raw)) { return DefaultSweepInterval; }
+            if (!double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double hours))
+            {
+                return DefaultSweepInterval;
+            }
+            hours = Math.Clamp(hours, MinIntervalHours, MaxIntervalHours);
+            return TimeSpan.FromHours(hours);
+        }
+        catch
+        {
+            return DefaultSweepInterval;
+        }
+    }
+
+    /// <summary>Sets the sweep interval. Admin-facing helper — clamps to the allowed range and
+    /// persists. The next iteration of the sweep loop picks up the new value automatically; no
+    /// restart needed.</summary>
+    public static void SetInterval(double hours)
+    {
+        hours = Math.Clamp(hours, MinIntervalHours, MaxIntervalHours);
+        try
+        {
+            Program.Sessions?.GenericSharedUser?.SaveGenericData(IntervalDataName, IntervalSettingKey,
+                hours.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] GC interval write failed: {ex.Message}");
+        }
+    }
 
     /// <summary>Idempotent: starts the background sweeper once. Safe to call from extension OnInit.</summary>
     public static void Start()
@@ -63,7 +111,11 @@ public static class OrphanedFileGC
                 }
                 try
                 {
-                    await Task.Delay(SweepInterval, Program.GlobalProgramCancel);
+                    // Re-read the interval each iteration so admins can retune without restart.
+                    // Add 0–25% jitter so multi-instance deployments don't sweep in lockstep.
+                    TimeSpan interval = GetCurrentInterval();
+                    double jitterMs = interval.TotalMilliseconds * (Random.Shared.NextDouble() * 0.25);
+                    await Task.Delay(interval + TimeSpan.FromMilliseconds(jitterMs), Program.GlobalProgramCancel);
                 }
                 catch (OperationCanceledException) { return; }
             }

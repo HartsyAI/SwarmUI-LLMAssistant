@@ -121,3 +121,95 @@
     .llma-param-row { grid-template-columns: 75px 1fr auto; font-size: 11.5px; }
     .llma-setting-row { grid-template-columns: 110px 1fr auto; }
 }
+
+/* Reusable spinner — used in pending tool bubbles, asset-viewer lazy loads, and welcome skeleton.
+   Pure CSS, no SVG. Inline-block so it sits naturally next to status text. */
+.llma-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    vertical-align: -2px;
+    margin-right: 6px;
+    border: 1.5px solid color-mix(in srgb, var(--text-soft) 30%, transparent);
+    border-top-color: var(--emphasis, var(--text));
+    border-radius: 50%;
+    animation: llmaSpin 0.75s linear infinite;
+}
+.llma-spinner.lg { width: 22px; height: 22px; border-width: 2.5px; }
+@keyframes llmaSpin { to { transform: rotate(360deg); } }
+
+/* Skeleton card — placeholder rendered in the welcome gallery during the first assistant fetch
+   so the page never sits empty. Matches the real card's footprint to prevent layout shift. */
+.llma-asst-card.skeleton {
+    pointer-events: none;
+    cursor: default;
+}
+.llma-asst-card.skeleton .llma-card-visual,
+.llma-asst-card.skeleton .llma-card-name,
+.llma-asst-card.skeleton .llma-card-desc {
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--text-soft) 12%, transparent) 0%,
+        color-mix(in srgb, var(--text-soft) 22%, transparent) 50%,
+        color-mix(in srgb, var(--text-soft) 12%, transparent) 100%);
+    background-size: 200% 100%;
+    animation: llmaShimmer 1.4s ease-in-out infinite;
+    color: transparent;
+    border-radius: 4px;
+}
+.llma-asst-card.skeleton .llma-card-name { height: 14px; margin: 8px 0 4px; }
+.llma-asst-card.skeleton .llma-card-desc { height: 10px; }
+@keyframes llmaShimmer {
+    0%   { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+/* Welcome banner — error / no-backend states shown above the assistant grid.
+   Sits between the personalized hero and the gallery header so users see actionable
+   feedback (instead of a blank grid) when assistants/models/tools failed to load. */
+.llma-welcome-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    margin: 8px auto 12px;
+    max-width: 720px;
+    border-radius: 6px;
+    border: 1px solid var(--light-border, #444);
+    background: var(--background-soft, rgba(120, 120, 120, 0.08));
+    color: var(--text, inherit);
+    font-size: 13px;
+    line-height: 1.4;
+}
+.llma-welcome-banner.error {
+    border-color: rgba(220, 70, 70, 0.55);
+    background: rgba(220, 70, 70, 0.10);
+}
+.llma-welcome-banner.info {
+    border-color: rgba(230, 175, 60, 0.55);
+    background: rgba(230, 175, 60, 0.10);
+}
+.llma-welcome-banner.loading { opacity: 0.65; }
+.llma-banner-icon { font-size: 16px; flex: 0 0 auto; }
+.llma-banner-text { flex: 1 1 auto; }
+.llma-banner-text em { font-style: normal; opacity: 0.85; }
+.llma-banner-retry { flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
+
+/* No-assistants empty state — replaces the gallery when the merged assistant list is genuinely
+   empty (not loading, not erroring). Centered card with a single CTA to open the create flow. */
+.llma-asst-empty {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 36px 24px;
+    border: 1px dashed color-mix(in srgb, var(--text-soft) 35%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--text-soft) 4%, transparent);
+}
+.llma-asst-empty-icon { font-size: 36px; margin-bottom: 8px; }
+.llma-asst-empty-title { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.llma-asst-empty-desc { margin: 0 0 14px; max-width: 460px; color: var(--text-soft); line-height: 1.45; }
+.llma-asst-empty-cta { padding: 6px 14px; }

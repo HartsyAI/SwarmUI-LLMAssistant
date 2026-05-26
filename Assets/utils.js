@@ -25,7 +25,32 @@ const LLMAState = {
     assets:            [],
     activeAssetId:     null,
     userProfile:       null,
+    // Last-load error messages for each fetch the welcome gallery depends on. Null = ok.
+    // Used by the welcome banner so users get actionable feedback instead of a blank gallery.
+    loadErrors:        { assistants: null, models: null, tools: null },
+    // True after llmaLoadModels() saw zero models with no API error. Used to render
+    // a softer "no backend running" banner that's distinct from a hard load failure.
+    noBackendsRunning: false,
 };
+
+// -- Shared Constants --
+// Centralized so every module reads from one place. Module-local timing constants
+// (companion cooldowns, etc.) stay where they're used; these are the values shared
+// across files or that get tweaked often.
+const LLMA_CONSTANTS = Object.freeze({
+    // Toast auto-dismiss duration. Long enough to read, short enough not to linger.
+    TOAST_DURATION_MS:  2600,
+    // Sidebar / panel width bounds — clamp ranges for the resizable split bars.
+    MIN_SIDEBAR_PX:     140,
+    MAX_SIDEBAR_PX:     520,
+    MIN_PANEL_PX:       180,
+    MAX_PANEL_PX:       560,
+    SPLIT_BAR_PX:       5,
+    // Settings modal focus delay — gives the overlay layout a tick to settle before grabbing focus.
+    MODAL_FOCUS_DELAY_MS: 60,
+    // Sidebar focus delay after starting a chat — input element needs to exist first.
+    INPUT_FOCUS_DELAY_MS: 80,
+});
 
 // -- API Helper --
 function llmaRequest(route, args) {
@@ -224,6 +249,56 @@ function llmaGenerateId() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// -- Vision capability inference --
+// Best-effort, fail-open: returns true ONLY when the model is confidently vision-capable.
+// Unknown models return null so the UI can keep the paperclip enabled (no regression for
+// the long tail of self-hosted models we don't recognize). When the backend later exposes
+// a real vision flag in LLMModelInfo.Metadata, that takes precedence.
+function llmaIsVisionModel(model) {
+    if (!model) return null;
+    if (model.metadata && (model.metadata.vision === 'true' || model.metadata.vision === true)) return true;
+    if (model.metadata && (model.metadata.vision === 'false' || model.metadata.vision === false)) return false;
+    const id = (model.id || '').toLowerCase();
+    const name = (model.name || '').toLowerCase();
+    const family = (model.family || '').toLowerCase();
+    const provider = (model.provider || '').toLowerCase();
+    const hay = `${id} ${name} ${family} ${provider}`;
+    // Known vision-capable families. Conservative — only well-attested ones.
+    if (/claude-(opus-4|sonnet-4|haiku-4|3-5-sonnet|3-5-haiku|3-opus)/.test(hay)) return true;
+    if (/(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|chatgpt-4)/.test(hay)) return true;
+    if (/(gemini-1\.5|gemini-2|gemini-pro-vision|gemini-flash)/.test(hay)) return true;
+    if (/(llava|moondream|minicpm-v|qwen2-vl|qwen-vl|internvl|bakllava|llama-?3\.2-vision|phi-3-vision|phi-3\.5-vision|pixtral|molmo)/.test(hay)) return true;
+    return null;
+}
+
+// -- Error formatting --
+// Pulls a one-line human-readable string out of whatever genericRequest's error callback hands us.
+// genericRequest can hand back: an Error, a string, a {message} object, or null on network failure.
+function llmaShortError(err) {
+    if (!err) return null;
+    if (typeof err === 'string') return err;
+    if (err.message) return err.message;
+    if (err.error)   return err.error;
+    try { return String(err); } catch { return null; }
+}
+
+// -- User-action wrapper --
+// Standardizes error handling for user-initiated UI actions (save, delete, rename, send, etc.):
+// catches, surfaces a toast with the server's error message when available, logs full details
+// to the console for debugging, and returns null so callers don't have to think about exceptions.
+// Background polling / hover / race-recovery code should NOT use this — silent fail is correct
+// for those paths since the user didn't ask for the action.
+async function llmaUserAction(fn, errorPrefix = 'Action failed') {
+    try {
+        return await fn();
+    } catch (e) {
+        const detail = llmaShortError(e);
+        console.error(`[LLMAssistant] ${errorPrefix}:`, e);
+        llmaShowToast(detail ? `${errorPrefix}: ${detail}` : errorPrefix, 'error');
+        return null;
+    }
+}
+
 // -- Toast Notifications --
 let llmaToastTimer = null;
 
@@ -237,7 +312,7 @@ function llmaShowToast(message, type = 'info') {
     toast.className = `llma-toast ${type}`;
     toast.textContent = message;
     container.appendChild(toast);
-    llmaToastTimer = setTimeout(() => toast.remove(), 2600);
+    llmaToastTimer = setTimeout(() => toast.remove(), LLMA_CONSTANTS.TOAST_DURATION_MS);
 }
 
 // -- Date / Time --
@@ -359,8 +434,6 @@ const LLMA_DEFAULT_SETTINGS = {
         temperature:     0.8,
         maxTokens:       2048,
         topP:            0.9,
-        topK:            40,
-        repeatPenalty:   1.1,
         seed:            -1,
         contextMessages: 0,
         stream:          true,

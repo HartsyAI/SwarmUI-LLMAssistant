@@ -90,6 +90,19 @@ public class FileWriteTool : ToolHandler
                 if (consoleError is not null) Utils.Logs.Warning($"[LLMAssistant] file_write rejected path: {consoleError}");
                 return new JObject { ["success"] = false, ["error"] = userError ?? "Invalid path." };
             }
+            // Defense-in-depth: re-verify the resolved path lives inside the sandbox. WebServer.CheckFilePath
+            // is already the primary line of defense; this second check guards against a regression in that
+            // helper or an unusual symlink/junction case it didn't catch.
+            string sandboxFull = Path.GetFullPath(sandboxRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string targetFull = Path.GetFullPath(fullPath);
+            bool isInside = targetFull.Equals(sandboxFull, StringComparison.Ordinal)
+                || targetFull.StartsWith(sandboxFull + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+                || targetFull.StartsWith(sandboxFull + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
+            if (!isInside)
+            {
+                Utils.Logs.Warning($"[LLMAssistant] file_write defense-in-depth check rejected '{targetFull}' (sandbox '{sandboxFull}').");
+                return new JObject { ["success"] = false, ["error"] = "Path escaped sandbox (defense-in-depth check failed)." };
+            }
             string parentDir = Path.GetDirectoryName(fullPath);
             if (!string.IsNullOrEmpty(parentDir))
             {

@@ -69,7 +69,7 @@ function llmaCompanionRender() {
         <div class="llma-companion-actions" id="llma-companion-actions"></div>
         <div class="llma-companion-input-wrap" id="llma-companion-input-wrap" style="display:none;">
             <input type="text" id="llma-companion-input" class="llma-companion-input"
-                   placeholder="Ask anything..." autocomplete="off" maxlength="500">
+                   placeholder="Ask anything..." aria-label="Ask the companion" autocomplete="off" maxlength="500">
             <button class="llma-companion-send" id="llma-companion-send" title="Send" aria-label="Send">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>

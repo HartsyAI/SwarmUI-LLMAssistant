@@ -21,8 +21,10 @@ async function llmaLoadTools() {
         if (typeof result?.canWriteShared === 'boolean') {
             LLMAState.canWriteShared = !!result.canWriteShared;
         }
-    } catch {
+        LLMAState.loadErrors.tools = null;
+    } catch (e) {
         LLMAState.tools = [];
+        LLMAState.loadErrors.tools = llmaShortError(e) || 'Failed to load tools';
     }
     llmaRenderToolList();
 }

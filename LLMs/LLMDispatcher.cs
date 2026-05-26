@@ -53,10 +53,12 @@ public static class LLMDispatcher
         return await backend.Generate(input);
     }
 
-    /// <summary>Sends a message with streaming chunks via callback.</summary>
+    /// <summary>Sends a message with streaming chunks via callback. <paramref name="ct"/> is
+    /// forwarded to the backend so HTTP requests and async-enumerable streams can be cancelled
+    /// when the user hits Stop or the WebSocket closes.</summary>
     public static async Task GenerateStreaming(ExtendedLLMInput input, Action<JObject> onChunk, CancellationToken ct = default)
     {
         AbstractLLMBackend backend = await GetBackend(input);
-        await backend.GenerateLive(input, "0", onChunk);
+        await backend.GenerateLive(input, "0", onChunk, ct);
     }
 }

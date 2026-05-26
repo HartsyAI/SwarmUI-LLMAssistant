@@ -84,6 +84,18 @@
 }
 .llma-model-status.offline { background: var(--backend-errored); }
 .llma-model-status.loading { background: var(--backend-disabled); animation: llma-pulse 1s infinite; }
+
+/* Refresh-model-list button next to the dropdown. Spins while a refresh is in flight so the
+   user gets feedback during a multi-second scan of a populated Models/ folder. */
+.llma-model-refresh {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.llma-model-refresh.spinning svg { animation: llmaSpin 0.8s linear infinite; }
 .llma-model-select {
     font-size: 12.5px;
     max-width: 220px;

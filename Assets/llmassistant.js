@@ -33,6 +33,11 @@ let llmaActiveInstrTab = 'chat';
 async function llmaInit() {
     if (!document.getElementById('llma-container')) return;
 
+    // Paint skeleton cards immediately so the gallery isn't blank during the first network round.
+    // If the load finishes faster than the user can blink, llmaRenderWelcomeAssistants() will
+    // replace the skeleton with real cards before they ever render visibly.
+    llmaRenderWelcomeSkeleton();
+
     const [, ] = await Promise.allSettled([
         llmaLoadCdnLibs(),
         llmaLoadSettings(),
@@ -57,6 +62,8 @@ async function llmaInit() {
     llmaSetupTopBar();
     llmaSetupSidebar();
     llmaSetupInput();
+    if (typeof llmaSetupFindBar === 'function') llmaSetupFindBar();
+    if (typeof llmaSetupBulkBar === 'function') llmaSetupBulkBar();
     llmaSetupSettingsModal();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
@@ -112,7 +119,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
         llmaRequest('LLMAssistantSetActiveAssistant', { assistantId }).catch(() => {});
     }
 
-    setTimeout(() => document.getElementById('llma-input')?.focus(), 80);
+    setTimeout(() => document.getElementById('llma-input')?.focus(), LLMA_CONSTANTS.INPUT_FOCUS_DELAY_MS);
 }
 
 // -- Settings --
@@ -142,8 +149,10 @@ async function llmaLoadAssistants() {
         LLMAState.assistants = Array.isArray(result?.assistants) ? result.assistants : [];
         LLMAState.activeAssistantId = result?.activeAssistantId || LLMAState.activeAssistantId || 'default';
         LLMAState.canWriteShared = !!result?.canWriteShared;
-    } catch {
+        LLMAState.loadErrors.assistants = null;
+    } catch (e) {
         LLMAState.assistants = [];
+        LLMAState.loadErrors.assistants = llmaShortError(e) || 'Failed to load assistants';
     }
 }
 
@@ -156,6 +165,10 @@ async function llmaLoadModels() {
         const result = await llmaRequest('LLMAssistantGetModels', {});
         const models = Array.isArray(result?.models) ? result.models : [];
         LLMAState.availableModels = models;
+        LLMAState.loadErrors.models = null;
+        // Empty model list with no API error = no backends running. Distinguish from a load failure
+        // so the welcome banner can show the right copy (and link to Server > Backends).
+        LLMAState.noBackendsRunning = models.length === 0;
 
         const sel = document.getElementById('llma-model-select');
         if (sel) {
@@ -168,15 +181,21 @@ async function llmaLoadModels() {
                     byProvider[prov].push(m);
                 }
                 const providerKeys = Object.keys(byProvider);
+                // Append a small 📷 to vision-capable model names so users can pick one for image input
+                // without having to send-and-discover. Unknown vision-capability stays badge-less.
+                const labelFor = (m) => {
+                    const base = llmaEscapeHtml(m.name || m.id);
+                    return llmaIsVisionModel(m) === true ? `${base} 📷` : base;
+                };
                 if (providerKeys.length === 1) {
                     sel.innerHTML = models.map(m =>
-                        `<option value="${llmaEscapeHtml(m.id)}">${llmaEscapeHtml(m.name || m.id)}</option>`
+                        `<option value="${llmaEscapeHtml(m.id)}">${labelFor(m)}</option>`
                     ).join('');
                 } else {
                     sel.innerHTML = providerKeys.map(prov =>
                         `<optgroup label="${llmaEscapeHtml(prov)}">` +
                         byProvider[prov].map(m =>
-                            `<option value="${llmaEscapeHtml(m.id)}">${llmaEscapeHtml(m.name || m.id)}</option>`
+                            `<option value="${llmaEscapeHtml(m.id)}">${labelFor(m)}</option>`
                         ).join('') +
                         `</optgroup>`
                     ).join('');
@@ -201,8 +220,10 @@ async function llmaLoadModels() {
         } else {
             if (statusEl) statusEl.className = 'llma-model-status offline';
         }
-    } catch {
+    } catch (e) {
         if (statusEl) statusEl.className = 'llma-model-status offline';
+        LLMAState.loadErrors.models = llmaShortError(e) || 'Failed to load models';
+        LLMAState.noBackendsRunning = false;
     }
     llmaUpdateModelStatus();
 }
@@ -239,12 +260,53 @@ function llmaSetupModelSelect() {
         llmaSetSessionState({ currentModel: model });
         llmaUpdateModelStatus();
     });
+    // Refresh button — calls core's TriggerRefresh (re-scans every model handler including the
+    // LLM one the extension registered), then re-fetches our model list. Lets the user drop a
+    // new GGUF into Models/llm/ and see it show up without restarting SwarmUI.
+    const refreshBtn = document.getElementById('llma-model-refresh');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', async () => {
+            if (refreshBtn.dataset.llmaBusy === '1') return;
+            refreshBtn.dataset.llmaBusy = '1';
+            refreshBtn.classList.add('spinning');
+            try {
+                // strong=true triggers a full RefreshAllModelSets server-side.
+                await llmaRequest('TriggerRefresh', { strong: true });
+                await llmaLoadModels();
+                llmaShowToast('Model list refreshed.', 'info');
+            } catch (e) {
+                llmaShowToast(llmaShortError(e) || 'Refresh failed', 'error');
+            } finally {
+                refreshBtn.classList.remove('spinning');
+                refreshBtn.dataset.llmaBusy = '0';
+            }
+        });
+    }
 }
 
 function llmaUpdateModelStatus() {
     const status = document.getElementById('llma-model-status');
-    if (!status) return;
-    status.className = LLMAState.currentModel ? 'llma-model-status' : 'llma-model-status offline';
+    if (status) status.className = LLMAState.currentModel ? 'llma-model-status' : 'llma-model-status offline';
+    llmaUpdateAttachAvailability();
+}
+
+// Toggles the paperclip / attach-image button based on the active model's vision capability.
+// Tri-state: known-vision (enabled, normal tooltip), known-text-only (disabled, hint tooltip),
+// unknown (enabled, no change) — see llmaIsVisionModel for the fail-open semantics.
+function llmaUpdateAttachAvailability() {
+    const label = document.getElementById('llma-attach-label');
+    if (!label) return;
+    const model = (LLMAState.availableModels || []).find(m => m.id === LLMAState.currentModel);
+    const cap = llmaIsVisionModel(model);
+    if (cap === false) {
+        label.classList.add('llma-attach-disabled');
+        label.setAttribute('aria-disabled', 'true');
+        label.title = "The current model doesn't support image input. Pick a vision model to attach images.";
+    } else {
+        label.classList.remove('llma-attach-disabled');
+        label.removeAttribute('aria-disabled');
+        label.title = 'Attach image';
+    }
 }
 
 // -- Params Popover --
@@ -432,11 +494,12 @@ function llmaSetupSplitBars() {
     const leftBar  = document.getElementById('llma-split-left');
     const rightBar = document.getElementById('llma-split-right');
 
-    const MIN_SIDEBAR = 140;
-    const MAX_SIDEBAR = 520;
-    const MIN_PANEL   = 180;
-    const MAX_PANEL   = 560;
-    const BAR_WIDTH   = 5;
+    // Layout clamp ranges pulled from LLMA_CONSTANTS so the rest of the UI agrees on bounds.
+    const MIN_SIDEBAR = LLMA_CONSTANTS.MIN_SIDEBAR_PX;
+    const MAX_SIDEBAR = LLMA_CONSTANTS.MAX_SIDEBAR_PX;
+    const MIN_PANEL   = LLMA_CONSTANTS.MIN_PANEL_PX;
+    const MAX_PANEL   = LLMA_CONSTANTS.MAX_PANEL_PX;
+    const BAR_WIDTH   = LLMA_CONSTANTS.SPLIT_BAR_PX;
 
     const attach = (bar, which) => {
         if (!bar) return;
@@ -813,13 +876,121 @@ function llmaRenderEmptyChatGreeting() {
 }
 
 // -- Welcome Screen Assistant Grid --
+// Renders placeholder skeleton cards in the welcome gallery — used during the very first
+// data fetch so the page never sits blank. Replaced by llmaRenderWelcomeAssistants() as soon
+// as the real assistant list arrives.
+function llmaRenderWelcomeSkeleton() {
+    const grid = document.getElementById('llma-assistant-grid');
+    if (!grid) return;
+    let html = '';
+    for (let i = 0; i < 4; i++) {
+        html += `
+            <div class="llma-asst-card skeleton" aria-hidden="true">
+                <div class="llma-card-visual"></div>
+                <div class="llma-card-body">
+                    <div class="llma-card-name">loading</div>
+                    <div class="llma-card-desc">loading description</div>
+                </div>
+            </div>`;
+    }
+    grid.innerHTML = html;
+}
+
+// Renders the welcome banner that sits between the personalized hero and the assistant grid.
+// Three states, in priority order:
+//   1. Hard load failure on any of (assistants, models, tools) -> red banner + Retry
+//   2. No backends running (models call succeeded but list is empty) -> amber banner + link to Server > Backends
+//   3. All clean -> banner hidden
+// Re-runs the loads on Retry and re-renders. The "Open Server > Backends" link defers to whatever
+// host hooks the user has wired up via `llma-open-backends-href` on the banner (override target).
+function llmaRenderWelcomeBanner() {
+    const banner = document.getElementById('llma-welcome-banner');
+    if (!banner) return;
+    const errs = LLMAState.loadErrors || {};
+    const hardError = errs.assistants || errs.models || errs.tools;
+    if (hardError) {
+        const which = errs.assistants ? 'assistants' : (errs.models ? 'models' : 'tools');
+        banner.className = 'llma-welcome-banner error';
+        banner.innerHTML = `
+            <span class="llma-banner-icon" aria-hidden="true">⚠</span>
+            <span class="llma-banner-text">Couldn't load ${which}: <em>${llmaEscapeHtml(hardError)}</em></span>
+            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+        banner.style.display = '';
+        banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
+        return;
+    }
+    if (LLMAState.noBackendsRunning) {
+        banner.className = 'llma-welcome-banner info';
+        banner.innerHTML = `
+            <span class="llma-banner-icon" aria-hidden="true">💡</span>
+            <span class="llma-banner-text">No LLM backends are running. Add one in <strong>Server &rsaquo; Backends</strong> to start chatting.</span>
+            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+        banner.style.display = '';
+        banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
+        return;
+    }
+    banner.style.display = 'none';
+    banner.innerHTML = '';
+}
+
+// Re-runs the three welcome-dependent loads in parallel, then re-renders. Toasts on completion
+// so the user gets confirmation that Retry actually did something (silent retries feel broken).
+async function llmaRetryWelcomeLoads() {
+    const banner = document.getElementById('llma-welcome-banner');
+    if (banner) {
+        banner.classList.add('loading');
+        const btn = banner.querySelector('.llma-banner-retry');
+        if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+    }
+    await Promise.all([
+        llmaLoadAssistants(),
+        llmaLoadModels(),
+        typeof llmaLoadTools === 'function' ? llmaLoadTools() : Promise.resolve(),
+    ]);
+    llmaRenderWelcomeAssistants();
+    const stillError = LLMAState.loadErrors.assistants || LLMAState.loadErrors.models || LLMAState.loadErrors.tools;
+    if (stillError) {
+        llmaShowToast('Still failing — check that the server is running.', 'error');
+    } else if (LLMAState.noBackendsRunning) {
+        llmaShowToast('No backends found. Add one in Server > Backends.', 'info');
+    } else {
+        llmaShowToast('Reloaded.', 'info');
+    }
+}
+
 function llmaRenderWelcomeAssistants() {
     // Refresh the personalized hero alongside the gallery so the tip rotates
     // each time the user lands on / returns to the welcome view.
     llmaRenderPersonalizedWelcome();
+    // Refresh the load-error / no-backend banner before the gallery so users see actionable
+    // feedback (instead of just a blank grid) when assistants/models/tools failed to fetch.
+    llmaRenderWelcomeBanner();
 
     const grid = document.getElementById('llma-assistant-grid');
     if (!grid) return;
+
+    // Empty-state card: the assistants list is legitimately empty (no error) AND not still loading
+    // (the skeleton placeholder cleared). Distinct from the load-error banner above so users know
+    // there's nothing to pick — the path forward is to create one.
+    const isEmpty = (LLMAState.assistants?.length ?? 0) === 0;
+    const hasLoadError = LLMAState.loadErrors?.assistants;
+    if (isEmpty && !hasLoadError) {
+        grid.innerHTML = `
+            <div class="llma-asst-empty">
+                <div class="llma-asst-empty-icon" aria-hidden="true">✨</div>
+                <h3 class="llma-asst-empty-title">No assistants yet</h3>
+                <p class="llma-asst-empty-desc">Create your first assistant to start chatting. You can give it a name, a system prompt, and a set of tools.</p>
+                <button class="basic-button llma-asst-empty-cta" type="button">Create your first assistant</button>
+            </div>`;
+        grid.querySelector('.llma-asst-empty-cta')?.addEventListener('click', () => {
+            llmaOpenSettings();
+            setTimeout(() => {
+                document.querySelector('.llma-modal-tab[data-tab="assistants"]')?.click();
+                llmaOpenCreateEditor();
+            }, 100);
+        });
+        return;
+    }
 
     let html = '';
     for (const a of LLMAState.assistants) {
@@ -945,7 +1116,6 @@ function llmaSetupSettingsModal() {
     const rangeMap = [
         { range: 'llma-s-temperature',        val: 'llma-s-temperature-val'        },
         { range: 'llma-s-top-p',              val: 'llma-s-top-p-val'              },
-        { range: 'llma-s-repeat-penalty',     val: 'llma-s-repeat-penalty-val'     },
         { range: 'llma-s-companion-opacity',  val: 'llma-s-companion-opacity-val'  },
     ];
     for (const { range, val } of rangeMap) {
@@ -989,13 +1159,48 @@ function llmaOpenSettings() {
     llmaWriteSettingsToModal();
     llmaRenderAssistantList();
     overlay.style.display = '';
-    setTimeout(() => document.getElementById('llma-settings-close')?.focus(), 60);
+    llmaInstallFocusTrap(overlay);
+    setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);
 }
 
 function llmaCloseSettings() {
     const overlay = document.getElementById('llma-settings-overlay');
     if (overlay) overlay.style.display = 'none';
+    llmaRemoveFocusTrap(overlay);
     document.getElementById('llma-asst-editor').style.display = 'none';
+}
+
+// -- Focus trap --
+// Keyboard accessibility: while a modal is open, Tab cycles between focusable elements
+// inside it. Without this, Tab walks into the underlying tab UI and the user loses track.
+// Pure DOM helper — installs / removes a single listener stored on the element via dataset.
+const LLMA_FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function llmaInstallFocusTrap(modal) {
+    if (!modal || modal._llmaFocusTrap) return;
+    const handler = (e) => {
+        if (e.key !== 'Tab') return;
+        const focusable = Array.from(modal.querySelectorAll(LLMA_FOCUSABLE_SELECTOR))
+            .filter(el => el.offsetParent !== null);
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last  = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
+    };
+    modal.addEventListener('keydown', handler);
+    modal._llmaFocusTrap = handler;
+}
+
+function llmaRemoveFocusTrap(modal) {
+    if (!modal || !modal._llmaFocusTrap) return;
+    modal.removeEventListener('keydown', modal._llmaFocusTrap);
+    delete modal._llmaFocusTrap;
 }
 
 function llmaReadSettingsFromModal() {
@@ -1003,9 +1208,8 @@ function llmaReadSettingsFromModal() {
     g.temperature     = parseFloat(document.getElementById('llma-s-temperature')?.value)      || 0.8;
     g.maxTokens       = parseInt(document.getElementById('llma-s-max-tokens')?.value, 10)     || 2048;
     g.topP            = parseFloat(document.getElementById('llma-s-top-p')?.value)            || 0.9;
-    g.topK            = parseInt(document.getElementById('llma-s-top-k')?.value, 10)          || 40;
-    g.repeatPenalty   = parseFloat(document.getElementById('llma-s-repeat-penalty')?.value)   || 1.1;
-    g.seed            = parseInt(document.getElementById('llma-s-seed')?.value, 10)           ?? -1;
+    const seedRaw     = parseInt(document.getElementById('llma-s-seed')?.value, 10);
+    g.seed            = Number.isFinite(seedRaw) ? seedRaw : -1;
     g.contextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)        || 0;
     g.stream          = document.getElementById('llma-s-stream')?.checked ?? true;
     LLMAState.settings.defaults = g;
@@ -1050,9 +1254,6 @@ function llmaWriteSettingsToModal() {
     llmaSetEl('llma-s-max-tokens',          g.maxTokens       ?? 2048);
     llmaSetEl('llma-s-top-p',               g.topP            ?? 0.9);
     llmaSetEl('llma-s-top-p-val',           g.topP            ?? 0.9, 'text');
-    llmaSetEl('llma-s-top-k',               g.topK            ?? 40);
-    llmaSetEl('llma-s-repeat-penalty',      g.repeatPenalty   ?? 1.1);
-    llmaSetEl('llma-s-repeat-penalty-val',  g.repeatPenalty   ?? 1.1, 'text');
     llmaSetEl('llma-s-seed',                g.seed            ?? -1);
     llmaSetEl('llma-s-context',             g.contextMessages ?? 0);
     llmaSetElChecked('llma-s-stream',       g.stream          !== false);
@@ -1604,15 +1805,76 @@ function llmaSerializeInstructionsForSave() {
 }
 
 // -- Keyboard Shortcuts --
+// Returns true when the LLM Assistant tab is the focused part of the page. We don't have a
+// reliable "is the tab active" signal from SwarmUI's tab system, so we approximate: the
+// container exists, is visible, and either has focus inside it or the user isn't focused
+// anywhere meaningful. Used to gate global shortcuts so they don't fire on other tabs.
+function llmaIsTabActive() {
+    const c = document.getElementById('llma-container');
+    if (!c) return false;
+    // The tab pane is hidden via display:none in SwarmUI's tab system. offsetParent is null
+    // for display:none elements (and a few edge cases like position:fixed root, which we don't use).
+    if (c.offsetParent === null) return false;
+    return true;
+}
+
+// Modifier key that matches the user's platform — Cmd on Mac, Ctrl elsewhere. We honor both
+// so cross-platform documentation can just say "Cmd/Ctrl" and either works for everyone.
+function llmaModKey(e) {
+    return e.ctrlKey || e.metaKey;
+}
+
 function llmaSetupKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
-        if (!document.getElementById('llma-container')) return;
-        if (e.ctrlKey && e.key === 'n' && !e.shiftKey) {
-            if (document.activeElement?.closest('#llma-container')) {
+        if (!llmaIsTabActive()) return;
+        const tag = document.activeElement?.tagName;
+        const inEditable = tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable;
+
+        // Cmd/Ctrl + K → focus the thread search. Works even when an input has focus elsewhere
+        // (matches the slash-command-bar convention from VS Code / Slack / GitHub).
+        if (llmaModKey(e) && (e.key === 'k' || e.key === 'K') && !e.shiftKey && !e.altKey) {
+            const search = document.getElementById('llma-thread-search');
+            if (search) {
                 e.preventDefault();
-                llmaShowWelcome();
+                search.focus();
+                search.select();
+                return;
             }
         }
+
+        // Cmd/Ctrl + Shift + F → open the in-thread find bar (browser's Cmd+F stays untouched).
+        if (llmaModKey(e) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+            if (LLMAState.activeThreadId && typeof llmaOpenFindBar === 'function') {
+                e.preventDefault();
+                llmaOpenFindBar();
+                return;
+            }
+        }
+
+        // Cmd/Ctrl + N → new thread with the active assistant. Skip when typing so users can still
+        // type the letter 'n' in messages with Ctrl held for browser shortcuts they expect.
+        if (llmaModKey(e) && (e.key === 'n' || e.key === 'N') && !e.shiftKey && !e.altKey) {
+            if (inEditable) return;
+            e.preventDefault();
+            if (LLMAState.activeAssistantId && LLMAState.assistants.some(a => a.id === LLMAState.activeAssistantId)) {
+                llmaStartChatWithAssistant(LLMAState.activeAssistantId, { persist: false });
+            } else {
+                llmaShowWelcome();
+            }
+            return;
+        }
+
+        // Up/Down arrows in the thread list move the highlighted item and (on Enter) switch threads.
+        // Only intercepted while focus is on a thread row — otherwise arrows are free for textareas.
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && document.activeElement?.classList?.contains('llma-thread-item')) {
+            e.preventDefault();
+            const items = Array.from(document.querySelectorAll('.llma-thread-item'));
+            const idx = items.indexOf(document.activeElement);
+            const next = e.key === 'ArrowDown' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
+            items[next]?.focus();
+            return;
+        }
+
         if (e.key === 'Escape') {
             llmaCloseAllPopovers();
             const assetOverlay = document.getElementById('llma-asset-overlay');

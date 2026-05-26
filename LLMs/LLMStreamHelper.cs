@@ -73,6 +73,12 @@ public static class LLMStreamHelper
                     roundBuffer.Clear();
                     roundBuffer.Append(resultToken.ToString());
                 }
+                else if (chunk.TryGetValue("status", out JToken statusToken))
+                {
+                    // Forward backend-side status events (eg LlamaSharp's "loading_model" /
+                    // "model_ready") to the client so the UI can show a spinner during slow loads.
+                    SendJson(socket, chunk).Wait(linked.Token);
+                }
             }, linked.Token);
             if (SocketGone(socket))
             {
@@ -182,6 +188,11 @@ public static class LLMStreamHelper
             {
                 fullText.Clear();
                 fullText.Append(resultToken.ToString());
+            }
+            else if (chunk.TryGetValue("status", out JToken _))
+            {
+                // Backend status events (eg model load progress) — forward verbatim to the UI.
+                SendJson(socket, chunk).Wait(linked.Token);
             }
         }, linked.Token);
         if (SocketGone(socket))
