@@ -12,7 +12,7 @@ let llmaThreadSelectMode = false;
 const llmaSelectedThreadIds = new Set();
 
 // -- Load / Fetch --
-// Initial-load failure leaves the sidebar with the "No chats yet" empty state so the user
+// Initial-load failure leaves the sidebar with the empty "New Chat" CTA state so the user
 // can still pick a starting assistant. Console-logged but not toasted — the welcome banner
 // (driven by llmaLoadAssistants/Models errors in A2) is the canonical surface for boot issues.
 async function llmaLoadThreads() {
@@ -31,8 +31,21 @@ function llmaRenderThreadList(threads) {
     const list = document.getElementById('llma-thread-list');
     if (!list) return;
 
-    if (threads.length === 0) {
-        list.innerHTML = '<div class="llma-empty-state">No chats yet.<br>Choose an assistant to begin.</div>';
+    // The "+" new-chat icon and the multi-select toggle only make sense once chats exist — the empty
+    // state carries its own primary "New Chat" button — so hide them when the list is empty.
+    const hasChats = threads.length > 0;
+    document.getElementById('llma-new-thread-btn')?.style.setProperty('display', hasChats ? '' : 'none');
+    document.getElementById('llma-thread-select-toggle')?.style.setProperty('display', hasChats ? '' : 'none');
+
+    if (!hasChats) {
+        list.innerHTML = `
+            <div class="llma-threads-empty">
+                <button class="basic-button llma-empty-new-btn" type="button">+ New Chat</button>
+                <div class="llma-threads-empty-sub">Pick an assistant to start a conversation.</div>
+            </div>`;
+        // Reuse the existing new-chat handler bound to #llma-new-thread-btn (hidden while empty).
+        list.querySelector('.llma-empty-new-btn')?.addEventListener('click',
+            () => document.getElementById('llma-new-thread-btn')?.click());
         return;
     }
 
@@ -608,16 +621,18 @@ function llmaShowChatPanel() {
 }
 
 function llmaUpdateContextBar() {
+    const bar    = document.querySelector('.llma-context-bar');
     const label  = document.getElementById('llma-ctx-label');
     const fill   = document.getElementById('llma-ctx-fill');
     const tokens = document.getElementById('llma-ctx-tokens');
 
+    // Nothing meaningful to show without a conversation — hide the whole bar rather than displaying a
+    // contradictory "No active thread" line + empty track next to the top-bar heading.
     if (!LLMAState.activeThreadId || LLMAState.messages.length === 0) {
-        if (label)  label.textContent  = 'No active thread';
-        if (fill)   fill.style.width   = '0%';
-        if (tokens) tokens.textContent = '';
+        if (bar) bar.style.display = 'none';
         return;
     }
+    if (bar) bar.style.display = '';
 
     const count     = LLMAState.messages.length;
     const maxCtx    = LLMAState.settings?.defaults?.contextMessages || 0;

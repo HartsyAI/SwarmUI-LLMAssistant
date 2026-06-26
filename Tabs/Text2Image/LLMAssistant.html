@@ -4,10 +4,13 @@
         <div class="llma-sidebar-header">
             <span class="llma-sidebar-label">Chats</span>
             <button class="llma-select-toggle" id="llma-thread-select-toggle" type="button" title="Select multiple chats" aria-label="Select multiple chats" aria-pressed="false">&#9744;</button>
-            <button class="basic-button llma-new-btn" id="llma-new-thread-btn">+ New</button>
         </div>
         <div class="llma-search-wrap">
             <input class="llma-search" id="llma-thread-search" type="text" placeholder="Search chats..." aria-label="Search threads" autocomplete="off">
+            <!-- Compact new-chat affordance (the empty state carries the primary CTA when there are no chats). -->
+            <button class="llma-icon-btn llma-new-chat-btn" id="llma-new-thread-btn" type="button" title="New chat" aria-label="New chat">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
         </div>
         <!-- Bulk action bar — shown only while select mode is on and at least one chat is checked. -->
         <div class="llma-bulk-bar" id="llma-bulk-bar" style="display:none;" aria-live="polite">

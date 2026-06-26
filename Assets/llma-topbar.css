@@ -13,6 +13,7 @@
     flex-shrink: 0;
     border-bottom: 1px solid var(--light-border);
     background: var(--background);
+    position: relative; /* anchor for the centered thread title */
 }
 .llma-topbar-left {
     display: flex;
@@ -27,7 +28,15 @@
     gap: 4px;
     flex-shrink: 0;
 }
+/* Centered over the chat column (it reflects the active assistant/thread and updates on switch). */
 .llma-thread-title {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-width: 45%;
+    text-align: center;
+    pointer-events: none; /* purely a label — never block the controls behind it */
     font-size: 13.5px;
     font-weight: 500;
     color: var(--text);
@@ -35,22 +44,21 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 260px;
 }
 
 /* Icon button — small square button for toolbar actions */
 .llma-icon-btn {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 7px;
     border: 1px solid transparent;
     background: transparent;
-    color: var(--text-soft);
+    color: var(--text);
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.6;
+    opacity: 0.75;
     transition: background 0.12s, opacity 0.12s, border-color 0.12s;
     flex-shrink: 0;
     padding: 0;
@@ -67,23 +75,14 @@
     color: var(--emphasis);
 }
 
-/* Model select — uses SwarmUI's native form-select */
+/* Model select — themed with SwarmUI vars (no Bootstrap form-select / white box). Mirrors the
+   .llma-search input so it sits natively in the dark theme. */
 .llma-model-select-wrap {
     display: flex;
     align-items: center;
     gap: 6px;
     flex-shrink: 0;
 }
-.llma-model-status {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--backend-running);
-    flex-shrink: 0;
-    transition: background 0.3s;
-}
-.llma-model-status.offline { background: var(--backend-errored); }
-.llma-model-status.loading { background: var(--backend-disabled); animation: llma-pulse 1s infinite; }
 
 /* Refresh-model-list button next to the dropdown. Spins while a refresh is in flight so the
    user gets feedback during a multi-second scan of a populated Models/ folder. */
@@ -98,9 +97,33 @@
 .llma-model-refresh.spinning svg { animation: llmaSpin 0.8s linear infinite; }
 .llma-model-select {
     font-size: 12.5px;
-    max-width: 220px;
-    padding: 4px 8px;
+    min-width: 180px;
+    max-width: 300px;
+    padding: 5px 24px 5px 10px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background-panel-subtle);
+    color: var(--text);
+    outline: none;
+    cursor: pointer;
+    /* Custom caret (the native one renders light/off in dark theme). */
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
 }
+.llma-model-select:hover { border-color: var(--border-color); }
+.llma-model-select:focus { border-color: var(--emphasis); }
+/* Red outline only when something is wrong (no model available / none selected). No "healthy" green. */
+.llma-model-select.error {
+    border-color: var(--backend-errored);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--backend-errored) 55%, transparent);
+}
+/* The sidebar-collapse button in the top bar is redundant on desktop — the split-bar arrow handles
+   collapse (SwarmUI's native pattern). Keep it only at mobile width, where it opens the drawer. */
+#llma-sidebar-toggle { display: none; }
 
 /* Shared popover base (params, export) */
 .llma-params-popover,

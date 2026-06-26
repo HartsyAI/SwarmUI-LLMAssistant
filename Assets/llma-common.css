@@ -36,9 +36,6 @@
 @keyframes llma-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 @keyframes llma-toast-out { from { opacity: 1; } to { opacity: 0; } }
 
-/* ── Pulse animation ────────────────────────────────────────── */
-@keyframes llma-pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
-
 /* ── Empty State ───────────────────────────────────────────── */
 .llma-empty-state {
     text-align: center;
@@ -98,6 +95,8 @@
         --llma-sidebar-w: 0px;
     }
     #llma-split-left { display: none; }
+    /* No split-bar arrow at mobile width — bring back the top-bar button to open the drawer. */
+    #llma-sidebar-toggle { display: inline-flex; }
     .llma-sidebar {
         position: absolute;
         left: 0;

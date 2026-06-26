@@ -62,18 +62,24 @@
     object-fit: cover;
     display: block;
 }
+/* A real uploaded avatar may be a shaped image with a transparent background — show it as-is:
+   no circle clip, no ring/shadow, and contain (not cover) so nothing is cropped. The gradient+icon
+   fallback (no <img>) keeps the circular treatment. */
+.llma-empty-greeting-avatar:has(img) {
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    box-shadow: none;
+}
+.llma-empty-greeting-avatar:has(img) img {
+    object-fit: contain;
+}
 .llma-empty-greeting-avatar .llma-greet-icon {
     font-size: 38px;
     line-height: 1;
 }
-.llma-empty-greeting-name {
-    font-size: 13px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--emphasis);
-    opacity: 0.9;
-}
+/* Accent-coloured name inside the greeting heading (replaces the old separate name label). */
+.llma-greeting-accent { color: var(--emphasis); }
 .llma-empty-greeting-heading {
     font-size: 24px;
     font-weight: 600;
@@ -633,11 +639,11 @@ mark.llma-find-mark.active {
 }
 .llma-input-hint {
     font-size: 10.5px;
-    color: var(--text-soft);
-    opacity: 0.3;
+    color: var(--text);
+    opacity: 0.5;
 }
 .llma-char-count {
     font-size: 10.5px;
-    color: var(--text-soft);
-    opacity: 0.35;
+    color: var(--text);
+    opacity: 0.5;
 }

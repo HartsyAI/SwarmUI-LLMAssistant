@@ -862,16 +862,17 @@ function llmaRenderEmptyChatGreeting() {
     // assistant a "voice" even on first contact.
     let heading;
     let sub;
+    // The name in the heading is accent-coloured (replaces the separate uppercase name label above).
     if (userName && currentWork) {
-        heading = `Welcome back, ${llmaEscapeHtml(userName)}.`;
+        heading = `Welcome back, <span class="llma-greeting-accent">${llmaEscapeHtml(userName)}</span>.`;
         sub     = `Still working on <em>${llmaEscapeHtml(currentWork)}</em>? I'm ready when you are.`;
     } else if (userName) {
-        heading = `Hey ${llmaEscapeHtml(userName)} — what should we work on?`;
+        heading = `Hey <span class="llma-greeting-accent">${llmaEscapeHtml(userName)}</span> — what should we work on?`;
         sub     = assistant.description
             ? llmaEscapeHtml(assistant.description)
             : `I'm ${llmaEscapeHtml(asstName)}. Ask me anything.`;
     } else {
-        heading = `Hi, I'm ${llmaEscapeHtml(asstName)}. How can I help?`;
+        heading = `Hi, I'm <span class="llma-greeting-accent">${llmaEscapeHtml(asstName)}</span>. How can I help?`;
         sub     = assistant.description
             ? llmaEscapeHtml(assistant.description)
             : `Tell me what to call you and what you're working on — I'll remember it next time.`;
@@ -885,7 +886,6 @@ function llmaRenderEmptyChatGreeting() {
 
     greet.innerHTML = `
         <div class="llma-empty-greeting-avatar"${avatarStyle}>${avatarInner}</div>
-        <div class="llma-empty-greeting-name">${llmaEscapeHtml(asstName)}</div>
         <h2 class="llma-empty-greeting-heading">${heading}</h2>
         <p class="llma-empty-greeting-sub">${sub}</p>`;
     greet.style.display = '';

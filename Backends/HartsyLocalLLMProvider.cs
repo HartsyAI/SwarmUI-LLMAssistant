@@ -21,17 +21,15 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 {
     public class HartsyLocalLLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("Run on the GPU (CUDA) when enabled, or the CPU when disabled.\nCPU is much slower but needs no GPU.")]
-        public bool UseGPU = true;
+        [ConfigComment("Compute device to run inference on.\nCUDA = NVIDIA GPU (fast, recommended). CPU = no GPU needed (much slower).\nMore devices (Vulkan, etc.) will be added later. The GPU kernels ship with the engine — nothing to configure.")]
+        [ManualSettingsOptions(Vals = ["cuda", "cpu"], ManualNames = ["CUDA (NVIDIA GPU)", "CPU"])]
+        public string Device = "cuda";
 
-        [ConfigComment("Which CUDA device ordinal to use when 'UseGPU' is enabled.")]
+        [ConfigComment("Which CUDA device ordinal to use (only when Device = CUDA).")]
         public int GPUDeviceId = 0;
 
         [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.")]
         public bool LowVramQuant = false;
-
-        [ConfigComment("Path to the CUDA PTX kernel directory.\nLeave empty to use the bundled 'Ptx' folder next to the extension DLL.")]
-        public string PtxDirectory = "";
 
         [ConfigComment("If enabled, the model is unloaded immediately after each generation completes.\nIf false, it stays resident for faster subsequent requests.")]
         public bool AlwaysFreeMemory = false;
@@ -76,16 +74,25 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         Status = BackendStatus.DISABLED;
     }
 
-    /// <summary>Resolves the CUDA PTX kernel directory. The NuGet's build targets copy <c>Ptx/</c> next to
-    /// the extension DLL — and <c>AppContext.BaseDirectory</c> is the SwarmUI host dir when running inside
-    /// Swarm, so we must derive it from this assembly's location (matching AudioLab / the HartsyInference
-    /// backend extension).</summary>
-    private string ResolvePtxDir()
+    /// <summary>Creates the compute backend for the configured <c>Device</c>. The CUDA PTX kernels ship with
+    /// the engine and are auto-copied next to the extension DLL (NuGet build targets, or the csproj's local
+    /// Content copy), so the user never configures a kernel path.</summary>
+    private IBackend CreateBackend()
     {
-        if (!string.IsNullOrWhiteSpace(Settings.PtxDirectory))
+        string dev = (Settings.Device ?? "cuda").Trim().ToLowerInvariant();
+        return dev switch
         {
-            return Settings.PtxDirectory;
-        }
+            "cpu" => new CpuBackend(),
+            "cuda" => new CudaBackend(deviceOrdinal: Settings.GPUDeviceId, ptxDir: ResolvePtxDir()),
+            _ => throw new SwarmReadableErrorException($"Local LLM device '{Settings.Device}' is not supported yet — choose CUDA or CPU."),
+        };
+    }
+
+    /// <summary>The bundled CUDA PTX kernel directory: <c>Ptx/</c> next to the extension DLL. (Can't use
+    /// <c>AppContext.BaseDirectory</c> — that's the SwarmUI host dir inside Swarm; derive from this assembly,
+    /// matching AudioLab / the HartsyInference backend extension.)</summary>
+    private static string ResolvePtxDir()
+    {
         string extDir = Path.GetDirectoryName(typeof(HartsyLocalLLMProvider).Assembly.Location) ?? AppContext.BaseDirectory;
         return Path.Combine(extDir, "Ptx");
     }
@@ -136,9 +143,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             return;
         }
         Unload();
-        _backend ??= Settings.UseGPU
-            ? new CudaBackend(deviceOrdinal: Settings.GPUDeviceId, ptxDir: ResolvePtxDir())
-            : new CpuBackend();
+        _backend ??= CreateBackend();
         _model = GgufLanguageModel.Load(path, Settings.LowVramQuant);
         if (_backend is CudaBackend)
         {
