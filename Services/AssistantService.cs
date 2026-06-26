@@ -2,7 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.WebAPI;
-using SwarmUI.LLMs;
+using SwarmUI.Extensions.LLMAssistant.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 

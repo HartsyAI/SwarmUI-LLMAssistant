@@ -41,11 +41,45 @@ public class LLMAssistantExtension : Extension
         // Static asset files (images) — served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
         OtherAssets.Add("Assets/swarmui-logo.jpg");
+        // Vendored front-end libraries (marked / highlight.js / DOMPurify / KaTeX + fonts / Mermaid).
+        // Shipped locally so the extension has ZERO runtime external dependencies — no CDN, no internet.
+        // Loaded on demand by Assets/utils.js. See Assets/vendor/FETCH.md.
+        RegisterVendorAssets();
+    }
+
+    /// <summary>Registers every shippable file under <c>Assets/vendor/</c> (js/css/woff2) as a served
+    /// asset, by enumeration, so the bundled libraries resolve from
+    /// <c>/ExtensionFile/LLMAssistantExtension/Assets/vendor/...</c> with no CDN dependency. Auto-walking
+    /// the folder means adding/removing a vendored file (or bumping a version) needs no code change.</summary>
+    private void RegisterVendorAssets()
+    {
+        string vendorAbs = Path.Combine(FilePath, "Assets", "vendor");
+        if (!Directory.Exists(vendorAbs))
+        {
+            Logs.Error("[LLMAssistant] Assets/vendor is missing — markdown/math/diagram rendering will be unavailable. Run the vendoring step (see Assets/vendor/FETCH.md).");
+            return;
+        }
+        int count = 0;
+        foreach (string file in Directory.EnumerateFiles(vendorAbs, "*", SearchOption.AllDirectories))
+        {
+            string ext = Path.GetExtension(file).ToLowerInvariant();
+            if (ext != ".js" && ext != ".css" && ext != ".woff2")
+            {
+                continue;
+            }
+            // Extension-relative, forward-slashed (URL form) — eg "Assets/vendor/marked/marked.min.js".
+            OtherAssets.Add(Path.GetRelativePath(FilePath, file).Replace('\\', '/'));
+            count++;
+        }
+        Logs.Info($"[LLMAssistant] Registered {count} vendored library asset(s).");
     }
 
     public override void OnInit()
     {
         RegisterLLMModelType();
+        // Removable backend pack — supplies the actual LLM providers behind ILLMProvider.
+        // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
+        Backends.LLMBackendPack.Register();
         RegisterBuiltInTools();
         LLMAssistantAPI.Register();
         PromptTagHandler.RegisterAll();

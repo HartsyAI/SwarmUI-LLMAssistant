@@ -1,6 +1,6 @@
 using System.IO;
 using SwarmUI.Core;
-using SwarmUI.LLMs;
+using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;

@@ -1,14 +1,45 @@
 using Newtonsoft.Json.Linq;
-using SwarmUI.LLMs;
+using SwarmUI.Accounts;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 
-/// <summary>Extends SwarmUI's LLMParamInput with richer generation parameters.
-/// Per-message media now lives on <see cref="LLMMessage.Media"/> (in core) so backends can
-/// emit multimodal content blocks message-by-message; this class no longer carries a flat
-/// media list.</summary>
-public class ExtendedLLMInput : LLMParamInput
+/// <summary>The extension's self-contained LLM request shape, handed to an <see cref="ILLMProvider"/>.
+/// <para>Originally subclassed SwarmUI core's <c>LLMParamInput</c>; it's now standalone so the
+/// extension builds against the upstream skeleton (whose <c>LLMParamInput</c> is intentionally
+/// minimal). Per-message media lives on <see cref="LLMMessage.Media"/> so providers can emit
+/// multimodal content blocks message-by-message.</para></summary>
+public class ExtendedLLMInput
 {
+    /// <summary>The most recent user message text (convenience mirror of the last user turn).</summary>
+    public string UserMessage;
+
+    /// <summary>The model id to use, or null/empty to let the dispatcher pick.</summary>
+    public string Model;
+
+    /// <summary>Effective system prompt (also mirrored into the first <see cref="Messages"/> entry).</summary>
+    public string SystemPrompt;
+
+    /// <summary>Full conversation handed to the provider, including the system message.</summary>
+    public List<LLMMessage> Messages = [];
+
+    /// <summary>Sampling temperature.</summary>
+    public double Temperature = 1.0;
+
+    /// <summary>Max response tokens.</summary>
+    public int MaxTokens = 1024;
+
+    /// <summary>Nucleus sampling cutoff.</summary>
+    public double TopP = 0.9;
+
+    /// <summary>Pinned seed, or -1 for "let the provider pick". Only honored by providers that support it.</summary>
+    public long Seed = -1;
+
+    /// <summary>Whether to stream output.</summary>
+    public bool Stream = true;
+
+    /// <summary>The originating user session (for per-user keys / permission-scoped tool runs).</summary>
+    public Session RequestSession;
+
     /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
     public List<JObject> Tools { get; set; } = [];
 

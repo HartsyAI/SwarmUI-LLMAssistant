@@ -3,7 +3,6 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.LLMs;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
@@ -51,35 +50,50 @@ public static class LLMStreamHelper
                 await SendJson(socket, new JObject { ["iteration"] = iteration + 1 });
             }
             StringBuilder roundBuffer = new();
-            bool interrupted = false;
-            await LLMDispatcher.GenerateStreaming(input, chunk =>
+            // A complete tool call ends the round early: cancel a round-scoped token so the provider
+            // actually stops generating (reusing the cancellation path every provider already honors)
+            // instead of running to its token limit while we discard the output.
+            using CancellationTokenSource roundCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
+            bool toolCallDetected = false;
+            try
             {
-                if (interrupted || SocketGone(socket))
+                await LLMDispatcher.GenerateStreaming(input, chunk =>
                 {
-                    return;
-                }
-                if (chunk.TryGetValue("chunk", out JToken chunkToken))
-                {
-                    string text = chunkToken.ToString();
-                    roundBuffer.Append(text);
-                    SendJson(socket, new JObject { ["chunk"] = text }).Wait(linked.Token);
-                    if (ToolPromptService.ContainsCompleteToolCall(roundBuffer.ToString()))
+                    if (toolCallDetected || SocketGone(socket))
                     {
-                        interrupted = true;
+                        return;
                     }
-                }
-                else if (chunk.TryGetValue("result", out JToken resultToken))
-                {
-                    roundBuffer.Clear();
-                    roundBuffer.Append(resultToken.ToString());
-                }
-                else if (chunk.TryGetValue("status", out JToken statusToken))
-                {
-                    // Forward backend-side status events (eg LlamaSharp's "loading_model" /
-                    // "model_ready") to the client so the UI can show a spinner during slow loads.
-                    SendJson(socket, chunk).Wait(linked.Token);
-                }
-            }, linked.Token);
+                    if (chunk.TryGetValue("chunk", out JToken chunkToken))
+                    {
+                        string text = chunkToken.ToString();
+                        roundBuffer.Append(text);
+                        // Send on `linked` (not `roundCts`) so the chunk carrying </tool_call> still
+                        // reaches the UI before we cancel the round.
+                        SendJson(socket, new JObject { ["chunk"] = text }).Wait(linked.Token);
+                        if (ToolPromptService.ContainsCompleteToolCall(roundBuffer.ToString()))
+                        {
+                            toolCallDetected = true;
+                            roundCts.Cancel();
+                        }
+                    }
+                    else if (chunk.TryGetValue("result", out JToken resultToken))
+                    {
+                        roundBuffer.Clear();
+                        roundBuffer.Append(resultToken.ToString());
+                    }
+                    else if (chunk.TryGetValue("status", out JToken statusToken))
+                    {
+                        // Forward backend-side status events (eg "loading_model" / "model_ready") to the
+                        // client so the UI can show a spinner during slow loads.
+                        SendJson(socket, chunk).Wait(linked.Token);
+                    }
+                }, roundCts.Token);
+            }
+            catch (OperationCanceledException) when (toolCallDetected && !linked.IsCancellationRequested)
+            {
+                // Expected: we cancelled the round because a complete tool call arrived — fall through to
+                // parse and execute it. (A real user-Stop / socket-close cancels `linked` and is not caught.)
+            }
             if (SocketGone(socket))
             {
                 linked.Cancel();

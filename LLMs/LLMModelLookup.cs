@@ -1,57 +1,84 @@
 using System.Collections.Concurrent;
-using SwarmUI.Backends;
-using SwarmUI.Core;
-using SwarmUI.LLMs;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 
-/// <summary>Tiny TTL cache around walking running LLM backends to find a model by id.
-/// <para>Why this exists: <see cref="LLMModelMatcher"/>'s richer kinds (Family/Provider/Tag) need
-/// the full <see cref="LLMModelInfo"/>, but the only way to get one is to call each backend's
-/// <c>ListModels()</c>. Doing that on every chat request would hit the network for remote
-/// providers — totally unacceptable on a hot path. Cache and move on.</para>
-/// <para>Mirrors the <see cref="Services.UserPresetCache"/> pattern: per-key TTL, no
-/// invalidation API needed because model rosters change infrequently.</para></summary>
+/// <summary>TTL cache around walking the registered <see cref="ILLMProvider"/>s to resolve a model id.
+/// <para>Why this exists: <see cref="LLMModelMatcher"/>'s richer kinds (Family/Provider/Tag) need the full
+/// <see cref="LLMModelInfo"/>, and the dispatcher needs to know which provider owns a model — but the only
+/// source is each provider's <c>ListModels()</c>, which hits the network for remote providers. Calling that
+/// on every chat request is unacceptable on a hot path, so the per-provider roster is cached.</para>
+/// <para>Mirrors the <see cref="Services.UserPresetCache"/> pattern: per-key TTL, no invalidation API
+/// (model rosters change infrequently; the model dropdown endpoint lists uncached for freshness).</para></summary>
 public static class LLMModelLookup
 {
     private static readonly TimeSpan TTL = TimeSpan.FromMinutes(5);
-    private record Entry(DateTime Expires, LLMModelInfo Info);
+    /// <summary>Bound on a single provider's listing, so a cache-miss on the hot path (eg picking the
+    /// owning provider for a send) can't stall on an unresponsive remote endpoint.</summary>
+    private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(8);
+    private record ProviderEntry(DateTime Expires, List<LLMModelInfo> Models);
 
-    private static readonly ConcurrentDictionary<string, Entry> _cache = new();
+    /// <summary>Per-provider model roster cache, keyed by <see cref="ILLMProvider.Id"/>.</summary>
+    private static readonly ConcurrentDictionary<string, ProviderEntry> _providerCache = new();
 
-    /// <summary>Returns the <see cref="LLMModelInfo"/> for the given model id, or null if no
-    /// running backend advertises it. Tolerates a null/empty id (returns null). Never throws —
-    /// backends that fail to list models are skipped.</summary>
+    /// <summary>Returns the provider's models, cached. Never throws — a provider that fails to list
+    /// (eg an unreachable remote endpoint) yields an empty list, so it can't block the hot path.</summary>
+    private static async Task<List<LLMModelInfo>> GetModelsCached(ILLMProvider provider)
+    {
+        if (_providerCache.TryGetValue(provider.Id, out ProviderEntry entry) && entry.Expires > DateTime.UtcNow)
+        {
+            return entry.Models;
+        }
+        List<LLMModelInfo> models;
+        using CancellationTokenSource cts = new(ListTimeout);
+        try
+        {
+            models = await provider.ListModels(cts.Token) ?? [];
+        }
+        catch
+        {
+            // Timeout or provider error — cache an empty roster (don't re-hammer for TTL).
+            models = [];
+        }
+        _providerCache[provider.Id] = new ProviderEntry(DateTime.UtcNow + TTL, models);
+        return models;
+    }
+
+    /// <summary>Returns the <see cref="LLMModelInfo"/> for the given model id, or null if no registered
+    /// provider advertises it. Tolerates a null/empty id (returns null).</summary>
     public static async Task<LLMModelInfo> GetByIdAsync(string modelId)
     {
         if (string.IsNullOrEmpty(modelId))
         {
             return null;
         }
-        if (_cache.TryGetValue(modelId, out Entry entry) && entry.Expires > DateTime.UtcNow)
+        foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
-            return entry.Info;
-        }
-        LLMModelInfo found = null;
-        foreach (AbstractLLMBackend backend in Program.Backends.RunningBackendsOfType<AbstractLLMBackend>())
-        {
-            try
+            List<LLMModelInfo> models = await GetModelsCached(provider);
+            LLMModelInfo match = models.FirstOrDefault(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase));
+            if (match is not null)
             {
-                List<LLMModelInfo> models = await backend.ListModels();
-                LLMModelInfo match = models?.FirstOrDefault(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase));
-                if (match is not null)
-                {
-                    found = match;
-                    break;
-                }
-            }
-            catch
-            {
-                // Backend failed to list models — skip and try the next.
+                return match;
             }
         }
-        // Cache even nulls (avoids repeatedly hammering backends for an unknown model id).
-        _cache[modelId] = new Entry(DateTime.UtcNow + TTL, found);
-        return found;
+        return null;
+    }
+
+    /// <summary>Returns the provider that advertises the given model id, or null. Cached, so this is safe
+    /// to call on every generation request without re-hitting remote endpoints.</summary>
+    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId)
+    {
+        if (string.IsNullOrEmpty(modelId))
+        {
+            return null;
+        }
+        foreach (ILLMProvider provider in LLMProviderRegistry.All)
+        {
+            List<LLMModelInfo> models = await GetModelsCached(provider);
+            if (models.Any(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase)))
+            {
+                return provider;
+            }
+        }
+        return null;
     }
 }

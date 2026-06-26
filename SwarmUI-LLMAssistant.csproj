@@ -4,4 +4,38 @@
   </PropertyGroup>
 
   <Import Project="../../SwarmUI.extension.props" />
+
+  <!-- === Removable LLM backend pack (Backends/) ===
+       The HartsyInference NuGet powers the pure-C# local LLM backend. To drop the bundled backends
+       and fall back to a native Swarm LLM API: delete the Backends/ folder, remove the
+       LLMBackendPack.Register() call in OnInit, and delete this whole block + the ExcludeAssets block
+       below. Nothing else in the extension references the engine. -->
+
+  <!-- After the import (which sets it false): copy the engine's private DLLs into our output so the
+       per-extension AssemblyLoadContext can resolve them, and so the CUDA PTX kernels land in Ptx/. -->
+  <PropertyGroup>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pure-C#/.NET inference engine. Meta-package; bundles the LLM modality + CPU/CUDA backends and
+         auto-copies the CUDA PTX kernels (→ Ptx/) next to the extension DLL. Pinned for a reproducible
+         build; bump to the exact version CI published when you ship engine changes.
+         https://www.nuget.org/packages/HartsyInference -->
+    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.38" />
+  </ItemGroup>
+
+  <!-- Don't ship duplicates of packages the SwarmUI host already loads (compile against them via
+       SwarmUI.deps.props, but don't copy their runtime DLLs). Keep in sync with SwarmUI.deps.props. -->
+  <ItemGroup>
+    <PackageReference Update="FreneticLLC.FreneticUtilities" ExcludeAssets="runtime" />
+    <PackageReference Update="Hardware.Info" ExcludeAssets="runtime" />
+    <PackageReference Update="LiteDB" ExcludeAssets="runtime" />
+    <PackageReference Update="LLamaSharp" ExcludeAssets="runtime" />
+    <PackageReference Update="LLamaSharp.Backend.Cpu" ExcludeAssets="runtime" />
+    <PackageReference Update="LLamaSharp.Backend.Cuda12" ExcludeAssets="runtime" />
+    <PackageReference Update="Newtonsoft.Json" ExcludeAssets="runtime" />
+    <PackageReference Update="SixLabors.ImageSharp" ExcludeAssets="runtime" />
+    <PackageReference Update="SixLabors.ImageSharp.Drawing" ExcludeAssets="runtime" />
+  </ItemGroup>
 </Project>

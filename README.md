@@ -1,8 +1,14 @@
 # SwarmUI LLM Assistant Extension
 
-A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI). Adds persistent chat threads, customizable assistants, agentic tool calling, vision support, a floating in-page companion, per-user memory, and deep Generate-tab prompt integration — all built on SwarmUI's native LLM backend registry (`AbstractLLMBackend`, `Models/llm/`, the new `LLM` model type).
+A full-featured LLM chat tab for [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI). Adds persistent chat threads, customizable assistants, agentic tool calling, vision support, a floating in-page companion, per-user memory, and deep Generate-tab prompt integration.
 
-The extension never spawns or talks directly to an LLM runtime. It dispatches into whatever backends SwarmUI already knows about — local llama.cpp, Anthropic Claude, or any OpenAI-compatible HTTP API (Ollama, LM Studio, vLLM, OpenAI itself, …).
+The extension is **self-contained**: the whole feature surface talks to one internal seam, `ILLMProvider` (see `LLMs/`), and never references SwarmUI's core LLM types. A small, **removable** backend pack (`Backends/`) supplies the actual runtimes behind that seam:
+
+- **Local LLM (HartsyInference)** — fully native pure-C# GGUF inference (Qwen2/Qwen3/Llama), no llama.cpp binding and no external process.
+- **Anthropic Claude** — the Messages API, using each user's own API key.
+- **Remote LLM (OpenAI-compatible)** — OpenAI, Ollama, LM Studio, vLLM, OpenRouter, … using each user's own API key.
+
+The seam means the runtime is swappable without touching the rest of the extension — see [Removing / swapping the backend pack](#removing--swapping-the-backend-pack).
 
 > **Status:** Feature-complete for the v1.0 ship. See [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md) for the open polish items and the v1.1+ roadmap.
 
@@ -100,12 +106,12 @@ On init, the extension registers an `LLM` model type via `Program.T2IModelSets["
 ## Prerequisites
 
 - SwarmUI installed and working
-- At least one LLM backend registered. SwarmUI ships three:
-  - `LlamaSharp` (local llama.cpp, GGUF models)
-  - `Anthropic` (Claude API; uses per-user API keys)
-  - `SimpleRemote` (any OpenAI-compatible HTTP API — Ollama, LM Studio, vLLM, OpenAI, OpenRouter, …)
+- At least one LLM backend instance added under **Server > Backends**. The bundled pack registers three backend types:
+  - **Local LLM — HartsyInference** (pure-C# GGUF inference; drop `.gguf` files into `Models/llm`)
+  - **Anthropic Claude** (Claude API; uses each user's own API key)
+  - **Remote LLM — OpenAI API** (any OpenAI-compatible HTTP API — Ollama, LM Studio, vLLM, OpenAI, OpenRouter, …)
 
-Add backends under **Server > Backends** in the SwarmUI UI.
+The remote backends read a per-user API key from the **User** tab (Anthropic / OpenAI). The local backend needs no key.
 
 ---
 
@@ -175,12 +181,21 @@ Master enable, persona (an assistant ID, or follow the active assistant), corner
 SwarmUI-LLMAssistant/
 ├── LLMAssistantExtension.cs        # Entry point — OnPreInit registers assets, OnInit registers model type / tools / API / migrations / GC
 ├── Constants.cs                    # Instruction IDs, feature keys, tool constants, roles
-├── LLMs/
-│   ├── LLMDispatcher.cs            # Routes to the AbstractLLMBackend that advertises the requested model
-│   ├── LLMModelLookup.cs           # Cached backend.ListModels() lookups (5min TTL)
+├── LLMs/                           # The stable seam — no concrete backend referenced here
+│   ├── ILLMProvider.cs             # The seam interface + LLMProviderRegistry (everything dispatches through this)
+│   ├── LLMTypes.cs                 # Extension-owned DTOs (LLMMessage, LLMMediaAttachment, LLMModelInfo, LLMRoles)
+│   ├── LLMDispatcher.cs            # Routes to the ILLMProvider that advertises the requested model; CountTokens
+│   ├── LLMModelLookup.cs           # Cached provider.ListModels() lookups (5min TTL)
 │   ├── LLMModelMatcher.cs          # Generic matcher (Exact, Family, Provider, Tag, Glob, Default)
-│   ├── ExtendedLLMInput.cs         # Wraps LLMParamInput; adds Tools and chat-history conversion
+│   ├── ExtendedLLMInput.cs         # Standalone LLM request shape (messages, params, media, Tools)
+│   ├── SwarmNativeLLMProvider.cs   # OPTIONAL bridge to native Swarm AbstractLLMBackends (off by default)
 │   └── LLMStreamHelper.cs          # Agentic streaming loop, WS plumbing, server-side persistence
+├── Backends/                       # REMOVABLE backend pack — delete to fall back to a native LLM API
+│   ├── LLMProviderBackend.cs       # Base: AbstractLLMBackend + ILLMProvider; self-registers into the registry
+│   ├── HartsyLocalLLMProvider.cs   # Pure-C# local GGUF inference (HartsyInference.LLM NuGet)
+│   ├── AnthropicLLMProvider.cs     # Anthropic Messages API (per-user key)
+│   ├── RemoteOpenAILLMProvider.cs  # Any OpenAI-compatible endpoint (per-user key)
+│   └── LLMBackendPack.cs           # One Register() call — backend types + per-user API key types
 ├── Services/
 │   ├── AssistantResolver.cs        # Flattens `extends` chains, applies variants — cached per-user
 │   ├── AssistantService.cs         # Assistant CRUD with scope gating
@@ -238,12 +253,25 @@ SwarmUI-LLMAssistant/
 
 ### Design notes
 
-- **No backend ownership.** The extension never spawns or talks directly to any external LLM process. It calls `Program.Backends.RunningBackendsOfType<AbstractLLMBackend>()` and dispatches via SwarmUI's native streaming API. Adding support for a new LLM runtime is a SwarmUI-level change.
+- **One seam, swappable runtime.** The stable extension core (chat, threads, tools, companion, T2I) talks only to `ILLMProvider` via `LLMProviderRegistry` — it never names a concrete backend or SwarmUI's `AbstractLLMBackend`. The bundled runtimes live in the removable `Backends/` pack; each registers itself into the registry on backend init. Swapping or removing the runtime is a self-contained change — see [Removing / swapping the backend pack](#removing--swapping-the-backend-pack).
 - **Server-authoritative chat history.** The client cannot inject fake history. The user message is appended to the saved thread *before* the LLM is called, so nothing is lost on disconnect. The assistant reply is appended after the agentic loop completes.
 - **In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not `position: fixed` to the viewport. Bootstrap modals would float over the entire SwarmUI UI, which breaks the tab metaphor.
 - **Tool call format.** `<tool_call>{"name":"X","arguments":{...}}</tool_call>` / `<tool_result name="X">…</tool_result>`. Deliberately text-based so it survives any backend that streams plain text. Native `tools` / `tool_calls` passthrough for OpenAI-schema backends is planned for v1.1.
 - **Layered security.** Permission checks at the endpoint level + per-tool gates + SSRF guards on outbound HTTP + path sandboxing on all file IO + dangerous tools defaulting to `NOBODY`.
 - **Reused SwarmUI styles.** `.basic-button`, `.splitter-bar`, all theme CSS variables (`--text`, `--emphasis`, `--light-border`, …). Global scrollbar styling inherited from `site.css`.
+
+### Removing / swapping the backend pack
+
+The `Backends/` folder is the only part of the extension that knows about a concrete LLM runtime. Everything else depends solely on `ILLMProvider`. To drop the bundled runtimes — e.g. once SwarmUI ships a first-class native LLM API you'd rather use:
+
+1. Delete the `Backends/` folder.
+2. Remove the `Backends.LLMBackendPack.Register();` line in `LLMAssistantExtension.OnInit`.
+3. Delete the HartsyInference NuGet block + the `ExcludeAssets` block from `SwarmUI-LLMAssistant.csproj` (and set `CopyLocalLockFileAssemblies` back to the default).
+4. Register a replacement `ILLMProvider`. A ready-made bridge to native Swarm backends ships as `LLMs/SwarmNativeLLMProvider.cs` (disabled by default) — call `SwarmNativeLLMProvider.Register()` from `OnInit` instead of the pack. Adjust its input/model mapping to whatever the native API exposes.
+
+Because the rest of the extension only ever sees `ILLMProvider` and the extension-owned DTOs, none of the chat / threads / tools / companion / T2I code changes.
+
+> **Note on the bundled pack:** the three providers register as Swarm **backend types** (so they appear under Server > Backends with config + status). Each backend instance self-registers into `LLMProviderRegistry` when it initializes, so the chat tab only sees backends that are actually running.
 
 ### Permissions (14)
 

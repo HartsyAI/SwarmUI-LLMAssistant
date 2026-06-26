@@ -6,7 +6,6 @@ using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Extensions.LLMAssistant.Tools;
-using SwarmUI.LLMs;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
@@ -378,7 +377,7 @@ public static class ChatEndpoints
 
     /// <summary>Applies per-request parameter overrides on top of resolved parameters.
     /// <paramref name="seed"/> <c>-1</c> means "random, let the backend pick"; any non-negative
-    /// value pins the seed (only backends that honor <see cref="LLMParamInput.Seed"/> will use it).</summary>
+    /// value pins the seed (only providers that honor <c>ExtendedLLMInput.Seed</c> will use it).</summary>
     private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1)
     {
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
@@ -396,11 +395,10 @@ public static class ChatEndpoints
     /// <para>Accepts either <c>text</c> (a single string) or <c>messages</c> (an array of
     /// <c>{role, content}</c> objects). If <c>messages</c> is provided, the array is flattened
     /// with role headers before counting.</para>
-    /// <para>When a <see cref="LlamaSharpLLMBackend"/> is running with a model already loaded,
-    /// the exact tokenizer is used and <c>exact=true</c> is returned. Otherwise a cheap
-    /// <c>chars/4</c> heuristic is returned with <c>exact=false</c>. Calling this endpoint
-    /// never loads a model — if nothing is loaded yet, the caller still gets a heuristic
-    /// response immediately rather than paying a multi-second model-load cost.</para>
+    /// <para>If a registered provider can tokenize the text cheaply (a model is already loaded),
+    /// the exact count is used and <c>exact=true</c> is returned. Otherwise a cheap <c>chars/4</c>
+    /// heuristic is returned with <c>exact=false</c>. Calling this endpoint never loads a model —
+    /// providers return null rather than paying a multi-second model-load cost.</para>
     /// </summary>
     public static async Task<JObject> LLMAssistantCountTokens(Session session, JObject rawInput)
     {
@@ -423,35 +421,16 @@ public static class ChatEndpoints
                 }
             }
             text ??= "";
-            // Prefer the running LlamaSharp backend's tokenizer when a model is already loaded.
-            // Deliberately never call Load() here — tokenization should be near-instant; if the
-            // model isn't loaded yet we fall back to the heuristic rather than paying load cost.
-            try
-            {
-                LlamaSharpLLMBackend llama = Program.Backends.RunningBackendsOfType<LlamaSharpLLMBackend>().FirstOrDefault();
-                if (llama?.LoadedContext is not null)
-                {
-                    LLama.Native.LLamaToken[] toks = llama.LoadedContext.Tokenize(text, addBos: true, special: true);
-                    return new JObject
-                    {
-                        ["success"] = true,
-                        ["count"] = toks.Length,
-                        ["exact"] = true,
-                        ["source"] = "llama.cpp"
-                    };
-                }
-            }
-            catch
-            {
-                // Fall through to heuristic on any tokenizer error.
-            }
-            int approx = Math.Max(0, (int)Math.Ceiling(text.Length / 4.0));
+            // Ask the registered providers for an exact count (a model already loaded can tokenize
+            // near-instantly); they return null rather than triggering a load, so we fall back to
+            // the chars/4 heuristic immediately when nothing can tokenize cheaply.
+            (int count, bool exact, string source) = LLMDispatcher.CountTokens(text);
             return new JObject
             {
                 ["success"] = true,
-                ["count"] = approx,
-                ["exact"] = false,
-                ["source"] = "heuristic"
+                ["count"] = count,
+                ["exact"] = exact,
+                ["source"] = source
             };
         }
         catch (Exception ex)

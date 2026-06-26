@@ -101,7 +101,7 @@ public static class PromptProcessor
     {
         // Look up model facts so per-model variants can pick the right text. Tolerates unknown
         // models (returns null; only Default/Exact/Glob matchers will then match).
-        SwarmUI.LLMs.LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
         string systemPrompt = InstructionIds.All.Contains(instructionId)
             ? AssistantService.ResolveInstruction(instructionId, assistantId, user: user, modelInfo: modelInfo)
             : InstructionService.ResolveInstruction(instructionId, user: user);
