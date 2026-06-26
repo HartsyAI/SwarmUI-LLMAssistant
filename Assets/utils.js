@@ -89,13 +89,18 @@ function llmaLoadStyle(href) {
     LLMA_LOADED_STYLES.add(href);
 }
 
-async function llmaLoadCdnLibs() {
+// Base path for the vendored libraries shipped with the extension. NO CDN / external network —
+// these resolve from the extension's own served assets (registered in LLMAssistantExtension.OnInit).
+// See Assets/vendor/FETCH.md. Do NOT reintroduce https://cdn... URLs here.
+const LLMA_VENDOR_BASE = '/ExtensionFile/LLMAssistantExtension/Assets/vendor';
+
+async function llmaLoadVendoredLibs() {
     // Core libs (required for markdown rendering)
-    llmaLoadStyle('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css');
+    llmaLoadStyle(`${LLMA_VENDOR_BASE}/highlight/github-dark.min.css`);
     await Promise.all([
-        llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.11/marked.min.js'),
-        llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js'),
-        llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.2.4/purify.min.js'),
+        llmaLoadScript(`${LLMA_VENDOR_BASE}/marked/marked.min.js`),
+        llmaLoadScript(`${LLMA_VENDOR_BASE}/highlight/highlight.min.js`),
+        llmaLoadScript(`${LLMA_VENDOR_BASE}/dompurify/purify.min.js`),
     ]);
     if (window.marked && window.hljs) {
         window.marked.setOptions({
@@ -107,12 +112,13 @@ async function llmaLoadCdnLibs() {
             gfm:    true,
         });
     }
-    // Enhanced libs (KaTeX + Mermaid) — loaded async, non-blocking
-    llmaLoadStyle('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.21/katex.min.css');
-    llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.21/katex.min.js')
-        .then(() => llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.21/contrib/auto-render.min.js'))
+    // Enhanced libs (KaTeX + Mermaid) — loaded async, non-blocking. KaTeX's CSS pulls its woff2 fonts
+    // from the sibling fonts/ folder (relative to the CSS URL), which are vendored alongside it.
+    llmaLoadStyle(`${LLMA_VENDOR_BASE}/katex/katex.min.css`);
+    llmaLoadScript(`${LLMA_VENDOR_BASE}/katex/katex.min.js`)
+        .then(() => llmaLoadScript(`${LLMA_VENDOR_BASE}/katex/auto-render.min.js`))
         .catch(() => console.warn('[LLMAssistant] KaTeX failed to load'));
-    llmaLoadScript('https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.6.0/mermaid.min.js')
+    llmaLoadScript(`${LLMA_VENDOR_BASE}/mermaid/mermaid.min.js`)
         .then(() => {
             if (window.mermaid) {
                 window.mermaid.initialize({
@@ -155,6 +161,12 @@ function llmaRenderMarkdown(text) {
     });
 
     const rawHtml = window.marked.parse(processed);
+    // Hardened allowlist. Deliberately excludes:
+    //   - `style`  → blocks CSS-based UI redressing / clickjacking / data-exfil via url() in model output
+    //   - `id`     → blocks DOM clobbering (attacker-chosen ids colliding with getElementById/globals)
+    //   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
+    // KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
+    // so dropping these does not affect their (app-generated) markup.
     const clean   = window.DOMPurify.sanitize(rawHtml, {
         ALLOWED_TAGS: [
             'p','br','strong','em','del','code','pre','ul','ol','li',
@@ -162,14 +174,14 @@ function llmaRenderMarkdown(text) {
             'table','thead','tbody','tr','td','th','a','img',
             'span','div','svg','path','g','rect','line','circle','text',
             'polygon','polyline','ellipse','marker','defs','clipPath','use',
-            'foreignObject','tspan',
+            'tspan',
         ],
         ALLOWED_ATTR: [
             'href','class','target','rel','src','alt','title',
-            'style','d','fill','stroke','stroke-width','transform',
+            'd','fill','stroke','stroke-width','transform',
             'viewBox','xmlns','width','height','x','y','cx','cy','r',
             'rx','ry','x1','y1','x2','y2','points','marker-end',
-            'text-anchor','dominant-baseline','font-size','id',
+            'text-anchor','dominant-baseline','font-size',
             'clip-path','aria-label','role','tabindex',
         ],
     });
@@ -206,7 +218,7 @@ function llmaRenderMarkdown(text) {
     }
 
     // Add copy buttons to code blocks
-    result = result.replace(/<pre>/g, '<pre><button class="llma-copy-code-btn" onclick="llmaCopyCode(this)">Copy</button>');
+    result = result.replace(/<pre>/g, '<pre><button class="llma-copy-code-btn" type="button">Copy</button>');
 
     return result;
 }
@@ -236,6 +248,13 @@ function llmaCopyCode(btn) {
         setTimeout(() => { btn.textContent = prev; }, 1500);
     });
 }
+
+// Delegated handler for the code-block "Copy" buttons. Registered once (CSP-clean — no inline
+// onclick), works for every dynamically-inserted markdown block (chat bubbles, asset viewer, …).
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest?.('.llma-copy-code-btn');
+    if (btn) llmaCopyCode(btn);
+});
 
 // -- HTML Escape --
 function llmaEscapeHtml(str) {

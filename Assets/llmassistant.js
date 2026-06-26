@@ -39,7 +39,7 @@ async function llmaInit() {
     llmaRenderWelcomeSkeleton();
 
     const [, ] = await Promise.allSettled([
-        llmaLoadCdnLibs(),
+        llmaLoadVendoredLibs(),
         llmaLoadSettings(),
     ]);
 
@@ -158,9 +158,6 @@ async function llmaLoadAssistants() {
 
 // -- Model Loading --
 async function llmaLoadModels() {
-    const statusEl = document.getElementById('llma-model-status');
-    if (statusEl) statusEl.className = 'llma-model-status loading';
-
     try {
         const result = await llmaRequest('LLMAssistantGetModels', {});
         const models = Array.isArray(result?.models) ? result.models : [];
@@ -169,6 +166,13 @@ async function llmaLoadModels() {
         // Empty model list with no API error = no backends running. Distinguish from a load failure
         // so the welcome banner can show the right copy (and link to Server > Backends).
         LLMAState.noBackendsRunning = models.length === 0;
+        // Some backends may have timed out / errored while others returned models — surface a
+        // non-blocking notice rather than silently dropping them from the list.
+        const modelWarnings = Array.isArray(result?.warnings) ? result.warnings : [];
+        LLMAState.loadErrors.modelWarnings = modelWarnings;
+        if (modelWarnings.length > 0 && typeof llmaShowToast === 'function') {
+            llmaShowToast(`Some LLM backends did not respond: ${modelWarnings.join('; ')}`, 'warning');
+        }
 
         const sel = document.getElementById('llma-model-select');
         if (sel) {
@@ -206,7 +210,7 @@ async function llmaLoadModels() {
         }
 
         if (models.length > 0) {
-            if (statusEl) statusEl.className = 'llma-model-status';
+            llmaSetModelSelectError(false);
             // Restore saved model if it still exists in the list
             const saved = LLMAState.settings?.currentModel;
             if (saved && sel && models.some(m => m.id === saved)) {
@@ -218,10 +222,10 @@ async function llmaLoadModels() {
                 LLMAState.currentModel = sel.value;
             }
         } else {
-            if (statusEl) statusEl.className = 'llma-model-status offline';
+            llmaSetModelSelectError(true);
         }
     } catch (e) {
-        if (statusEl) statusEl.className = 'llma-model-status offline';
+        llmaSetModelSelectError(true);
         LLMAState.loadErrors.models = llmaShortError(e) || 'Failed to load models';
         LLMAState.noBackendsRunning = false;
     }
@@ -284,9 +288,14 @@ function llmaSetupModelSelect() {
     }
 }
 
+// Reflects "something's wrong with model selection" as a red outline on the dropdown (no model
+// available / none selected). Healthy state shows no indicator — matches SwarmUI's quiet styling.
+function llmaSetModelSelectError(hasError) {
+    document.getElementById('llma-model-select')?.classList.toggle('error', !!hasError);
+}
+
 function llmaUpdateModelStatus() {
-    const status = document.getElementById('llma-model-status');
-    if (status) status.className = LLMAState.currentModel ? 'llma-model-status' : 'llma-model-status offline';
+    llmaSetModelSelectError(!LLMAState.currentModel);
     llmaUpdateAttachAvailability();
 }
 
@@ -639,8 +648,8 @@ function llmaRenderAssistantPanel(assistantId) {
             <div class="llma-panel-name">${llmaEscapeHtml(assistant.name)}</div>
             <div class="llma-panel-desc">${llmaEscapeHtml(assistant.description || '')}</div>
             <div class="llma-panel-actions">
-                <button class="llma-panel-action-btn" onclick="llmaOpenSettings();document.querySelector('.llma-modal-tab[data-tab=assistants]')?.click();">Edit</button>
-                <button class="llma-panel-action-btn" onclick="llmaShowWelcome();">Switch</button>
+                <button class="llma-panel-action-btn" type="button" data-action="edit">Edit</button>
+                <button class="llma-panel-action-btn" type="button" data-action="switch">Switch</button>
             </div>
         </div>
         <div class="llma-panel-stats">
@@ -667,6 +676,13 @@ function llmaRenderAssistantPanel(assistantId) {
             </div>
             <div class="llma-asset-list" id="llma-asset-list"></div>
         </div>`;
+
+    // Wire the panel actions (no inline handlers — CSP-clean).
+    inner.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
+        llmaOpenSettings();
+        document.querySelector('.llma-modal-tab[data-tab="assistants"]')?.click();
+    });
+    inner.querySelector('[data-action="switch"]')?.addEventListener('click', () => llmaShowWelcome());
 
     // Populate the freshly-created asset list (derived from current messages)
     if (typeof llmaRenderAssetSidebar === 'function') {

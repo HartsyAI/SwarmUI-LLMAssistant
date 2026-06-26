@@ -4,7 +4,6 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.LLMs;
 using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;

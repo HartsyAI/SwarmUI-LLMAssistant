@@ -441,8 +441,34 @@ function llmaStreamResponse(payload, onComplete) {
         }
         return textContainer;
     };
+    // Streaming markdown is throttled: re-parsing + re-sanitizing the whole message on every token is
+    // O(n^2) and janky on long replies. Render at most once per STREAM_RENDER_MS during streaming; the
+    // `done` handler always does the final authoritative render. Trailing-edge so the last partial isn't lost.
+    const STREAM_RENDER_MS = 60;
+    let lastStreamRender = 0;
+    let pendingStreamRender = null;
+    const clearPendingRender = () => {
+        if (pendingStreamRender) { clearTimeout(pendingStreamRender); pendingStreamRender = null; }
+    };
+    const renderStreamingNow = () => {
+        const tc = ensureTextContainer();
+        if (!tc) return;
+        // Hide any (possibly partial) <tool_call> markup during streaming for a clean UI.
+        const cleanText = streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').trim();
+        tc.innerHTML = llmaRenderMarkdown(cleanText);
+        lastStreamRender = performance.now();
+    };
+    const scheduleStreamingRender = () => {
+        const since = performance.now() - lastStreamRender;
+        if (since >= STREAM_RENDER_MS) {
+            clearPendingRender();
+            renderStreamingNow();
+        } else if (!pendingStreamRender) {
+            pendingStreamRender = setTimeout(() => { pendingStreamRender = null; renderStreamingNow(); }, STREAM_RENDER_MS - since);
+        }
+    };
     // Reset so next chunk after a tool result starts a fresh text segment
-    const breakTextSegment = () => { textContainer = null; streamingText = ''; };
+    const breakTextSegment = () => { clearPendingRender(); textContainer = null; streamingText = ''; };
 
     LLMAState._streamingMsgId = assistantMsgId;
     LLMAState._streamingText  = '';
@@ -450,6 +476,7 @@ function llmaStreamResponse(payload, onComplete) {
     try {
         LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', payload, data => {
             if (data.error) {
+                clearPendingRender();
                 llmaShowErrorInBubble(bubble, data.error);
                 llmaSetStreaming(false);
                 return;
@@ -475,12 +502,7 @@ function llmaStreamResponse(payload, onComplete) {
                 }
                 streamingText += data.chunk;
                 LLMAState._streamingText = streamingText;
-                const tc = ensureTextContainer();
-                if (tc) {
-                    // Hide any raw <tool_call> tags during streaming for cleaner UI
-                    const cleanText = streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').trim();
-                    tc.innerHTML = llmaRenderMarkdown(cleanText);
-                }
+                scheduleStreamingRender();
                 llmaScrollToBottom();
             }
             if (data.iteration !== undefined) {
@@ -517,6 +539,8 @@ function llmaStreamResponse(payload, onComplete) {
                 }
             }
             if (data.done) {
+                // Cancel any trailing throttled render so it can't overwrite the final asset-swapped render.
+                clearPendingRender();
                 const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
                 const modelName = LLMAState.currentModel || '';
 

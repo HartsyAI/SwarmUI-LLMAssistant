@@ -682,7 +682,7 @@ llmaRegisterAssetType({
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-svg';
         if (window.DOMPurify) {
-            wrap.innerHTML = window.DOMPurify.sanitize(asset.content || '', { USE_PROFILES: { svg: true, svgFilters: true } });
+            wrap.innerHTML = window.DOMPurify.sanitize(asset.content || '', { USE_PROFILES: { svg: true } });
         } else {
             wrap.textContent = asset.content || '';
         }

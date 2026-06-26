@@ -34,8 +34,7 @@
             <div class="llma-topbar-right">
                 <!-- Model select -->
                 <div class="llma-model-select-wrap">
-                    <span class="llma-model-status" id="llma-model-status"></span>
-                    <select class="form-select llma-model-select" id="llma-model-select" autocomplete="off">
+                    <select class="llma-model-select" id="llma-model-select" autocomplete="off" aria-label="Active LLM model">
                         <option value="" disabled selected>No models found</option>
                     </select>
                     <!-- Refresh re-scans Models/llm/ via core TriggerRefresh so newly-dropped GGUF
