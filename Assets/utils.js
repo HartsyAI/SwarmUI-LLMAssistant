@@ -449,13 +449,15 @@ function llmaDownloadFile(filename, content, mimeType) {
 
 // -- Default Settings --
 const LLMA_DEFAULT_SETTINGS = {
-    defaults: {
-        temperature:     0.8,
-        maxTokens:       2048,
-        topP:            0.9,
-        seed:            -1,
-        contextMessages: 0,
-        stream:          true,
+    // Server-canonical key is "parameters" (see C# SettingsService.DefaultSettings) — must match, or the
+    // General-tab defaults silently don't apply to requests.
+    parameters: {
+        temperature:        0.8,
+        maxTokens:          2048,
+        topP:               0.9,
+        seed:               -1,
+        maxContextMessages: 0,
+        stream:             true,
     },
     ui: {
         markdownEnabled: true,

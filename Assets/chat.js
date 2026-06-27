@@ -279,6 +279,8 @@ function llmaSetupInput() {
 
     if (input) {
         input.addEventListener('keydown', e => {
+            // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).
+            if (typeof llmaPickerOnKeydown === 'function' && llmaPickerOnKeydown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey && LLMAState.enterToSend) {
                 e.preventDefault();
                 llmaSendMessage();
@@ -288,6 +290,7 @@ function llmaSetupInput() {
             input.style.height = 'auto';
             input.style.height = Math.min(input.scrollHeight, 140) + 'px';
             llmaUpdateCharCount(input.value);
+            if (typeof llmaPickerOnInput === 'function') llmaPickerOnInput(input);
         });
         input.addEventListener('paste', e => llmaHandlePaste(e));
     }
@@ -345,6 +348,12 @@ async function llmaSendMessage() {
     if (!message && !LLMAState.attachedImage) return;
     if (LLMAState.isGenerating) return;
 
+    // Option B: a leading "/toolId ..." forces that tool — strip it for the model payload (the backend
+    // adds a "call this tool" directive); the bubble still shows what the user typed.
+    const forced = (typeof llmaPickerExtractForceTool === 'function') ? llmaPickerExtractForceTool(message) : null;
+    const payloadMessage = forced ? forced.message : message;
+    if (typeof llmaPickerClose === 'function') llmaPickerClose();
+
     input.value = '';
     input.style.height = 'auto';
     llmaUpdateCharCount('');
@@ -383,9 +392,12 @@ async function llmaSendMessage() {
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
     // Build payload — server is authoritative for history; we only send threadId + new message.
-    const payload = llmaBuildPayload(message, 'chat');
+    const payload = llmaBuildPayload(payloadMessage, 'chat');
     if (mediaPayload) {
         payload.media = mediaPayload;
+    }
+    if (forced) {
+        payload.forceToolId = forced.toolId;
     }
 
     llmaStreamResponse(payload);
@@ -401,12 +413,12 @@ function llmaBuildPayload(message, instructionId, options = {}) {
 
     // Thread params
     const tp = LLMAState.threadParams[LLMAState.activeThreadId] || {};
-    const d  = LLMAState.settings?.defaults || {};
+    const d  = LLMAState.settings?.parameters || {};
     const get = (k) => tp[k] ?? d[k];
 
     if (get('temperature') !== undefined) payload.temperature = get('temperature');
     if (get('maxTokens'))   payload.maxTokens = get('maxTokens');
-    if (get('contextMessages') > 0) payload.maxContextMessages = get('contextMessages');
+    if (get('maxContextMessages') > 0) payload.maxContextMessages = get('maxContextMessages');
     // Seed: -1 means "random, let the backend pick"; only forward when the user pinned a value.
     const seed = get('seed');
     if (typeof seed === 'number' && seed >= 0) payload.seed = seed;

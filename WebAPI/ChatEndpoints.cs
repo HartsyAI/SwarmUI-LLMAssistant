@@ -196,6 +196,9 @@ public static class ChatEndpoints
             string message = rawInput["message"]?.ToString();
             string instructionId = rawInput["instructionId"]?.ToString();
             string model = rawInput["model"]?.ToString();
+            // Option B (in-chat tool picker, type-through): the user prefixed a "/toolId" command — nudge the
+            // model to call exactly that tool. The frontend already stripped the prefix from `message`.
+            string forceToolId = rawInput["forceToolId"]?.ToString();
             double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
             int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
             // Seed: -1 (or absent) means "random, let the backend pick".
@@ -265,6 +268,16 @@ public static class ChatEndpoints
                 else if (!string.IsNullOrEmpty(input.SystemPrompt))
                 {
                     input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
+                }
+                // Option B: if the user explicitly invoked a tool via the picker, hard-nudge the model to call it.
+                if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
+                    input.SystemPrompt += directive;
+                    if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
+                    {
+                        input.Messages[0].Content = input.SystemPrompt;
+                    }
                 }
             }
             await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId);

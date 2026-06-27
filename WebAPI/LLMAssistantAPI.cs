@@ -168,7 +168,9 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetTool, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSaveTool, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantDeleteTool, true, PermSettings);
-        API.RegisterAPICall(ToolEndpoints.LLMAssistantExecuteTool, true, PermSettings);
+        // Chat-permission so the in-chat tool picker can run a tool directly. The per-tool gate
+        // (llm_tool_*) is still enforced inside ExecuteTool, so this isn't a privilege escalation.
+        API.RegisterAPICall(ToolEndpoints.LLMAssistantExecuteTool, true, PermChat);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetToolConfig, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSetToolConfig, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetImagePresets, false, PermSettings);

@@ -85,7 +85,11 @@
         opacity: 1;
         pointer-events: auto;
     }
-    .llma-asst-toggle { display: flex !important; }
+    /* Show the assistant-panel toggle so the drawer is reachable at tablet width.
+       (Targets the id — the button has no matching class.) */
+    #llma-asst-toggle { display: flex !important; }
+    /* Keep the model select from crowding the narrower top bar. */
+    .llma-model-select { max-width: 200px; }
 }
 
 /* Mobile: sidebar also becomes overlay (single column, no split bars) */
@@ -113,8 +117,9 @@
         opacity: 1;
         pointer-events: auto;
     }
-    .llma-thread-title { max-width: 160px; }
-    .llma-model-label { max-width: 90px; }
+    /* Un-center the title at phone width (flows next to the drawer button; no overlap with controls). */
+    .llma-thread-title { position: static; transform: none; text-align: left; max-width: 110px; }
+    .llma-model-select { min-width: 0; max-width: 120px; }
     .llma-assistant-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
     .llma-modal { width: 95%; max-height: 90%; }
     .llma-param-row { grid-template-columns: 75px 1fr auto; font-size: 11.5px; }

@@ -348,14 +348,14 @@ function llmaSetupParamsPopover() {
 
         if (open && LLMAState.activeThreadId) {
             const tp = LLMAState.threadParams[LLMAState.activeThreadId] || {};
-            const d  = LLMAState.settings?.defaults || {};
+            const d  = LLMAState.settings?.parameters || {};
             const get = (k) => tp[k] ?? d[k];
-            llmaSetEl('llma-p-temperature',     get('temperature')     ?? 0.8);
-            llmaSetEl('llma-p-temperature-val', get('temperature')     ?? 0.8, 'text');
-            llmaSetEl('llma-p-max-tokens',      get('maxTokens')       ?? 2048);
-            llmaSetEl('llma-p-top-p',           get('topP')            ?? 0.9);
-            llmaSetEl('llma-p-top-p-val',       get('topP')            ?? 0.9, 'text');
-            llmaSetEl('llma-p-context',         get('contextMessages') ?? 0);
+            llmaSetEl('llma-p-temperature',     get('temperature')        ?? 0.8);
+            llmaSetEl('llma-p-temperature-val', get('temperature')        ?? 0.8, 'text');
+            llmaSetEl('llma-p-max-tokens',      get('maxTokens')          ?? 2048);
+            llmaSetEl('llma-p-top-p',           get('topP')               ?? 0.9);
+            llmaSetEl('llma-p-top-p-val',       get('topP')               ?? 0.9, 'text');
+            llmaSetEl('llma-p-context',         get('maxContextMessages') ?? 0);
         }
 
         if (open) {
@@ -372,8 +372,8 @@ function llmaSetupParamsPopover() {
             LLMAState.threadParams[LLMAState.activeThreadId] = {
                 temperature:     parseFloat(document.getElementById('llma-p-temperature')?.value) || undefined,
                 maxTokens:       parseInt(document.getElementById('llma-p-max-tokens')?.value, 10) || undefined,
-                topP:            parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
-                contextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
+                topP:               parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
+                maxContextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
             };
             llmaShowToast('Parameters applied to this thread', 'success');
             popover.style.display = 'none';
@@ -1220,15 +1220,15 @@ function llmaRemoveFocusTrap(modal) {
 }
 
 function llmaReadSettingsFromModal() {
-    const g = LLMAState.settings.defaults || {};
-    g.temperature     = parseFloat(document.getElementById('llma-s-temperature')?.value)      || 0.8;
-    g.maxTokens       = parseInt(document.getElementById('llma-s-max-tokens')?.value, 10)     || 2048;
-    g.topP            = parseFloat(document.getElementById('llma-s-top-p')?.value)            || 0.9;
-    const seedRaw     = parseInt(document.getElementById('llma-s-seed')?.value, 10);
-    g.seed            = Number.isFinite(seedRaw) ? seedRaw : -1;
-    g.contextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)        || 0;
-    g.stream          = document.getElementById('llma-s-stream')?.checked ?? true;
-    LLMAState.settings.defaults = g;
+    const g = LLMAState.settings.parameters || {};
+    g.temperature        = parseFloat(document.getElementById('llma-s-temperature')?.value)  || 0.8;
+    g.maxTokens          = parseInt(document.getElementById('llma-s-max-tokens')?.value, 10) || 2048;
+    g.topP               = parseFloat(document.getElementById('llma-s-top-p')?.value)        || 0.9;
+    const seedRaw        = parseInt(document.getElementById('llma-s-seed')?.value, 10);
+    g.seed               = Number.isFinite(seedRaw) ? seedRaw : -1;
+    g.maxContextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)    || 0;
+    g.stream             = document.getElementById('llma-s-stream')?.checked ?? true;
+    LLMAState.settings.parameters = g;
 
     const u = LLMAState.settings.ui || {};
     u.markdownEnabled = document.getElementById('llma-s-markdown')?.checked ?? true;
@@ -1264,15 +1264,15 @@ function llmaReadSettingsFromModal() {
 }
 
 function llmaWriteSettingsToModal() {
-    const g = LLMAState.settings?.defaults || LLMA_DEFAULT_SETTINGS.defaults;
-    llmaSetEl('llma-s-temperature',         g.temperature     ?? 0.8);
-    llmaSetEl('llma-s-temperature-val',     g.temperature     ?? 0.8, 'text');
-    llmaSetEl('llma-s-max-tokens',          g.maxTokens       ?? 2048);
-    llmaSetEl('llma-s-top-p',               g.topP            ?? 0.9);
-    llmaSetEl('llma-s-top-p-val',           g.topP            ?? 0.9, 'text');
-    llmaSetEl('llma-s-seed',                g.seed            ?? -1);
-    llmaSetEl('llma-s-context',             g.contextMessages ?? 0);
-    llmaSetElChecked('llma-s-stream',       g.stream          !== false);
+    const g = LLMAState.settings?.parameters || LLMA_DEFAULT_SETTINGS.parameters;
+    llmaSetEl('llma-s-temperature',         g.temperature        ?? 0.8);
+    llmaSetEl('llma-s-temperature-val',     g.temperature        ?? 0.8, 'text');
+    llmaSetEl('llma-s-max-tokens',          g.maxTokens          ?? 2048);
+    llmaSetEl('llma-s-top-p',               g.topP               ?? 0.9);
+    llmaSetEl('llma-s-top-p-val',           g.topP               ?? 0.9, 'text');
+    llmaSetEl('llma-s-seed',                g.seed               ?? -1);
+    llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
+    llmaSetElChecked('llma-s-stream',       g.stream             !== false);
 
     const u = LLMAState.settings?.ui || LLMA_DEFAULT_SETTINGS.ui;
     llmaSetElChecked('llma-s-markdown',     u.markdownEnabled !== false);

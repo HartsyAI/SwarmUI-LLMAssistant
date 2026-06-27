@@ -31,6 +31,15 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.")]
         public bool LowVramQuant = false;
 
+        [ConfigComment("Repetition penalty on already-generated tokens (1.0 = off).\nSmall models (eg 0.5B) loop/repeat without this — ~1.1 is a good default. Ignored at temperature 0 (greedy).")]
+        public double RepetitionPenalty = 1.1;
+
+        [ConfigComment("Top-K sampling: keep only the K highest-probability tokens each step (0 = off).\n~40 is a sane default that curbs small-model gibberish.")]
+        public int TopK = 40;
+
+        [ConfigComment("Min-P sampling: drop tokens below this fraction of the top token's probability (0 = off).")]
+        public double MinP = 0.0;
+
         [ConfigComment("If enabled, the model is unloaded immediately after each generation completes.\nIf false, it stays resident for faster subsequent requests.")]
         public bool AlwaysFreeMemory = false;
     }
@@ -168,13 +177,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         _loadedPath = null;
     }
 
-    /// <summary>Builds the engine generation request from the extension's input.</summary>
-    private static GenerationRequest BuildRequest(ExtendedLLMInput input)
+    /// <summary>Builds the engine generation request from the extension's input. Per-request controls
+    /// (temperature/top-p/seed/max-tokens) come from the chat UI; model-tuning knobs (top-k / repetition
+    /// penalty / min-p) come from this backend's settings.</summary>
+    private GenerationRequest BuildRequest(ExtendedLLMInput input)
     {
         SamplingOptions sampling = SamplingOptions.Default with
         {
             Temperature = (float)Math.Max(0, input.Temperature),
             TopP = (float)(input.TopP > 0 ? input.TopP : 1.0),
+            TopK = Math.Max(0, Settings.TopK),
+            MinP = (float)Math.Max(0, Settings.MinP),
+            RepetitionPenalty = (float)(Settings.RepetitionPenalty > 0 ? Settings.RepetitionPenalty : 1.0),
             Seed = input.Seed >= 0 ? (ulong)input.Seed : 0,
             Greedy = input.Temperature <= 0
         };

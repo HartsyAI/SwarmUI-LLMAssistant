@@ -635,7 +635,7 @@ function llmaUpdateContextBar() {
     if (bar) bar.style.display = '';
 
     const count     = LLMAState.messages.length;
-    const maxCtx    = LLMAState.settings?.defaults?.contextMessages || 0;
+    const maxCtx    = LLMAState.settings?.parameters?.maxContextMessages || 0;
     // Prefer the exact token count when it's valid for the current conversation length.
     const useExact = typeof LLMAState.exactTokenCount === 'number'
         && LLMAState.exactTokenCountForLen === count;

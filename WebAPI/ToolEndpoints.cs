@@ -2,6 +2,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 
@@ -139,6 +140,10 @@ public static class ToolEndpoints
     public static async Task<JObject> LLMAssistantExecuteTool(Session session, JObject rawInput)
     {
         string toolId = rawInput["toolId"]?.ToString();
+        // Optional context (sent by the in-chat tool picker) so per-assistant tool config applies and the
+        // result/asset associates with the active thread. Null for the Settings "Run Test" caller.
+        string assistantId = rawInput["assistantId"]?.ToString();
+        string threadId = rawInput["threadId"]?.ToString();
         JObject args = (rawInput["arguments"] ?? rawInput["args"]) as JObject;
         if (args is null)
         {
@@ -154,13 +159,39 @@ public static class ToolEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "toolId is required" };
         }
-        // Manual exec doesn't carry assistant/thread context; tools receive null and fall back
-        // to user-level config. Honors the same per-handler perm gate as agentic execution.
-        JObject result = await ToolExecutorService.ExecuteTool(toolId, args, session, assistantId: null, threadId: null, modelId: null);
+        // Honors the same per-handler permission gate as agentic execution (enforced inside ExecuteTool),
+        // so this endpoint is safe at the chat permission level. assistant/thread context is optional.
+        JObject result = await ToolExecutorService.ExecuteTool(toolId, args, session, assistantId: assistantId, threadId: threadId, modelId: null);
+
+        // When invoked from the in-chat picker (threadId present), persist the call as an assistant
+        // message so it survives reload and shows in the thread's Assets — identical to a model-driven call.
+        string callId = rawInput["callId"]?.ToString();
+        if (string.IsNullOrEmpty(callId))
+        {
+            callId = $"tool-{Guid.NewGuid():N}";
+        }
+        if (!string.IsNullOrEmpty(threadId) && session?.User is not null)
+        {
+            try
+            {
+                ThreadStorageService.AppendMessage(session.User, threadId, new JObject
+                {
+                    ["role"] = "assistant",
+                    ["content"] = "",
+                    ["toolCalls"] = new JArray { new JObject { ["id"] = callId, ["name"] = toolId, ["arguments"] = args, ["result"] = result } },
+                    ["meta"] = new JObject { ["manualTool"] = true },
+                });
+            }
+            catch (Exception ex)
+            {
+                Logs.Warning($"[LLMAssistant] Failed to persist manual tool call to thread {threadId}: {ex.Message}");
+            }
+        }
         return new JObject
         {
             ["success"] = true,
-            ["result"] = result
+            ["result"] = result,
+            ["callId"] = callId,
         };
     }
 }

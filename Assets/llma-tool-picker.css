@@ -1,0 +1,134 @@
+/* ================================================================
+   LLM Assistant — In-chat "/" tool picker (popup + inline run form)
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+/* The input wrap is the positioning anchor for the floating popup. */
+.llma-input-wrap { position: relative; }
+
+/* ── Slash popup ─────────────────────────────────────────────── */
+.llma-tool-popup {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(100% + 8px);
+    z-index: 220;
+    max-height: 280px;
+    overflow-y: auto;
+    background: var(--background-soft);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--black) 42%, transparent);
+    padding: 4px;
+    animation: llma-popover-in 0.12s ease;
+}
+.llma-tool-popup-item {
+    padding: 7px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.llma-tool-popup-item:hover,
+.llma-tool-popup-item.active {
+    background: color-mix(in srgb, var(--emphasis) 16%, transparent);
+}
+.llma-tool-popup-name {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--text);
+    font-family: var(--font-mono, monospace);
+}
+.llma-tool-popup-desc {
+    font-size: 11px;
+    color: var(--text-soft);
+    opacity: 0.8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.llma-tool-popup-foot {
+    position: sticky;
+    bottom: 0;
+    margin-top: 2px;
+    padding: 5px 10px;
+    font-size: 10px;
+    color: var(--text-soft);
+    opacity: 0.6;
+    border-top: 1px solid var(--light-border);
+    background: var(--background-soft);
+}
+
+/* ── Inline run form (Option A) — sits above the input, same column ── */
+.llma-tool-form {
+    margin: 0 0 8px;
+    background: var(--background-panel-subtle);
+    border: 1px solid var(--light-border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: llma-popover-in 0.14s ease;
+}
+.llma-tool-form-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px 8px 12px;
+    border-bottom: 1px solid var(--light-border);
+}
+.llma-tool-form-title { font-size: 12.5px; color: var(--text); }
+.llma-tool-form-title code {
+    font-family: var(--font-mono, monospace);
+    color: var(--emphasis);
+}
+.llma-tool-form-body {
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+.llma-tool-form-field { display: flex; flex-direction: column; gap: 4px; }
+.llma-tool-form-field label {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text);
+    opacity: 0.85;
+}
+.llma-tool-req { color: var(--backend-errored); }
+.llma-tool-form-field input[type="text"],
+.llma-tool-form-field input[type="number"],
+.llma-tool-form-field textarea,
+.llma-tool-form-field select {
+    width: 100%;
+    padding: 6px 9px;
+    border-radius: 7px;
+    border: 1px solid var(--light-border);
+    background: var(--background);
+    color: var(--text);
+    font-size: 12.5px;
+    outline: none;
+}
+.llma-tool-form-field textarea { resize: vertical; min-height: 64px; font-family: inherit; }
+.llma-tool-form-field input:focus,
+.llma-tool-form-field textarea:focus,
+.llma-tool-form-field select:focus { border-color: var(--emphasis); }
+.llma-tool-form-empty { font-size: 12px; color: var(--text-soft); opacity: 0.7; }
+.llma-tool-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--light-border);
+}
+.llma-tool-form-cancel {
+    background: transparent;
+    border: 1px solid var(--light-border);
+    color: var(--text-soft);
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+}
+.llma-tool-form-cancel:hover { color: var(--text); border-color: var(--border-color); }
