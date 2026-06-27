@@ -66,8 +66,46 @@ function llmaPickerEnsureEl() {
 function llmaPickerClose() {
     LLMAToolPicker.open = false;
     if (LLMAToolPicker.el) LLMAToolPicker.el.style.display = 'none';
+    document.getElementById('llma-tools-btn')?.classList.remove('active');
+    if (LLMAToolPicker._awayHandler) {
+        document.removeEventListener('mousedown', LLMAToolPicker._awayHandler, true);
+        LLMAToolPicker._awayHandler = null;
+    }
     const input = document.getElementById('llma-input');
     if (input) { input.removeAttribute('aria-activedescendant'); input.setAttribute('aria-expanded', 'false'); }
+}
+
+// Open the picker as a full menu of the assistant's tools, triggered by the "/" button instead of
+// by typing. tokenStart = -1 so selecting a tool won't try to strip a typed "/token" from the input.
+// Clicking the button again (or anywhere outside) closes it.
+function llmaPickerOpenAll() {
+    const input = document.getElementById('llma-input');
+    if (LLMAToolPicker.open && LLMAToolPicker.tokenStart === -1) { llmaPickerClose(); return; }
+    const tools = llmaPickerTools();
+    if (tools.length === 0) {
+        if (typeof llmaShowToast === 'function') llmaShowToast('No tools are enabled for this assistant.', 'info');
+        input?.focus();
+        return;
+    }
+    LLMAToolPicker.items = tools;
+    LLMAToolPicker.tokenStart = -1;
+    LLMAToolPicker.active = 0;
+    LLMAToolPicker.open = true;
+    llmaPickerRender();
+    document.getElementById('llma-tools-btn')?.classList.add('active');
+    input?.focus();
+    // One-shot outside-click closer (capture phase so it runs before the popup item's mousedown,
+    // which lives inside the popup and is therefore exempt). Deferred so this opening click doesn't trip it.
+    setTimeout(() => {
+        const onAway = (e) => {
+            const pop = LLMAToolPicker.el;
+            const btn = document.getElementById('llma-tools-btn');
+            if (pop?.contains(e.target) || btn?.contains(e.target)) return;
+            llmaPickerClose();
+        };
+        document.addEventListener('mousedown', onAway, true);
+        LLMAToolPicker._awayHandler = onAway;
+    }, 0);
 }
 
 // Recompute on each input change.

@@ -29,6 +29,15 @@ const LLMA_WELCOME_TIPS = [
 let llmaEditingAsstId = null;
 let llmaActiveInstrTab = 'chat';
 
+// -- Model list auto-retry --
+// On a fresh restart the LLM backend may still be initializing when the tab opens, so its
+// provider hasn't self-registered yet and the model list comes back empty. Rather than make the
+// user click refresh, poll until the backend registers and models appear (or we give up).
+let llmaModelRetryTimer = null;
+let llmaModelRetryCount = 0;
+const LLMA_MODEL_RETRY_MAX = 20;         // give up after ~1 minute of polling
+const LLMA_MODEL_RETRY_INTERVAL = 3000;  // 3s between attempts
+
 // -- Entry Point --
 async function llmaInit() {
     if (!document.getElementById('llma-container')) return;
@@ -58,6 +67,9 @@ async function llmaInit() {
     LLMAState.enterToSend     = LLMAState.settings?.ui?.enterToSend     !== false;
     LLMAState.showTokens      = LLMAState.settings?.ui?.showTokens      !== false;
     LLMAState.currentModel    = sessionState.currentModel || LLMAState.settings?.currentModel || null;
+    // llmaLoadModels() ran in parallel with the session-state load above, so the dropdown may have
+    // been populated before LLMAState.currentModel was known. Re-apply the remembered model now.
+    llmaApplyModelSelection();
 
     llmaSetupTopBar();
     llmaSetupSidebar();
@@ -157,7 +169,9 @@ async function llmaLoadAssistants() {
 }
 
 // -- Model Loading --
-async function llmaLoadModels() {
+// opts.noRetry: skip auto-scheduling a readiness poll on an empty/failed result (used by the
+// retry tick itself, which manages its own loop).
+async function llmaLoadModels(opts = {}) {
     try {
         const result = await llmaRequest('LLMAssistantGetModels', {});
         const models = Array.isArray(result?.models) ? result.models : [];
@@ -211,25 +225,60 @@ async function llmaLoadModels() {
 
         if (models.length > 0) {
             llmaSetModelSelectError(false);
-            // Restore saved model if it still exists in the list
-            const saved = LLMAState.settings?.currentModel;
-            if (saved && sel && models.some(m => m.id === saved)) {
-                sel.value = saved;
-                LLMAState.currentModel = saved;
-            } else if (sel && models.length > 0) {
-                // Auto-select first model if no saved preference or saved model is gone
-                sel.selectedIndex = 0;
-                LLMAState.currentModel = sel.value;
-            }
+            llmaApplyModelSelection();
+            // Backend registered and gave us models — stop any in-flight readiness polling.
+            llmaStopModelRetry();
         } else {
             llmaSetModelSelectError(true);
+            // Empty list usually means the backend is still loading — keep polling until it shows up.
+            if (!opts.noRetry) llmaScheduleModelRetry();
         }
     } catch (e) {
         llmaSetModelSelectError(true);
         LLMAState.loadErrors.models = llmaShortError(e) || 'Failed to load models';
         LLMAState.noBackendsRunning = false;
+        if (!opts.noRetry) llmaScheduleModelRetry();
     }
     llmaUpdateModelStatus();
+}
+
+// Apply the remembered model to the dropdown. Prefers the resolved per-user choice
+// (LLMAState.currentModel, set from session state) over the global settings fallback, so the
+// user's selection wins regardless of the parallel load order at startup. Falls back to the first
+// model only when nothing is remembered or the saved one is gone (eg the GGUF was deleted).
+function llmaApplyModelSelection() {
+    const sel = document.getElementById('llma-model-select');
+    const models = LLMAState.availableModels || [];
+    if (!sel || models.length === 0) return;
+    const saved = LLMAState.currentModel || LLMAState.settings?.currentModel;
+    if (saved && models.some(m => m.id === saved)) {
+        sel.value = saved;
+        LLMAState.currentModel = saved;
+    } else if (!sel.value || !models.some(m => m.id === sel.value)) {
+        sel.selectedIndex = 0;
+        LLMAState.currentModel = sel.value;
+    }
+    llmaUpdateModelStatus();
+}
+
+// Schedule a single delayed re-fetch of the model list. Each empty load reschedules the next, so
+// the list fills in automatically once the backend finishes loading — no manual refresh needed.
+function llmaScheduleModelRetry() {
+    if (llmaModelRetryTimer) return;                          // already polling
+    if (llmaModelRetryCount >= LLMA_MODEL_RETRY_MAX) return;  // gave up
+    llmaModelRetryTimer = setTimeout(async () => {
+        llmaModelRetryTimer = null;
+        llmaModelRetryCount++;
+        await llmaLoadModels();  // reschedules itself if still empty, stops once models appear
+    }, LLMA_MODEL_RETRY_INTERVAL);
+}
+
+function llmaStopModelRetry() {
+    if (llmaModelRetryTimer) {
+        clearTimeout(llmaModelRetryTimer);
+        llmaModelRetryTimer = null;
+    }
+    llmaModelRetryCount = 0;
 }
 
 // -- Top Bar --
@@ -275,6 +324,7 @@ function llmaSetupModelSelect() {
             refreshBtn.classList.add('spinning');
             try {
                 // strong=true triggers a full RefreshAllModelSets server-side.
+                llmaStopModelRetry();  // reset the give-up counter so polling can restart if still empty
                 await llmaRequest('TriggerRefresh', { strong: true });
                 await llmaLoadModels();
                 llmaShowToast('Model list refreshed.', 'info');
@@ -292,6 +342,16 @@ function llmaSetupModelSelect() {
 // available / none selected). Healthy state shows no indicator — matches SwarmUI's quiet styling.
 function llmaSetModelSelectError(hasError) {
     document.getElementById('llma-model-select')?.classList.toggle('error', !!hasError);
+}
+
+// Briefly pulse + focus the model dropdown to point the user at it (eg they tried to send with no
+// model selected). The toast says what's wrong; this says where to fix it.
+function llmaFlashModelSelect() {
+    const sel = document.getElementById('llma-model-select');
+    if (!sel) return;
+    sel.classList.add('error', 'llma-flash');
+    try { sel.focus({ preventScroll: false }); } catch { /* older browsers */ }
+    setTimeout(() => sel.classList.remove('llma-flash'), 1100);
 }
 
 function llmaUpdateModelStatus() {

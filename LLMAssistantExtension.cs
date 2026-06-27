@@ -21,7 +21,13 @@ public class LLMAssistantExtension : Extension
         // Extension JS (CDN libs loaded dynamically by utils.js)
         ScriptFiles.Add("Assets/utils.js");
         ScriptFiles.Add("Assets/assets.js");
-        ScriptFiles.Add("Assets/chat.js");
+        // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
+        ScriptFiles.Add("Assets/chat/chat-render.js");
+        ScriptFiles.Add("Assets/chat/chat-toolcalls.js");
+        ScriptFiles.Add("Assets/chat/chat-findbar.js");
+        ScriptFiles.Add("Assets/chat/chat-attachments.js");
+        ScriptFiles.Add("Assets/chat/chat-composer.js");
+        ScriptFiles.Add("Assets/chat/chat-pipeline.js");
         ScriptFiles.Add("Assets/threads.js");
         ScriptFiles.Add("Assets/tools.js");
         ScriptFiles.Add("Assets/tool-picker.js");

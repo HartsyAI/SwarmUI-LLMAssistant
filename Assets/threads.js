@@ -57,8 +57,6 @@ function llmaRenderThreadList(threads) {
         html += `<div class="llma-thread-group-label">${llmaEscapeHtml(label)}</div>`;
         for (const thread of group) {
             const isActive  = thread.id === LLMAState.activeThreadId;
-            const assistant = LLMAState.assistants.find(a => a.id === thread.assistantId);
-            const dotColor  = assistant?.color || 'var(--emphasis)';
             const checked = llmaSelectedThreadIds.has(thread.id) ? 'checked' : '';
             const checkbox = llmaThreadSelectMode
                 ? `<input type="checkbox" class="llma-thread-checkbox" data-id="${llmaEscapeHtml(thread.id)}" ${checked} aria-label="Select chat">`
@@ -69,7 +67,6 @@ function llmaRenderThreadList(threads) {
                      title="${llmaEscapeHtml(thread.title || 'Untitled')} \u2014 ${llmaRelativeTime(thread.updated || thread.created)}"
                      role="button" tabindex="0">
                     ${checkbox}
-                    <div class="llma-thread-dot" style="background:${dotColor}"></div>
                     <span class="llma-thread-name">${llmaEscapeHtml(thread.title || 'Untitled')}</span>
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
                             title="Rename thread" aria-label="Rename thread">&#9998;</button>

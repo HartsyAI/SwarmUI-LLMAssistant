@@ -301,6 +301,57 @@ function llmaShortError(err) {
     try { return String(err); } catch { return null; }
 }
 
+// Maps a raw error (server string, WS transport event, or thrown exception) to a friendly
+// { title, hint, detail } triple. The goal: never show a bare opaque "WebSocket error" again —
+// recognized failures get a plain-language title plus an actionable hint, while unrecognized ones
+// surface the raw text as the title (so we never hide real detail). `detail` is the raw string,
+// kept for a hover tooltip / console.
+function llmaHumanizeError(raw) {
+    const text = (llmaShortError(raw) || '').toString().trim();
+    const low  = text.toLowerCase();
+    const make = (title, hint) => ({ title, hint, detail: text });
+
+    // Empty / generic transport failures — the most common opaque case.
+    if (!text || low === 'websocket error' || low.includes('generic progressevent') || low.includes('did the server crash') || low.includes('failed to send request')) {
+        return make('Couldn’t reach the LLM backend',
+            'The connection dropped before a reply came back. Make sure SwarmUI and at least one LLM backend are running (Server > Backends), then try again.');
+    }
+    if (low.includes('no model') || low.includes('model not found') || low.includes('no such model') || low.includes('unknown model') || low.includes('model is required') || low.includes('no provider')) {
+        return make('No usable model',
+            'Pick a model from the dropdown at the top of the chat. If the list is empty, start an LLM backend under Server > Backends and click the refresh icon.');
+    }
+    if (low.includes('no llm backend') || low.includes('no backend') || low.includes('backend is running') || low.includes('not running') || low.includes('no running')) {
+        return make('No LLM backend is running',
+            'Add or start one under Server > Backends, then click the refresh icon next to the model dropdown.');
+    }
+    if (low.includes('api key') || low.includes('apikey') || low.includes('unauthorized') || low.includes('401') || low.includes('invalid key') || low.includes('authentication')) {
+        return make('The backend rejected your credentials',
+            'Check your API key for this provider in the User tab, then try again.');
+    }
+    if (low.includes('permission') || low.includes('not allowed') || low.includes('forbidden') || low.includes('403')) {
+        return make('You don’t have permission for this',
+            'Ask an admin to grant the relevant llm_* permission for your account.');
+    }
+    if (low.includes('out of memory') || low.includes('oom') || low.includes('cuda') || low.includes('vram') || low.includes('cublas') || low.includes('allocat')) {
+        return make('The model ran out of memory',
+            'Try a smaller model, lower Max Tokens / Context in the parameters popover, or free up VRAM, then retry.');
+    }
+    if (low.includes('timeout') || low.includes('timed out')) {
+        return make('The request timed out',
+            'The backend took too long — it may still be loading a large model. Wait a moment and try again.');
+    }
+    if (low.includes('rate limit') || low.includes('429') || low.includes('quota')) {
+        return make('Rate limit or quota reached',
+            'The provider is throttling requests. Wait a bit, or check your plan’s usage limits, then retry.');
+    }
+    if (low.includes('connect') || low.includes('refused') || low.includes('econnrefused') || low.includes('unreachable')) {
+        return make('Couldn’t connect to the backend',
+            'The model server isn’t reachable. Check the backend’s address/status under Server > Backends.');
+    }
+    // Unknown — surface the raw text as the title, no invented hint.
+    return make(text || 'Something went wrong', null);
+}
+
 // -- User-action wrapper --
 // Standardizes error handling for user-initiated UI actions (save, delete, rename, send, etc.):
 // catches, surfaces a toast with the server's error message when available, logs full details
@@ -525,4 +576,20 @@ function llmaSetEl(id, value, type = 'value') {
 function llmaSetElChecked(id, checked) {
     const el = document.getElementById(id);
     if (el) el.checked = checked;
+}
+
+/**
+ * Generic action-button factory: a labeled <button> with a click handler.
+ * Shared across message rows, attachment actions, etc.
+ * @param {string} text - Button label.
+ * @param {Function} onClick - Click handler.
+ * @param {string} [className='llma-msg-action-btn'] - CSS class.
+ * @returns {HTMLButtonElement}
+ */
+function llmaCreateActionBtn(text, onClick, className = 'llma-msg-action-btn') {
+    const btn = document.createElement('button');
+    btn.className = className;
+    btn.textContent = text;
+    btn.addEventListener('click', onClick);
+    return btn;
 }

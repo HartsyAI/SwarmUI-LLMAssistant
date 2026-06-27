@@ -226,14 +226,6 @@
     opacity: 1;
     font-weight: 500;
 }
-.llma-thread-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--emphasis);
-    opacity: 0.7;
-}
 .llma-thread-name {
     flex: 1;
     overflow: hidden;

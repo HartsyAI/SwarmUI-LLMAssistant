@@ -325,9 +325,33 @@
     padding: 2px 2px 0;
 }
 
-/* Error display inside bubble */
+/* Error display inside bubble — a small card with an icon, plain-language title, and an actionable hint. */
 .llma-msg-error {
+    display: flex;
+    gap: 9px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--backend-errored) 11%, transparent);
+    border: 1px solid color-mix(in srgb, var(--backend-errored) 38%, transparent);
+}
+.llma-msg-error-icon {
     color: var(--backend-errored);
+    font-size: 14px;
+    line-height: 1.4;
+    flex-shrink: 0;
+}
+.llma-msg-error-title {
+    color: var(--backend-errored);
+    font-weight: 600;
+    font-size: 13px;
+    line-height: 1.4;
+}
+.llma-msg-error-hint {
+    color: var(--text-soft);
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 3px;
 }
 
 /* Vision image in message */
@@ -455,16 +479,18 @@
     width: 100%;
     background: transparent;
 }
+/* Two-row composer (Claude-style): textarea on top, a full-width button row underneath. */
 .llma-input-wrap {
     display: flex;
-    align-items: flex-end;
-    gap: 8px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
     width: 100%;
     max-width: 760px;
     background: color-mix(in srgb, var(--background-soft) 92%, var(--black) 8%);
     border: 1px solid var(--light-border);
-    border-radius: 28px;
-    padding: 14px 14px 14px 22px;
+    border-radius: 24px;
+    padding: 10px 14px 10px 18px;
     box-shadow: 0 4px 18px -6px color-mix(in srgb, var(--black) 35%, transparent);
     transition: border-color 0.15s, box-shadow 0.15s;
 }
@@ -473,7 +499,7 @@
     box-shadow: 0 4px 22px -6px color-mix(in srgb, var(--emphasis) 22%, transparent);
 }
 .llma-input {
-    flex: 1;
+    width: 100%;
     background: transparent !important;
     border: none !important;
     outline: none !important;
@@ -482,12 +508,11 @@
     font-size: 14.5px;
     line-height: 1.55;
     resize: none;
-    min-height: 48px;
+    min-height: 24px;
     max-height: 220px;
     overflow-y: auto;
     font-family: inherit;
-    padding: 6px 2px;
-    align-self: center;
+    padding: 4px 2px 0;
 }
 .llma-input:focus,
 .llma-input:focus-visible {
@@ -496,13 +521,42 @@
     box-shadow: none !important;
 }
 .llma-input::placeholder { color: var(--text-soft); opacity: 0.5; }
+/* Button row: utilities (tools + attach) on the left, send/stop on the right. */
 .llma-input-actions {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+}
+.llma-input-actions-left,
+.llma-input-actions-right {
+    display: flex;
+    align-items: center;
     gap: 4px;
+}
+/* Claude-style "/" tools button — opens the tool picker without typing a slash. Bottom-left row. */
+.llma-tools-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
-    align-self: flex-end;
-    padding-bottom: 2px;
+    background: transparent;
+    border: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.llma-tools-btn:hover {
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    color: var(--text);
+}
+.llma-tools-btn.active {
+    background: color-mix(in srgb, var(--emphasis) 16%, transparent);
+    color: var(--emphasis);
 }
 .llma-input-actions .llma-icon-btn {
     width: 32px;

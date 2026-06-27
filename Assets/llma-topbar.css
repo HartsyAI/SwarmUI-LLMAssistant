@@ -121,6 +121,14 @@
     border-color: var(--backend-errored);
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--backend-errored) 55%, transparent);
 }
+/* One-shot attention pulse — used when the user tries to send without a model selected. */
+.llma-model-select.llma-flash {
+    animation: llma-flash-pulse 1.1s ease;
+}
+@keyframes llma-flash-pulse {
+    0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--backend-errored) 55%, transparent); }
+    30%      { box-shadow: 0 0 0 4px color-mix(in srgb, var(--backend-errored) 45%, transparent); }
+}
 /* The sidebar-collapse button in the top bar is redundant on desktop — the split-bar arrow handles
    collapse (SwarmUI's native pattern). Keep it only at mobile width, where it opens the drawer. */
 #llma-sidebar-toggle { display: none; }
