@@ -26,7 +26,7 @@
        engine changes. Auto-copies the CUDA PTX kernels (→ Ptx/) next to the extension DLL.
        https://www.nuget.org/packages/HartsyInference -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.38" />
+    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.40" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: reference the engine's PREBUILT DLLs (NOT ProjectReferences).

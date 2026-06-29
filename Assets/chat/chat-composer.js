@@ -119,6 +119,16 @@
                 await llmaReloadActiveThread();
                 return;
             }
+            // Adopt the authoritative thread: in the branch model a delete removes the whole subtree
+            // beneath the message and may move the active leaf, so re-render from the server's view.
+            if (res.thread) {
+                const t = typeof res.thread === 'string' ? JSON.parse(res.thread) : res.thread;
+                llmaIngestThread(t);
+                llmaRenderMessageHistory(LLMAState.messages);
+                llmaRebuildAssetsForThread();
+                llmaUpdateContextBar();
+                if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+            }
         } catch {
             llmaShowToast('Failed to delete message', 'error');
             await llmaReloadActiveThread();
@@ -149,28 +159,34 @@
         const saveBtn = document.createElement('button');
         saveBtn.className = 'basic-button';
         saveBtn.textContent = 'Save';
-        saveBtn.addEventListener('click', async () => {
+        saveBtn.addEventListener('click', () => {
             const newContent = textarea.value.trim();
-            if (!newContent || !LLMAState.activeThreadId) return;
-            // Optimistic local update; revert by re-rendering on failure.
-            msg.content = newContent;
-            bubble.textContent = newContent;
-            try {
-                const res = await llmaRequest('LLMAssistantEditMessage', {
-                    threadId: LLMAState.activeThreadId,
-                    messageId: msgId,
-                    content: newContent,
-                });
-                if (!res?.success) {
-                    llmaShowToast(res?.error || 'Failed to save edit', 'error');
-                    await llmaReloadActiveThread();
-                    return;
-                }
-                llmaSaveActiveThread();
-            } catch {
-                llmaShowToast('Failed to save edit', 'error');
-                await llmaReloadActiveThread();
-            }
+            if (!newContent || !LLMAState.activeThreadId || LLMAState.isGenerating) return;
+            // Edit = fork a NEW branch from this message and re-send. The original message and the replies
+            // beneath it are preserved as a sibling branch, switchable via the ‹ k/n › pager. The server
+            // creates the authoritative branch (LLMAssistantEditMessageWS); we mirror it locally first so
+            // the messages below the edit point visibly drop away and streaming starts immediately.
+            const original = (LLMAState.allNodes || []).find(m => m.id === msgId)
+                || LLMAState.messages.find(m => m.id === msgId);
+            const newUserId = llmaGenerateId();
+            const branchNode = {
+                id: newUserId, role: 'user', content: newContent,
+                parentId: original ? (original.parentId ?? null) : null,
+                media: original?.media,
+                timestamp: new Date().toISOString(),
+                editedFrom: msgId,
+            };
+            (LLMAState.allNodes = LLMAState.allNodes || []).push(branchNode);
+            LLMAState.activeLeafId = newUserId;
+            LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, newUserId);
+            llmaRenderMessageHistory(LLMAState.messages);
+
+            const payload = llmaBuildPayload(newContent, 'chat');
+            payload.messageId = msgId;          // the message being edited (server branches from it)
+            payload.content = newContent;
+            payload.userMessageId = newUserId;  // store the new branch node under this id
+            if (branchNode.media) payload.media = branchNode.media;
+            llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantEditMessageWS' });
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'basic-button';
@@ -184,24 +200,22 @@
         textarea.focus();
     }
 
-    /** Regenerate from a message: drop it + everything after, then re-stream the last user turn. */
+    /** Regenerate an assistant reply as a NEW sibling branch (the previous reply stays switchable via the
+     *  ‹ k/n › pager). The server moves the branch point to the preceding turn and streams a fresh reply. */
     function llmaRegenerateMessage(msgId) {
         if (LLMAState.isGenerating) return;
-        const msgIndex = LLMAState.messages.findIndex(m => m.id === msgId);
-        if (msgIndex < 0) return;
+        const node = (LLMAState.allNodes || []).find(m => m.id === msgId);
+        if (!node) return;
+        const parentId = node.parentId ?? null;
+        if (!parentId) { llmaShowToast('Nothing to regenerate from', 'info'); return; }
+        // Drop back to the preceding turn locally; the streamed reply becomes a sibling of this one.
+        LLMAState.activeLeafId = parentId;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, parentId);
+        llmaRenderMessageHistory(LLMAState.messages);
 
-        const historyMessages = LLMAState.messages.slice(0, msgIndex);
-        const removedIds = LLMAState.messages.slice(msgIndex).map(m => m.id);
-        LLMAState.messages = historyMessages;
-        removedIds.forEach(id => {
-            const el = document.querySelector(`[data-msg-id="${id}"]`);
-            if (el) el.remove();
-        });
-
-        const history = historyMessages.map(m => ({ role: m.role, content: m.content }));
-        const lastUser = historyMessages.filter(m => m.role === 'user').pop();
-        const payload = llmaBuildPayload(lastUser?.content || '', 'chat', history);
-        llmaStreamResponse(payload);
+        const payload = llmaBuildPayload('', 'chat');
+        payload.messageId = msgId; // the reply to regenerate (server finds its parent turn)
+        llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantRegenerateWS' });
     }
 
     // --- Public API (called by sibling files + other chat/ modules) ---

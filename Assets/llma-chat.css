@@ -204,6 +204,116 @@
 }
 .llma-msg-body:hover .llma-msg-actions,
 .llma-msg-row.user:hover .llma-msg-actions { opacity: 1; }
+
+/* Branch indicator — shown when a message has sibling branches (edit / regenerate). A labeled pill
+   (⑂ ‹ Branch k / n › ▾) that stays visible (outside the hover-faded actions) so it reads as a
+   persistent "this point has branches" cue; the label opens a picker listing every branch. */
+.llma-branch-pager {
+    position: relative;
+    display: inline-flex;
+    margin-top: 4px;
+    user-select: none;
+}
+.llma-msg-row.user .llma-branch-pager { align-self: flex-end; }
+
+.llma-branch-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    padding: 1px 3px;
+    border-radius: 999px;
+    border: 1px solid var(--light-border);
+    background: var(--background-soft, var(--background));
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.llma-branch-icon {
+    font-size: 12px;
+    line-height: 1;
+    padding: 0 2px 0 4px;
+    color: var(--emphasis-text, var(--emphasis));
+    opacity: 0.85;
+}
+.llma-branch-nav {
+    font-size: 13px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+}
+.llma-branch-nav:hover:not(:disabled) { background: var(--emphasis); color: #fff; }
+.llma-branch-nav:disabled { opacity: 0.3; cursor: default; }
+.llma-branch-label {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    padding: 3px 7px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    white-space: nowrap;
+}
+.llma-branch-label:hover { background: var(--background, rgba(127, 127, 127, 0.12)); }
+.llma-branch-sep { opacity: 0.45; margin: 0 1px; }
+.llma-branch-caret { font-size: 9px; opacity: 0.6; margin-left: 3px; }
+
+/* Branch picker dropdown */
+.llma-branch-menu {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    min-width: 230px;
+    max-width: 340px;
+    max-height: 280px;
+    overflow-y: auto;
+    padding: 4px;
+    border-radius: 9px;
+    border: 1px solid var(--light-border);
+    background: var(--background-soft, var(--background));
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+}
+.llma-msg-row.user .llma-branch-menu { left: auto; right: 0; }
+.llma-branch-menu-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 6px 8px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+}
+.llma-branch-menu-row:hover { background: var(--background, rgba(127, 127, 127, 0.12)); }
+.llma-branch-menu-row.active { background: color-mix(in srgb, var(--emphasis) 22%, transparent); }
+.llma-branch-menu-row.active .llma-branch-menu-num { color: var(--emphasis-text, var(--emphasis)); font-weight: 700; }
+.llma-branch-menu-num {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 600;
+    min-width: 14px;
+    color: var(--text-soft, var(--text));
+}
+.llma-branch-menu-text {
+    flex: 1 1 auto;
+    font-size: 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.llma-branch-menu-time {
+    flex: 0 0 auto;
+    font-size: 10px;
+    opacity: 0.55;
+    white-space: nowrap;
+}
 .llma-msg-action-btn {
     font-size: 10px;
     padding: 2px 7px;
@@ -470,6 +580,7 @@
 
 /* ── Input Area ─────────────────────────────────────────────── */
 .llma-input-area {
+    position: relative;
     padding: 12px 16px 64px;
     margin-top: auto;
     flex-shrink: 0;
@@ -478,6 +589,38 @@
     align-items: center;
     width: 100%;
     background: transparent;
+}
+/* Scroll-to-latest button — fades in above the composer when the user scrolls up mid-stream. */
+.llma-scroll-bottom-btn {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    transform: translateX(-50%) translateY(6px);
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: 0 3px 12px -4px color-mix(in srgb, var(--black) 55%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease, background 0.12s;
+    z-index: 60;
+}
+.llma-scroll-bottom-btn.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) translateY(0);
+}
+.llma-scroll-bottom-btn:hover {
+    background: var(--background);
+    border-color: var(--border-color);
+    color: var(--text-strong);
 }
 /* Two-row composer (Claude-style): textarea on top, a full-width button row underneath. */
 .llma-input-wrap {
@@ -656,7 +799,7 @@ mark.llma-find-mark.active {
 .llma-send-btn {
     width: 34px;
     height: 34px;
-    border-radius: 50%;
+    border-radius: 10px;
     background: var(--emphasis);
     border: none;
     color: var(--emphasis-text);
@@ -673,7 +816,7 @@ mark.llma-find-mark.active {
 .llma-stop-btn {
     width: 34px;
     height: 34px;
-    border-radius: 50%;
+    border-radius: 10px;
     background: color-mix(in srgb, var(--backend-errored) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--backend-errored) 35%, transparent);
     color: var(--backend-errored);

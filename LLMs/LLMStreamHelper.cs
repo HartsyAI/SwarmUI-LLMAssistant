@@ -24,14 +24,14 @@ public static class LLMStreamHelper
     /// stored thread when generation completes — server is authoritative for chat history.
     /// <paramref name="assistantId"/> flows through to tool execution so per-assistant tool
     /// config (eg <c>generate_image</c>'s default preset) takes effect.</summary>
-    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default)
+    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default, string clientAssistantMessageId = null)
     {
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel, ct);
         bool hasTools = input.Tools is not null && input.Tools.Count > 0;
         DateTime startTime = DateTime.UtcNow;
         if (!hasTools)
         {
-            await StreamSingleRound(socket, input, linked, session, threadId, startTime);
+            await StreamSingleRound(socket, input, linked, session, threadId, startTime, clientAssistantMessageId);
             return;
         }
         // Agentic loop
@@ -104,7 +104,7 @@ public static class LLMStreamHelper
             if (toolCalls.Count == 0)
             {
                 fullResponse.Append(roundText);
-                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime);
+                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, clientMessageId: clientAssistantMessageId);
                 await SendJson(socket, new JObject
                 {
                     ["done"] = true,
@@ -172,7 +172,7 @@ public static class LLMStreamHelper
             // (handled at top of loop on roundText.Count==0 path above)
         }
         // Hit max iterations without finishing
-        PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations");
+        PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations", clientMessageId: clientAssistantMessageId);
         await SendJson(socket, new JObject
         {
             ["done"] = true,
@@ -183,7 +183,7 @@ public static class LLMStreamHelper
     }
 
     /// <summary>Streams a single round of generation with no tool processing.</summary>
-    private static async Task StreamSingleRound(WebSocket socket, ExtendedLLMInput input, CancellationTokenSource linked, Session session, string threadId, DateTime startTime)
+    private static async Task StreamSingleRound(WebSocket socket, ExtendedLLMInput input, CancellationTokenSource linked, Session session, string threadId, DateTime startTime, string clientAssistantMessageId = null)
     {
         StringBuilder fullText = new();
         await LLMDispatcher.GenerateStreaming(input, chunk =>
@@ -213,7 +213,7 @@ public static class LLMStreamHelper
         {
             return;
         }
-        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime);
+        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, clientMessageId: clientAssistantMessageId);
         await SendJson(socket, new JObject
         {
             ["done"] = true,
@@ -236,7 +236,7 @@ public static class LLMStreamHelper
 
     /// <summary>Appends the just-generated assistant message to the saved thread.
     /// No-ops if user/threadId are missing (eg non-chat callers).</summary>
-    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null)
+    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string clientMessageId = null)
     {
         if (session?.User is null || string.IsNullOrEmpty(threadId))
         {
@@ -260,6 +260,10 @@ public static class LLMStreamHelper
                     ["reason"] = reason
                 }
             };
+            if (!string.IsNullOrEmpty(clientMessageId))
+            {
+                msg["id"] = clientMessageId;
+            }
             ThreadStorageService.AppendMessage(session.User, threadId, msg);
         }
         catch (Exception ex)

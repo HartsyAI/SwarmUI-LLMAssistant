@@ -69,11 +69,12 @@ public static class ToolEndpoints
     public static async Task<JObject> LLMAssistantDeleteTool(Session session, string toolId, string scope = null)
     {
         bool deleted = ToolRegistryService.DeleteTool(toolId, session.User, scope);
-        return new JObject
+        // Only include "error" on failure (a present "error" key — even null — is logged as an error).
+        if (!deleted)
         {
-            ["success"] = deleted,
-            ["error"] = deleted ? null : "Tool not found or cannot be deleted (built-in or not permitted)."
-        };
+            return new JObject { ["success"] = false, ["error"] = "Tool not found or cannot be deleted (built-in or not permitted)." };
+        }
+        return new JObject { ["success"] = true };
     }
 
     /// <summary>Returns the calling user's per-tool config block (eg generate_image's default

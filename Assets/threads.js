@@ -11,6 +11,125 @@
 let llmaThreadSelectMode = false;
 const llmaSelectedThreadIds = new Set();
 
+// -- Branch (tree) model helpers --
+// A thread stores ALL message nodes across every branch (LLMAState.allNodes); each node has a parentId,
+// and the thread has an activeLeafId. The conversation the user sees (LLMAState.messages) is the linear
+// path root→activeLeafId. Forking/editing/regenerating just add a node and move the active leaf.
+
+function llmaParentId(node) {
+    const p = node ? node.parentId : undefined;
+    return (p === undefined || p === null || p === '') ? null : p;
+}
+
+// Walk parentId from the active leaf up to the root, then reverse → the active conversation path.
+function llmaComputeActivePath(allNodes, leafId) {
+    const path = [];
+    if (!Array.isArray(allNodes) || allNodes.length === 0) return path;
+    const byId = new Map();
+    for (const n of allNodes) { if (n && n.id) byId.set(n.id, n); }
+    let leaf = leafId;
+    if (!leaf || !byId.has(leaf)) leaf = allNodes[allNodes.length - 1]?.id;
+    const seen = new Set();
+    let cur = leaf;
+    while (cur && byId.has(cur) && !seen.has(cur)) {
+        seen.add(cur);
+        const node = byId.get(cur);
+        path.push(node);
+        cur = llmaParentId(node);
+    }
+    path.reverse();
+    return path;
+}
+
+// Ingest a server thread blob into branch state: full node set, active leaf, and the active path.
+function llmaIngestThread(thread) {
+    LLMAState.allNodes = Array.isArray(thread.messages) ? thread.messages : [];
+    LLMAState.activeLeafId = thread.activeLeafId
+        || (LLMAState.allNodes.length ? LLMAState.allNodes[LLMAState.allNodes.length - 1].id : null);
+    LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
+    return LLMAState.messages;
+}
+
+function llmaChildrenOf(nodeId) {
+    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === (nodeId ?? null));
+}
+
+// All nodes sharing a parent with `node` (in creation order) — the set of branches at that point.
+function llmaSiblingsOf(node) {
+    if (!node) return [];
+    const pid = llmaParentId(node);
+    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === pid);
+}
+
+// Follow the most-recent child chain down to a leaf (a node with no children).
+function llmaDescendToLeaf(nodeId) {
+    let cur = nodeId;
+    const guard = new Set();
+    while (cur && !guard.has(cur)) {
+        guard.add(cur);
+        const kids = llmaChildrenOf(cur);
+        if (kids.length === 0) break;
+        cur = kids[kids.length - 1].id;
+    }
+    return cur;
+}
+
+// Move the thread's active leaf (Fork + branch switcher): optimistically re-render the new path, then
+// persist server-side and adopt the authoritative thread.
+async function llmaSetActiveLeaf(leafId, opts = {}) {
+    if (!LLMAState.activeThreadId || !leafId) return;
+    LLMAState.activeLeafId = leafId;
+    LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
+    llmaRenderMessageHistory(LLMAState.messages);
+    llmaUpdateContextBar();
+    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+    try {
+        const res = await llmaRequest('LLMAssistantSetActiveLeaf', { threadId: LLMAState.activeThreadId, messageId: leafId });
+        if (res?.success && res.thread) {
+            const t = typeof res.thread === 'string' ? JSON.parse(res.thread) : res.thread;
+            llmaIngestThread(t);
+        } else if (res && res.success === false) {
+            llmaShowToast(res.error || 'Failed to switch branch', 'error');
+            await llmaReloadActiveThread();
+        }
+    } catch {
+        llmaShowToast('Failed to switch branch', 'error');
+        await llmaReloadActiveThread();
+        return;
+    }
+    if (opts.focusInput) {
+        setTimeout(() => document.getElementById('llma-input')?.focus(), 50);
+    }
+}
+
+// Switch the active branch at a divergence point: pick the prev/next sibling of `node`, descend to its
+// leaf, and make that the active path.
+async function llmaSwitchBranch(nodeId, dir) {
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    const node = (LLMAState.allNodes || []).find(n => n.id === nodeId);
+    if (!node) return;
+    const sibs = llmaSiblingsOf(node);
+    if (sibs.length < 2) return;
+    const idx = sibs.findIndex(n => n.id === nodeId);
+    const target = sibs[idx + dir];
+    if (!target) return;
+    await llmaSetActiveLeaf(llmaDescendToLeaf(target.id));
+}
+
+// Jump directly to a specific sibling branch (from the branch-picker dropdown).
+async function llmaSwitchToBranch(targetNodeId) {
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    if (!targetNodeId) return;
+    await llmaSetActiveLeaf(llmaDescendToLeaf(targetNodeId));
+}
+
+// Fork: make this message the tip of the active branch; the next message sent branches from here.
+async function llmaForkFromMessage(msgId) {
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before forking', 'info'); return; }
+    await llmaSetActiveLeaf(msgId, { focusInput: true });
+    llmaShowToast('Forked — your next message starts a new branch', 'info');
+}
+
 // -- Load / Fetch --
 // Initial-load failure leaves the sidebar with the empty "New Chat" CTA state so the user
 // can still pick a starting assistant. Console-logged but not toasted — the welcome banner
@@ -306,6 +425,8 @@ async function llmaCreateThread(assistantId) {
 
     LLMAState.activeThreadId    = thread.id;
     LLMAState.messages          = [];
+    LLMAState.allNodes          = [];
+    LLMAState.activeLeafId      = null;
     LLMAState.assets            = [];
     LLMAState.activeAssistantId = assistantId || LLMAState.activeAssistantId;
     llmaSetSessionState({ activeThreadId: thread.id });
@@ -344,7 +465,7 @@ async function llmaSwitchThread(threadId) {
         if (!thread) { llmaShowToast('Thread not found', 'error'); return; }
 
         LLMAState.activeThreadId    = thread.id;
-        LLMAState.messages          = Array.isArray(thread.messages) ? thread.messages : [];
+        llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
         LLMAState.activeAssistantId = thread.assistantId || LLMAState.activeAssistantId;
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
@@ -408,7 +529,7 @@ async function llmaReloadActiveThread() {
         }
     } catch { /* fall through */ }
     if (!thread) return;
-    LLMAState.messages = Array.isArray(thread.messages) ? thread.messages : [];
+    llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
     llmaRenderMessageHistory(LLMAState.messages);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();

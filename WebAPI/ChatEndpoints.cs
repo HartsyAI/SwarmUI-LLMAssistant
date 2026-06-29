@@ -194,15 +194,9 @@ public static class ChatEndpoints
         {
             string threadId = rawInput["threadId"]?.ToString();
             string message = rawInput["message"]?.ToString();
-            string instructionId = rawInput["instructionId"]?.ToString();
-            string model = rawInput["model"]?.ToString();
-            // Option B (in-chat tool picker, type-through): the user prefixed a "/toolId" command — nudge the
-            // model to call exactly that tool. The frontend already stripped the prefix from `message`.
-            string forceToolId = rawInput["forceToolId"]?.ToString();
-            double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
-            int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
-            // Seed: -1 (or absent) means "random, let the backend pick".
-            long seed = rawInput["seed"]?.Value<long>() ?? -1;
+            // Client-generated user message id: persist under the same id the client rendered with so
+            // subsequent edit/delete/fork can resolve it server-side.
+            string userMessageId = rawInput["userMessageId"]?.ToString();
             if (string.IsNullOrEmpty(threadId))
             {
                 return new JObject { ["success"] = false, ["error"] = "threadId is required. Call LLMAssistantCreateThread first." };
@@ -216,71 +210,20 @@ public static class ChatEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
             }
-            // Assistant is locked to the thread (set at thread creation). Per-message override would
-            // make history confusing — assistant identity is part of the thread's identity.
-            string assistantId = thread["assistantId"]?.ToString();
-            JObject settings = SettingsService.GetMergedSettings(session.User);
-            if (string.IsNullOrEmpty(assistantId))
-            {
-                assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
-            }
-            // Resolve model facts once so per-model instruction variants can pick the right text.
-            // Tolerates unknown models (returns null; only Default/Exact/Glob matchers will then match).
-            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
-            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
-            // Append the user message to the thread BEFORE generation so it persists even if
-            // generation fails or the client disconnects mid-stream. Image attachments — uploaded
-            // via LLMAssistantUploadChatImage and shipped here as `media: [{ url, mediaType }]` —
-            // are persisted as URLs, never base64 (the upload step already wrote them to disk).
+            // Append the user message to the thread BEFORE generation so it persists even if generation
+            // fails or the client disconnects mid-stream. In the branch model this hangs off the current
+            // active leaf. Image attachments are persisted as URLs (uploaded earlier), never base64.
             JObject userMsg = new() { ["role"] = Roles.User, ["content"] = message };
+            if (!string.IsNullOrEmpty(userMessageId))
+            {
+                userMsg["id"] = userMessageId;
+            }
             if (rawInput["media"] is JArray mediaArr && mediaArr.Count > 0)
             {
                 userMsg["media"] = mediaArr.DeepClone();
             }
             ThreadStorageService.AppendMessage(session.User, threadId, userMsg);
-            // Reload to get the canonical (just-saved) thread for input building.
-            thread = ThreadStorageService.GetThread(session.User, threadId);
-            // Build LLM input from the stored thread history (truncated to maxContextMessages).
-            List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
-            ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
-            input.RequestSession = session;
-            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
-            // Load tools enabled for this assistant and inject their descriptions into the system prompt.
-            // Tool handlers may enrich their descriptions per-user (eg generate_image injecting the
-            // user's presets) — apply enrichment before building the prompt.
-            List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
-            if (enabledTools.Count > 0)
-            {
-                List<JObject> enrichedTools = [];
-                foreach (JObject tool in enabledTools)
-                {
-                    ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
-                    enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
-                }
-                input.Tools = enrichedTools;
-                string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
-                input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
-                if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
-                {
-                    input.Messages[0].Content = input.SystemPrompt;
-                }
-                else if (!string.IsNullOrEmpty(input.SystemPrompt))
-                {
-                    input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
-                }
-                // Option B: if the user explicitly invoked a tool via the picker, hard-nudge the model to call it.
-                if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
-                {
-                    string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
-                    input.SystemPrompt += directive;
-                    if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
-                    {
-                        input.Messages[0].Content = input.SystemPrompt;
-                    }
-                }
-            }
-            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId);
+            await StreamReplyForThread(socket, session, threadId, rawInput);
             return null;
         }
         catch (Exception ex)
@@ -293,6 +236,164 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Edits a user message into a NEW branch and streams a fresh reply. The original message and
+    /// the subtree beneath it are kept as a sibling branch (switchable via the pager); the edited copy
+    /// becomes the active branch. WS — same streaming protocol as <see cref="LLMAssistantSendMessageWS"/>.
+    /// Request: <c>{ threadId, messageId (edited message), content, userMessageId (id for the new branch
+    /// node), assistantMessageId, model?, ... }</c>.</summary>
+    public static async Task<JObject> LLMAssistantEditMessageWS(WebSocket socket, Session session, JObject rawInput)
+    {
+        try
+        {
+            string threadId = rawInput["threadId"]?.ToString();
+            string messageId = rawInput["messageId"]?.ToString();
+            string content = rawInput["content"]?.ToString();
+            string userMessageId = rawInput["userMessageId"]?.ToString();
+            if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
+            if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
+            if (content is null) { return Fail("content is required."); }
+            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+            if (thread is null) { return Fail($"Thread '{threadId}' not found."); }
+            JObject original = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+            if (original is null) { return Fail($"Message '{messageId}' not found in thread."); }
+            // Build the edited sibling: same role, new content, carry the original's media.
+            JObject edited = new() { ["role"] = original["role"]?.ToString() ?? Roles.User, ["content"] = content };
+            if (!string.IsNullOrEmpty(userMessageId)) { edited["id"] = userMessageId; }
+            if (original["media"] is JArray om && om.Count > 0) { edited["media"] = om.DeepClone(); }
+            edited["editedAt"] = DateTime.UtcNow.ToString("o");
+            edited["editedFrom"] = messageId;
+            if (ThreadStorageService.AddBranch(session.User, threadId, messageId, edited) is null)
+            {
+                return Fail("Failed to create edit branch.");
+            }
+            await StreamReplyForThread(socket, session, threadId, rawInput);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Regenerates an assistant reply as a NEW sibling branch — the previous reply stays switchable
+    /// via the pager — and streams it. WS. Request: <c>{ threadId, messageId (assistant reply to regen),
+    /// assistantMessageId, model?, ... }</c>.</summary>
+    public static async Task<JObject> LLMAssistantRegenerateWS(WebSocket socket, Session session, JObject rawInput)
+    {
+        try
+        {
+            string threadId = rawInput["threadId"]?.ToString();
+            string messageId = rawInput["messageId"]?.ToString();
+            if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
+            if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
+            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+            if (thread is null) { return Fail($"Thread '{threadId}' not found."); }
+            JObject target = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+            if (target is null) { return Fail($"Message '{messageId}' not found in thread."); }
+            JToken pidTok = target["parentId"];
+            string parentId = pidTok is null || pidTok.Type == JTokenType.Null ? null : pidTok.ToString();
+            if (string.IsNullOrEmpty(parentId)) { return Fail("Cannot regenerate a message with no preceding turn."); }
+            // Move the active leaf to the preceding turn; the streamed reply appends as a new child — a
+            // sibling of the previous reply.
+            if (ThreadStorageService.SetActiveLeaf(session.User, threadId, parentId) is null)
+            {
+                return Fail("Failed to set branch point.");
+            }
+            await StreamReplyForThread(socket, session, threadId, rawInput);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Shared streaming tail. Resolves assistant/instructions/params/tools, builds the LLM input
+    /// from the thread's ACTIVE branch, and streams the reply. Callers must have already put the thread in
+    /// the desired state (user turn appended for send, edited sibling branched for edit, active leaf moved
+    /// for regenerate).</summary>
+    private static async Task StreamReplyForThread(WebSocket socket, Session session, string threadId, JObject rawInput)
+    {
+        string instructionId = rawInput["instructionId"]?.ToString();
+        string assistantMessageId = rawInput["assistantMessageId"]?.ToString();
+        string model = rawInput["model"]?.ToString();
+        // Option B (in-chat tool picker): a forced tool id nudges the model to call exactly that tool.
+        string forceToolId = rawInput["forceToolId"]?.ToString();
+        double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
+        int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
+        long seed = rawInput["seed"]?.Value<long>() ?? -1;
+
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            await SendWsError(socket, $"Thread '{threadId}' not found.");
+            return;
+        }
+        // Assistant is locked to the thread (set at creation). Per-message override would make history
+        // confusing — assistant identity is part of the thread's identity.
+        string assistantId = thread["assistantId"]?.ToString();
+        JObject settings = SettingsService.GetMergedSettings(session.User);
+        if (string.IsNullOrEmpty(assistantId))
+        {
+            assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
+        }
+        // Resolve model facts once so per-model instruction variants can pick the right text.
+        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+        string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+        // Build LLM input from the active branch (truncated to maxContextMessages).
+        List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
+        input.RequestSession = session;
+        JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
+        ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+        // Load tools enabled for this assistant and inject their descriptions into the system prompt.
+        List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
+        if (enabledTools.Count > 0)
+        {
+            List<JObject> enrichedTools = [];
+            foreach (JObject tool in enabledTools)
+            {
+                ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
+                enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
+            }
+            input.Tools = enrichedTools;
+            string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
+            input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
+            if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
+            {
+                input.Messages[0].Content = input.SystemPrompt;
+            }
+            else if (!string.IsNullOrEmpty(input.SystemPrompt))
+            {
+                input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
+            }
+            if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+            {
+                string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
+                input.SystemPrompt += directive;
+                if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
+                {
+                    input.Messages[0].Content = input.SystemPrompt;
+                }
+            }
+        }
+        await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
+    }
+
+    /// <summary>Small helper for pre-stream validation failures on the chat endpoints.</summary>
+    private static JObject Fail(string error) => new() { ["success"] = false, ["error"] = error };
+
+    /// <summary>Sends a single <c>{ "error": ... }</c> frame over the socket (mirrors the client's error
+    /// handling) for failures that surface after streaming has begun.</summary>
+    private static async Task SendWsError(WebSocket socket, string error)
+    {
+        if (socket.State == WebSocketState.Open)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(new JObject { ["error"] = error }.ToString(Newtonsoft.Json.Formatting.None));
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
+    }
+
     /// <summary>Reads stored thread messages, applies maxContextMessages truncation.
     /// Source of truth is the saved thread — the client cannot inject fake history.
     /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
@@ -300,9 +401,9 @@ public static class ChatEndpoints
     private static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
     {
         List<ChatMessageData> history = [];
-        if (thread?["messages"] is JArray messages)
+        // Branch model: the LLM only ever sees the ACTIVE path (root → active leaf), never off-path siblings.
+        foreach (JObject msg in ThreadStorageService.GetActivePath(thread))
         {
-            foreach (JToken msg in messages)
             {
                 ChatMessageData entry = new()
                 {

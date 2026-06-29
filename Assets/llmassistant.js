@@ -74,6 +74,7 @@ async function llmaInit() {
     llmaSetupTopBar();
     llmaSetupSidebar();
     llmaSetupInput();
+    if (typeof llmaSetupScroll === 'function') llmaSetupScroll();
     if (typeof llmaSetupFindBar === 'function') llmaSetupFindBar();
     if (typeof llmaSetupBulkBar === 'function') llmaSetupBulkBar();
     llmaSetupSettingsModal();

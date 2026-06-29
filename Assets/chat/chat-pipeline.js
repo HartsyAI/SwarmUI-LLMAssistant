@@ -42,8 +42,11 @@
             await llmaCreateThread(LLMAState.activeAssistantId);
         }
 
-        // Hide welcome, show chat
+        // Hide welcome, show chat. Sending always means "take me to the latest" — re-arm auto-follow
+        // so the user's new message and the incoming reply track the bottom even if they'd scrolled up.
         llmaShowChatPanel();
+        LLMAState._autoFollow = true;
+        if (typeof llmaToggleScrollButton === 'function') llmaToggleScrollButton(false);
 
         const userMsgId = llmaGenerateId();
         let mediaPayload = null;
@@ -56,13 +59,18 @@
             llmaClearAttachment();
         }
 
-        // Add user message (uses the served URL; no base64 in the in-memory message either)
+        // Add user message (uses the served URL; no base64 in the in-memory message either). In the
+        // branch model it hangs off the current active leaf and becomes the new leaf — mirroring the
+        // server's AppendMessage so allNodes stays consistent without an extra round trip.
         const userMsg = {
             id: userMsgId, role: 'user', content: message || '(image)',
             timestamp: new Date().toISOString(),
             media: mediaPayload || undefined,
+            parentId: LLMAState.activeLeafId ?? null,
         };
         LLMAState.messages.push(userMsg);
+        (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
+        LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId);
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
@@ -71,7 +79,10 @@
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
         // Build payload — server is authoritative for history; we only send threadId + new message.
+        // Send the client-generated message id so the server persists it under the SAME id we rendered
+        // with; otherwise the server assigns its own GUID and later edit/delete/fork can't find the message.
         const payload = llmaBuildPayload(payloadMessage, 'chat');
+        payload.userMessageId = userMsgId;
         if (mediaPayload) {
             payload.media = mediaPayload;
         }
@@ -107,15 +118,23 @@
     }
 
     /** Stream a response over the WS, rendering text/tool-call/tool-result events incrementally. */
-    function llmaStreamResponse(payload, onComplete) {
+    function llmaStreamResponse(payload, onComplete, opts = {}) {
+        // Branching: edit / regenerate stream through their own WS endpoints (which create the branch
+        // server-side first); a normal send uses the default.
+        const wsEndpoint = opts.endpoint || 'LLMAssistantSendMessageWS';
         llmaSetStreaming(true);
         const assistantMsgId = llmaGenerateId();
+        // Persist the assistant reply under the same id we render with (see userMessageId note in
+        // llmaSendMessage) so message ops on the reply resolve server-side.
+        payload.assistantMessageId = assistantMsgId;
         const assistantMsg = {
             id: assistantMsgId, role: 'assistant', content: '',
             timestamp: new Date().toISOString(),
             toolCalls: [],
+            parentId: LLMAState.activeLeafId ?? null,
         };
         LLMAState.messages.push(assistantMsg);
+        (LLMAState.allNodes = LLMAState.allNodes || []).push(assistantMsg);
         llmaAppendMessageToDOM('assistant', '', null, assistantMsgId);
 
         const bubble = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-bubble`);
@@ -166,7 +185,7 @@
         LLMAState._streamingText  = '';
 
         try {
-            LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', payload, data => {
+            LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
                 if (data.error) {
                     clearPendingRender();
                     llmaShowErrorInBubble(bubble, data.error);
@@ -249,6 +268,8 @@
                         if (data.truncated) msg.meta.truncated = true;
                         if (data.reason) msg.meta.reason = data.reason;
                     }
+                    // The completed reply is now the tip of the active branch.
+                    LLMAState.activeLeafId = assistantMsgId;
                     // Render the final text of this (last) iteration into the current segment
                     // with asset-card swap applied
                     const cleanFinal = llmaStripToolTags(streamingText);

@@ -122,6 +122,9 @@ public static class LLMAssistantAPI
         // Chat
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
+        // Branching: edit-into-new-branch and regenerate-as-new-branch both stream like a normal send.
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantEditMessageWS, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantRegenerateWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);
@@ -140,6 +143,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);

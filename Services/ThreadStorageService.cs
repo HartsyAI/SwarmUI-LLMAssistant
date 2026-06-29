@@ -30,7 +30,8 @@ public static class ThreadStorageService
         }
     }
 
-    /// <summary>Gets a full thread by ID.</summary>
+    /// <summary>Gets a full thread by ID. The returned blob is guaranteed branch-shaped (every message
+    /// carries <c>parentId</c> and the thread carries <c>activeLeafId</c>) via lazy migration.</summary>
     public static JObject GetThread(User user, string threadId)
     {
         string raw = user.GetGenericData(DataName, ThreadPrefix + threadId);
@@ -40,12 +41,90 @@ public static class ThreadStorageService
         }
         try
         {
-            return JObject.Parse(raw);
+            JObject thread = JObject.Parse(raw);
+            EnsureTreeShape(thread);
+            return thread;
         }
         catch
         {
             return null;
         }
+    }
+
+    /// <summary>Upgrades a thread blob in-memory to the branch (tree) shape: every message gets an
+    /// <c>id</c> and a <c>parentId</c>, and the thread gets an <c>activeLeafId</c>. Legacy (pre-branching)
+    /// threads are linear — each message's parent is the message before it and the active leaf is the last
+    /// message. Idempotent: a thread that already carries branch metadata is left untouched. The upgrade is
+    /// persisted on the next <see cref="SaveThread"/>; a read-only load just recomputes it (cheap).</summary>
+    public static void EnsureTreeShape(JObject thread)
+    {
+        if (thread?["messages"] is not JArray messages || messages.Count == 0)
+        {
+            return;
+        }
+        string prevId = null;
+        foreach (JToken tok in messages)
+        {
+            if (tok is not JObject m)
+            {
+                continue;
+            }
+            if (m["id"] is null || string.IsNullOrEmpty(m["id"].ToString()))
+            {
+                m["id"] = Guid.NewGuid().ToString("N");
+            }
+            if (!m.ContainsKey("parentId"))
+            {
+                m["parentId"] = prevId is null ? JValue.CreateNull() : new JValue(prevId);
+            }
+            prevId = m["id"].ToString();
+        }
+        if (thread["activeLeafId"] is null || string.IsNullOrEmpty(thread["activeLeafId"].ToString()))
+        {
+            thread["activeLeafId"] = prevId; // last message id
+        }
+    }
+
+    /// <summary>Returns the linear "active path" of a thread — the chain from the root down to
+    /// <c>activeLeafId</c>, oldest first. This is the conversation the user currently sees and the
+    /// history handed to the LLM; off-path branches are excluded. Falls back to the last message when
+    /// no valid active leaf is set. Cycle-safe.</summary>
+    public static List<JObject> GetActivePath(JObject thread)
+    {
+        List<JObject> path = [];
+        if (thread?["messages"] is not JArray messages || messages.Count == 0)
+        {
+            return path;
+        }
+        Dictionary<string, JObject> byId = new();
+        foreach (JToken tok in messages)
+        {
+            if (tok is JObject m && m["id"]?.ToString() is string id && !string.IsNullOrEmpty(id))
+            {
+                byId[id] = m;
+            }
+        }
+        string leaf = thread["activeLeafId"]?.ToString();
+        if (string.IsNullOrEmpty(leaf) || !byId.ContainsKey(leaf))
+        {
+            leaf = (messages[^1] as JObject)?["id"]?.ToString();
+        }
+        HashSet<string> visited = [];
+        string cur = leaf;
+        while (!string.IsNullOrEmpty(cur) && byId.TryGetValue(cur, out JObject node) && visited.Add(cur))
+        {
+            path.Add(node);
+            cur = node["parentId"] is null || node["parentId"].Type == JTokenType.Null ? null : node["parentId"].ToString();
+        }
+        path.Reverse();
+        return path;
+    }
+
+    /// <summary>Resolves a message's parentId as a string (null for a root message).</summary>
+    private static string ParentIdOf(JObject message)
+    {
+        JToken pid = message?["parentId"];
+        return pid is null || pid.Type == JTokenType.Null ? null : pid.ToString();
     }
 
     /// <summary>Saves a thread and updates the index.</summary>
@@ -63,7 +142,9 @@ public static class ThreadStorageService
             thread["createdAt"] = DateTime.UtcNow.ToString("o");
         }
         JArray messages = thread["messages"] as JArray ?? [];
-        thread["messageCount"] = messages.Count;
+        EnsureTreeShape(thread);
+        // messageCount reflects the active branch (what the user sees), not every node across all branches.
+        thread["messageCount"] = GetActivePath(thread).Count;
         // Auto-title: if the title is missing or is a placeholder, derive one from the first user message.
         string currentTitle = thread["title"]?.ToString();
         if (IsPlaceholderTitle(currentTitle))
@@ -171,14 +252,82 @@ public static class ThreadStorageService
         {
             message["timestamp"] = DateTime.UtcNow.ToString("o");
         }
+        // Branch model: a new message hangs off the current active leaf and becomes the new leaf. For a
+        // linear thread the active leaf is the last message, so this is identical to a plain append.
+        if (!message.ContainsKey("parentId"))
+        {
+            string leaf = thread["activeLeafId"]?.ToString();
+            message["parentId"] = string.IsNullOrEmpty(leaf) ? JValue.CreateNull() : new JValue(leaf);
+        }
         messages.Add(message);
         thread["messages"] = messages;
+        thread["activeLeafId"] = message["id"];
         SaveThread(user, thread);
         return thread;
     }
 
-    /// <summary>Removes a single message from a thread by message id and persists. Returns the
-    /// updated thread, or null if the thread or message wasn't found.</summary>
+    /// <summary>Points the thread's active path at <paramref name="messageId"/> — i.e. the rendered
+    /// conversation becomes root→that message, and the next appended message branches from it. Backs the
+    /// Fork action and the branch-switcher pager. Returns the updated thread, or null if not found.</summary>
+    public static JObject SetActiveLeaf(User user, string threadId, string messageId)
+    {
+        if (string.IsNullOrEmpty(messageId))
+        {
+            return null;
+        }
+        JObject thread = GetThread(user, threadId);
+        if (thread is null || thread["messages"] is not JArray messages)
+        {
+            return null;
+        }
+        if (!messages.OfType<JObject>().Any(m => m["id"]?.ToString() == messageId))
+        {
+            return null;
+        }
+        thread["activeLeafId"] = messageId;
+        SaveThread(user, thread);
+        return thread;
+    }
+
+    /// <summary>Adds <paramref name="newMessage"/> as a sibling of <paramref name="refMessageId"/> (same
+    /// parent) and makes it the active leaf — creating a new branch alongside the existing one. Backs the
+    /// "edit a message into a new branch" flow. Returns the updated thread, or null if the ref isn't found.</summary>
+    public static JObject AddBranch(User user, string threadId, string refMessageId, JObject newMessage)
+    {
+        if (newMessage is null || string.IsNullOrEmpty(refMessageId))
+        {
+            return null;
+        }
+        JObject thread = GetThread(user, threadId);
+        if (thread is null || thread["messages"] is not JArray messages)
+        {
+            return null;
+        }
+        JObject refNode = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == refMessageId);
+        if (refNode is null)
+        {
+            return null;
+        }
+        if (newMessage["id"] is null)
+        {
+            newMessage["id"] = Guid.NewGuid().ToString("N");
+        }
+        if (newMessage["timestamp"] is null)
+        {
+            newMessage["timestamp"] = DateTime.UtcNow.ToString("o");
+        }
+        newMessage["parentId"] = refNode["parentId"]?.DeepClone() ?? JValue.CreateNull();
+        messages.Add(newMessage);
+        thread["messages"] = messages;
+        thread["activeLeafId"] = newMessage["id"];
+        SaveThread(user, thread);
+        return thread;
+    }
+
+    /// <summary>Removes a message and its entire subtree (all descendant branches) by id and persists.
+    /// In the branch model a message can have children; deleting it must drop them too or they'd orphan.
+    /// If the active leaf was inside the removed subtree, it falls back to the deleted message's parent.
+    /// Returns the updated thread, or null if the thread or message wasn't found.</summary>
     public static JObject DeleteMessage(User user, string threadId, string messageId)
     {
         if (string.IsNullOrEmpty(messageId))
@@ -190,13 +339,43 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JToken target = messages.FirstOrDefault(m => m["id"]?.ToString() == messageId);
+        JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
         if (target is null)
         {
             return null;
         }
-        messages.Remove(target);
-        thread["messages"] = messages;
+        // Collect the target plus every transitive descendant.
+        HashSet<string> toRemove = [messageId];
+        bool grew = true;
+        while (grew)
+        {
+            grew = false;
+            foreach (JObject m in messages.OfType<JObject>())
+            {
+                string id = m["id"]?.ToString();
+                string pid = ParentIdOf(m);
+                if (id is not null && pid is not null && toRemove.Contains(pid) && !toRemove.Contains(id))
+                {
+                    toRemove.Add(id);
+                    grew = true;
+                }
+            }
+        }
+        string parentOfDeleted = ParentIdOf(target);
+        JArray survivors = [];
+        foreach (JObject m in messages.OfType<JObject>())
+        {
+            if (!toRemove.Contains(m["id"]?.ToString()))
+            {
+                survivors.Add(m);
+            }
+        }
+        thread["messages"] = survivors;
+        string leaf = thread["activeLeafId"]?.ToString();
+        if (string.IsNullOrEmpty(leaf) || toRemove.Contains(leaf))
+        {
+            thread["activeLeafId"] = parentOfDeleted is null ? JValue.CreateNull() : new JValue(parentOfDeleted);
+        }
         SaveThread(user, thread);
         return thread;
     }
@@ -210,7 +389,11 @@ public static class ThreadStorageService
             return null;
         }
         JObject thread = GetThread(user, threadId);
-        if (thread is null || thread["messages"] is not JArray messages)
+        if (thread is null)
+        {
+            return null;
+        }
+        if (thread["messages"] is not JArray messages)
         {
             return null;
         }
@@ -252,19 +435,19 @@ public static class ThreadStorageService
         {
             index.Remove(existing);
         }
-        // Build summary
-        JArray messages = thread["messages"] as JArray;
+        // Build summary from the active branch — the conversation the user actually sees.
+        List<JObject> active = GetActivePath(thread);
         string title = thread["title"]?.ToString();
-        if (string.IsNullOrEmpty(title) && messages?.Count > 0)
+        if (string.IsNullOrEmpty(title) && active.Count > 0)
         {
-            string firstMsg = messages[0]?["content"]?.ToString() ?? "New Thread";
+            string firstMsg = active[0]?["content"]?.ToString() ?? "New Thread";
             title = firstMsg.Length > 50 ? firstMsg[..50] + "..." : firstMsg;
         }
-        // Build searchable preview from message content
+        // Build searchable preview from active-branch message content
         string preview = "";
-        if (messages is not null && messages.Count > 0)
+        if (active.Count > 0)
         {
-            preview = string.Join(" ", messages.Select(m => m["content"]?.ToString() ?? ""));
+            preview = string.Join(" ", active.Select(m => m["content"]?.ToString() ?? ""));
             if (preview.Length > 200)
             {
                 preview = preview[..200];

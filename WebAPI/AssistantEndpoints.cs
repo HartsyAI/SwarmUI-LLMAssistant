@@ -71,11 +71,12 @@ public static class AssistantEndpoints
             return new JObject { ["success"] = false, ["error"] = "Cannot delete the default assistant." };
         }
         bool deleted = AssistantService.DeleteAssistant(assistantId, session.User, scope);
-        return new JObject
+        // Only include "error" on failure (a present "error" key — even null — is logged as an error).
+        if (!deleted)
         {
-            ["success"] = deleted,
-            ["error"] = deleted ? null : "Assistant not found or not permitted."
-        };
+            return new JObject { ["success"] = false, ["error"] = "Assistant not found or not permitted." };
+        }
+        return new JObject { ["success"] = true };
     }
 
     /// <summary>Sets the active assistant (personal preference, always stored in user layer).</summary>

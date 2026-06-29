@@ -45,11 +45,13 @@ public static class ThreadEndpoints
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)
     {
         bool deleted = ThreadStorageService.DeleteThread(session.User, threadId);
-        return new JObject
+        // Only include "error" on failure: the API layer treats the mere PRESENCE of an "error" key as a
+        // failure and logs it, so `error = null` on success produces a spurious empty-message error log.
+        if (!deleted)
         {
-            ["success"] = deleted,
-            ["error"] = deleted ? null : $"Thread '{threadId}' not found."
-        };
+            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+        }
+        return new JObject { ["success"] = true };
     }
 
     /// <summary>Deletes a single message from a thread by message id. Server-authoritative: the
@@ -92,12 +94,34 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "content is required (use empty string to blank a message)." };
         }
-        JObject thread = ThreadStorageService.EditMessage(session.User, threadId, messageId, content);
+        
+        // Validate thread exists
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = "Thread or message not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
         }
-        return new JObject { ["success"] = true, ["thread"] = thread };
+        
+        // Validate message exists in thread
+        JArray messages = thread["messages"] as JArray;
+        if (messages is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Thread has no messages array." };
+        }
+        
+        JObject targetMessage = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+        if (targetMessage is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Message '{messageId}' not found in thread." };
+        }
+        
+        // Perform the edit
+        JObject updatedThread = ThreadStorageService.EditMessage(session.User, threadId, messageId, content);
+        if (updatedThread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Failed to save message edit." };
+        }
+        return new JObject { ["success"] = true, ["thread"] = updatedThread };
     }
 
     /// <summary>Renames a thread. The UI calls this instead of re-sending the entire thread on rename.</summary>
@@ -123,6 +147,30 @@ public static class ThreadEndpoints
             ["success"] = true,
             ["thread"] = thread
         };
+    }
+
+    /// <summary>Points a thread's active branch at a specific message (Fork / branch-switcher pager).
+    /// In the in-thread tree model "forking" doesn't copy the thread — it just moves the active leaf so the
+    /// rendered conversation becomes root→that message and the next sent message branches from there.
+    /// Request: <c>{ threadId, messageId }</c>. Returns the updated thread.</summary>
+    public static async Task<JObject> LLMAssistantSetActiveLeaf(Session session, JObject rawInput)
+    {
+        string threadId = rawInput["threadId"]?.ToString();
+        string messageId = rawInput["messageId"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "messageId is required." };
+        }
+        JObject thread = ThreadStorageService.SetActiveLeaf(session.User, threadId, messageId);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Thread or message not found." };
+        }
+        return new JObject { ["success"] = true, ["thread"] = thread };
     }
 
     /// <summary>Exports a thread in JSON or Markdown format.</summary>
