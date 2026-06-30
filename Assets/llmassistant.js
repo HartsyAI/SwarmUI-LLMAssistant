@@ -67,6 +67,9 @@ async function llmaInit() {
     LLMAState.enterToSend     = LLMAState.settings?.ui?.enterToSend     !== false;
     LLMAState.showTokens      = LLMAState.settings?.ui?.showTokens      !== false;
     LLMAState.currentModel    = sessionState.currentModel || LLMAState.settings?.currentModel || null;
+    // Restore side-by-side compare selection (lane B model + whether compare was on).
+    LLMAState.compareMode     = sessionState.compareMode === true;
+    LLMAState.compareModelB   = sessionState.compareModelB || null;
     // llmaLoadModels() ran in parallel with the session-state load above, so the dropdown may have
     // been populated before LLMAState.currentModel was known. Re-apply the remembered model now.
     llmaApplyModelSelection();
@@ -260,6 +263,8 @@ function llmaApplyModelSelection() {
         LLMAState.currentModel = sel.value;
     }
     llmaUpdateModelStatus();
+    // Keep the compare lane-B picker in sync with the freshly-loaded model list.
+    if (typeof llmaCompareOnModelsLoaded === 'function') llmaCompareOnModelsLoaded();
 }
 
 // Schedule a single delayed re-fetch of the model list. Each empty load reschedules the next, so
@@ -285,6 +290,7 @@ function llmaStopModelRetry() {
 // -- Top Bar --
 function llmaSetupTopBar() {
     llmaSetupModelSelect();
+    if (typeof llmaSetupCompare === 'function') llmaSetupCompare();
     llmaSetupParamsPopover();
     llmaSetupExportMenu();
 

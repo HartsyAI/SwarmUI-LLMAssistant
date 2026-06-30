@@ -266,8 +266,10 @@ function llmaExtractAssetsFromToolCalls(toolCalls, msgId) {
 function llmaRebuildAssetsForThread() {
     if (typeof LLMAState === 'undefined') return;
     const all = [];
-    for (const msg of LLMAState.messages || []) {
-        if (msg.role !== 'assistant') continue;
+    const seen = new Set();
+    const collect = (msg) => {
+        if (!msg || msg.role !== 'assistant' || seen.has(msg.id)) return;
+        seen.add(msg.id);
         const raw = msg.rawContent || msg.content || '';
         if (raw) {
             const { assets } = llmaExtractAssetsFromMarkdown(raw, msg.id);
@@ -276,6 +278,15 @@ function llmaRebuildAssetsForThread() {
         if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
             all.push(...llmaExtractAssetsFromToolCalls(msg.toolCalls, msg.id));
         }
+    };
+    const active = LLMAState.messages || [];
+    for (const msg of active) collect(msg);
+    // Compare mode: also include the OFF-path lane(s). The active path only carries one reply per turn,
+    // but both columns' assets (eg images from generate_image) should appear in the panel. Pull in any
+    // assistant sibling whose compare group's user message is on the active path.
+    const activeIds = new Set(active.map(m => m.id));
+    for (const node of LLMAState.allNodes || []) {
+        if (node.role === 'assistant' && node.groupId && activeIds.has(node.groupId)) collect(node);
     }
     LLMAState.assets = all;
     llmaRenderAssetSidebar();

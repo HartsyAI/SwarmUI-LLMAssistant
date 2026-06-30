@@ -11,6 +11,62 @@
     overflow: hidden;
 }
 
+/* ── Side-by-side compare columns ───────────────────────────────
+   One user turn fans out to N model replies, rendered as equal columns. */
+.llma-compare-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    align-items: start;
+}
+.llma-compare-col {
+    min-width: 0;
+    border: 1px solid var(--light-border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--background-soft) 50%, transparent);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.llma-compare-head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--light-border);
+}
+.llma-compare-model {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Per-lane status dot: loading (pulsing), streaming (emphasis), done (green), error (red). */
+.llma-compare-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: var(--text-soft);
+}
+.llma-compare-dot.loading   { background: var(--text-soft); animation: llma-compare-pulse 1s ease-in-out infinite; }
+.llma-compare-dot.streaming { background: var(--emphasis); animation: llma-compare-pulse 1s ease-in-out infinite; }
+.llma-compare-dot.done      { background: var(--backend-running); }
+.llma-compare-dot.error     { background: var(--backend-errored); }
+@keyframes llma-compare-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
+/* Columns reuse the normal bubble/meta/actions styles; just keep them tidy inside the card. */
+.llma-compare-col .llma-msg-body { gap: 4px; }
+.llma-compare-col .llma-msg-bubble { width: 100%; }
+.llma-compare-col .llma-msg-actions { opacity: 0.75; }
+.llma-compare-col:hover .llma-msg-actions { opacity: 1; }
+/* Narrow widths: stack the columns vertically. */
+@media (max-width: 900px) {
+    .llma-compare-row { grid-template-columns: 1fr; }
+}
+
 /* Empty-chat state: center the input + greeting vertically, hide the messages
    container. The greeting itself is a real DOM node populated by JS so it can
    be personalized to the active assistant and the user. */
@@ -224,7 +280,7 @@
     border-radius: 999px;
     border: 1px solid var(--light-border);
     background: var(--background-soft, var(--background));
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--black) 12%, transparent);
 }
 .llma-branch-icon {
     font-size: 12px;
@@ -243,7 +299,7 @@
     color: var(--text);
     cursor: pointer;
 }
-.llma-branch-nav:hover:not(:disabled) { background: var(--emphasis); color: #fff; }
+.llma-branch-nav:hover:not(:disabled) { background: var(--emphasis); color: var(--emphasis-text); }
 .llma-branch-nav:disabled { opacity: 0.3; cursor: default; }
 .llma-branch-label {
     font-size: 11px;
@@ -257,7 +313,7 @@
     cursor: pointer;
     white-space: nowrap;
 }
-.llma-branch-label:hover { background: var(--background, rgba(127, 127, 127, 0.12)); }
+.llma-branch-label:hover { background: var(--background); }
 .llma-branch-sep { opacity: 0.45; margin: 0 1px; }
 .llma-branch-caret { font-size: 9px; opacity: 0.6; margin-left: 3px; }
 
@@ -275,7 +331,7 @@
     border-radius: 9px;
     border: 1px solid var(--light-border);
     background: var(--background-soft, var(--background));
-    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+    box-shadow: 0 6px 22px color-mix(in srgb, var(--black) 32%, transparent);
 }
 .llma-msg-row.user .llma-branch-menu { left: auto; right: 0; }
 .llma-branch-menu-row {
@@ -291,7 +347,7 @@
     color: var(--text);
     cursor: pointer;
 }
-.llma-branch-menu-row:hover { background: var(--background, rgba(127, 127, 127, 0.12)); }
+.llma-branch-menu-row:hover { background: var(--background); }
 .llma-branch-menu-row.active { background: color-mix(in srgb, var(--emphasis) 22%, transparent); }
 .llma-branch-menu-row.active .llma-branch-menu-num { color: var(--emphasis-text, var(--emphasis)); font-weight: 700; }
 .llma-branch-menu-num {
@@ -776,14 +832,14 @@
 }
 .llma-find-btn:hover { background: color-mix(in srgb, var(--emphasis) 12%, transparent); color: var(--text); }
 mark.llma-find-mark {
-    background: color-mix(in srgb, #ffd54f 60%, transparent);
+    background: color-mix(in srgb, var(--bs-warning) 55%, transparent);
     color: inherit;
     padding: 0 1px;
     border-radius: 2px;
 }
 mark.llma-find-mark.active {
-    background: color-mix(in srgb, #ffb300 90%, transparent);
-    outline: 1px solid color-mix(in srgb, #ff8f00 80%, transparent);
+    background: color-mix(in srgb, var(--bs-warning) 90%, transparent);
+    outline: 1px solid var(--bs-warning);
 }
 
 /* Disabled paperclip — current model is known-text-only. Click still fires (so we can show a

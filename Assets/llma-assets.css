@@ -538,9 +538,10 @@
     margin-left: 4px;
 }
 .llma-json-key { color: var(--emphasis); }
-.llma-json-str { color: #a0e0a0; }
-.llma-json-num { color: #f0c070; }
-.llma-json-bool { color: #c090ff; }
+/* JSON syntax colors map to Bootstrap's themed palette so they track the active theme. */
+.llma-json-str { color: var(--bs-green); }
+.llma-json-num { color: var(--bs-yellow); }
+.llma-json-bool { color: var(--bs-purple); }
 .llma-json-null { color: var(--text-soft); opacity: 0.6; }
 .llma-json-bracket { color: var(--text-soft); opacity: 0.8; }
 .llma-json-count { color: var(--text-soft); opacity: 0.5; font-size: 11px; }

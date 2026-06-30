@@ -16,6 +16,11 @@ const LLMAState = {
     settings:          {},
     threadParams:      {},
     currentModel:      null,
+    availableModels:   [],
+    // Side-by-side compare: when compareMode is on and compareModelB is set, a send fans the prompt
+    // out to currentModel (lane A) and compareModelB (lane B). See chat/chat-compare.js.
+    compareMode:       false,
+    compareModelB:     null,
     isGenerating:      false,
     abortController:   null,
     attachedImage:     null,

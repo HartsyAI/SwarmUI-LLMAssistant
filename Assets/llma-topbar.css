@@ -116,6 +116,26 @@
 }
 .llma-model-select:hover { border-color: var(--border-color); }
 .llma-model-select:focus { border-color: var(--emphasis); }
+/* Compare toggle — lights up when side-by-side mode is on. */
+.llma-compare-toggle.active {
+    color: var(--emphasis);
+    background: color-mix(in srgb, var(--emphasis) 16%, transparent);
+}
+/* Lane B model pill (compare mode). */
+.llma-model-select-b-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.llma-vs-badge {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.8;
+}
+.llma-model-select-b { min-width: 160px; }
 /* Red outline only when something is wrong (no model available / none selected). No "healthy" green. */
 .llma-model-select.error {
     border-color: var(--backend-errored);

@@ -90,7 +90,13 @@
             payload.forceToolId = forced.toolId;
         }
 
-        llmaStreamResponse(payload);
+        // Compare mode fans the same prompt out to two models side-by-side; otherwise normal single stream.
+        // Both share all the prep above (thread create, attachment upload, user-message append).
+        if (typeof llmaIsCompareActive === 'function' && llmaIsCompareActive()) {
+            llmaStreamCompare(payload, userMsgId);
+        } else {
+            llmaStreamResponse(payload);
+        }
     }
 
     /**
@@ -323,6 +329,11 @@
             try { LLMAState._activeSocket.close(); } catch (_) {}
             LLMAState._activeSocket = null;
         }
+        // Compare mode persists each lane's partial text and finalizes its columns.
+        if (typeof llmaCompareHandleStop === 'function' && llmaCompareHandleStop()) {
+            llmaSetStreaming(false);
+            return;
+        }
         if (LLMAState._streamingMsgId && LLMAState._streamingText) {
             const msg = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
             if (msg) msg.content = LLMAState._streamingText;
@@ -354,4 +365,5 @@
     window.llmaBuildPayload   = llmaBuildPayload;
     window.llmaStreamResponse = llmaStreamResponse;
     window.llmaStopGeneration = llmaStopGeneration;
+    window.llmaSetStreaming   = llmaSetStreaming;
 })();

@@ -28,6 +28,7 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/chat/chat-attachments.js");
         ScriptFiles.Add("Assets/chat/chat-composer.js");
         ScriptFiles.Add("Assets/chat/chat-pipeline.js");
+        ScriptFiles.Add("Assets/chat/chat-compare.js");
         ScriptFiles.Add("Assets/threads.js");
         ScriptFiles.Add("Assets/tools.js");
         ScriptFiles.Add("Assets/tool-picker.js");

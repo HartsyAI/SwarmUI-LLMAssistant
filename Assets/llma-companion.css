@@ -29,16 +29,16 @@
     width: 84px;
     height: 84px;
     border-radius: 50%;
-    border: 2px solid var(--emphasis, #7c8aff);
-    background: var(--background-soft, #1c1c24);
+    border: 2px solid var(--emphasis);
+    background: var(--background-soft);
     overflow: hidden;
     cursor: grab;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--black) 35%, transparent);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 .llma-companion-portrait-wrap:hover {
     transform: scale(1.05);
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+    box-shadow: 0 8px 22px color-mix(in srgb, var(--black) 45%, transparent);
 }
 .llma-companion-portrait-wrap:active {
     cursor: grabbing;
@@ -58,8 +58,8 @@
     height: 18px;
     border-radius: 50%;
     border: none;
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
+    background: color-mix(in srgb, var(--black) 55%, transparent);
+    color: var(--bs-white);
     font-size: 14px;
     line-height: 14px;
     padding: 0;
@@ -69,14 +69,14 @@
     justify-content: center;
     transition: background 0.12s ease;
 }
-.llma-companion-close:hover { background: rgba(220, 60, 60, 0.85); }
+.llma-companion-close:hover { background: color-mix(in srgb, var(--backend-errored) 85%, transparent); }
 .llma-companion-portrait-wrap:hover .llma-companion-close { display: flex; }
 
 /* ── Speech bubble ────────────────────────────────────────── */
 .llma-companion-bubble {
-    background: var(--background, #15151c);
-    color: var(--text, #d8d8e2);
-    border: 1px solid var(--border-color, #3a3a48);
+    background: var(--background);
+    color: var(--text);
+    border: 1px solid var(--border-color);
     border-radius: 10px;
     padding: 8px 10px;
     font-size: 12.5px;
@@ -91,13 +91,13 @@
 }
 .llma-companion-bubble:empty::before {
     content: 'Hi! Click an action or expand to chat.';
-    color: var(--text-soft, #8a8a98);
+    color: var(--text-soft);
     font-style: italic;
 }
-.llma-companion-bubble-streaming { border-color: var(--emphasis, #7c8aff); }
+.llma-companion-bubble-streaming { border-color: var(--emphasis); }
 .llma-companion-typing {
     display: inline-block;
-    color: var(--text-soft, #8a8a98);
+    color: var(--text-soft);
     animation: llma-companion-pulse 1.1s ease-in-out infinite;
 }
 @keyframes llma-companion-pulse {
@@ -111,9 +111,9 @@
     padding: 1px 6px;
     font-size: 10.5px;
     border-radius: 9px;
-    background: color-mix(in srgb, var(--emphasis, #7c8aff) 14%, transparent);
-    color: var(--emphasis, #7c8aff);
-    border: 1px solid color-mix(in srgb, var(--emphasis, #7c8aff) 30%, transparent);
+    background: color-mix(in srgb, var(--emphasis) 14%, transparent);
+    color: var(--emphasis);
+    border: 1px solid color-mix(in srgb, var(--emphasis) 30%, transparent);
 }
 
 /* ── Action button row ────────────────────────────────────── */
@@ -128,16 +128,16 @@
     min-width: 56px;
     padding: 5px 8px;
     font-size: 11.5px;
-    background: var(--background-soft, #1c1c24);
-    color: var(--text, #d8d8e2);
-    border: 1px solid var(--border-color, #3a3a48);
+    background: var(--background-soft);
+    color: var(--text);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
     transition: background 0.12s ease, border-color 0.12s ease;
 }
 .llma-companion-action:hover {
-    background: color-mix(in srgb, var(--emphasis, #7c8aff) 18%, var(--background-soft, #1c1c24));
-    border-color: var(--emphasis, #7c8aff);
+    background: color-mix(in srgb, var(--emphasis) 18%, var(--background-soft));
+    border-color: var(--emphasis);
 }
 
 /* ── Inline input (expanded state) ───────────────────────── */
@@ -150,29 +150,29 @@
     flex: 1;
     padding: 5px 8px;
     font-size: 12px;
-    background: var(--background, #15151c);
-    color: var(--text, #d8d8e2);
-    border: 1px solid var(--border-color, #3a3a48);
+    background: var(--background);
+    color: var(--text);
+    border: 1px solid var(--border-color);
     border-radius: 6px;
     outline: none;
     transition: border-color 0.12s ease;
 }
-.llma-companion-input:focus { border-color: var(--emphasis, #7c8aff); }
+.llma-companion-input:focus { border-color: var(--emphasis); }
 
 /* Pending-action state: button queued an action (eg "explain a feature") and is waiting
    for the user to type what they want. Highlights the input so it's clear *why* the
    placeholder changed. */
 .llma-companion-input-wrap.llma-companion-pending .llma-companion-input {
-    border-color: var(--emphasis, #7c8aff);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--emphasis, #7c8aff) 22%, transparent);
+    border-color: var(--emphasis);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--emphasis) 22%, transparent);
 }
 .llma-companion-send {
     width: 28px;
     height: 28px;
     border-radius: 6px;
-    border: 1px solid var(--border-color, #3a3a48);
-    background: var(--background-soft, #1c1c24);
-    color: var(--text, #d8d8e2);
+    border: 1px solid var(--border-color);
+    background: var(--background-soft);
+    color: var(--text);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -180,9 +180,9 @@
     transition: background 0.12s ease, border-color 0.12s ease;
 }
 .llma-companion-send:hover {
-    background: var(--emphasis, #7c8aff);
-    color: #fff;
-    border-color: var(--emphasis, #7c8aff);
+    background: var(--emphasis);
+    color: var(--emphasis-text);
+    border-color: var(--emphasis);
 }
 
 /* ── Expanded state (visual hint that the bubble is the focus) ── */

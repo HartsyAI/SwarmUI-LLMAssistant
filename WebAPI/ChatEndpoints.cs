@@ -223,7 +223,20 @@ public static class ChatEndpoints
                 userMsg["media"] = mediaArr.DeepClone();
             }
             ThreadStorageService.AppendMessage(session.User, threadId, userMsg);
-            await StreamReplyForThread(socket, session, threadId, rawInput);
+            // AppendMessage fills in the id when the client didn't supply one; capture it as the explicit
+            // parent for compare lanes (so both replies become siblings of this exact user turn).
+            string parentUserId = userMsg["id"]?.ToString();
+            // Compare mode: `models` is an array of { model, device?, assistantMessageId? }. Two-or-more
+            // entries fan the same prompt out to each model side-by-side. Otherwise the normal single path.
+            JArray compareModels = rawInput["models"] as JArray;
+            if (compareModels is not null && compareModels.Count >= 2)
+            {
+                await StreamCompareForThread(socket, session, threadId, parentUserId, rawInput, compareModels);
+            }
+            else
+            {
+                await StreamReplyForThread(socket, session, threadId, rawInput);
+            }
             return null;
         }
         catch (Exception ex)
@@ -348,36 +361,160 @@ public static class ChatEndpoints
         ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
         // Load tools enabled for this assistant and inject their descriptions into the system prompt.
         List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
-        if (enabledTools.Count > 0)
+        ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+        await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
+    }
+
+    /// <summary>Enriches the assistant's enabled tools per-user, injects their descriptions into the system
+    /// prompt, and (optionally) appends a force-tool directive. Shared by single-model and compare streaming.</summary>
+    private static void ApplyToolsToInput(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
+    {
+        if (enabledTools is null || enabledTools.Count == 0)
         {
-            List<JObject> enrichedTools = [];
-            foreach (JObject tool in enabledTools)
-            {
-                ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
-                enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
-            }
-            input.Tools = enrichedTools;
-            string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
-            input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
+            return;
+        }
+        List<JObject> enrichedTools = [];
+        foreach (JObject tool in enabledTools)
+        {
+            ToolHandler handler = ToolRegistryService.GetHandler(tool["handlerId"]?.ToString());
+            enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
+        }
+        input.Tools = enrichedTools;
+        string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
+        input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
+        if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
+        {
+            input.Messages[0].Content = input.SystemPrompt;
+        }
+        else if (!string.IsNullOrEmpty(input.SystemPrompt))
+        {
+            input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
+        }
+        if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+        {
+            string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
+            input.SystemPrompt += directive;
             if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
             {
                 input.Messages[0].Content = input.SystemPrompt;
             }
-            else if (!string.IsNullOrEmpty(input.SystemPrompt))
+        }
+    }
+
+    /// <summary>Streams two-or-more models concurrently against the same user turn (side-by-side compare).
+    /// Each lane builds its own input from the SAME active-branch history, streams over one shared socket
+    /// (events tagged with <c>lane</c>, writes serialized), and persists its reply as a sibling child of the
+    /// user message (<paramref name="parentUserId"/>) tagged with a shared <c>groupId</c>. Lane 0 becomes the
+    /// active leaf so the thread has a definite path; the user picks a winner via "Keep this one".
+    /// <para>Concurrency: all-remote lanes run in parallel; if two-or-more lanes are LOCAL we serialize them,
+    /// since two large models rarely fit in one GPU's VRAM at once (forward-looking for multi-GPU: lanes on
+    /// distinct devices could parallelize, decided here).</para></summary>
+    private static async Task StreamCompareForThread(WebSocket socket, Session session, string threadId, string parentUserId, JObject rawInput, JArray modelsArr)
+    {
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            await SendWsError(socket, $"Thread '{threadId}' not found.");
+            return;
+        }
+        string assistantId = thread["assistantId"]?.ToString();
+        JObject settings = SettingsService.GetMergedSettings(session.User);
+        if (string.IsNullOrEmpty(assistantId))
+        {
+            assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
+        }
+        string instructionId = rawInput["instructionId"]?.ToString();
+        string forceToolId = rawInput["forceToolId"]?.ToString();
+        double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
+        int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
+        long seed = rawInput["seed"]?.Value<long>() ?? -1;
+        // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
+        // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
+        List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
+        JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
+        List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
+        SemaphoreSlim sendLock = new(1, 1);
+        // Parse lane descriptors: each is { model, device?, assistantMessageId? }.
+        List<(string Model, string Device, string AssistantMessageId, bool Local)> lanes = [];
+        foreach (JToken entry in modelsArr)
+        {
+            string model = entry is JObject eo ? eo["model"]?.ToString() : entry?.ToString();
+            if (string.IsNullOrEmpty(model))
             {
-                input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
+                continue;
             }
-            if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+            string device = (entry as JObject)?["device"]?.ToString();
+            string amid = (entry as JObject)?["assistantMessageId"]?.ToString();
+            // Local = runs on this machine's CPU/GPU (device label cpu/cuda*). Cloud models have no device.
+            bool local = !string.IsNullOrEmpty(device) && (device.StartsWith("cuda", StringComparison.OrdinalIgnoreCase) || device.StartsWith("cpu", StringComparison.OrdinalIgnoreCase));
+            lanes.Add((model, device, amid, local));
+        }
+        if (lanes.Count < 2)
+        {
+            await SendWsError(socket, "Compare mode needs at least two models.");
+            return;
+        }
+
+        async Task RunLane(int lane)
+        {
+            (string Model, string Device, string AssistantMessageId, bool Local) L = lanes[lane];
+            try
             {
-                string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
-                input.SystemPrompt += directive;
-                if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
-                {
-                    input.Messages[0].Content = input.SystemPrompt;
-                }
+                LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
+                string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+                ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
+                input.RequestSession = session;
+                ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+                ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+                await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
+                    clientAssistantMessageId: L.AssistantMessageId,
+                    lane: lane, sendLock: sendLock, parentMessageId: parentUserId,
+                    compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0);
+            }
+            catch (Exception ex)
+            {
+                // Isolate a lane failure — the other lane(s) must keep streaming. Surface as a lane-tagged error.
+                Logs.Error($"[LLMAssistant] Compare lane {lane} ({L.Model}) failed: {ex.Message}");
+                await SendJsonLane(socket, sendLock, lane, new JObject { ["error"] = ex.Message });
             }
         }
-        await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
+
+        int localCount = lanes.Count(l => l.Local);
+        if (localCount >= 2)
+        {
+            // Two local models would contend for the same GPU/VRAM — run them one after another.
+            for (int i = 0; i < lanes.Count; i++)
+            {
+                await RunLane(i);
+            }
+        }
+        else
+        {
+            await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
+        }
+    }
+
+    /// <summary>Sends a single lane-tagged frame (used for lane-scoped errors raised outside the stream helper).</summary>
+    private static async Task SendJsonLane(WebSocket socket, SemaphoreSlim sendLock, int lane, JObject data)
+    {
+        if (socket.State != WebSocketState.Open)
+        {
+            return;
+        }
+        data["lane"] = lane;
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(data.ToString(Newtonsoft.Json.Formatting.None));
+        await sendLock.WaitAsync();
+        try
+        {
+            if (socket.State == WebSocketState.Open)
+            {
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+        }
+        finally
+        {
+            sendLock.Release();
+        }
     }
 
     /// <summary>Small helper for pre-stream validation failures on the chat endpoints.</summary>

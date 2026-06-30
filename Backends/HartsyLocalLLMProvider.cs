@@ -275,6 +275,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     public override async Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default)
     {
         List<LLMModelInfo> models = [];
+        // Device this backend instance is bound to (placement is per-backend, set at config time). Surfaced
+        // so the compare-mode picker can show "model · cuda:0" vs "model · cpu" and route lanes accordingly.
+        // Forward-looking for multi-GPU: when tensor-split lands this becomes eg "cuda:0+1".
+        string deviceLabel = string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase)
+            ? "cpu"
+            : $"cuda:{Settings.GPUDeviceId}";
         foreach (string folder in ModelFolders())
         {
             foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
@@ -290,7 +296,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     Provider = "hartsy-local",
                     BackendId = AbstractBackendData?.ID ?? -1,
                     SizeBytes = size,
-                    IsLoaded = _loadedPath == file
+                    IsLoaded = _loadedPath == file,
+                    Metadata = { ["device"] = deviceLabel }
                 });
             }
         }

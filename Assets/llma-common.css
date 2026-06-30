@@ -179,19 +179,19 @@
     margin: 8px auto 12px;
     max-width: 720px;
     border-radius: 6px;
-    border: 1px solid var(--light-border, #444);
-    background: var(--background-soft, rgba(120, 120, 120, 0.08));
-    color: var(--text, inherit);
+    border: 1px solid var(--light-border);
+    background: var(--background-soft);
+    color: var(--text);
     font-size: 13px;
     line-height: 1.4;
 }
 .llma-welcome-banner.error {
-    border-color: rgba(220, 70, 70, 0.55);
-    background: rgba(220, 70, 70, 0.10);
+    border-color: color-mix(in srgb, var(--backend-errored) 55%, transparent);
+    background: color-mix(in srgb, var(--backend-errored) 10%, transparent);
 }
 .llma-welcome-banner.info {
-    border-color: rgba(230, 175, 60, 0.55);
-    background: rgba(230, 175, 60, 0.10);
+    border-color: color-mix(in srgb, var(--bs-warning) 55%, transparent);
+    background: color-mix(in srgb, var(--bs-warning) 10%, transparent);
 }
 .llma-welcome-banner.loading { opacity: 0.65; }
 .llma-banner-icon { font-size: 16px; flex: 0 0 auto; }

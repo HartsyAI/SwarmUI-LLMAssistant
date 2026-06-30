@@ -11,7 +11,12 @@
         const container = document.getElementById('llma-messages');
         if (!container) return;
         container.innerHTML = '';
+        // Compare groups: a user turn with 2+ sibling replies (shared groupId) renders as side-by-side
+        // columns instead of the single active reply. We render the columns once at the user message and
+        // skip the group's siblings when they show up later on the active path.
+        const skip = new Set();
         for (const msg of messages) {
+            if (skip.has(msg.id)) continue;
             // Prefer the persisted media URL (server-authoritative) over a legacy/in-memory base64.
             // <img src> handles both transparently.
             const imgSrc = (Array.isArray(msg.media) && msg.media[0]?.url) || msg.imageBase64 || null;
@@ -19,6 +24,13 @@
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
                 const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
                 if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
+            }
+            if (msg.role === 'user' && typeof llmaCompareSiblings === 'function') {
+                const sibs = llmaCompareSiblings(msg.id);
+                if (sibs.length >= 2) {
+                    if (typeof llmaRenderCompareGroupHistory === 'function') llmaRenderCompareGroupHistory(msg.id);
+                    sibs.forEach(s => skip.add(s.id));
+                }
             }
         }
         llmaRebuildAssetsForThread();

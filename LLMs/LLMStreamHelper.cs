@@ -24,14 +24,23 @@ public static class LLMStreamHelper
     /// stored thread when generation completes — server is authoritative for chat history.
     /// <paramref name="assistantId"/> flows through to tool execution so per-assistant tool
     /// config (eg <c>generate_image</c>'s default preset) takes effect.</summary>
-    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default, string clientAssistantMessageId = null)
+    /// <param name="lane">Compare-mode column index (0/1/…). <c>-1</c> = normal single-model mode (no lane tag).</param>
+    /// <param name="sendLock">Shared lock serializing socket writes when multiple lanes share one socket.</param>
+    /// <param name="parentMessageId">When set, the reply is persisted as a child of THIS message (the user
+    /// turn) rather than the current active leaf — required so compare lanes become siblings.</param>
+    /// <param name="compareGroupId">Tags the persisted reply as part of a compare group (the renderer shows
+    /// same-group siblings as side-by-side columns instead of a one-at-a-time pager).</param>
+    /// <param name="deviceLabel">Compute device the model ran on (eg <c>cuda:0</c>/<c>cpu</c>/<c>cloud</c>), stored in meta.</param>
+    /// <param name="setActiveLeaf">Whether this reply becomes the thread's active leaf (only lane 0 does).</param>
+    public static async Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default, string clientAssistantMessageId = null,
+        int lane = -1, SemaphoreSlim sendLock = null, string parentMessageId = null, string compareGroupId = null, string deviceLabel = null, bool setActiveLeaf = true)
     {
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel, ct);
         bool hasTools = input.Tools is not null && input.Tools.Count > 0;
         DateTime startTime = DateTime.UtcNow;
         if (!hasTools)
         {
-            await StreamSingleRound(socket, input, linked, session, threadId, startTime, clientAssistantMessageId);
+            await StreamSingleRound(socket, input, linked, session, threadId, startTime, clientAssistantMessageId, lane, sendLock, parentMessageId, compareGroupId, deviceLabel, setActiveLeaf);
             return;
         }
         // Agentic loop
@@ -47,7 +56,7 @@ public static class LLMStreamHelper
             }
             if (iteration > 0)
             {
-                await SendJson(socket, new JObject { ["iteration"] = iteration + 1 });
+                await SendJson(socket, new JObject { ["iteration"] = iteration + 1 }, lane, sendLock);
             }
             StringBuilder roundBuffer = new();
             // A complete tool call ends the round early: cancel a round-scoped token so the provider
@@ -69,7 +78,7 @@ public static class LLMStreamHelper
                         roundBuffer.Append(text);
                         // Send on `linked` (not `roundCts`) so the chunk carrying </tool_call> still
                         // reaches the UI before we cancel the round.
-                        SendJson(socket, new JObject { ["chunk"] = text }).Wait(linked.Token);
+                        SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
                         if (ToolPromptService.ContainsCompleteToolCall(roundBuffer.ToString()))
                         {
                             toolCallDetected = true;
@@ -85,7 +94,7 @@ public static class LLMStreamHelper
                     {
                         // Forward backend-side status events (eg "loading_model" / "model_ready") to the
                         // client so the UI can show a spinner during slow loads.
-                        SendJson(socket, chunk).Wait(linked.Token);
+                        SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
                     }
                 }, roundCts.Token);
             }
@@ -104,12 +113,12 @@ public static class LLMStreamHelper
             if (toolCalls.Count == 0)
             {
                 fullResponse.Append(roundText);
-                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, clientMessageId: clientAssistantMessageId);
+                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
                 await SendJson(socket, new JObject
                 {
                     ["done"] = true,
                     ["full_text"] = fullResponse.ToString()
-                });
+                }, lane, sendLock);
                 return;
             }
             // Append round output (with tool call tags) to the accumulated response and to history
@@ -131,7 +140,7 @@ public static class LLMStreamHelper
                         ["name"] = call.Name,
                         ["arguments"] = call.Arguments
                     }
-                });
+                }, lane, sendLock);
                 JObject result;
                 try
                 {
@@ -155,7 +164,7 @@ public static class LLMStreamHelper
                         ["name"] = call.Name,
                         ["result"] = result
                     }
-                });
+                }, lane, sendLock);
                 // Record for thread persistence at end of stream
                 toolEvents.Add(new JObject
                 {
@@ -172,18 +181,19 @@ public static class LLMStreamHelper
             // (handled at top of loop on roundText.Count==0 path above)
         }
         // Hit max iterations without finishing
-        PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations", clientMessageId: clientAssistantMessageId);
+        PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations", clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
         await SendJson(socket, new JObject
         {
             ["done"] = true,
             ["truncated"] = true,
             ["reason"] = "max_iterations",
             ["full_text"] = fullResponse.ToString()
-        });
+        }, lane, sendLock);
     }
 
     /// <summary>Streams a single round of generation with no tool processing.</summary>
-    private static async Task StreamSingleRound(WebSocket socket, ExtendedLLMInput input, CancellationTokenSource linked, Session session, string threadId, DateTime startTime, string clientAssistantMessageId = null)
+    private static async Task StreamSingleRound(WebSocket socket, ExtendedLLMInput input, CancellationTokenSource linked, Session session, string threadId, DateTime startTime, string clientAssistantMessageId = null,
+        int lane = -1, SemaphoreSlim sendLock = null, string parentMessageId = null, string compareGroupId = null, string deviceLabel = null, bool setActiveLeaf = true)
     {
         StringBuilder fullText = new();
         await LLMDispatcher.GenerateStreaming(input, chunk =>
@@ -196,7 +206,7 @@ public static class LLMStreamHelper
             {
                 string text = chunkToken.ToString();
                 fullText.Append(text);
-                SendJson(socket, new JObject { ["chunk"] = text }).Wait(linked.Token);
+                SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
             }
             else if (chunk.TryGetValue("result", out JToken resultToken))
             {
@@ -206,19 +216,19 @@ public static class LLMStreamHelper
             else if (chunk.TryGetValue("status", out JToken _))
             {
                 // Backend status events (eg model load progress) — forward verbatim to the UI.
-                SendJson(socket, chunk).Wait(linked.Token);
+                SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
             }
         }, linked.Token);
         if (SocketGone(socket))
         {
             return;
         }
-        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, clientMessageId: clientAssistantMessageId);
+        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
         await SendJson(socket, new JObject
         {
             ["done"] = true,
             ["full_text"] = fullText.ToString()
-        });
+        }, lane, sendLock);
     }
 
     /// <summary>True if the socket is no longer in the Open state — client gone, server should bail.</summary>
@@ -236,7 +246,8 @@ public static class LLMStreamHelper
 
     /// <summary>Appends the just-generated assistant message to the saved thread.
     /// No-ops if user/threadId are missing (eg non-chat callers).</summary>
-    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string clientMessageId = null)
+    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string clientMessageId = null,
+        string parentMessageId = null, string compareGroupId = null, int lane = -1, string deviceLabel = null, bool setActiveLeaf = true)
     {
         if (session?.User is null || string.IsNullOrEmpty(threadId))
         {
@@ -246,25 +257,48 @@ public static class LLMStreamHelper
         {
             string clean = ToolTagRegex.Replace(rawText ?? "", "").Trim();
             double genSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
+            JObject meta = new()
+            {
+                ["model"] = model ?? "",
+                ["genTime"] = Math.Round(genSeconds, 2),
+                ["truncated"] = truncated,
+                ["reason"] = reason
+            };
+            if (!string.IsNullOrEmpty(deviceLabel))
+            {
+                meta["device"] = deviceLabel;
+            }
             JObject msg = new()
             {
                 ["role"] = "assistant",
                 ["content"] = clean,
                 ["rawContent"] = rawText ?? "",
                 ["toolCalls"] = toolEvents ?? [],
-                ["meta"] = new JObject
-                {
-                    ["model"] = model ?? "",
-                    ["genTime"] = Math.Round(genSeconds, 2),
-                    ["truncated"] = truncated,
-                    ["reason"] = reason
-                }
+                ["meta"] = meta
             };
             if (!string.IsNullOrEmpty(clientMessageId))
             {
                 msg["id"] = clientMessageId;
             }
-            ThreadStorageService.AppendMessage(session.User, threadId, msg);
+            // Compare-mode tag: same group → rendered as side-by-side columns; lane → column index.
+            if (!string.IsNullOrEmpty(compareGroupId))
+            {
+                msg["groupId"] = compareGroupId;
+            }
+            if (lane >= 0)
+            {
+                msg["lane"] = lane;
+            }
+            // Compare replies hang off the explicit user-turn parent (so the lanes are siblings); only
+            // lane 0 advances the active leaf. Normal replies fall back to the active-leaf append.
+            if (!string.IsNullOrEmpty(parentMessageId))
+            {
+                ThreadStorageService.AppendChild(session.User, threadId, parentMessageId, msg, setActiveLeaf);
+            }
+            else
+            {
+                ThreadStorageService.AppendMessage(session.User, threadId, msg);
+            }
         }
         catch (Exception ex)
         {
@@ -272,12 +306,35 @@ public static class LLMStreamHelper
         }
     }
 
-    private static async Task SendJson(WebSocket socket, JObject data)
+    /// <summary>Serializes one event to the socket. In compare mode every event is tagged with its
+    /// <paramref name="lane"/> (so the client can route it to the right column) and all writes are
+    /// serialized through <paramref name="sendLock"/> — concurrent <c>SendAsync</c> on one socket would
+    /// interleave frames and corrupt the stream.</summary>
+    private static async Task SendJson(WebSocket socket, JObject data, int lane = -1, SemaphoreSlim sendLock = null)
     {
-        if (socket.State == WebSocketState.Open)
+        if (socket.State != WebSocketState.Open)
         {
-            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(data.ToString(Newtonsoft.Json.Formatting.None));
-            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            return;
+        }
+        if (lane >= 0)
+        {
+            data["lane"] = lane;
+        }
+        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(data.ToString(Newtonsoft.Json.Formatting.None));
+        if (sendLock is not null)
+        {
+            await sendLock.WaitAsync();
+        }
+        try
+        {
+            if (socket.State == WebSocketState.Open)
+            {
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+        }
+        finally
+        {
+            sendLock?.Release();
         }
     }
 }

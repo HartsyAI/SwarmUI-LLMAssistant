@@ -12,6 +12,11 @@ public static class ThreadStorageService
     public const string IndexKey = "thread_index";
     public const string ThreadPrefix = "thread_";
 
+    /// <summary>Serializes read-modify-write append operations. <see cref="GetThread"/> parses a fresh copy
+    /// each call, so two concurrent appends to the same thread (eg both compare lanes finishing at once)
+    /// would lost-update — one reply would clobber the other. This makes the get→add→save atomic.</summary>
+    private static readonly object _appendLock = new();
+
     /// <summary>Gets the thread index for a user.</summary>
     public static JArray GetThreadIndex(User user)
     {
@@ -264,6 +269,45 @@ public static class ThreadStorageService
         thread["activeLeafId"] = message["id"];
         SaveThread(user, thread);
         return thread;
+    }
+
+    /// <summary>Appends <paramref name="message"/> as a child of an EXPLICIT parent (not the current
+    /// active leaf), optionally making it the new active leaf. Backs side-by-side compare, where the N
+    /// model replies must all hang off the same user message regardless of which finishes first — using
+    /// the active leaf as the parent would (racily) chain lane 2 onto lane 1's reply.</summary>
+    public static JObject AppendChild(User user, string threadId, string parentId, JObject message, bool setActive)
+    {
+        if (message is null)
+        {
+            return null;
+        }
+        // Atomic get→add→save so concurrent compare-lane appends don't lost-update each other.
+        lock (_appendLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            JArray messages = thread["messages"] as JArray ?? [];
+            if (message["id"] is null)
+            {
+                message["id"] = Guid.NewGuid().ToString("N");
+            }
+            if (message["timestamp"] is null)
+            {
+                message["timestamp"] = DateTime.UtcNow.ToString("o");
+            }
+            message["parentId"] = string.IsNullOrEmpty(parentId) ? JValue.CreateNull() : new JValue(parentId);
+            messages.Add(message);
+            thread["messages"] = messages;
+            if (setActive)
+            {
+                thread["activeLeafId"] = message["id"];
+            }
+            SaveThread(user, thread);
+            return thread;
+        }
     }
 
     /// <summary>Points the thread's active path at <paramref name="messageId"/> — i.e. the rendered
