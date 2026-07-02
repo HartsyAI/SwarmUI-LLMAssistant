@@ -46,6 +46,24 @@ public static class ModelEndpoints
         };
     }
 
+    /// <summary>Unloads every registered LLM provider's resident model to free VRAM/RAM (eg to make room for
+    /// an image model). Remote/cloud providers are no-ops. Returns how many providers actually freed something
+    /// so the UI can tell the user whether anything was loaded.</summary>
+    public static async Task<JObject> LLMAssistantUnloadModels(Session session)
+    {
+        bool[] freed = await Task.WhenAll(LLMProviderRegistry.All.Select(async p =>
+        {
+            try { return await p.Unload(); }
+            catch { return false; }
+        }));
+        return new JObject
+        {
+            ["success"] = true,
+            ["freed"] = freed.Count(f => f),
+            ["providers"] = freed.Length
+        };
+    }
+
     /// <summary>Lists one provider's models under <see cref="ListTimeout"/>, turning a timeout/error into a
     /// human-readable message instead of a thrown exception so one bad backend can't fail the whole call.</summary>
     private static async Task<(ILLMProvider, List<LLMModelInfo>, string)> ListWithTimeout(ILLMProvider provider)

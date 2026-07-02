@@ -268,7 +268,9 @@ function llmaInitModelSelect2(sel) {
     if ($sel.data('select2')) {
         try { $sel.select2('destroy'); } catch (_) { /* not initialized */ }
     }
-    $sel.select2({ theme: 'bootstrap-5', width: '240px' });
+    // dropdownCssClass tags the body-appended panel so our theme CSS can reach it (the panel lives
+    // outside .llma-topbar, so scoped selectors miss it — this is why the list looked unstyled).
+    $sel.select2({ theme: 'bootstrap-5', width: '240px', dropdownCssClass: 'llma-select2-dropdown' });
     $sel.off('select2:select.llma').on('select2:select.llma', () => sel.dispatchEvent(new Event('change', { bubbles: true })));
 }
 
@@ -315,6 +317,7 @@ function llmaStopModelRetry() {
 function llmaSetupTopBar() {
     llmaSetupModelSelect();
     if (typeof llmaSetupCompare === 'function') llmaSetupCompare();
+    llmaSetupModelMenu();
     llmaSetupParamsPopover();
     llmaSetupExportMenu();
 
@@ -330,6 +333,48 @@ function llmaSetupTopBar() {
             asstToggle.classList.toggle('active', panel.classList.contains('panel-open'));
         });
     }
+}
+
+// -- Model menu (compact popover on narrow bars) --
+// A ResizeObserver adds .llma-bar-compact to the top bar below a width threshold; CSS then turns the inline
+// model selects into a popover. This opens/closes it via the trigger button, on outside click, or after a
+// selection.
+function llmaSetupModelMenu() {
+    const anchor = document.getElementById('llma-model-anchor');
+    const btn    = document.getElementById('llma-model-menu-btn');
+    if (!anchor || !btn) return;
+    // Collapse to the popover when the top bar itself is too narrow for the inline selects. A ResizeObserver
+    // on the bar catches width changes from sidebar/panel collapse too (not just window resize).
+    const topbar = document.querySelector('.llma-topbar');
+    if (topbar && typeof ResizeObserver !== 'undefined') {
+        const COMPACT_BELOW = 900;
+        const applyCompact = () => {
+            const compact = topbar.clientWidth < COMPACT_BELOW;
+            topbar.classList.toggle('llma-bar-compact', compact);
+            if (!compact) { anchor.classList.remove('llma-model-open'); btn.classList.remove('active'); }
+        };
+        new ResizeObserver(applyCompact).observe(topbar);
+        applyCompact();
+    }
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = !anchor.classList.contains('llma-model-open');
+        llmaCloseAllPopovers();
+        anchor.classList.toggle('llma-model-open', open);
+        btn.classList.toggle('active', open);
+    });
+    // Close after picking a model (native change bubbles up from either lane's select).
+    anchor.addEventListener('change', () => {
+        anchor.classList.remove('llma-model-open');
+        btn.classList.remove('active');
+    });
+    // Outside-click closes it (the select2 dropdown lives on <body>, so ignore clicks inside it).
+    document.addEventListener('click', (e) => {
+        if (!anchor.classList.contains('llma-model-open')) return;
+        if (anchor.contains(e.target) || e.target.closest('.select2-container, .select2-dropdown')) return;
+        anchor.classList.remove('llma-model-open');
+        btn.classList.remove('active');
+    });
 }
 
 function llmaSetupModelSelect() {
@@ -364,6 +409,27 @@ function llmaSetupModelSelect() {
             } finally {
                 refreshBtn.classList.remove('spinning');
                 refreshBtn.dataset.llmaBusy = '0';
+            }
+        });
+    }
+
+    // Unload button — frees the resident LLM model's VRAM/RAM so an image model can load. The model
+    // lazily reloads on the next chat message, so this is safe to click any time.
+    const unloadBtn = document.getElementById('llma-model-unload');
+    if (unloadBtn) {
+        unloadBtn.addEventListener('click', async () => {
+            if (unloadBtn.dataset.llmaBusy === '1') return;
+            unloadBtn.dataset.llmaBusy = '1';
+            unloadBtn.classList.add('spinning');
+            try {
+                const res = await llmaRequest('LLMAssistantUnloadModels', {});
+                const freed = res?.freed || 0;
+                llmaShowToast(freed > 0 ? 'LLM model unloaded — VRAM freed.' : 'No LLM model was loaded.', 'info');
+            } catch (e) {
+                llmaShowToast(llmaShortError(e) || 'Unload failed', 'error');
+            } finally {
+                unloadBtn.classList.remove('spinning');
+                unloadBtn.dataset.llmaBusy = '0';
             }
         });
     }
@@ -2014,6 +2080,9 @@ function llmaCloseAllPopovers(except) {
         const el = document.getElementById(id);
         if (el && el !== except) el.style.display = 'none';
     }
+    // The model menu is a class-toggled popover (not display:none), so close it separately.
+    const modelAnchor = document.getElementById('llma-model-anchor');
+    if (modelAnchor && modelAnchor !== except) modelAnchor.classList.remove('llma-model-open');
     document.querySelectorAll('.llma-icon-btn.active').forEach(b => b.classList.remove('active'));
 }
 

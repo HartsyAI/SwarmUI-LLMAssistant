@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.IO;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
@@ -47,12 +48,22 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <summary>The settings for this backend.</summary>
     public HartsyLocalLLMProviderSettings Settings => SettingsRaw as HartsyLocalLLMProviderSettings;
 
-    /// <summary>Serializes load + generate; the transformer/backend are not safe for concurrent use.</summary>
-    private readonly SemaphoreSlim _lock = new(1, 1);
-    private IBackend _backend;
-    private GgufLanguageModel _model;
-    private TextGenerationPipeline _pipeline;
-    private string _loadedPath;
+    /// <summary>One compute device's loaded state. A single transformer/backend/pipeline is NOT safe for
+    /// concurrent use, so each slot has its own lock — but two DIFFERENT slots (eg cuda:0 + cpu) can generate
+    /// at the same time. This is what lets compare mode run two lanes truly in parallel: put them on
+    /// different devices.</summary>
+    private sealed class DeviceSlot
+    {
+        public readonly SemaphoreSlim Lock = new(1, 1);
+        public IBackend Backend;
+        public GgufLanguageModel Model;
+        public TextGenerationPipeline Pipeline;
+        public string LoadedPath;
+    }
+
+    /// <summary>Loaded state per device key ("cpu", "cuda:0", …). Created lazily on first request for a
+    /// device. Each holds at most one model (swapped when a different model is asked of that device).</summary>
+    private readonly ConcurrentDictionary<string, DeviceSlot> _slots = new();
 
     /// <inheritdoc/>
     public override string ProviderKind => "hartsy-local";
@@ -69,32 +80,73 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     protected override async Task OnProviderShutdown()
     {
-        await _lock.WaitAsync();
-        try
+        foreach (DeviceSlot slot in _slots.Values)
         {
-            Unload();
-            _backend?.Dispose();
-            _backend = null;
+            await slot.Lock.WaitAsync();
+            try
+            {
+                UnloadSlot(slot);
+                slot.Backend?.Dispose();
+                slot.Backend = null;
+            }
+            finally
+            {
+                slot.Lock.Release();
+            }
         }
-        finally
-        {
-            _lock.Release();
-        }
+        _slots.Clear();
         Status = BackendStatus.DISABLED;
     }
 
-    /// <summary>Creates the compute backend for the configured <c>Device</c>. The CUDA PTX kernels ship with
-    /// the engine and are auto-copied next to the extension DLL (NuGet build targets, or the csproj's local
-    /// Content copy), so the user never configures a kernel path.</summary>
-    private IBackend CreateBackend()
+    /// <summary>This backend's configured/default device key ("cpu" or "cuda:{ordinal}").</summary>
+    private string PrimaryDeviceKey()
+        => string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : $"cuda:{Settings.GPUDeviceId}";
+
+    /// <summary>The devices this backend can run a model on. A CUDA backend can also fall back to the CPU,
+    /// so it offers both — letting compare mode place one lane on the GPU and one on the CPU to run at once.</summary>
+    private List<string> SupportedDevices()
     {
-        string dev = (Settings.Device ?? "cuda").Trim().ToLowerInvariant();
-        return dev switch
+        string primary = PrimaryDeviceKey();
+        List<string> devs = [primary];
+        if (primary != "cpu")
         {
-            "cpu" => new CpuBackend(),
-            "cuda" => new CudaBackend(deviceOrdinal: Settings.GPUDeviceId, ptxDir: ResolvePtxDir()),
-            _ => throw new SwarmReadableErrorException($"Local LLM device '{Settings.Device}' is not supported yet — choose CUDA or CPU."),
-        };
+            devs.Add("cpu");
+        }
+        return devs;
+    }
+
+    /// <summary>Normalizes a requested device string to a slot key. Blank or bare "cuda" → this backend's
+    /// configured device; otherwise the lowercased key ("cpu", "cuda:1", …) as-is.</summary>
+    private string NormalizeDeviceKey(string device)
+    {
+        if (string.IsNullOrWhiteSpace(device))
+        {
+            return PrimaryDeviceKey();
+        }
+        string key = device.Trim().ToLowerInvariant();
+        return key == "cuda" ? PrimaryDeviceKey() : key;
+    }
+
+    /// <summary>Creates the compute backend for a device key ("cpu" / "cuda:{ordinal}"). The CUDA PTX kernels
+    /// ship with the engine and are auto-copied next to the extension DLL, so no kernel path is configured.</summary>
+    private static IBackend CreateBackendFor(string deviceKey)
+    {
+        string key = (deviceKey ?? "cuda").Trim().ToLowerInvariant();
+        if (key == "cpu")
+        {
+            return new CpuBackend();
+        }
+        if (key.StartsWith("cuda"))
+        {
+            int ordinal = 0;
+            int colon = key.IndexOf(':');
+            if (colon >= 0 && int.TryParse(key[(colon + 1)..], out int n))
+            {
+                ordinal = n;
+            }
+            return new CudaBackend(deviceOrdinal: ordinal, ptxDir: ResolvePtxDir());
+        }
+        throw new SwarmReadableErrorException($"Local LLM device '{deviceKey}' is not supported yet — choose CUDA or CPU.");
     }
 
     /// <summary>The bundled CUDA PTX kernel directory: <c>Ptx/</c> next to the extension DLL. (Can't use
@@ -139,42 +191,46 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return null;
     }
 
-    /// <summary>Loads the requested model if it isn't already the loaded one. Caller holds <see cref="_lock"/>.</summary>
-    private void Load(string modelId)
+    /// <summary>The lazily-created slot for a device key.</summary>
+    private DeviceSlot GetSlot(string deviceKey) => _slots.GetOrAdd(deviceKey, _ => new DeviceSlot());
+
+    /// <summary>Loads the requested model onto the slot's device if it isn't already loaded there. The
+    /// slot's backend is created on first use for that device. Caller holds <c>slot.Lock</c>.</summary>
+    private void LoadInto(DeviceSlot slot, string deviceKey, string modelId)
     {
         string path = ResolvePath(modelId);
         if (path is null)
         {
             throw new SwarmReadableErrorException($"LLM model '{modelId}' not found in the LLM model folder(s). Drop a .gguf file into Models/llm.");
         }
-        if (_model is not null && _loadedPath == path)
+        if (slot.Model is not null && slot.LoadedPath == path)
         {
             return;
         }
-        Unload();
-        _backend ??= CreateBackend();
-        _model = GgufLanguageModel.Load(path, Settings.LowVramQuant);
-        if (_backend is CudaBackend)
+        UnloadSlot(slot);
+        slot.Backend ??= CreateBackendFor(deviceKey);
+        slot.Model = GgufLanguageModel.Load(path, Settings.LowVramQuant);
+        if (slot.Backend is CudaBackend)
         {
-            _backend.PreloadWeights(_model.Transformer.EnumerateWeights());
+            slot.Backend.PreloadWeights(slot.Model.Transformer.EnumerateWeights());
         }
-        _pipeline = new TextGenerationPipeline(_model.Transformer, _model.Tokenizer, _backend, _model.Template);
-        _loadedPath = path;
-        Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF model '{Path.GetFileName(path)}' ({_model.Architecture}).");
+        slot.Pipeline = new TextGenerationPipeline(slot.Model.Transformer, slot.Model.Tokenizer, slot.Backend, slot.Model.Template);
+        slot.LoadedPath = path;
+        Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF model '{Path.GetFileName(path)}' ({slot.Model.Architecture}) on {deviceKey}.");
     }
 
-    /// <summary>Frees the loaded model (keeps the backend/device alive). Caller holds <see cref="_lock"/>.</summary>
-    private void Unload()
+    /// <summary>Frees the slot's loaded model (keeps its backend/device alive). Caller holds <c>slot.Lock</c>.</summary>
+    private static void UnloadSlot(DeviceSlot slot)
     {
-        if (_model is not null && _backend is CudaBackend)
+        if (slot.Model is not null && slot.Backend is CudaBackend)
         {
-            try { _backend.FreeWeights(_model.Transformer.EnumerateWeights()); }
+            try { slot.Backend.FreeWeights(slot.Model.Transformer.EnumerateWeights()); }
             catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] FreeWeights failed: {ex.Message}"); }
         }
-        _pipeline = null;
-        _model?.Dispose();
-        _model = null;
-        _loadedPath = null;
+        slot.Pipeline = null;
+        slot.Model?.Dispose();
+        slot.Model = null;
+        slot.LoadedPath = null;
     }
 
     /// <summary>Builds the engine generation request from the extension's input. Per-request controls
@@ -212,10 +268,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
     {
-        await _lock.WaitAsync(ct);
+        // Route to the requested device's slot. Different devices → different locks → concurrent generation
+        // (this is how two compare lanes on cuda:0 + cpu run at the same time); same device → serialized.
+        string deviceKey = NormalizeDeviceKey(input.Device);
+        DeviceSlot slot = GetSlot(deviceKey);
+        await slot.Lock.WaitAsync(ct);
         try
         {
-            Load(input.Model);
+            LoadInto(slot, deviceKey, input.Model);
             GenerationRequest request = BuildRequest(input);
             // Stream by decoding the running token list and emitting the newly-appeared text. (Byte-level
             // BPE means a single token doesn't cleanly map to a substring, so decode-and-diff is the
@@ -229,58 +289,65 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     throw new OperationCanceledException(ct);
                 }
                 acc.Add(id);
-                string full = _model.Tokenizer.Decode(acc);
+                string full = slot.Model.Tokenizer.Decode(acc);
                 if (full.Length > emitted)
                 {
                     onChunk(new JObject() { ["chunk"] = full[emitted..] });
                     emitted = full.Length;
                 }
             }
-            await Task.Run(() => _pipeline.Generate(request, OnToken), ct);
+            await Task.Run(() => slot.Pipeline.Generate(request, OnToken), ct);
             if (Settings.AlwaysFreeMemory)
             {
-                Unload();
+                UnloadSlot(slot);
             }
         }
         finally
         {
-            _lock.Release();
+            slot.Lock.Release();
         }
     }
 
     /// <inheritdoc/>
     public override int? CountTokens(string text)
     {
-        // Non-blocking: if a generation holds the lock (and may be swapping/disposing the model),
-        // don't race it — return null so the caller uses the heuristic. Never loads a model here.
-        if (!_lock.Wait(0))
+        // Non-blocking: use whichever loaded slot we can grab without racing an in-flight generation.
+        // Never loads a model here; returns null so the caller falls back to the heuristic if none is free.
+        foreach (DeviceSlot slot in _slots.Values)
         {
-            return null;
+            if (!slot.Lock.Wait(0))
+            {
+                continue;
+            }
+            try
+            {
+                if (slot.Model is not null)
+                {
+                    return slot.Model.Tokenizer.EncodeOrdinary(text ?? "").Length;
+                }
+            }
+            catch
+            {
+                // Try the next slot / fall through to heuristic.
+            }
+            finally
+            {
+                slot.Lock.Release();
+            }
         }
-        try
-        {
-            return _model?.Tokenizer.EncodeOrdinary(text ?? "").Length;
-        }
-        catch
-        {
-            return null;
-        }
-        finally
-        {
-            _lock.Release();
-        }
+        return null;
     }
 
     /// <inheritdoc/>
     public override async Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default)
     {
         List<LLMModelInfo> models = [];
-        // Device this backend instance is bound to (placement is per-backend, set at config time). Surfaced
-        // so the compare-mode picker can show "model · cuda:0" vs "model · cpu" and route lanes accordingly.
-        // Forward-looking for multi-GPU: when tensor-split lands this becomes eg "cuda:0+1".
-        string deviceLabel = string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase)
-            ? "cpu"
-            : $"cuda:{Settings.GPUDeviceId}";
+        // "device" = this backend's primary/default device (shown when there's nothing to choose). "devices"
+        // = every device it can run a model on (primary + cpu fallback), which the compare picker expands
+        // into a per-lane dropdown so a request can be routed to a specific device at generation time.
+        string deviceLabel = PrimaryDeviceKey();
+        string devices = string.Join(",", SupportedDevices());
+        HashSet<string> loadedPaths = [.. _slots.Values.Select(s => s.LoadedPath).Where(p => p is not null)];
         foreach (string folder in ModelFolders())
         {
             foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
@@ -296,8 +363,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     Provider = "hartsy-local",
                     BackendId = AbstractBackendData?.ID ?? -1,
                     SizeBytes = size,
-                    IsLoaded = _loadedPath == file,
-                    Metadata = { ["device"] = deviceLabel }
+                    IsLoaded = loadedPaths.Contains(file),
+                    Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
                 });
             }
         }
@@ -307,16 +374,20 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override async Task<bool> FreeMemory(bool systemRam)
     {
-        await _lock.WaitAsync();
-        try
+        bool had = false;
+        foreach (DeviceSlot slot in _slots.Values)
         {
-            bool had = _model is not null;
-            Unload();
-            return had;
+            await slot.Lock.WaitAsync();
+            try
+            {
+                had |= slot.Model is not null;
+                UnloadSlot(slot);
+            }
+            finally
+            {
+                slot.Lock.Release();
+            }
         }
-        finally
-        {
-            _lock.Release();
-        }
+        return had;
     }
 }

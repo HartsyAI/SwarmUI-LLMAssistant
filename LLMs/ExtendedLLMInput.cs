@@ -45,6 +45,11 @@ public class ExtendedLLMInput
     /// device when the same model is advertised by more than one backend.</summary>
     public int BackendId = -1;
 
+    /// <summary>Device to run on within the chosen backend ("cpu", "cuda:0", …), or null for the backend's
+    /// default. Lets one local backend serve a model on GPU or CPU per request, so compare lanes on
+    /// different devices generate concurrently. Ignored by backends that don't do local device placement.</summary>
+    public string Device;
+
     /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
     public List<JObject> Tools { get; set; } = [];
 

@@ -35,6 +35,11 @@ public interface ILLMProvider
     /// (the caller then falls back to a chars/4 heuristic). Implementations must never block on a
     /// model load — return null instead.</summary>
     int? CountTokens(string text);
+
+    /// <summary>Unloads any resident model(s) to free VRAM/RAM (eg to make room for an image model).
+    /// Returns true if something was actually freed. A no-op for providers that hold nothing locally
+    /// (remote/cloud). The next request lazily reloads.</summary>
+    Task<bool> Unload();
 }
 
 /// <summary>In-memory registry of the LLM providers supplied by the removable backend pack.

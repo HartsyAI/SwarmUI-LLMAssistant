@@ -36,6 +36,11 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public virtual int? CountTokens(string text) => null;
 
     /// <inheritdoc/>
+    // Reuses the core FreeMemory(systemRam) path: the local backend overrides it to unload its slots; the
+    // remote backends inherit the base false (nothing resident to free).
+    public async Task<bool> Unload() => await FreeMemory(true);
+
+    /// <inheritdoc/>
     public async Task<string> Generate(ExtendedLLMInput input)
     {
         StringBuilder output = new();

@@ -59,4 +59,17 @@ public sealed class SwarmNativeLLMProvider : ILLMProvider
 
     /// <inheritdoc/>
     public int? CountTokens(string text) => null; // No native tokenizer access — caller uses the heuristic.
+
+    /// <inheritdoc/>
+    public async Task<bool> Unload()
+    {
+        // Free every running native LLM backend's memory (best-effort; ignores absence of a backend).
+        bool freed = false;
+        foreach (AbstractLLMBackend backend in Program.Backends.RunningBackendsOfType<AbstractLLMBackend>())
+        {
+            try { freed |= await backend.FreeMemory(true); }
+            catch { /* one backend failing shouldn't block the rest */ }
+        }
+        return freed;
+    }
 }

@@ -493,6 +493,8 @@ async function llmaSwitchThread(threadId) {
         if (titleEl) titleEl.textContent = thread.title || 'Untitled';
 
         llmaShowChatPanel();
+        // Restore per-thread VS mode BEFORE rendering so the wide layout + toggle are correct on first paint.
+        if (typeof llmaRestoreCompareFromThread === 'function') llmaRestoreCompareFromThread();
         llmaRenderMessageHistory(LLMAState.messages);
         llmaUpdateContextBar();
         llmaRenderThreadList(LLMAState.threads);

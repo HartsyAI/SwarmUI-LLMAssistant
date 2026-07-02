@@ -35,25 +35,36 @@
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
             <div class="llma-topbar-right">
-                <!-- Model select. The "VS" toggle sits to the LEFT of the model pill(s). -->
-                <div class="llma-model-select-wrap">
-                    <!-- Compare/VS toggle: splits into a second model pill and fans each prompt out to both
-                         models side-by-side. Positioned to the left of the model dropdown. -->
-                    <button class="llma-icon-btn llma-compare-toggle" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison">
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/></svg>
+                <!-- Model select. Collapses into a popover ("model menu") when the top bar gets narrow —
+                     see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
+                <div class="llma-popover-anchor llma-model-anchor" id="llma-model-anchor">
+                    <!-- Compact trigger: shown only when the bar is too narrow for the inline selects. -->
+                    <button class="llma-icon-btn llma-model-menu-btn" id="llma-model-menu-btn" type="button" title="Model selection" aria-label="Model selection" aria-haspopup="true">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/></svg>
                     </button>
-                    <select class="llma-model-select" id="llma-model-select" autocomplete="off" aria-label="Active LLM model (lane A in compare)">
-                        <option value="" disabled selected>No models found</option>
-                    </select>
-                    <!-- Lane B model pill — only shown in compare mode. -->
-                    <span class="llma-model-select-b-wrap" id="llma-model-select-b-wrap" style="display:none;">
-                        <select class="llma-model-select llma-model-select-b" id="llma-model-select-b" autocomplete="off" aria-label="Comparison LLM model (lane B)"></select>
-                    </span>
-                    <!-- Refresh re-scans Models/llm/ via core TriggerRefresh so newly-dropped GGUF
-                         files show up without restarting SwarmUI. -->
-                    <button class="llma-icon-btn llma-model-refresh" id="llma-model-refresh" type="button" title="Refresh model list" aria-label="Refresh model list">
-                        <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M11.5 3a5 5 0 1 0 1.2 3.5M11.5 1v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-                    </button>
+                    <div class="llma-model-select-wrap" id="llma-model-select-wrap">
+                        <!-- Compare/VS toggle: splits into a second model pill and fans each prompt out to both
+                             models side-by-side. Positioned to the left of the model dropdown. -->
+                        <button class="llma-icon-btn llma-compare-toggle" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/></svg>
+                        </button>
+                        <select class="llma-model-select" id="llma-model-select" autocomplete="off" aria-label="Active LLM model (lane A in compare)">
+                            <option value="" disabled selected>No models found</option>
+                        </select>
+                        <!-- Lane B model pill — only shown in compare mode. -->
+                        <span class="llma-model-select-b-wrap" id="llma-model-select-b-wrap" style="display:none;">
+                            <select class="llma-model-select llma-model-select-b" id="llma-model-select-b" autocomplete="off" aria-label="Comparison LLM model (lane B)"></select>
+                        </span>
+                        <!-- Refresh re-scans Models/llm/ via core TriggerRefresh so newly-dropped GGUF
+                             files show up without restarting SwarmUI. -->
+                        <button class="llma-icon-btn llma-model-refresh" id="llma-model-refresh" type="button" title="Refresh model list" aria-label="Refresh model list">
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M11.5 3a5 5 0 1 0 1.2 3.5M11.5 1v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                        </button>
+                        <!-- Unload the resident LLM model to free VRAM (eg to load an image model). Lazily reloads on next use. -->
+                        <button class="llma-icon-btn llma-model-unload" id="llma-model-unload" type="button" title="Unload LLM model (free VRAM)" aria-label="Unload LLM model to free VRAM">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M4.5 4.4a5 5 0 1 0 7 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <!-- Params -->
                 <div class="llma-popover-anchor">

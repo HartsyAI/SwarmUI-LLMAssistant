@@ -138,6 +138,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantSetAuditLogEnabled, true, PermSharedWrite);
         // Models
         API.RegisterAPICall(ModelEndpoints.LLMAssistantGetModels, false, PermModels);
+        API.RegisterAPICall(ModelEndpoints.LLMAssistantUnloadModels, true, PermModels);
         // Threads
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThreads, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);

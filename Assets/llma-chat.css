@@ -92,19 +92,6 @@
 }
 .llma-compare-device-sel:hover  { border-color: var(--border-color); }
 .llma-compare-device-sel:focus  { border-color: var(--emphasis); }
-/* Per-lane status dot: loading (pulsing), streaming (emphasis), done (green), error (red). */
-.llma-compare-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background: var(--text-soft);
-}
-.llma-compare-dot.loading   { background: var(--text-soft); animation: llma-compare-pulse 1s ease-in-out infinite; }
-.llma-compare-dot.streaming { background: var(--emphasis); animation: llma-compare-pulse 1s ease-in-out infinite; }
-.llma-compare-dot.done      { background: var(--backend-running); }
-.llma-compare-dot.error     { background: var(--backend-errored); }
-@keyframes llma-compare-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
 /* Columns reuse the normal bubble/meta/actions styles; keep them tidy inside the card body. */
 .llma-compare-col .llma-msg-body { gap: 4px; padding: 12px 14px 10px; }
 .llma-compare-col .llma-msg-bubble { width: 100%; }

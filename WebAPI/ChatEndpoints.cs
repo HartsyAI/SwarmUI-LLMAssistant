@@ -464,6 +464,7 @@ public static class ChatEndpoints
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;
                 input.BackendId = L.BackendId;
+                input.Device = L.Device;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
                 ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
