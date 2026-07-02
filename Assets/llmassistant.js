@@ -67,9 +67,10 @@ async function llmaInit() {
     LLMAState.enterToSend     = LLMAState.settings?.ui?.enterToSend     !== false;
     LLMAState.showTokens      = LLMAState.settings?.ui?.showTokens      !== false;
     LLMAState.currentModel    = sessionState.currentModel || LLMAState.settings?.currentModel || null;
-    // Restore side-by-side compare selection (lane B model + whether compare was on).
+    // Restore side-by-side compare selection (lane B model + whether compare was on + per-lane device).
     LLMAState.compareMode     = sessionState.compareMode === true;
     LLMAState.compareModelB   = sessionState.compareModelB || null;
+    LLMAState.laneBackends     = (sessionState.laneBackends && typeof sessionState.laneBackends === 'object') ? sessionState.laneBackends : {};
     // llmaLoadModels() ran in parallel with the session-state load above, so the dropdown may have
     // been populated before LLMAState.currentModel was known. Re-apply the remembered model now.
     llmaApplyModelSelection();
@@ -250,6 +251,27 @@ async function llmaLoadModels(opts = {}) {
 // (LLMAState.currentModel, set from session state) over the global settings fallback, so the
 // user's selection wins regardless of the parallel load order at startup. Falls back to the first
 // model only when nothing is remembered or the saved one is gone (eg the GGUF was deleted).
+// True when SwarmUI's bundled jQuery + select2 are available (they're loaded globally by core).
+function llmaModelSelect2Ready() {
+    return typeof window.$ === 'function' && window.$.fn && typeof window.$.fn.select2 === 'function';
+}
+
+// Upgrade a native model <select> to SwarmUI's searchable select2 dropdown (the same component the
+// Generate tab uses, theme "bootstrap-5"). Re-init-safe: destroys any prior instance first, so a
+// model-list refresh that replaces the <option>s is always reflected. select2 raises its selection
+// on the jQuery layer, which does NOT trigger addEventListener('change') handlers — so we bridge it
+// to a native change event, keeping the existing "save model" handlers firing exactly once.
+// No-ops (leaving the plain native select) if select2 isn't present.
+function llmaInitModelSelect2(sel) {
+    if (!sel || !llmaModelSelect2Ready()) return;
+    const $sel = window.$(sel);
+    if ($sel.data('select2')) {
+        try { $sel.select2('destroy'); } catch (_) { /* not initialized */ }
+    }
+    $sel.select2({ theme: 'bootstrap-5', width: '240px' });
+    $sel.off('select2:select.llma').on('select2:select.llma', () => sel.dispatchEvent(new Event('change', { bubbles: true })));
+}
+
 function llmaApplyModelSelection() {
     const sel = document.getElementById('llma-model-select');
     const models = LLMAState.availableModels || [];
@@ -262,6 +284,8 @@ function llmaApplyModelSelection() {
         sel.selectedIndex = 0;
         LLMAState.currentModel = sel.value;
     }
+    // Enhance to the searchable dropdown (after the value is set so it shows the right selection).
+    llmaInitModelSelect2(sel);
     llmaUpdateModelStatus();
     // Keep the compare lane-B picker in sync with the freshly-loaded model list.
     if (typeof llmaCompareOnModelsLoaded === 'function') llmaCompareOnModelsLoaded();

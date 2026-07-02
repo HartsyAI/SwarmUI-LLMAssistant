@@ -21,6 +21,9 @@ const LLMAState = {
     // out to currentModel (lane A) and compareModelB (lane B). See chat/chat-compare.js.
     compareMode:       false,
     compareModelB:     null,
+    // Per-lane device/backend override for compare mode, keyed by lane index (0/1) → backend instance id.
+    // Set from the device dropdown in a column header; applied to the NEXT send. See chat/chat-compare.js.
+    laneBackends:      {},
     isGenerating:      false,
     abortController:   null,
     attachedImage:     null,

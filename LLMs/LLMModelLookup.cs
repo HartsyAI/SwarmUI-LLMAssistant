@@ -66,19 +66,37 @@ public static class LLMModelLookup
     /// <summary>Returns the provider that advertises the given model id, or null. Cached, so this is safe
     /// to call on every generation request without re-hitting remote endpoints.</summary>
     public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId)
+        => await GetOwningProviderAsync(modelId, -1);
+
+    /// <summary>Returns the provider that advertises the given model id on the given backend instance.
+    /// When <paramref name="backendId"/> is &gt;= 0, only a provider advertising the model with that exact
+    /// backend id matches (used to route a compare lane to a chosen GPU/device); if none matches the
+    /// backend id, falls back to the first provider that owns the model at all. -1 = any backend.</summary>
+    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId, int backendId)
     {
         if (string.IsNullOrEmpty(modelId))
         {
             return null;
         }
+        ILLMProvider anyOwner = null;
         foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
             List<LLMModelInfo> models = await GetModelsCached(provider);
-            if (models.Any(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase)))
+            bool ownsModel = false;
+            foreach (LLMModelInfo m in models)
             {
-                return provider;
+                if (!string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                ownsModel = true;
+                if (backendId >= 0 && m.BackendId == backendId)
+                {
+                    return provider;
+                }
             }
+            anyOwner ??= ownsModel ? provider : null;
         }
-        return null;
+        return anyOwner;
     }
 }

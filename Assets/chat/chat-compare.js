@@ -32,11 +32,76 @@
         return (m && (m.name || m.id)) || modelId || '(model)';
     }
 
-    /** "Model · device" label used on column headers and the lane-B picker. */
-    function llmaLaneLabel(modelId) {
-        const dev = llmaGetModelDevice(modelId);
-        const name = llmaModelName(modelId);
-        return dev && dev !== 'cloud' ? `${name} · ${dev}` : name;
+    /** The distinct backend instances (GPUs/devices) that advertise a given model id — one option per
+     *  place the model can run. Each: { backendId, device, provider }. */
+    function llmaModelDeviceOptions(modelId) {
+        const seen = new Set();
+        const out = [];
+        for (const m of (LLMAState.availableModels || [])) {
+            if (m.id !== modelId) { continue; }
+            const backendId = (typeof m.backend_id === 'number') ? m.backend_id : -1;
+            const device = (m.metadata && m.metadata.device) ? m.metadata.device : 'cloud';
+            const key = `${backendId}|${device}`;
+            if (seen.has(key)) { continue; }
+            seen.add(key);
+            out.push({ backendId, device, provider: m.provider || '' });
+        }
+        return out;
+    }
+
+    /** Resolve the device/backend a lane will run on for the NEXT send: honor the per-lane override
+     *  (set via the column-header dropdown) when it still matches an option for this model, else default
+     *  to the model's first advertised backend. Returns { backendId, device }. */
+    function llmaLaneDeviceInfo(lane, modelId) {
+        const opts = llmaModelDeviceOptions(modelId);
+        const pref = LLMAState.laneBackends ? LLMAState.laneBackends[lane] : undefined;
+        let chosen = (pref !== undefined && pref !== null) ? opts.find(o => o.backendId === pref) : null;
+        if (!chosen) { chosen = opts[0] || { backendId: -1, device: llmaGetModelDevice(modelId) || 'cloud' }; }
+        return chosen;
+    }
+
+    /** Column-header inner markup: status dot + model name + a device control. When the model is served by
+     *  more than one backend the device becomes a <select> (pick the GPU/backend for the next send); with a
+     *  single backend it's a static badge. `device` is the device that this column ran on (or will run on). */
+    function llmaLaneHeadHtml(model, device, dotState, lane) {
+        const name = llmaModelName(model);
+        const dev = device || llmaGetModelDevice(model) || 'cloud';
+        const full = dev && dev !== 'cloud' ? `${name} · ${dev}` : name;
+        const dot = `<span class="llma-compare-dot ${dotState || 'loading'}"></span>`;
+        const nameEl = `<span class="llma-compare-model" title="${llmaEscapeHtml(full)}">${llmaEscapeHtml(name)}</span>`;
+        const opts = llmaModelDeviceOptions(model);
+        // A single option (or lane index unknown) → read-only badge; nothing to switch between.
+        if (opts.length < 2 || typeof lane !== 'number') {
+            return `${dot}${nameEl}<span class="llma-compare-device" title="Runs on ${llmaEscapeHtml(dev)}">${llmaEscapeHtml(dev)}</span>`;
+        }
+        // Preselect: the lane's saved override if valid, else the device this column used.
+        const pref = LLMAState.laneBackends ? LLMAState.laneBackends[lane] : undefined;
+        let selBackend = (pref !== undefined && pref !== null && opts.some(o => o.backendId === pref))
+            ? pref
+            : (opts.find(o => o.device === dev) || opts[0]).backendId;
+        const optHtml = opts.map(o =>
+            `<option value="${o.backendId}"${o.backendId === selBackend ? ' selected' : ''}>${llmaEscapeHtml(o.device)}</option>`
+        ).join('');
+        return `${dot}${nameEl}` +
+            `<select class="llma-compare-device-sel" data-lane="${lane}" title="Run this lane on a specific GPU / backend (applies to the next message)">${optHtml}</select>`;
+    }
+
+    /** Bind the column-header device selectors once (delegated on the message list). Changing one pins that
+     *  lane to the chosen backend for the next send and persists it to session state. */
+    function llmaSetupLaneDeviceSelectors() {
+        const list = document.getElementById('llma-messages');
+        if (!list || list.dataset.llmaLaneDevBound === '1') { return; }
+        list.dataset.llmaLaneDevBound = '1';
+        list.addEventListener('change', (e) => {
+            const sel = e.target.closest && e.target.closest('.llma-compare-device-sel');
+            if (!sel) { return; }
+            const lane = parseInt(sel.dataset.lane, 10);
+            const backendId = parseInt(sel.value, 10);
+            if (isNaN(lane) || isNaN(backendId)) { return; }
+            LLMAState.laneBackends = LLMAState.laneBackends || {};
+            LLMAState.laneBackends[lane] = backendId;
+            llmaSetSessionState({ laneBackends: LLMAState.laneBackends });
+        });
     }
 
     /** Compare mode is "active" (will fan out) only when it's toggled on AND lane B has a model. */
@@ -65,6 +130,7 @@
         if (LLMAState.compareMode) {
             llmaToggleCompareMode(true, { silent: true });
         }
+        llmaSetupLaneDeviceSelectors();
     }
 
     /** Show/hide lane B + reflect the toggle/body state. Persists to session state. */
@@ -115,6 +181,8 @@
         }
         selB.value = target;
         LLMAState.compareModelB = selB.value;
+        // Upgrade lane B to the same searchable select2 dropdown as lane A (re-init-safe).
+        if (typeof llmaInitModelSelect2 === 'function') llmaInitModelSelect2(selB);
     }
 
     /** Called after the model list (re)loads, so lane B stays populated and current. */
@@ -127,10 +195,12 @@
     /** Stream one prompt to two models over a single multiplexed socket. `payload` is the fully-built
      *  send payload from llmaSendMessage (threadId, message, userMessageId, params, media). */
     function llmaStreamCompare(payload, userMsgId) {
-        const lanes = [
-            { model: LLMAState.currentModel,   device: llmaGetModelDevice(LLMAState.currentModel) },
-            { model: LLMAState.compareModelB,  device: llmaGetModelDevice(LLMAState.compareModelB) },
-        ];
+        const laneModels = [LLMAState.currentModel, LLMAState.compareModelB];
+        // Resolve each lane's device/backend, honoring any per-lane override from the header dropdown.
+        const lanes = laneModels.map((model, i) => {
+            const info = llmaLaneDeviceInfo(i, model);
+            return { model, device: info.device, backendId: info.backendId };
+        });
         // Per-lane client message ids + state nodes (siblings of the user message, shared groupId).
         lanes.forEach((L, i) => {
             L.lane = i;
@@ -139,7 +209,7 @@
                 id: L.msgId, role: 'assistant', content: '',
                 timestamp: new Date().toISOString(), toolCalls: [],
                 parentId: userMsgId, groupId: userMsgId, lane: i,
-                meta: { model: L.model, device: L.device },
+                meta: { model: L.model, device: L.device, backendId: L.backendId },
             };
             (LLMAState.allNodes = LLMAState.allNodes || []).push(L.node);
         });
@@ -154,7 +224,7 @@
         // Wire the WS payload: models[] replaces the single model field.
         const wsPayload = Object.assign({}, payload);
         delete wsPayload.model;
-        wsPayload.models = lanes.map(L => ({ model: L.model, device: L.device, assistantMessageId: L.msgId }));
+        wsPayload.models = lanes.map(L => ({ model: L.model, device: L.device, backendId: L.backendId, assistantMessageId: L.msgId }));
 
         llmaSetStreaming(true);
         LLMAState._streamingLanes = lanes;
@@ -295,7 +365,10 @@
                 bubble && bubble.querySelector('.llma-typing')?.remove();
                 setStatusDot('done');
                 const metaEl = L.col && L.col.querySelector('.llma-msg-meta');
-                if (metaEl) metaEl.textContent = `${llmaLaneLabel(L.model)} · ${elapsed}s${data.truncated ? ' · truncated' : ''}`;
+                if (metaEl) {
+                    const devLabel = (L.device && L.device !== 'cloud') ? `${L.device} · ` : '';
+                    metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · truncated' : ''}`;
+                }
             },
             fail(err) {
                 if (done) return;
@@ -344,8 +417,7 @@
             col.dataset.lane = L.lane;
             col.innerHTML =
                 `<div class="llma-compare-head">` +
-                    `<span class="llma-compare-dot loading"></span>` +
-                    `<span class="llma-compare-model" title="${llmaEscapeHtml(llmaLaneLabel(L.model))}">${llmaEscapeHtml(llmaLaneLabel(L.model))}</span>` +
+                    llmaLaneHeadHtml(L.model, L.device, 'loading', L.lane) +
                 `</div>` +
                 `<div class="llma-msg-body">` +
                     `<div class="llma-msg-bubble ai-bubble"><div class="llma-typing"><span></span><span></span><span></span></div></div>` +
@@ -388,7 +460,11 @@
         if (model) {
             LLMAState.currentModel = model;
             const selA = document.getElementById('llma-model-select');
-            if (selA && [...selA.options].some(o => o.value === model)) selA.value = model;
+            if (selA && [...selA.options].some(o => o.value === model)) {
+                selA.value = model;
+                // Refresh the select2 display to the kept model (native value set alone won't update it).
+                if (typeof llmaInitModelSelect2 === 'function') llmaInitModelSelect2(selA);
+            }
             llmaSetSessionState({ currentModel: model });
         }
         llmaShowToast(`Kept ${model ? llmaModelName(model) : 'this reply'} — continuing single-model.`, 'info');
@@ -421,8 +497,7 @@
             col.dataset.lane = node.lane ?? 0;
             col.innerHTML =
                 `<div class="llma-compare-head">` +
-                    `<span class="llma-compare-dot done"></span>` +
-                    `<span class="llma-compare-model" title="${llmaEscapeHtml(label)}">${llmaEscapeHtml(label)}</span>` +
+                    llmaLaneHeadHtml(model, dev, 'done', node.lane ?? 0) +
                 `</div>` +
                 `<div class="llma-msg-body">` +
                     `<div class="llma-msg-bubble ai-bubble"></div>` +

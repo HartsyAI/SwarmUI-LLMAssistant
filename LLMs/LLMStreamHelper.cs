@@ -244,6 +244,45 @@ public static class LLMStreamHelper
         new(@"<tool_call>[\s\S]*?</tool_call>|<tool_result\b[^>]*>[\s\S]*?</tool_result>",
             System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>Removes unpaired UTF-16 surrogates (lone high/low halves) that would otherwise fail to
+    /// encode when the thread is persisted. Valid surrogate pairs (real emoji) are preserved.</summary>
+    private static string StripLoneSurrogates(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+        int firstBad = -1;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { i++; continue; }
+                firstBad = i;
+                break;
+            }
+            if (char.IsLowSurrogate(c)) { firstBad = i; break; }
+        }
+        if (firstBad < 0)
+        {
+            return text;
+        }
+        StringBuilder sb = new(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (char.IsHighSurrogate(c))
+            {
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { sb.Append(c).Append(text[i + 1]); i++; }
+                continue;
+            }
+            if (char.IsLowSurrogate(c)) { continue; }
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Appends the just-generated assistant message to the saved thread.
     /// No-ops if user/threadId are missing (eg non-chat callers).</summary>
     private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string clientMessageId = null,
@@ -255,6 +294,9 @@ public static class LLMStreamHelper
         }
         try
         {
+            // Streamed emoji/CJK can split across chunk boundaries, leaving a lone UTF-16 surrogate that
+            // the storage layer can't encode ("Unable to translate Unicode character …"). Scrub both fields.
+            rawText = StripLoneSurrogates(rawText);
             string clean = ToolTagRegex.Replace(rawText ?? "", "").Trim();
             double genSeconds = (DateTime.UtcNow - startTime).TotalSeconds;
             JObject meta = new()

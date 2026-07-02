@@ -40,6 +40,11 @@ public class ExtendedLLMInput
     /// <summary>The originating user session (for per-user keys / permission-scoped tool runs).</summary>
     public Session RequestSession;
 
+    /// <summary>Pin the request to a specific backend instance (GPU/device), or -1 to let the dispatcher
+    /// pick the first backend that owns the model. Used by compare mode to route each lane to a chosen
+    /// device when the same model is advertised by more than one backend.</summary>
+    public int BackendId = -1;
+
     /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
     public List<JObject> Tools { get; set; } = [];
 

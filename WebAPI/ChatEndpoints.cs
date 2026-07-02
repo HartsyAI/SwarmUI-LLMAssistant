@@ -406,9 +406,8 @@ public static class ChatEndpoints
     /// (events tagged with <c>lane</c>, writes serialized), and persists its reply as a sibling child of the
     /// user message (<paramref name="parentUserId"/>) tagged with a shared <c>groupId</c>. Lane 0 becomes the
     /// active leaf so the thread has a definite path; the user picks a winner via "Keep this one".
-    /// <para>Concurrency: all-remote lanes run in parallel; if two-or-more lanes are LOCAL we serialize them,
-    /// since two large models rarely fit in one GPU's VRAM at once (forward-looking for multi-GPU: lanes on
-    /// distinct devices could parallelize, decided here).</para></summary>
+    /// <para>Concurrency: all lanes stream in parallel so both models load and generate at the same time.
+    /// The backend is responsible for VRAM contention if two large local models don't both fit.</para></summary>
     private static async Task StreamCompareForThread(WebSocket socket, Session session, string threadId, string parentUserId, JObject rawInput, JArray modelsArr)
     {
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
@@ -435,7 +434,7 @@ public static class ChatEndpoints
         List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
         SemaphoreSlim sendLock = new(1, 1);
         // Parse lane descriptors: each is { model, device?, assistantMessageId? }.
-        List<(string Model, string Device, string AssistantMessageId, bool Local)> lanes = [];
+        List<(string Model, string Device, int BackendId, string AssistantMessageId)> lanes = [];
         foreach (JToken entry in modelsArr)
         {
             string model = entry is JObject eo ? eo["model"]?.ToString() : entry?.ToString();
@@ -444,10 +443,10 @@ public static class ChatEndpoints
                 continue;
             }
             string device = (entry as JObject)?["device"]?.ToString();
+            // Optional pinned backend instance (the lane's chosen GPU/device); -1 = any owner.
+            int backendId = (entry as JObject)?["backendId"]?.Value<int?>() ?? -1;
             string amid = (entry as JObject)?["assistantMessageId"]?.ToString();
-            // Local = runs on this machine's CPU/GPU (device label cpu/cuda*). Cloud models have no device.
-            bool local = !string.IsNullOrEmpty(device) && (device.StartsWith("cuda", StringComparison.OrdinalIgnoreCase) || device.StartsWith("cpu", StringComparison.OrdinalIgnoreCase));
-            lanes.Add((model, device, amid, local));
+            lanes.Add((model, device, backendId, amid));
         }
         if (lanes.Count < 2)
         {
@@ -457,13 +456,14 @@ public static class ChatEndpoints
 
         async Task RunLane(int lane)
         {
-            (string Model, string Device, string AssistantMessageId, bool Local) L = lanes[lane];
+            (string Model, string Device, int BackendId, string AssistantMessageId) L = lanes[lane];
             try
             {
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;
+                input.BackendId = L.BackendId;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
                 ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
@@ -479,19 +479,10 @@ public static class ChatEndpoints
             }
         }
 
-        int localCount = lanes.Count(l => l.Local);
-        if (localCount >= 2)
-        {
-            // Two local models would contend for the same GPU/VRAM — run them one after another.
-            for (int i = 0; i < lanes.Count; i++)
-            {
-                await RunLane(i);
-            }
-        }
-        else
-        {
-            await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
-        }
+        // All lanes stream concurrently — that's the point of "vs" mode: both models load and generate at
+        // once. Two large local models can contend for the same GPU/VRAM; the backend is responsible for
+        // queuing or OOM-guarding if they don't both fit. Lanes are independent here.
+        await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
     }
 
     /// <summary>Sends a single lane-tagged frame (used for lane-scoped errors raised outside the stream helper).</summary>

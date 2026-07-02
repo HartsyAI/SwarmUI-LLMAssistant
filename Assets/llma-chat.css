@@ -16,34 +16,82 @@
 .llma-compare-row {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
-    align-items: start;
+    gap: 18px;
+    align-items: stretch;
 }
 .llma-compare-col {
     min-width: 0;
     border: 1px solid var(--light-border);
-    border-radius: 12px;
-    padding: 10px 12px;
-    background: color-mix(in srgb, var(--background-soft) 50%, transparent);
+    border-radius: 14px;
+    padding: 0;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--background-soft) 45%, transparent);
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.llma-compare-col:hover {
+    border-color: var(--border-color);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.28);
 }
 .llma-compare-head {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding-bottom: 6px;
+    gap: 8px;
+    padding: 9px 12px;
+    background: color-mix(in srgb, var(--background-soft) 70%, transparent);
     border-bottom: 1px solid var(--light-border);
 }
 .llma-compare-model {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
 }
+/* Device badge (cuda:N / cpu / cloud) — the hardware the reply runs on. Subtle monospace pill. */
+.llma-compare-device {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-family: var(--code-font, monospace);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-soft);
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    text-transform: lowercase;
+}
+/* When a model is served by more than one backend, the badge becomes a picker to route the lane's next
+   send to a specific GPU / backend. Styled to read like the badge, with a small caret. */
+.llma-compare-device-sel {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-family: var(--code-font, monospace);
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text);
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    border: 1px solid var(--light-border);
+    border-radius: 5px;
+    padding: 1px 18px 1px 6px;
+    text-transform: lowercase;
+    cursor: pointer;
+    outline: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 5px center;
+}
+.llma-compare-device-sel:hover  { border-color: var(--border-color); }
+.llma-compare-device-sel:focus  { border-color: var(--emphasis); }
 /* Per-lane status dot: loading (pulsing), streaming (emphasis), done (green), error (red). */
 .llma-compare-dot {
     width: 8px;
@@ -57,13 +105,19 @@
 .llma-compare-dot.done      { background: var(--backend-running); }
 .llma-compare-dot.error     { background: var(--backend-errored); }
 @keyframes llma-compare-pulse { 0%, 100% { opacity: 0.4; } 50% { opacity: 1; } }
-/* Columns reuse the normal bubble/meta/actions styles; just keep them tidy inside the card. */
-.llma-compare-col .llma-msg-body { gap: 4px; }
+/* Columns reuse the normal bubble/meta/actions styles; keep them tidy inside the card body. */
+.llma-compare-col .llma-msg-body { gap: 4px; padding: 12px 14px 10px; }
 .llma-compare-col .llma-msg-bubble { width: 100%; }
 .llma-compare-col .llma-msg-actions { opacity: 0.75; }
 .llma-compare-col:hover .llma-msg-actions { opacity: 1; }
+/* Compare mode uses a much wider content band than normal chat (single column is ~780px) so the two
+   replies get real room to breathe. Overrides .llma-messages' centering padding while compare is on. */
+.llma-compare-on .llma-messages {
+    padding-left: max(16px, calc((100% - 1560px) / 2));
+    padding-right: max(16px, calc((100% - 1560px) / 2));
+}
 /* Narrow widths: stack the columns vertically. */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
     .llma-compare-row { grid-template-columns: 1fr; }
 }
 

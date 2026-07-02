@@ -7,9 +7,9 @@
 .llma-topbar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 10px;
-    height: 46px;
+    gap: 8px;
+    padding: 0 12px;
+    height: 54px;
     flex-shrink: 0;
     border-bottom: 1px solid var(--light-border);
     background: var(--background);
@@ -46,7 +46,7 @@
     white-space: nowrap;
 }
 
-/* Icon button — small square button for toolbar actions */
+/* Icon button — square button for toolbar actions */
 .llma-icon-btn {
     width: 32px;
     height: 32px;
@@ -62,6 +62,17 @@
     transition: background 0.12s, opacity 0.12s, border-color 0.12s;
     flex-shrink: 0;
     padding: 0;
+}
+/* Header controls are enlarged for legibility — scoped to the top bar so input-area / modal icon
+   buttons keep their own sizing. The SVG rule scales every header icon uniformly without editing each markup. */
+.llma-topbar .llma-icon-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+}
+.llma-topbar .llma-icon-btn svg {
+    width: 18px;
+    height: 18px;
 }
 .llma-icon-btn:hover {
     background: var(--background-soft);
@@ -86,21 +97,16 @@
 
 /* Refresh-model-list button next to the dropdown. Spins while a refresh is in flight so the
    user gets feedback during a multi-second scan of a populated Models/ folder. */
-.llma-model-refresh {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
 .llma-model-refresh.spinning svg { animation: llmaSpin 0.8s linear infinite; }
 .llma-model-select {
-    font-size: 12.5px;
-    min-width: 180px;
-    max-width: 300px;
-    padding: 5px 24px 5px 10px;
-    border-radius: 7px;
+    font-size: 14px;
+    /* Fixed width so the pill never grows/shrinks with the selected model name (long names
+       truncate with the native ellipsis instead). Both lanes stay identical in size. */
+    width: 240px;
+    flex-shrink: 0;
+    text-overflow: ellipsis;
+    padding: 8px 30px 8px 12px;
+    border-radius: 8px;
     border: 1px solid var(--light-border);
     background: var(--background-panel-subtle);
     color: var(--text);
@@ -112,30 +118,47 @@
     appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 8px center;
+    background-position: right 11px center;
 }
 .llma-model-select:hover { border-color: var(--border-color); }
 .llma-model-select:focus { border-color: var(--emphasis); }
-/* Compare toggle — lights up when side-by-side mode is on. */
+/* Compare ("VS") toggle — sits to the left of the model pill(s) by default; lights up when
+   side-by-side mode is on. */
 .llma-compare-toggle.active {
     color: var(--emphasis);
     background: color-mix(in srgb, var(--emphasis) 16%, transparent);
 }
-/* Lane B model pill (compare mode). */
+/* When compare mode is active, the toggle slides BETWEEN the two model pills so it reads as
+   "model A vs model B". Uses flex order so no DOM reshuffle is needed (see chat-compare.js). */
+.llma-compare-on .llma-model-select-wrap .llma-compare-toggle { order: 2; }
+.llma-compare-on .llma-model-select-wrap .llma-model-select    { order: 1; }
+.llma-compare-on .llma-model-select-wrap .llma-model-select-b-wrap { order: 3; }
+.llma-compare-on .llma-model-select-wrap .llma-model-refresh   { order: 4; }
+/* Lane B model pill wrapper (compare mode). */
 .llma-model-select-b-wrap {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
 }
-.llma-vs-badge {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-soft);
-    opacity: 0.8;
+
+/* Searchable select2 model pickers — size them to the enlarged header and our fixed pill width, and
+   theme with SwarmUI vars so they match the rest of the dark UI. select2 replaces the native <select>
+   with its own container; the dropdown panel itself is appended to <body> and keeps the theme's styling. */
+.llma-topbar .select2-container { width: 240px !important; vertical-align: middle; }
+.llma-topbar .select2-container--bootstrap-5 .select2-selection {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    font-size: 14px;
+    border-radius: 8px;
+    border-color: var(--light-border);
+    background: var(--background-panel-subtle);
 }
-.llma-model-select-b { min-width: 160px; }
+.llma-topbar .select2-container--bootstrap-5 .select2-selection__rendered { color: var(--text); }
+/* Mirror the "no model selected" error outline onto the select2 box (the native select is hidden). */
+.llma-model-select.error + .select2-container--bootstrap-5 .select2-selection {
+    border-color: var(--backend-errored);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--backend-errored) 55%, transparent);
+}
 /* Red outline only when something is wrong (no model available / none selected). No "healthy" green. */
 .llma-model-select.error {
     border-color: var(--backend-errored);
