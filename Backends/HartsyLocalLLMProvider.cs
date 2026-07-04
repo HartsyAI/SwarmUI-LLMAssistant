@@ -222,10 +222,16 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <summary>Frees the slot's loaded model (keeps its backend/device alive). Caller holds <c>slot.Lock</c>.</summary>
     private static void UnloadSlot(DeviceSlot slot)
     {
-        if (slot.Model is not null && slot.Backend is CudaBackend)
+        // Full device eviction, not per-weight FreeWeights. A slot's CUDA backend holds exactly one model at a
+        // time, so on unload/swap everything on its context is dead — weights, the dequantized F16 weight-casts,
+        // any lingering activations, and the KV cache. Per-weight FreeWeights(EnumerateWeights()) missed the
+        // cast/activation/pool memory (and depends on Tensor reference identity), which leaked several GB per
+        // model swap → VRAM climbed to ~10 GB and OOM'd after a few models. FreeAllDeviceMemory = EvictAll +
+        // TrimPool reclaims all of it and returns the stream-ordered pool reservations to the driver.
+        if (slot.Model is not null && slot.Backend is CudaBackend cuda)
         {
-            try { slot.Backend.FreeWeights(slot.Model.Transformer.EnumerateWeights()); }
-            catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] FreeWeights failed: {ex.Message}"); }
+            try { cuda.FreeAllDeviceMemory(); }
+            catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] FreeAllDeviceMemory failed: {ex.Message}"); }
         }
         slot.Pipeline = null;
         slot.Model?.Dispose();
