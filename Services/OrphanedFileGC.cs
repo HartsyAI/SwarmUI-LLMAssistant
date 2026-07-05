@@ -7,22 +7,11 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Background sweeper for files written by the file_write tool that are no longer
-/// referenced by any of their owner's saved threads.
-///
-/// <para><b>What it does:</b> once per day, for every user with a per-user llm_assistant
-/// sandbox folder, walks the folder, builds the set of file paths still referenced in the
-/// user's saved threads (via <c>tool_result</c> entries on assistant messages with name
-/// <c>file_write</c>), and deletes any file in the folder that's both (a) not in that set
-/// and (b) older than the grace window. The grace window prevents racing in-flight writes
-/// that haven't been added to a thread yet (eg user closed the tab mid-stream).</para>
-///
-/// <para><b>Started from</b> <see cref="LLMAssistantExtension.OnInit"/> via
-/// <see cref="Utilities.RunCheckedTask"/>; cooperative shutdown via
-/// <see cref="Program.GlobalProgramCancel"/>.</para>
-///
-/// <para><b>Safety:</b> only operates on files inside <see cref="FileWriteTool.GetSandboxRoot"/>
-/// for each user — never touches anything outside that path. Logs every deletion.</para></summary>
+/// <summary>Background sweeper (started from <see cref="LLMAssistantExtension.OnInit"/>, runs
+/// roughly once a day) that deletes files under each user's file_write sandbox, avatar, and
+/// upload folders which are no longer referenced by any of that user's saved threads and are
+/// older than the grace period. Only ever touches paths inside those known roots; every
+/// deletion is logged.</summary>
 public static class OrphanedFileGC
 {
     /// <summary>Default sweep interval — overridable via the <see cref="IntervalSettingKey"/>
@@ -45,7 +34,7 @@ public static class OrphanedFileGC
     public const string IntervalDataName = "llmassistant_gc";
     public const string IntervalSettingKey = "intervalHours";
 
-    private static int _started;
+    private static int Started;
 
     /// <summary>Reads the configured sweep interval. Falls back to the default on any error
     /// (parse failure, missing setting, etc.) and clamps to the allowed range.</summary>
@@ -88,7 +77,7 @@ public static class OrphanedFileGC
     /// <summary>Idempotent: starts the background sweeper once. Safe to call from extension OnInit.</summary>
     public static void Start()
     {
-        if (Interlocked.Exchange(ref _started, 1) != 0)
+        if (Interlocked.Exchange(ref Started, 1) != 0)
         {
             return;
         }

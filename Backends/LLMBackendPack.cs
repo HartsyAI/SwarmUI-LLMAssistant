@@ -13,16 +13,17 @@ namespace SwarmUI.Extensions.LLMAssistant.Backends;
 /// in the extension changes — it only talks to <c>ILLMProvider</c>.</para></summary>
 public static class LLMBackendPack
 {
-    private static bool _registered = false;
+    /// <summary>Whether <see cref="Register"/> has already run, so repeat calls are a no-op.</summary>
+    private static bool Registered = false;
 
     /// <summary>Registers the pack's backend types and per-user API key types. Idempotent.</summary>
     public static void Register()
     {
-        if (_registered)
+        if (Registered)
         {
             return;
         }
-        _registered = true;
+        Registered = true;
         // Per-user API key types used by the remote backends (surfaced in the User tab).
         RegisterApiKey(new("anthropic_api", "anthropic", "Anthropic",
             "https://console.anthropic.com/",

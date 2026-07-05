@@ -3,15 +3,15 @@ namespace SwarmUI.Extensions.LLMAssistant.Services;
 /// <summary>LRU cache with request deduplication for LLM prompt responses.</summary>
 public class PromptCacheService
 {
-    private readonly int _maxEntries;
-    private readonly Dictionary<string, LinkedListNode<CacheEntry>> _cache = new();
-    private readonly LinkedList<CacheEntry> _lruList = new();
-    private readonly Dictionary<string, TaskCompletionSource<string>> _pending = new();
-    private readonly object _lock = new();
+    private readonly int MaxEntries;
+    private readonly Dictionary<string, LinkedListNode<CacheEntry>> Cache = new();
+    private readonly LinkedList<CacheEntry> LruList = new();
+    private readonly Dictionary<string, TaskCompletionSource<string>> Pending = new();
+    private readonly object Lock = new();
 
     public PromptCacheService(int maxEntries = 1000)
     {
-        _maxEntries = maxEntries;
+        MaxEntries = maxEntries;
     }
 
     /// <summary>Gets a cached response or creates one via the factory. Deduplicates concurrent identical requests.</summary>
@@ -20,30 +20,27 @@ public class PromptCacheService
         string key = NormalizeKey(prompt, instructionId);
         TaskCompletionSource<string> tcs;
         bool isCreator = false;
-        lock (_lock)
+        lock (Lock)
         {
-            // Check cache
-            if (_cache.TryGetValue(key, out LinkedListNode<CacheEntry> node))
+            if (Cache.TryGetValue(key, out LinkedListNode<CacheEntry> node))
             {
-                _lruList.Remove(node);
-                _lruList.AddFirst(node);
+                LruList.Remove(node);
+                LruList.AddFirst(node);
                 return node.Value.Response;
             }
-            // Check if another request is already pending for this key
-            if (_pending.TryGetValue(key, out tcs))
+            if (Pending.TryGetValue(key, out tcs))
             {
-                // Wait for the other request
+                // Another request for this key is already in flight — wait for it below.
             }
             else
             {
                 tcs = new TaskCompletionSource<string>();
-                _pending[key] = tcs;
+                Pending[key] = tcs;
                 isCreator = true;
             }
         }
         if (!isCreator)
         {
-            // Wait for the creator to finish
             using CancellationTokenSource cts = new(timeoutMs);
             try
             {
@@ -58,29 +55,27 @@ public class PromptCacheService
         try
         {
             string result = await factory();
-            lock (_lock)
+            lock (Lock)
             {
-                // Add to cache
                 CacheEntry entry = new() { Key = key, Response = result };
-                LinkedListNode<CacheEntry> node = _lruList.AddFirst(entry);
-                _cache[key] = node;
-                // Evict if over capacity
-                while (_cache.Count > _maxEntries)
+                LinkedListNode<CacheEntry> node = LruList.AddFirst(entry);
+                Cache[key] = node;
+                while (Cache.Count > MaxEntries)
                 {
-                    LinkedListNode<CacheEntry> last = _lruList.Last;
-                    _cache.Remove(last.Value.Key);
-                    _lruList.RemoveLast();
+                    LinkedListNode<CacheEntry> last = LruList.Last;
+                    Cache.Remove(last.Value.Key);
+                    LruList.RemoveLast();
                 }
-                _pending.Remove(key);
+                Pending.Remove(key);
             }
             tcs.TrySetResult(result);
             return result;
         }
         catch (Exception ex)
         {
-            lock (_lock)
+            lock (Lock)
             {
-                _pending.Remove(key);
+                Pending.Remove(key);
             }
             tcs.TrySetException(ex);
             throw;
@@ -90,10 +85,10 @@ public class PromptCacheService
     /// <summary>Clears the entire cache.</summary>
     public void Clear()
     {
-        lock (_lock)
+        lock (Lock)
         {
-            _cache.Clear();
-            _lruList.Clear();
+            Cache.Clear();
+            LruList.Clear();
         }
     }
 

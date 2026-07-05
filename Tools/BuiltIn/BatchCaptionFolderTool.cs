@@ -10,14 +10,7 @@ namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: walks a folder under the user's OutputDirectory, captions every image
 /// inside (using a chosen <see cref="CaptionImageTool"/> style), and writes the result as
-/// <c>{name}.txt</c> next to each image. Used for LoRA-training dataset prep.
-///
-/// <para>Sandboxing: the folder argument is resolved relative to <see cref="User.OutputDirectory"/>
-/// via <see cref="WebServer.CheckFilePath"/>. Caption files write into the same folder. The tool
-/// is disabled by default (long-running, produces files) — users opt in per-assistant.</para>
-///
-/// <para>Cancellable mid-run: the <see cref="ToolExecutionContext.Ct"/> is checked between
-/// images so killing the chat WS aborts the batch promptly.</para></summary>
+/// <c>{name}.txt</c> next to each image. Used for LoRA-training dataset prep.</summary>
 public class BatchCaptionFolderTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.BatchCaptionFolder;
@@ -26,7 +19,7 @@ public class BatchCaptionFolderTool : ToolHandler
     /// that could chew through quota or take hours.</summary>
     public const int MaxImagesPerRun = 200;
 
-    private static readonly HashSet<string> _imageExts = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> ImageExts = new(StringComparer.OrdinalIgnoreCase)
     {
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"
     };
@@ -72,11 +65,11 @@ public class BatchCaptionFolderTool : ToolHandler
         }
         // Enumerate images. Top level only; recursion is a sharp footgun for the LLM to wield.
         List<string> images = [.. Directory.EnumerateFiles(fullFolder, "*", SearchOption.TopDirectoryOnly)
-            .Where(p => _imageExts.Contains(Path.GetExtension(p)))
+            .Where(p => ImageExts.Contains(Path.GetExtension(p)))
             .OrderBy(p => p)];
         if (images.Count == 0)
         {
-            return new JObject { ["success"] = false, ["error"] = $"No supported images in {folder} (looking for {string.Join(", ", _imageExts)})." };
+            return new JObject { ["success"] = false, ["error"] = $"No supported images in {folder} (looking for {string.Join(", ", ImageExts)})." };
         }
         if (images.Count > MaxImagesPerRun)
         {
@@ -97,7 +90,7 @@ public class BatchCaptionFolderTool : ToolHandler
             try
             {
                 byte[] bytes = await File.ReadAllBytesAsync(imagePath, ctx.Ct);
-                string mime = GuessMimeFromExt(imagePath);
+                string mime = ImageInputResolver.GuessMimeFromExt(imagePath);
                 ExtendedLLMInput input = new()
                 {
                     Model = ctx.ModelId,
@@ -143,19 +136,6 @@ public class BatchCaptionFolderTool : ToolHandler
             ["failed"] = failedList,
             ["totalProcessed"] = writtenList.Count,
             ["totalFailed"] = failedList.Count
-        };
-    }
-
-    private static string GuessMimeFromExt(string path)
-    {
-        return Path.GetExtension(path).ToLowerInvariant() switch
-        {
-            ".png" => "image/png",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".webp" => "image/webp",
-            ".gif" => "image/gif",
-            ".bmp" => "image/bmp",
-            _ => "image/png"
         };
     }
 }

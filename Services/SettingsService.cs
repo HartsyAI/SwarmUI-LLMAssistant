@@ -6,21 +6,12 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Manages extension-level settings (instructions, features, parameters). Backend config is in Server > Backends.
-///
-/// <para>Storage model (multi-user aware):</para>
-/// <list type="bullet">
-/// <item><b>Shared layer</b> — one blob at <c>__shared/llmassistant/config</c>, containing the admin-curated
-/// baseline (shared assistants, shared tools, default instructions, default parameters). Only users with the
-/// <c>llm_shared_write</c> permission may mutate this layer.</item>
-/// <item><b>User layer</b> — one blob per user at <c>{userId}/llmassistant/user_config</c>, containing that
-/// user's personal overrides, personal assistants, personal tools, and their preferred model / parameters.</item>
-/// </list>
-/// <para>A user's effective view (<see cref="GetMergedSettings"/>) is shared ⊕ user. For dict-valued fields like
-/// <c>assistants</c> and <c>tools</c>, entries are unioned and the personal layer wins on ID collision. The
-/// extension tags each entry with a <c>_scope</c> marker (<c>"shared"</c> or <c>"personal"</c>) so the UI can
-/// render badges and know which layer a delete targets.</para>
-/// </summary>
+/// <summary>Manages extension-level settings (instructions, features, parameters). Backend config
+/// is in Server > Backends. Two-layer, multi-user aware storage: a shared admin-curated baseline
+/// (requires <c>llm_shared_write</c> to mutate) plus a per-user personal override layer. A user's
+/// effective view (<see cref="GetMergedSettings"/>) unions dict fields like <c>assistants</c> and
+/// <c>tools</c>, personal winning on ID collision, with each entry tagged <c>_scope</c> so the UI
+/// knows which layer a delete targets.</summary>
 public static class SettingsService
 {
     public const string DataName = "llmassistant";
@@ -107,10 +98,7 @@ public static class SettingsService
             ["explain_feature"] = true,
             ["daily_tip"] = true
         },
-        // Ambient chatter — unsolicited messages from the companion. Default values are
-        // deliberately conservative: greeting on, reactions and idle off, so a fresh install
-        // doesn't surprise the user. Quiet mode is the master mute the user can hit if any
-        // of the other triggers ever feel intrusive.
+        // Ambient chatter (unsolicited companion messages) — conservative defaults: greeting on, reactions/idle off.
         ["chatter"] = new JObject
         {
             ["quietMode"] = false,

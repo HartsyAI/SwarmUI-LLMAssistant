@@ -6,24 +6,29 @@ namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 /// <summary>Registers all LLM Assistant API endpoints and permissions.</summary>
 public static class LLMAssistantAPI
 {
+    /// <summary>Permission group under which all LLM Assistant permissions are registered.</summary>
     public static readonly PermInfoGroup LLMAssistantPermGroup = new("LLMAssistant",
         "Permissions for the LLM Assistant extension.");
 
+    /// <summary>Permission to send chat messages to LLM backends.</summary>
     public static readonly PermInfo PermChat = Permissions.Register(new(
         "llm_chat", "LLM Chat",
         "Allows sending messages to LLM backends.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to read and modify LLM Assistant settings.</summary>
     public static readonly PermInfo PermSettings = Permissions.Register(new(
         "llm_settings", "LLM Settings",
         "Allows reading and modifying LLM Assistant settings.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to list available LLM models.</summary>
     public static readonly PermInfo PermModels = Permissions.Register(new(
         "llm_models", "LLM Models",
         "Allows listing available LLM models.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to create and manage chat threads.</summary>
     public static readonly PermInfo PermThreads = Permissions.Register(new(
         "llm_threads", "LLM Threads",
         "Allows creating and managing chat threads.",

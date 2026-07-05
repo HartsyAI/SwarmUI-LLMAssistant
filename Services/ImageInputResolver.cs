@@ -7,24 +7,14 @@ using SwarmUI.Utils;
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves an image referenced by an LLM tool call (or any code path that takes a
-/// "user-supplied image input") into raw bytes + MIME, suitable for handing to T2IAPI as an
-/// init_image, to a captioning model as a vision input, etc.
-///
-/// <para>Accepted input shapes:</para>
-/// <list type="bullet">
-/// <item><b>Data URI</b> (<c>data:image/png;base64,...</c>) — decoded inline.</item>
-/// <item><b>Local Output URL</b> (<c>Output/{userId}/path/to/image.png</c>) — read off disk
-///   from <see cref="Program.ServerSettings.Paths.OutputPath"/>, with traversal protection.</item>
-/// <item><b>HTTPS URL</b> — fetched via <see cref="HttpClient"/>; gated by <see cref="NetworkSafety"/>
-///   (no loopback / private / link-local / cloud-metadata addresses) and a hard size cap.</item>
-/// </list>
-///
-/// <para>Returns a single shape (<see cref="ResolvedImage"/>) so callers don't have to branch
-/// on input format. Throws <see cref="InvalidOperationException"/> with a user-facing message
-/// on every failure mode.</para></summary>
+/// "user-supplied image input") into raw bytes + MIME. Accepts a data URI, a local
+/// <c>Output/{userId}/...</c> path (traversal-checked), an HTTPS URL (gated by
+/// <see cref="NetworkSafety"/> and a size cap), or raw base64. Returns a single shape
+/// (<see cref="ResolvedImage"/>) and throws <see cref="InvalidOperationException"/> with a
+/// user-facing message on failure.</summary>
 public static class ImageInputResolver
 {
-    private static readonly HttpClient _http = NetworkBackendUtils.MakeHttpClient();
+    private static readonly HttpClient Http = NetworkBackendUtils.MakeHttpClient();
 
     /// <summary>Hard cap on fetched/decoded image size. Matches the chat-upload cap so all
     /// image-ingest paths have the same ceiling.</summary>
@@ -95,7 +85,7 @@ public static class ImageInputResolver
             }
             using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(FetchTimeout);
-            using HttpResponseMessage resp = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            using HttpResponseMessage resp = await Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
             if (!resp.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException($"Fetch failed with HTTP {(int)resp.StatusCode}.");
@@ -147,7 +137,9 @@ public static class ImageInputResolver
         }
     }
 
-    private static string GuessMimeFromExt(string path)
+    /// <summary>Guesses a MIME type from a file extension; defaults to PNG. Shared with
+    /// <see cref="MediaResolver"/> so there's one mapping to maintain.</summary>
+    public static string GuessMimeFromExt(string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
         return ext switch
@@ -156,6 +148,7 @@ public static class ImageInputResolver
             ".jpg" or ".jpeg" => "image/jpeg",
             ".webp" => "image/webp",
             ".gif" => "image/gif",
+            ".bmp" => "image/bmp",
             _ => "image/png"
         };
     }

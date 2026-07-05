@@ -67,7 +67,7 @@ public static class MediaResolver
                     {
                         Type = "base64",
                         Data = Convert.ToBase64String(bytes),
-                        MediaType = string.IsNullOrEmpty(att.MediaType) ? GuessMimeFromExt(fullPath) : att.MediaType
+                        MediaType = string.IsNullOrEmpty(att.MediaType) ? ImageInputResolver.GuessMimeFromExt(fullPath) : att.MediaType
                     });
                 }
                 catch (Exception ex)
@@ -81,18 +81,5 @@ public static class MediaResolver
             }
         }
         return resolved.Count == 0 ? null : resolved;
-    }
-
-    private static string GuessMimeFromExt(string path)
-    {
-        string ext = Path.GetExtension(path).ToLowerInvariant();
-        return ext switch
-        {
-            ".png" => "image/png",
-            ".jpg" or ".jpeg" => "image/jpeg",
-            ".webp" => "image/webp",
-            ".gif" => "image/gif",
-            _ => "image/png"
-        };
     }
 }

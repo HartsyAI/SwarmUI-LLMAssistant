@@ -7,19 +7,11 @@ using SwarmUI.Utils;
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
 /// <summary>Persists chat-attached images to the calling user's per-user output directory and
-/// returns a served URL. Mirrors the same pattern as the file_write tool and assistant avatar
-/// upload — writes go to <c>{user.OutputDirectory}/llm_assistant/uploads/{threadId}/...</c> so
-/// SwarmUI's <c>/Output/{*Path}</c> route auth-gates retrieval automatically.
-///
-/// <para>Why URL-only persistence (not base64-in-thread):</para>
-/// <list type="bullet">
-/// <item>Thread blobs would balloon — a single uploaded photo can be hundreds of KB encoded.</item>
-/// <item>Every settings/thread merge would serialize that base64 string.</item>
-/// <item>The browser can cache image URLs natively; data URIs cannot be cached cross-render.</item>
-/// </list>
-///
-/// <para>Reuses <see cref="ImageFile"/> for parsing/resize/format conversion — no parallel
-/// image-handling code in the extension.</para></summary>
+/// returns a served URL (rather than storing base64 in the thread blob, which would bloat every
+/// settings/thread read-write and can't be browser-cached like a URL). Writes go to
+/// <c>{user.OutputDirectory}/llm_assistant/uploads/{threadId}/...</c> so SwarmUI's
+/// <c>/Output/{*Path}</c> route auth-gates retrieval automatically. Reuses <see cref="ImageFile"/>
+/// for parsing/resize/format conversion.</summary>
 public static class MediaStorageService
 {
     /// <summary>Subdir under user's OutputDirectory where chat uploads live, partitioned by thread.</summary>
@@ -32,7 +24,7 @@ public static class MediaStorageService
     /// reasonable and avoid blowing past provider per-request limits. Aspect ratio preserved.</summary>
     public const int MaxDimension = 1536;
 
-    private static readonly Dictionary<string, string> _mimeToExt = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> MimeToExt = new(StringComparer.OrdinalIgnoreCase)
     {
         ["image/png"]  = ".png",
         ["image/jpeg"] = ".jpg",
@@ -90,7 +82,7 @@ public static class MediaStorageService
         }
         string header = dataUri[5..commaIdx];
         string mime = header.Split(';')[0];
-        if (!_mimeToExt.TryGetValue(mime, out string ext))
+        if (!MimeToExt.TryGetValue(mime, out string ext))
         {
             throw new InvalidOperationException($"Unsupported image MIME: {mime}. Allowed: png, jpg, webp, gif.");
         }

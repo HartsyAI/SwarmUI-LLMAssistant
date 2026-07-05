@@ -7,33 +7,15 @@ using SwarmUI.WebAPI;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: generate an image via SwarmUI's native T2I engine.
-///
-/// <para>Supports three modes — and you can mix them:</para>
-/// <list type="bullet">
-/// <item><b>Preset</b>: pick one or more saved presets by name. Multiple presets stack in order
-/// (later ones override earlier). The user's preset list (with model/steps/dimensions surfaced)
-/// is injected into the tool description so the LLM can pick intelligently.</item>
-/// <item><b>Raw params</b>: pass a <c>params</c> object with any T2I parameter (model, steps,
-/// sampler, cfgscale, loras, etc.) — applied <i>on top of</i> any preset. Lets the LLM tweak a
-/// preset for a single call ("use Anime preset but bump steps to 50") or do a one-off generation
-/// without any preset at all.</item>
-/// <item><b>Aspect</b>: shorthand for square/portrait/landscape dimensions. Only applied if
-/// neither the chosen preset(s) nor <c>params</c> already set width/height.</item>
-/// </list>
-///
-/// <para>Resolution order: presets applied in declared order → <c>params</c> applied last
-/// (overrides). All param validation is delegated to T2IAPI — invalid keys become warnings and
-/// are skipped. The handler never inspects the per-param semantics itself.</para></summary>
+/// <summary>Built-in tool: generate an image via SwarmUI's native T2I engine. Supports stacking
+/// one or more saved presets, raw <c>params</c> overrides applied on top, and an <c>aspect</c>
+/// shorthand for dimensions when none are otherwise set. All param validation is delegated to
+/// T2IAPI.</summary>
 public class GenerateImageTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.GenerateImage;
 
     public const string ConfigDefaultPreset = "defaultPreset";
-
-    /// <summary>Param-map keys that signal dimensions are explicitly set (so we shouldn't
-    /// auto-apply <c>aspect</c>). Centralized so the same logic is consistent across modes.</summary>
-    private static readonly HashSet<string> DimensionKeys = new(StringComparer.OrdinalIgnoreCase) { "width", "height" };
 
     public override JObject EnrichForUser(JObject toolDef, Session session, string assistantId = null)
     {
@@ -99,8 +81,7 @@ public class GenerateImageTool : ToolHandler
         {
             return new JObject { ["success"] = false, ["error"] = "prompt is required" };
         }
-        // ---- Resolve presets ----
-        // Accept string OR string[]. If neither, fall back to the assistant/user default preset.
+        // Resolve presets: explicit args, else fall back to the assistant/user default.
         List<string> presetNames = ParsePresetNames(args["preset"]);
         if (presetNames.Count == 0)
         {
@@ -110,8 +91,7 @@ public class GenerateImageTool : ToolHandler
                 presetNames.Add(defaultPreset);
             }
         }
-        // Validate every named preset exists. Reject the call cleanly if any is missing —
-        // partial application would be confusing.
+        // Reject the call cleanly if any named preset is missing — partial application would be confusing.
         foreach (string name in presetNames)
         {
             if (UserPresetCache.GetPreset(session.User, name) is null)
@@ -126,7 +106,6 @@ public class GenerateImageTool : ToolHandler
                 };
             }
         }
-        // ---- Build the rawInput in precedence order: presets → params → prompt ----
         // Pre-merge presets ourselves so `params` can override (T2IAPI applies presets after raw
         // params natively, which is the wrong order for us — we want params to be the final word).
         JObject rawInput = [];
@@ -140,7 +119,6 @@ public class GenerateImageTool : ToolHandler
             }
             presetsApplied.Add(preset.Title);
         }
-        // Apply user-supplied raw params last so they override the preset stack.
         if (args["params"] is JObject paramsArg)
         {
             foreach (JProperty prop in paramsArg.Properties())
@@ -148,11 +126,7 @@ public class GenerateImageTool : ToolHandler
                 rawInput[prop.Name] = prop.Value;
             }
         }
-        // ---- Resolve init_image (image-edit / img2img workflows) ----
-        // Accepts: data URI, Output/... URL, https:// URL, or raw base64. Decoded inline so the
-        // T2I engine receives base64 like any other IMAGE-typed param. Pair this with a preset
-        // whose model supports image input (Flux Kontext, OmniGen, SDXL inpaint, etc.) for edits
-        // like "remove this person" or "change the style to oil painting".
+        // init_image enables image-edit / img2img workflows; needs a preset/model that supports image input.
         string initImageInput = args["initImage"]?.ToString();
         if (!string.IsNullOrWhiteSpace(initImageInput))
         {
@@ -188,10 +162,8 @@ public class GenerateImageTool : ToolHandler
             rawInput["width"] = w;
             rawInput["height"] = h;
         }
-        // Prompt always wins (overrides any prompt embedded in a preset).
         rawInput["prompt"] = prompt;
-        // Sanity: we need at least a model. If none of the layers provided one, the T2I engine
-        // will fail with an unhelpful error — surface a friendly one instead.
+        // Surface a friendly error instead of letting the T2I engine fail unhelpfully with no model set.
         if (!rawInput.ContainsKey("model") || string.IsNullOrWhiteSpace(rawInput["model"]?.ToString()))
         {
             return new JObject

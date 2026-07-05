@@ -37,11 +37,6 @@ public static class ThreadEndpoints
         };
     }
 
-    // LLMAssistantSaveThread removed: chat is now server-authoritative — the WS chat endpoint
-    // and ThreadStorageService.AppendMessage own all writes. Thread metadata edits use the
-    // dedicated rename endpoint. To re-add an "import thread" affordance, build a separate
-    // ImportThread endpoint that is gated and explicit, not implicit on every send.
-
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)
     {
         bool deleted = ThreadStorageService.DeleteThread(session.User, threadId);
@@ -94,28 +89,21 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "content is required (use empty string to blank a message)." };
         }
-        
-        // Validate thread exists
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
         }
-        
-        // Validate message exists in thread
         JArray messages = thread["messages"] as JArray;
         if (messages is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Thread has no messages array." };
         }
-        
         JObject targetMessage = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
         if (targetMessage is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Message '{messageId}' not found in thread." };
         }
-        
-        // Perform the edit
         JObject updatedThread = ThreadStorageService.EditMessage(session.User, threadId, messageId, content);
         if (updatedThread is null)
         {

@@ -13,7 +13,8 @@ namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 /// <summary>Chat message endpoints (HTTP and WebSocket streaming).</summary>
 public static class ChatEndpoints
 {
-    private static readonly PromptCacheService _cache = new(500);
+    /// <summary>Process-lifetime cache of non-streaming completion responses, keyed by prompt+instruction.</summary>
+    private static readonly PromptCacheService Cache = new(500);
 
     /// <summary>Uploads an image the user just attached to chat: parses the data URI, resizes if
     /// needed (long edge capped at <see cref="MediaStorageService.MaxDimension"/>), writes to the
@@ -166,7 +167,7 @@ public static class ChatEndpoints
             }
             else
             {
-                response = await _cache.GetOrCreate(message, instructionId, async () =>
+                response = await Cache.GetOrCreate(message, instructionId, async () =>
                 {
                     return await LLMDispatcher.Generate(input);
                 });
@@ -484,9 +485,6 @@ public static class ChatEndpoints
             }
         }
 
-        // All lanes stream concurrently — that's the point of "vs" mode: both models load and generate at
-        // once. Two large local models can contend for the same GPU/VRAM; the backend is responsible for
-        // queuing or OOM-guarding if they don't both fit. Lanes are independent here.
         await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
     }
 
@@ -537,43 +535,41 @@ public static class ChatEndpoints
         // Branch model: the LLM only ever sees the ACTIVE path (root → active leaf), never off-path siblings.
         foreach (JObject msg in ThreadStorageService.GetActivePath(thread))
         {
+            ChatMessageData entry = new()
             {
-                ChatMessageData entry = new()
+                Role = msg["role"]?.ToString() ?? Roles.User,
+                Content = msg["content"]?.ToString() ?? ""
+            };
+            if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
+            {
+                entry.Media = [];
+                List<string> urlsForContext = [];
+                foreach (JToken m in mediaArr)
                 {
-                    Role = msg["role"]?.ToString() ?? Roles.User,
-                    Content = msg["content"]?.ToString() ?? ""
-                };
-                if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
-                {
-                    entry.Media = [];
-                    List<string> urlsForContext = [];
-                    foreach (JToken m in mediaArr)
+                    string url = m["url"]?.ToString();
+                    if (string.IsNullOrEmpty(url))
                     {
-                        string url = m["url"]?.ToString();
-                        if (string.IsNullOrEmpty(url))
-                        {
-                            continue;
-                        }
-                        entry.Media.Add(new LLMMediaAttachment
-                        {
-                            Type = "url",
-                            Data = url,
-                            MediaType = m["mediaType"]?.ToString() ?? "image/png"
-                        });
-                        urlsForContext.Add(url);
+                        continue;
                     }
-                    // Inline the URL(s) as a system-style annotation so the LLM has the path
-                    // accessible as text — needed for tool calls like generate_image's initImage.
-                    // The LLM sees the image natively via vision; this just lets it *reference*
-                    // the URL string when chaining tools.
-                    if (urlsForContext.Count > 0)
+                    entry.Media.Add(new LLMMediaAttachment
                     {
-                        string suffix = string.Join("\n", urlsForContext.Select(u => $"[Attached image URL: {u}]"));
-                        entry.Content = string.IsNullOrEmpty(entry.Content) ? suffix : $"{entry.Content}\n\n{suffix}";
-                    }
+                        Type = "url",
+                        Data = url,
+                        MediaType = m["mediaType"]?.ToString() ?? "image/png"
+                    });
+                    urlsForContext.Add(url);
                 }
-                history.Add(entry);
+                // Inline the URL(s) as a system-style annotation so the LLM has the path
+                // accessible as text — needed for tool calls like generate_image's initImage.
+                // The LLM sees the image natively via vision; this just lets it *reference*
+                // the URL string when chaining tools.
+                if (urlsForContext.Count > 0)
+                {
+                    string suffix = string.Join("\n", urlsForContext.Select(u => $"[Attached image URL: {u}]"));
+                    entry.Content = string.IsNullOrEmpty(entry.Content) ? suffix : $"{entry.Content}\n\n{suffix}";
+                }
             }
+            history.Add(entry);
         }
         return TruncateHistory(history, settings, rawInput);
     }
@@ -638,15 +634,9 @@ public static class ChatEndpoints
         input.Seed = seed;
     }
 
-    /// <summary>Counts tokens for a block of text or a chat history array.
-    /// <para>Accepts either <c>text</c> (a single string) or <c>messages</c> (an array of
-    /// <c>{role, content}</c> objects). If <c>messages</c> is provided, the array is flattened
-    /// with role headers before counting.</para>
-    /// <para>If a registered provider can tokenize the text cheaply (a model is already loaded),
-    /// the exact count is used and <c>exact=true</c> is returned. Otherwise a cheap <c>chars/4</c>
-    /// heuristic is returned with <c>exact=false</c>. Calling this endpoint never loads a model —
-    /// providers return null rather than paying a multi-second model-load cost.</para>
-    /// </summary>
+    /// <summary>Counts tokens for a block of text or a chat history array (accepts <c>text</c> or a
+    /// <c>messages</c> array, flattened with role headers). Returns an exact count when a loaded
+    /// provider can tokenize cheaply, otherwise a <c>chars/4</c> heuristic; never triggers a model load.</summary>
     public static async Task<JObject> LLMAssistantCountTokens(Session session, JObject rawInput)
     {
         try
@@ -668,9 +658,6 @@ public static class ChatEndpoints
                 }
             }
             text ??= "";
-            // Ask the registered providers for an exact count (a model already loaded can tokenize
-            // near-instantly); they return null rather than triggering a load, so we fall back to
-            // the chars/4 heuristic immediately when nothing can tokenize cheaply.
             (int count, bool exact, string source) = LLMDispatcher.CountTokens(text);
             return new JObject
             {

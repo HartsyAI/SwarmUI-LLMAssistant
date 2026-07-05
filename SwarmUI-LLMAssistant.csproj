@@ -1,46 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <AssemblyName>SwarmExtensionLLMAssistant</AssemblyName>
-    <!-- Engine source toggle. Default false = consume the published HartsyInference NuGet (release).
-         Set true to build against the LOCAL SharpInference source (for engine debugging) — easiest via the
-         gitignored Directory.Build.props in this folder, or pass -p:UseLocalHartsy=true.
-         Override HartsyRepo if SharpInference lives elsewhere. -->
+    <!-- false = published HartsyInference NuGet; true = local SharpInference build (see Directory.Build.props). -->
     <UseLocalHartsy Condition="'$(UseLocalHartsy)' == ''">false</UseLocalHartsy>
     <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../SharpInference</HartsyRepo>
   </PropertyGroup>
 
   <Import Project="../../SwarmUI.extension.props" />
 
-  <!-- === Removable LLM backend pack (Backends/) ===
-       The HartsyInference engine powers the pure-C# local LLM backend. To drop the bundled backends
-       and fall back to a native Swarm LLM API: delete the Backends/ folder, remove the
-       LLMBackendPack.Register() call in OnInit, and delete the engine reference blocks below. -->
-
-  <!-- After the import (which sets it false): copy the engine's private DLLs into our output so the
-       per-extension AssemblyLoadContext can resolve them, and so the CUDA PTX kernels land in Ptx/. -->
+  <!-- Copies the engine's private DLLs (and CUDA PTX kernels) into our output for the per-extension AssemblyLoadContext. -->
   <PropertyGroup>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
-  <!-- RELEASE: the published meta-package. Pinned; bump to the exact version CI published when you ship
-       engine changes. Auto-copies the CUDA PTX kernels (→ Ptx/) next to the extension DLL.
-       https://www.nuget.org/packages/HartsyInference -->
+  <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.43" />
+    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.44" />
   </ItemGroup>
 
-  <!-- LOCAL ENGINE DEBUGGING: reference the engine's PREBUILT DLLs (NOT ProjectReferences).
-       WHY prebuilt: SwarmUI's ExtensionsManager builds the extension with -p:BaseIntermediateOutputPath /
-       TargetName / -o as GLOBAL MSBuild properties. Those propagate into any ProjectReference, redirecting
-       the engine projects' obj so their default **/*.cs glob stops excluding obj/ → stale AssemblyInfo gets
-       recompiled (CS0579), and restore/build then disagree on the obj path (NETSDK1004). Referencing
-       prebuilt DLLs means SwarmUI's build never touches the engine projects — it just compiles the extension
-       and copies these DLLs (Private=true) next to it for the per-extension AssemblyLoadContext.
-       FIRST build the engine:  dotnet build src/HartsyInference.{LLM,Cpu,Cuda}/*.csproj -c Release -f net8.0
-       (in SharpInference). The engine has no external package deps — only the 6 HartsyInference.* assemblies.
-       CPU runtime needs no PTX (set the backend's UseGPU=false to test). -->
+  <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
+       SwarmUI's global obj/output MSBuild properties into the engine projects and break their build).
+       Build the engine first: dotnet build src/HartsyInference.{LLM,Cpu,Cuda}/*.csproj -c Release -f net8.0 -->
   <PropertyGroup Condition="'$(UseLocalHartsy)' == 'true'">
-    <!-- Prefer the Release build (SwarmUI builds the extension Release); fall back to Debug. Override HartsyCfg if needed. -->
     <HartsyCfg Condition="'$(HartsyCfg)' == '' and Exists('$(HartsyRepo)/src/HartsyInference.LLM/bin/Release/net8.0/HartsyInference.LLM.dll')">Release</HartsyCfg>
     <HartsyCfg Condition="'$(HartsyCfg)' == ''">Debug</HartsyCfg>
     <HartsyLLMBin>$(HartsyRepo)/src/HartsyInference.LLM/bin/$(HartsyCfg)/net8.0</HartsyLLMBin>
@@ -54,13 +35,11 @@
     <Reference Include="HartsyInference.Tokenizers"><HintPath>$(HartsyLLMBin)/HartsyInference.Tokenizers.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="HartsyInference.Cpu"><HintPath>$(HartsyCpuBin)/HartsyInference.Cpu.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="HartsyInference.Cuda"><HintPath>$(HartsyCudaBin)/HartsyInference.Cuda.dll</HintPath><Private>true</Private></Reference>
-    <!-- CUDA PTX kernels (checked into engine source). The NuGet auto-copies these via Cuda.targets; in
-         local mode we copy them from source so GPU works too (→ Ptx/ next to the extension DLL). -->
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- Don't ship duplicates of packages the SwarmUI host already loads (compile against them via
-       SwarmUI.deps.props, but don't copy their runtime DLLs). Keep in sync with SwarmUI.deps.props. -->
+  <!-- Compile against the packages the SwarmUI host already loads, without copying their runtime DLLs.
+       Keep in sync with SwarmUI.deps.props. -->
   <ItemGroup>
     <PackageReference Update="FreneticLLC.FreneticUtilities" ExcludeAssets="runtime" />
     <PackageReference Update="Hardware.Info" ExcludeAssets="runtime" />

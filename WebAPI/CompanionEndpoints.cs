@@ -106,6 +106,7 @@ public static class CompanionEndpoints
         }
     }
 
+    /// <summary>Guesses a MIME type from a file's extension, defaulting to <c>image/png</c>.</summary>
     private static string GuessImageMime(string path)
     {
         if (string.IsNullOrEmpty(path)) { return "image/png"; }

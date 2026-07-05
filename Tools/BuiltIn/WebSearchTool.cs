@@ -12,7 +12,7 @@ public partial class WebSearchTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.WebSearch;
 
-    private static readonly HttpClient _http = new()
+    private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(15)
     };
@@ -37,7 +37,7 @@ public partial class WebSearchTool : ToolHandler
             string url = $"https://html.duckduckgo.com/html/?q={Uri.EscapeDataString(query)}";
             using HttpRequestMessage req = new(HttpMethod.Get, url);
             req.Headers.TryAddWithoutValidation("User-Agent", "Mozilla/5.0 (SwarmUI-LLMAssistant)");
-            using HttpResponseMessage resp = await _http.SendAsync(req, ct);
+            using HttpResponseMessage resp = await Http.SendAsync(req, ct);
             if (!resp.IsSuccessStatusCode)
             {
                 return new JObject { ["success"] = false, ["error"] = $"Search failed with HTTP {(int)resp.StatusCode}" };

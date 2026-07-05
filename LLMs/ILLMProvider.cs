@@ -47,14 +47,15 @@ public interface ILLMProvider
 /// registry the dispatcher simply reports "no LLM backend running", exactly as before.</para></summary>
 public static class LLMProviderRegistry
 {
-    private static readonly ConcurrentDictionary<string, ILLMProvider> _providers = new();
+    /// <summary>Registered providers, keyed by <see cref="ILLMProvider.Id"/>.</summary>
+    private static readonly ConcurrentDictionary<string, ILLMProvider> Providers = new();
 
     /// <summary>Registers (or replaces) a provider by its <see cref="ILLMProvider.Id"/>.</summary>
     public static void Register(ILLMProvider provider)
     {
         if (provider is not null && !string.IsNullOrEmpty(provider.Id))
         {
-            _providers[provider.Id] = provider;
+            Providers[provider.Id] = provider;
         }
     }
 
@@ -63,13 +64,13 @@ public static class LLMProviderRegistry
     {
         if (!string.IsNullOrEmpty(id))
         {
-            _providers.TryRemove(id, out _);
+            Providers.TryRemove(id, out _);
         }
     }
 
     /// <summary>All registered providers.</summary>
-    public static IReadOnlyCollection<ILLMProvider> All => _providers.Values.ToList();
+    public static IReadOnlyCollection<ILLMProvider> All => Providers.Values.ToList();
 
     /// <summary>Gets a provider by id, or null.</summary>
-    public static ILLMProvider Get(string id) => id is not null && _providers.TryGetValue(id, out ILLMProvider p) ? p : null;
+    public static ILLMProvider Get(string id) => id is not null && Providers.TryGetValue(id, out ILLMProvider p) ? p : null;
 }

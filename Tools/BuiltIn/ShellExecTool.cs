@@ -58,7 +58,6 @@ public class ShellExecTool : ToolHandler
             workingDir = resolved;
         }
 
-        // Shell selection: cmd.exe on Windows, /bin/sh elsewhere.
         bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         ProcessStartInfo psi = new()
         {
@@ -141,19 +140,19 @@ public class ShellExecTool : ToolHandler
             catch (OperationCanceledException)
             {
                 killed = true;
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                try { await proc.WaitForExitAsync(CancellationToken.None); } catch { }
+                try { proc.Kill(entireProcessTree: true); } catch (Exception killEx) { Logs.Debug($"[LLMAssistant] ShellExecTool: failed to kill timed-out process: {killEx.Message}"); }
+                try { await proc.WaitForExitAsync(CancellationToken.None); } catch (Exception waitEx) { Logs.Debug($"[LLMAssistant] ShellExecTool: WaitForExitAsync after kill failed: {waitEx.Message}"); }
             }
         }
         catch (Exception ex)
         {
-            try { proc.Kill(entireProcessTree: true); } catch { }
+            try { proc.Kill(entireProcessTree: true); } catch (Exception killEx) { Logs.Debug($"[LLMAssistant] ShellExecTool: failed to kill process after error: {killEx.Message}"); }
             return new JObject { ["success"] = false, ["error"] = ex.Message };
         }
 
         int exitCode = -1;
-        try { exitCode = proc.ExitCode; } catch { }
-        try { proc.Dispose(); } catch { }
+        try { exitCode = proc.ExitCode; } catch (Exception exitEx) { Logs.Debug($"[LLMAssistant] ShellExecTool: failed to read ExitCode: {exitEx.Message}"); }
+        try { proc.Dispose(); } catch (Exception disposeEx) { Logs.Debug($"[LLMAssistant] ShellExecTool: failed to dispose process: {disposeEx.Message}"); }
 
         return new JObject
         {

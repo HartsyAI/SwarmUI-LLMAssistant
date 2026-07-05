@@ -60,9 +60,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     private sealed class DeviceSlot
     {
         public readonly SemaphoreSlim Lock = new(1, 1);
+        /// <summary>The compute backend (CPU/CUDA) bound to this slot's device.</summary>
         public IBackend Backend;
+        /// <summary>The currently-loaded GGUF text model, or null if nothing is loaded.</summary>
         public GgufLanguageModel Model;
+        /// <summary>The generation pipeline built for <see cref="Model"/> on <see cref="Backend"/>.</summary>
         public TextGenerationPipeline Pipeline;
+        /// <summary>Full path of the currently-loaded GGUF file, or null if nothing is loaded.</summary>
         public string LoadedPath;
 
         // Multimodal (vision) state, loaded alongside the text model when a sidecar mmproj is found.
@@ -79,7 +83,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Loaded state per device key ("cpu", "cuda:0", …). Created lazily on first request for a
     /// device. Each holds at most one model (swapped when a different model is asked of that device).</summary>
-    private readonly ConcurrentDictionary<string, DeviceSlot> _slots = new();
+    private readonly ConcurrentDictionary<string, DeviceSlot> Slots = new();
 
     /// <inheritdoc/>
     public override string ProviderKind => "hartsy-local";
@@ -96,7 +100,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     protected override async Task OnProviderShutdown()
     {
-        foreach (DeviceSlot slot in _slots.Values)
+        foreach (DeviceSlot slot in Slots.Values)
         {
             await slot.Lock.WaitAsync();
             try
@@ -110,7 +114,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 slot.Lock.Release();
             }
         }
-        _slots.Clear();
+        Slots.Clear();
         Status = BackendStatus.DISABLED;
     }
 
@@ -208,7 +212,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>The lazily-created slot for a device key.</summary>
-    private DeviceSlot GetSlot(string deviceKey) => _slots.GetOrAdd(deviceKey, _ => new DeviceSlot());
+    private DeviceSlot GetSlot(string deviceKey) => Slots.GetOrAdd(deviceKey, _ => new DeviceSlot());
 
     /// <summary>Loads the requested model onto the slot's device if it isn't already loaded there. The
     /// slot's backend is created on first use for that device. Caller holds <c>slot.Lock</c>.</summary>
@@ -316,13 +320,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <summary>Frees the slot's loaded model (keeps its backend/device alive). Caller holds <c>slot.Lock</c>.</summary>
     private static void UnloadSlot(DeviceSlot slot)
     {
-        // Full device eviction, not per-weight FreeWeights. A slot's CUDA backend holds exactly one model at a
-        // time, so on unload/swap everything on its context is dead — weights, the dequantized F16 weight-casts,
-        // any lingering activations, and the KV cache. Per-weight FreeWeights(EnumerateWeights()) missed the
-        // cast/activation/pool memory (and depends on Tensor reference identity), which leaked several GB per
-        // model swap → VRAM climbed to ~10 GB and OOM'd after a few models. FreeAllDeviceMemory = EvictAll +
-        // TrimPool reclaims all of it and returns the stream-ordered pool reservations to the driver.
-        // Dispose the vision encoders first so their weights are gone before the device-wide free.
+        // Full device eviction, not per-weight free — per-weight missed cast/activation/pool memory and
+        // leaked VRAM on model swap. Dispose the vision encoders first so their weights are gone before it.
         slot.SpliceVision?.Dispose();
         slot.SpliceVision = null;
         slot.MllamaVision?.Dispose();
@@ -367,6 +366,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         Greedy = input.Temperature <= 0
     };
 
+    /// <summary>Builds the engine's <see cref="GenerationRequest"/> (chat history or plain prompt) with sampling from <see cref="BuildSampling"/>.</summary>
     private GenerationRequest BuildRequest(ExtendedLLMInput input)
     {
         SamplingOptions sampling = BuildSampling(input);
@@ -535,7 +535,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     {
         // Non-blocking: use whichever loaded slot we can grab without racing an in-flight generation.
         // Never loads a model here; returns null so the caller falls back to the heuristic if none is free.
-        foreach (DeviceSlot slot in _slots.Values)
+        foreach (DeviceSlot slot in Slots.Values)
         {
             if (!slot.Lock.Wait(0))
             {
@@ -569,7 +569,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         // into a per-lane dropdown so a request can be routed to a specific device at generation time.
         string deviceLabel = PrimaryDeviceKey();
         string devices = string.Join(",", SupportedDevices());
-        HashSet<string> loadedPaths = [.. _slots.Values.Select(s => s.LoadedPath).Where(p => p is not null)];
+        HashSet<string> loadedPaths = [.. Slots.Values.Select(s => s.LoadedPath).Where(p => p is not null)];
         foreach (string folder in ModelFolders())
         {
             foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
@@ -608,7 +608,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     public override async Task<bool> FreeMemory(bool systemRam)
     {
         bool had = false;
-        foreach (DeviceSlot slot in _slots.Values)
+        foreach (DeviceSlot slot in Slots.Values)
         {
             await slot.Lock.WaitAsync();
             try

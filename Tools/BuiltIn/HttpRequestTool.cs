@@ -16,7 +16,7 @@ public class HttpRequestTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.HttpRequest;
 
-    private static readonly HttpClient _http = NetworkBackendUtils.MakeHttpClient();
+    private static readonly HttpClient Http = NetworkBackendUtils.MakeHttpClient();
 
     public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
@@ -63,7 +63,6 @@ public class HttpRequestTool : ToolHandler
         try
         {
             using HttpRequestMessage req = new(method, uri);
-            // Optional headers
             if (args["headers"] is JObject headers)
             {
                 foreach (KeyValuePair<string, JToken> kvp in headers)
@@ -78,7 +77,6 @@ public class HttpRequestTool : ToolHandler
                     req.Headers.TryAddWithoutValidation(name, value);
                 }
             }
-            // Optional body
             string bodyStr = args["body"]?.ToString();
             if (!string.IsNullOrEmpty(bodyStr) && method != HttpMethod.Get && method != HttpMethod.Head)
             {
@@ -98,9 +96,8 @@ public class HttpRequestTool : ToolHandler
 
             using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
             linked.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
-            using HttpResponseMessage resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, linked.Token);
+            using HttpResponseMessage resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, linked.Token);
 
-            // Collect response headers
             JObject respHeaders = new();
             foreach (KeyValuePair<string, IEnumerable<string>> h in resp.Headers)
             {
@@ -114,7 +111,6 @@ public class HttpRequestTool : ToolHandler
                 }
             }
 
-            // Read body up to maxBytes
             string bodyText = "";
             bool truncated = false;
             long? contentLength = resp.Content?.Headers?.ContentLength;

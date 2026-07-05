@@ -21,7 +21,7 @@ public static class UserPresetCache
 
     private record Entry(DateTime Expires, List<T2IPreset> Presets);
 
-    private static readonly ConcurrentDictionary<string, Entry> _cache = new();
+    private static readonly ConcurrentDictionary<string, Entry> Cache = new();
 
     /// <summary>Returns the user's saved presets, possibly from cache. Empty list if user is null
     /// or the underlying lookup fails. Never throws.</summary>
@@ -31,7 +31,7 @@ public static class UserPresetCache
         {
             return [];
         }
-        if (_cache.TryGetValue(user.UserID, out Entry entry) && entry.Expires > DateTime.UtcNow)
+        if (Cache.TryGetValue(user.UserID, out Entry entry) && entry.Expires > DateTime.UtcNow)
         {
             return entry.Presets;
         }
@@ -44,7 +44,7 @@ public static class UserPresetCache
         {
             fresh = [];
         }
-        _cache[user.UserID] = new Entry(DateTime.UtcNow + TTL, fresh);
+        Cache[user.UserID] = new Entry(DateTime.UtcNow + TTL, fresh);
         return fresh;
     }
 
@@ -79,7 +79,7 @@ public static class UserPresetCache
     {
         if (user is not null)
         {
-            _cache.TryRemove(user.UserID, out _);
+            Cache.TryRemove(user.UserID, out _);
         }
     }
 }

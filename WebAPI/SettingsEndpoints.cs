@@ -11,6 +11,7 @@ namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
 /// <c>scope: "shared"</c> to update the shared baseline.</summary>
 public static class SettingsEndpoints
 {
+    /// <summary>JSON.NET merge policy used when layering shared settings under personal overrides.</summary>
     private static readonly JsonMergeSettings MergeSettings = new()
     {
         MergeArrayHandling = MergeArrayHandling.Replace,

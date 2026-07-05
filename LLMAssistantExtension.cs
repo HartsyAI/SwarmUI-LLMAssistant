@@ -13,6 +13,7 @@ namespace SwarmUI.Extensions.LLMAssistant;
 /// using SwarmUI's native LLM model registry and backends.</summary>
 public class LLMAssistantExtension : Extension
 {
+    /// <summary>Current version of the LLM Assistant extension.</summary>
     public static new readonly string Version = "1.0.0";
 
     public override void OnPreInit()

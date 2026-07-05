@@ -4,21 +4,10 @@ using SwarmUI.Accounts;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: read SwarmUI's bundled documentation (the markdown files under
-/// the repo's <c>docs/</c> folder). Sandboxed strictly to that directory — the LLM cannot
-/// reach anywhere else on disk through this tool.
-///
-/// <para>Two modes:</para>
-/// <list type="bullet">
-/// <item><c>action="list"</c> — returns a flat list of every <c>.md</c> file under <c>docs/</c>
-/// (recursive). Use this first to discover what's available.</item>
-/// <item><c>action="read"</c> — returns the full contents of one specific doc by relative path
-/// (e.g. <c>"Basic Usage.md"</c>, <c>"Features/Prompt Syntax.md"</c>).</item>
-/// </list>
-///
-/// <para>This tool intentionally does <b>not</b> share <see cref="FileReadTool"/>'s sandbox —
-/// docs are public reference material, not user data, and live outside the SwarmUI Data folder.</para>
-/// </summary>
+/// <summary>Built-in tool: read SwarmUI's bundled documentation (the markdown files under the
+/// repo's <c>docs/</c> folder), sandboxed strictly to that directory. Supports
+/// <c>action="list"</c> (discover available docs) and <c>action="read"</c> (fetch one by relative
+/// path).</summary>
 public class SwarmDocsTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.SwarmDocs;

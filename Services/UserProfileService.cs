@@ -5,29 +5,10 @@ using SwarmUI.Accounts;
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
 /// <summary>Per-user profile and long-term memory storage. The LLM manages this blob via the
-/// <c>memory_read</c> / <c>memory_write</c> tools, and users can view/clear it via the
-/// settings UI.
-///
-/// <para><b>Security model — strict user isolation.</b> Profiles are stored as opaque JSON in
-/// SwarmUI's GenericData store under the calling user's ID. There is <b>no shared layer</b>,
-/// no admin layer, and no cross-user addressing. A user's profile is only ever accessible by
-/// that same user's session. This is deliberate — profiles contain sensitive personal data
-/// (real name, preferences, projects) and must be treated as private.</para>
-///
-/// <para>Schema:</para>
-/// <code>
-/// {
-///   "preferredName": "Kaleb",
-///   "pronouns": "he/him",
-///   "bio": "Software developer working on SwarmUI extensions",
-///   "currentWork": "LLM Assistant memory system",
-///   "preferences": ["Prefers Python", "Uses bash syntax on Windows"],
-///   "dislikes": ["Auto-generated git commits"],
-///   "facts": [ { "content": "Has a cat named Luna", "created": "2026-04-11T..." } ],
-///   "updated": "ISO8601"
-/// }
-/// </code>
-/// </summary>
+/// <c>memory_read</c> / <c>memory_write</c> tools, and users can view/clear it via the settings
+/// UI. Strict user isolation: no shared/admin layer, no cross-user addressing — a user's profile
+/// is only ever accessible by that same user's session. See <see cref="EmptyProfile"/> for the
+/// schema shape.</summary>
 public static class UserProfileService
 {
     public const string DataName = "llmassistant";
@@ -236,6 +217,8 @@ public static class UserProfileService
         };
     }
 
+    /// <summary>Blank profile shape, e.g. <c>{ preferredName: "Kaleb", pronouns: "he/him", bio: "...",
+    /// currentWork: "...", preferences: [...], dislikes: [...], facts: [{ content, created }], updated: "ISO8601" }</c>.</summary>
     private static JObject EmptyProfile() => new()
     {
         ["preferredName"] = "",

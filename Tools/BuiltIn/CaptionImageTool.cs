@@ -7,16 +7,9 @@ using SwarmUI.Utils;
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: runs a vision-model pass on a single image and returns a caption in
-/// one of several styles. Wraps OllamaVision's "9 analysis presets" into a single tool with a
-/// style enum — the LLM picks the appropriate style for what the user asked.
-///
-/// <para>Each style is a system prompt template stored locally in <see cref="StyleInstructions"/>;
-/// the actual generation goes through <see cref="LLMDispatcher.Generate"/> (no streaming, no
-/// thread persistence — captioning is a one-shot side query).</para>
-///
-/// <para>Image resolution delegates to <see cref="ImageInputResolver"/>, so the tool accepts
-/// the same input shapes as <c>generate_image</c>'s <c>initImage</c>: data URI, Output URL,
-/// HTTPS URL, or raw base64.</para></summary>
+/// one of several styles (see <see cref="StyleInstructions"/>). Image resolution delegates to
+/// <see cref="ImageInputResolver"/>, accepting the same input shapes as <c>generate_image</c>'s
+/// <c>initImage</c>: data URI, Output URL, HTTPS URL, or raw base64.</summary>
 public class CaptionImageTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.CaptionImage;

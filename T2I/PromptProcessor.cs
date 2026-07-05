@@ -10,21 +10,22 @@ namespace SwarmUI.Extensions.LLMAssistant.T2I;
 /// <summary>Processes <llmprompt> and <mpprompt> tags in T2I prompts.</summary>
 public static class PromptProcessor
 {
-    // Matches <llmprompt[OptionalInstructionId]:content> or <mpprompt[OptionalInstructionId]:content>
+    /// <summary>Matches <c>&lt;llmprompt[OptionalInstructionId]:content&gt;</c> or <c>&lt;mpprompt[OptionalInstructionId]:content&gt;</c>.</summary>
     private static readonly Regex TagRegex = new(
         @"<(?:llm|mp)prompt(?:\[([^\]]+)\])?:((?:[^<>]|<[^>]*>)+)>",
         RegexOptions.Compiled);
 
-    // Matches <llmresponse:N> or <mpresponse:N>
+    /// <summary>Matches <c>&lt;llmresponse:N&gt;</c> or <c>&lt;mpresponse:N&gt;</c>.</summary>
     private static readonly Regex ResponseRegex = new(
         @"<(?:llm|mp)response:(\d+)>",
         RegexOptions.Compiled);
 
-    // Matches <llmoriginal> or <mporiginal>
+    /// <summary>Matches <c>&lt;llmoriginal&gt;</c> or <c>&lt;mporiginal&gt;</c>.</summary>
     private static readonly Regex OriginalRegex = new(
         @"<(?:llm|mp)original>",
         RegexOptions.Compiled);
 
+    /// <summary>Process-lifetime cache of prompt-tag LLM responses, keyed by prompt+instruction.</summary>
     private static readonly PromptCacheService Cache = new();
 
     /// <summary>Processes LLM prompt tags in a T2I parameter input.</summary>

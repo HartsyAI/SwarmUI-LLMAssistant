@@ -92,7 +92,7 @@ public static class AssistantEndpoints
     public const string AvatarSubdir = "llm_assistant/avatars";
 
     /// <summary>Allowed extensions for avatar uploads, derived from the data-URI MIME type.</summary>
-    private static readonly Dictionary<string, string> _avatarMimeToExt = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> AvatarMimeToExt = new(StringComparer.OrdinalIgnoreCase)
     {
         ["image/png"]  = ".png",
         ["image/jpeg"] = ".jpg",
@@ -106,12 +106,8 @@ public static class AssistantEndpoints
     private const int MaxAvatarBytes = 2 * 1024 * 1024;
 
     /// <summary>Uploads an assistant avatar from a data URI to the user's per-user output
-    /// directory and returns the URL the UI should store in <c>assistant.avatar</c>.
-    /// <para>This replaces the old base64-inline approach where avatars bloated the assistant
-    /// JSON (and every settings merge) — instead we write a real file once and store just a URL.
-    /// The <c>/Output/{*Path}</c> route already enforces per-user auth via
-    /// <see cref="WebServer.ViewOutput"/>, so URL-based avatars are no less safe than embedded
-    /// ones — they're just smaller and cacheable.</para></summary>
+    /// directory and returns the URL the UI should store in <c>assistant.avatar</c>. Served via the
+    /// <c>/Output/{*Path}</c> route, which already enforces per-user auth (see <see cref="WebServer.ViewOutput"/>).</summary>
     public static async Task<JObject> LLMAssistantUploadAssistantAvatar(Session session, JObject rawInput)
     {
         if (session?.User is null)
@@ -142,7 +138,7 @@ public static class AssistantEndpoints
         string payload = imageData[(commaIdx + 1)..];
         string[] headerParts = header.Split(';');
         string mime = headerParts.Length > 0 ? headerParts[0] : "";
-        if (!_avatarMimeToExt.TryGetValue(mime, out string ext))
+        if (!AvatarMimeToExt.TryGetValue(mime, out string ext))
         {
             return new JObject { ["success"] = false, ["error"] = $"Unsupported image type: {mime}. Allowed: png, jpg, webp, gif." };
         }

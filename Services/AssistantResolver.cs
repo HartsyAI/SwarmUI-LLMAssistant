@@ -61,36 +61,18 @@ public class InstructionVariant
     public string Text = "";
 }
 
-/// <summary>Walks an assistant's <c>extends</c> chain and produces a flattened
-/// <see cref="ResolvedAssistant"/>. Result is cached per-user with TTL; invalidate on assistant
-/// or settings save. The persisted assistant shape is unchanged — inheritance is read-time only.
-///
-/// <para><b>Field merge rules</b> (parent → child, child always wins on direct conflict):</para>
-/// <list type="bullet">
-/// <item>Identity scalars (name, avatar, etc): last-write-wins.</item>
-/// <item>Parameters: shallow JObject merge, child keys override.</item>
-/// <item>EnabledToolIds: <b>union</b>. A child can only ADD tools — never silently remove a
-///   tool a parent enabled (security: preserves the principle of least surprise on inherited
-///   capabilities).</item>
-/// <item>ToolConfig: per-tool deep merge (child overrides specific keys without nuking the parent's siblings).</item>
-/// <item>Instructions: per-id; default text follows last-write-wins; variants are <b>unioned</b>
-///   (child can add per-model variants without losing the parent's). Same matcher in both: child wins.</item>
-/// </list>
-///
-/// <para><b>Inheritance shape</b>: an assistant's <c>extends</c> field can be the id of another
-/// assistant in the same merged settings (shared or personal). Cycles are detected; the chain is
-/// capped at <see cref="MaxDepth"/>.</para>
-///
-/// <para><b>Backwards compat</b>: an instruction stored as a plain string
-/// (<c>"chat": "you are..."</c>) is read as <c>{ default: "you are...", variants: [] }</c>.
-/// No migration required.</para></summary>
+/// <summary>Walks an assistant's <c>extends</c> chain (id of another assistant in the same
+/// merged settings; cycles detected, capped at <see cref="MaxDepth"/>) and produces a flattened
+/// <see cref="ResolvedAssistant"/> with child-wins merge rules (see per-field comments in
+/// <see cref="ApplyLayer"/>). Result is cached per-user with TTL; invalidate on assistant or
+/// settings save. The persisted assistant shape is unchanged — inheritance is read-time only.</summary>
 public static class AssistantResolver
 {
     public const int MaxDepth = 5;
 
     private static readonly TimeSpan TTL = TimeSpan.FromMinutes(5);
     private record CacheEntry(DateTime Expires, ResolvedAssistant Resolved);
-    private static readonly ConcurrentDictionary<string, CacheEntry> _cache = new();
+    private static readonly ConcurrentDictionary<string, CacheEntry> Cache = new();
 
     /// <summary>Drops the cached entry for one user. Call on any save that could affect what
     /// the user sees (assistant write, shared settings write, etc.).</summary>
@@ -101,16 +83,16 @@ public static class AssistantResolver
             return;
         }
         string prefix = user.UserID + "///";
-        foreach (string key in _cache.Keys.Where(k => k.StartsWith(prefix)).ToArray())
+        foreach (string key in Cache.Keys.Where(k => k.StartsWith(prefix)).ToArray())
         {
-            _cache.TryRemove(key, out _);
+            Cache.TryRemove(key, out _);
         }
     }
 
     /// <summary>Drops every cached entry. Call after a shared-layer write so all users see the change.</summary>
     public static void InvalidateAll()
     {
-        _cache.Clear();
+        Cache.Clear();
     }
 
     /// <summary>Resolves the given assistant id (defaults to the user's active one) into its
@@ -121,12 +103,12 @@ public static class AssistantResolver
         settings ??= SettingsService.GetMergedSettings(user);
         assistantId ??= AssistantService.GetActiveAssistantId(settings, user);
         string cacheKey = $"{user?.UserID ?? "<anon>"}///{assistantId}";
-        if (_cache.TryGetValue(cacheKey, out CacheEntry entry) && entry.Expires > DateTime.UtcNow)
+        if (Cache.TryGetValue(cacheKey, out CacheEntry entry) && entry.Expires > DateTime.UtcNow)
         {
             return entry.Resolved;
         }
         ResolvedAssistant resolved = BuildFromChain(assistantId, settings, user);
-        _cache[cacheKey] = new CacheEntry(DateTime.UtcNow + TTL, resolved);
+        Cache[cacheKey] = new CacheEntry(DateTime.UtcNow + TTL, resolved);
         return resolved;
     }
 

@@ -15,7 +15,7 @@ public static class ThreadStorageService
     /// <summary>Serializes read-modify-write append operations. <see cref="GetThread"/> parses a fresh copy
     /// each call, so two concurrent appends to the same thread (eg both compare lanes finishing at once)
     /// would lost-update — one reply would clobber the other. This makes the get→add→save atomic.</summary>
-    private static readonly object _appendLock = new();
+    private static readonly object AppendLock = new();
 
     /// <summary>Gets the thread index for a user.</summary>
     public static JArray GetThreadIndex(User user)
@@ -282,7 +282,7 @@ public static class ThreadStorageService
             return null;
         }
         // Atomic get→add→save so concurrent compare-lane appends don't lost-update each other.
-        lock (_appendLock)
+        lock (AppendLock)
         {
             JObject thread = GetThread(user, threadId);
             if (thread is null)

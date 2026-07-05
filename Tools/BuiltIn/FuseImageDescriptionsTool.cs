@@ -7,19 +7,13 @@ using SwarmUI.Utils;
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: captions multiple images with role-specific prompts (style / subject /
-/// setting / reference) and fuses the descriptions into a single image-generation prompt.
-///
-/// <para>Two LLM calls happen: one caption per image (parallel), then a single fusion call that
-/// merges them. Both reuse <see cref="LLMDispatcher"/> + the existing vision plumbing — no new
-/// generation infrastructure.</para>
-///
-/// <para>Use case: "use the style of image A, the character from image B, and the setting from
-/// image C" → tool returns one cohesive prompt the user can feed into generate_image.</para></summary>
+/// setting / reference) and fuses the descriptions into a single image-generation prompt. Used for
+/// "use the style of image A, the character from image B, and the setting from image C" requests.</summary>
 public class FuseImageDescriptionsTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FuseImageDescriptions;
 
-    private static readonly Dictionary<string, string> _rolePrompts = new()
+    private static readonly Dictionary<string, string> RolePrompts = new()
     {
         ["style"]     = "Describe ONLY the artistic style of this image — medium, technique, color treatment, line work, rendering. Skip the subject and setting. Output one or two sentences.",
         ["subject"]   = "Describe ONLY the main subject of this image — what/who is depicted, their pose, expression, clothing, identifying features. Skip the background and art style. Output one or two sentences.",
@@ -56,7 +50,7 @@ public class FuseImageDescriptionsTool : ToolHandler
             {
                 return new JObject { ["success"] = false, ["error"] = $"images[{i}].url is required" };
             }
-            if (!_rolePrompts.ContainsKey(role))
+            if (!RolePrompts.ContainsKey(role))
             {
                 return new JObject { ["success"] = false, ["error"] = $"images[{i}].role must be one of: style, subject, setting, reference (got '{role}')." };
             }
@@ -122,7 +116,7 @@ public class FuseImageDescriptionsTool : ToolHandler
     /// <summary>One vision call for one image with the role-specific instruction.</summary>
     private static async Task<string> CaptionRoleAsync(string role, ImageInputResolver.ResolvedImage img, ToolExecutionContext ctx)
     {
-        string systemPrompt = _rolePrompts[role];
+        string systemPrompt = RolePrompts[role];
         ExtendedLLMInput input = new()
         {
             Model = ctx.ModelId,

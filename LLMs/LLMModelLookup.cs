@@ -11,20 +11,22 @@ namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 /// (model rosters change infrequently; the model dropdown endpoint lists uncached for freshness).</para></summary>
 public static class LLMModelLookup
 {
+    /// <summary>How long a provider's cached model roster stays valid before it's re-listed.</summary>
     private static readonly TimeSpan TTL = TimeSpan.FromMinutes(5);
     /// <summary>Bound on a single provider's listing, so a cache-miss on the hot path (eg picking the
     /// owning provider for a send) can't stall on an unresponsive remote endpoint.</summary>
     private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(8);
+    /// <summary>One cached provider roster: the models it advertised and when that expires.</summary>
     private record ProviderEntry(DateTime Expires, List<LLMModelInfo> Models);
 
     /// <summary>Per-provider model roster cache, keyed by <see cref="ILLMProvider.Id"/>.</summary>
-    private static readonly ConcurrentDictionary<string, ProviderEntry> _providerCache = new();
+    private static readonly ConcurrentDictionary<string, ProviderEntry> ProviderCache = new();
 
     /// <summary>Returns the provider's models, cached. Never throws — a provider that fails to list
     /// (eg an unreachable remote endpoint) yields an empty list, so it can't block the hot path.</summary>
     private static async Task<List<LLMModelInfo>> GetModelsCached(ILLMProvider provider)
     {
-        if (_providerCache.TryGetValue(provider.Id, out ProviderEntry entry) && entry.Expires > DateTime.UtcNow)
+        if (ProviderCache.TryGetValue(provider.Id, out ProviderEntry entry) && entry.Expires > DateTime.UtcNow)
         {
             return entry.Models;
         }
@@ -39,7 +41,7 @@ public static class LLMModelLookup
             // Timeout or provider error — cache an empty roster (don't re-hammer for TTL).
             models = [];
         }
-        _providerCache[provider.Id] = new ProviderEntry(DateTime.UtcNow + TTL, models);
+        ProviderCache[provider.Id] = new ProviderEntry(DateTime.UtcNow + TTL, models);
         return models;
     }
 

@@ -177,8 +177,6 @@ public static class LLMStreamHelper
                 string formatted = ToolPromptService.FormatToolResult(call.Name, result);
                 input.Messages.Add(new LLMMessage() { Role = LLMRoles.User, Content = formatted });
             }
-            // Check for terminal completion (no tool calls in roundText) and persist before returning.
-            // (handled at top of loop on roundText.Count==0 path above)
         }
         // Hit max iterations without finishing
         PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations", clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);

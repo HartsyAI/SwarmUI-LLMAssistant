@@ -6,19 +6,9 @@ using SwarmUI.WebAPI;
 
 namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: lets the LLM design and save a new T2I preset for the calling user.
-/// <para>Delegates the actual save to SwarmUI's core <see cref="BasicAPIFeatures.AddNewPreset"/>
-/// API — no parallel persistence layer. The preset becomes immediately available for the next
-/// <c>generate_image</c> call (and for the user to use on the Generate tab).</para>
-///
-/// <para><b>Two perms apply:</b> the LLM-side <c>llm_tool_create_image_preset</c> gate (checked
-/// by <see cref="ToolExecutorService"/>) plus SwarmUI's core <c>manage_presets</c> permission
-/// (checked at the AddNewPreset endpoint level). A user without <c>manage_presets</c> will get a
-/// graceful error from this tool — they can still generate images, just not save presets.</para>
-///
-/// <para><b>Use case:</b> a user says "make me an anime preset that uses Pony XL with 30 steps
-/// and detailed sampler". The LLM picks reasonable values, saves the preset, and on the next
-/// "make me an anime image" the new preset is in the list.</para></summary>
+/// <summary>Built-in tool: lets the LLM design and save a new T2I preset for the calling user,
+/// via SwarmUI's core <see cref="BasicAPIFeatures.AddNewPreset"/> API. Requires SwarmUI's core
+/// <c>manage_presets</c> permission in addition to the LLM-side tool gate.</summary>
 public class CreateImagePresetTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.CreateImagePreset;

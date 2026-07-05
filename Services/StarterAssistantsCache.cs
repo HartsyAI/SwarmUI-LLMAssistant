@@ -10,23 +10,23 @@ namespace SwarmUI.Extensions.LLMAssistant.Services;
 /// return an empty array (the editor's blank-create flow still works).</summary>
 public static class StarterAssistantsCache
 {
-    private static JArray _cached;
-    private static readonly object _lock = new();
+    private static JArray Cached;
+    private static readonly object Lock = new();
 
     public static JArray GetTemplates()
     {
-        if (_cached is not null)
+        if (Cached is not null)
         {
-            return _cached;
+            return Cached;
         }
-        lock (_lock)
+        lock (Lock)
         {
-            if (_cached is not null)
+            if (Cached is not null)
             {
-                return _cached;
+                return Cached;
             }
-            _cached = LoadFromDisk();
-            return _cached;
+            Cached = LoadFromDisk();
+            return Cached;
         }
     }
 

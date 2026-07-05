@@ -15,12 +15,12 @@ namespace SwarmUI.Extensions.LLMAssistant.Services;
 /// </summary>
 public static class ToolRegistryService
 {
-    private static readonly ConcurrentDictionary<string, ToolHandler> _handlers = new();
+    private static readonly ConcurrentDictionary<string, ToolHandler> Handlers = new();
 
     /// <summary>Registers a handler instance. Called during extension OnInit for each built-in.</summary>
     public static void RegisterHandler(ToolHandler handler)
     {
-        _handlers[handler.HandlerId] = handler;
+        Handlers[handler.HandlerId] = handler;
         Logs.Debug($"[LLMAssistant] Registered tool handler: {handler.HandlerId}");
     }
 
@@ -31,7 +31,7 @@ public static class ToolRegistryService
         {
             return null;
         }
-        return _handlers.TryGetValue(handlerId, out ToolHandler handler) ? handler : null;
+        return Handlers.TryGetValue(handlerId, out ToolHandler handler) ? handler : null;
     }
 
     /// <summary>Returns all tools as a JArray for the UI. Includes the <c>_scope</c> marker.</summary>

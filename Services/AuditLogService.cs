@@ -7,29 +7,12 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.Services;
 
-/// <summary>Append-only JSONL audit trail for dangerous tool calls and shared-layer mutations.
-///
-/// <para>Two write paths:</para>
-/// <list type="bullet">
-/// <item><see cref="RecordToolCall"/> — logged for every invocation of a handler in the
-/// <see cref="AuditedHandlers"/> set, success or failure. Lets admins answer "who ran
-/// <c>shell_exec</c> last Tuesday?" without trawling app logs.</item>
-/// <item><see cref="RecordSharedWrite"/> — logged when the <c>shared</c> scope of settings /
-/// assistants / tools is mutated. Lets admins answer "who edited the shared <c>code-reviewer</c>
-/// assistant?".</item>
-/// </list>
-///
-/// <para>Storage: <c>{DataDir}/LLMAssistant/audit.log</c>, one JSON object per line, size-rotated
-/// at <see cref="MaxLogSizeBytes"/> with up to <see cref="MaxRotatedGenerations"/> kept. Rotation
-/// is best-effort — failures are logged and writing continues; we never block a user request on
-/// the audit write succeeding.</para>
-///
-/// <para>Opt-in: writes are no-ops unless the <c>LLMAssistantAuditLog</c> ServerSettings flag is
-/// true. Default false so single-user installs don't accrue a log they don't want.</para>
-///
-/// <para>Reads (admin viewer endpoint coming in a future sprint) — see <see cref="ReadRecent"/>
-/// which streams the tail of the current log file.</para>
-/// </summary>
+/// <summary>Append-only JSONL audit trail for dangerous tool calls (<see cref="RecordToolCall"/>)
+/// and shared-layer mutations (<see cref="RecordSharedWrite"/>). Stored at
+/// <c>{DataDir}/LLMAssistant/audit.log</c>, one JSON object per line, size-rotated at
+/// <see cref="MaxLogSizeBytes"/> keeping up to <see cref="MaxRotatedGenerations"/> generations.
+/// Opt-in via the <c>LLMAssistantAuditLog</c> ServerSettings flag (default off); all writes are
+/// best-effort and never block or fail the caller.</summary>
 public static class AuditLogService
 {
     public const string AuditFileName = "audit.log";
