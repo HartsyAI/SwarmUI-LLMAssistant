@@ -147,9 +147,23 @@ function llmaRenderMarkdown(text) {
     if (!LLMAState.markdownEnabled || !window.marked || !window.DOMPurify) {
         return `<p>${llmaEscapeHtml(text).replace(/\n/g, '<br>')}</p>`;
     }
+    let processed = text;
+    // Reasoning models (Qwen3, DeepSeek-R1, GLM thinking, …) wrap their chain-of-thought in <think>…</think>.
+    // Pull those out into a collapsible block so the visible answer isn't buried in raw reasoning. Handles an
+    // unclosed <think> mid-stream (everything after it is still "thinking" until the closing tag arrives).
+    const thinkBlocks = [];
+    processed = processed.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
+        thinkBlocks.push(inner.trim());
+        return `%%LLMA_THINK_${thinkBlocks.length - 1}%%`;
+    });
+    const openThink = processed.match(/<think>([\s\S]*)$/i);
+    if (openThink) {
+        thinkBlocks.push(openThink[1].trim());
+        processed = processed.slice(0, openThink.index) + `%%LLMA_THINK_${thinkBlocks.length - 1}%%`;
+    }
+
     // Protect LaTeX delimiters from markdown parsing
     const latexBlocks = [];
-    let processed = text;
     // Block math: $$...$$
     processed = processed.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
         latexBlocks.push({ tex, display: true });
@@ -175,7 +189,7 @@ function llmaRenderMarkdown(text) {
     //   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
     // KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
     // so dropping these does not affect their (app-generated) markup.
-    const clean   = window.DOMPurify.sanitize(rawHtml, {
+    const sanitizeConfig = {
         ALLOWED_TAGS: [
             'p','br','strong','em','del','code','pre','ul','ol','li',
             'h1','h2','h3','h4','h5','h6','blockquote','hr',
@@ -192,7 +206,8 @@ function llmaRenderMarkdown(text) {
             'text-anchor','dominant-baseline','font-size',
             'clip-path','aria-label','role','tabindex',
         ],
-    });
+    };
+    const clean   = window.DOMPurify.sanitize(rawHtml, sanitizeConfig);
 
     // Restore LaTeX placeholders
     let result = clean;
@@ -223,6 +238,15 @@ function llmaRenderMarkdown(text) {
             new RegExp(`(<p>)?%%LLMA_MERMAID_${i}%%(</p>)?`),
             placeholder
         );
+    }
+
+    // Restore <think> reasoning blocks as collapsible sections (app-generated shell; inner model text is
+    // markdown-rendered then sanitized with the same allowlist). Injected after the main sanitize pass, so
+    // the <details>/<summary> shell survives without widening the allowlist for model output.
+    for (let i = 0; i < thinkBlocks.length; i++) {
+        const innerHtml = window.DOMPurify.sanitize(window.marked.parse(thinkBlocks[i] || ''), sanitizeConfig);
+        const block = `<details class="llma-think"><summary class="llma-think-summary">💭 Reasoning</summary><div class="llma-think-body">${innerHtml}</div></details>`;
+        result = result.replace(new RegExp(`(<p>)?%%LLMA_THINK_${i}%%(</p>)?`), block);
     }
 
     // Add copy buttons to code blocks
@@ -516,6 +540,7 @@ const LLMA_DEFAULT_SETTINGS = {
         topP:               0.9,
         seed:               -1,
         maxContextMessages: 0,
+        imageMaxDimension:  1536,
         stream:             true,
     },
     ui: {

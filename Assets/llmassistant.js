@@ -204,12 +204,9 @@ async function llmaLoadModels(opts = {}) {
                     byProvider[prov].push(m);
                 }
                 const providerKeys = Object.keys(byProvider);
-                // Append a small 📷 to vision-capable model names so users can pick one for image input
-                // without having to send-and-discover. Unknown vision-capability stays badge-less.
-                const labelFor = (m) => {
-                    const base = llmaEscapeHtml(m.name || m.id);
-                    return llmaIsVisionModel(m) === true ? `${base} 📷` : base;
-                };
+                // Plain model name — no emoji/badges. Vision capability is surfaced by the paperclip
+                // enable/disable and the Capabilities panel, not in the option text.
+                const labelFor = (m) => llmaEscapeHtml(m.name || m.id);
                 if (providerKeys.length === 1) {
                     sel.innerHTML = models.map(m =>
                         `<option value="${llmaEscapeHtml(m.id)}">${labelFor(m)}</option>`
@@ -1298,6 +1295,12 @@ function llmaSetupSettingsModal() {
             input.addEventListener('input', () => { span.textContent = parseFloat(input.value).toFixed(2).replace(/\.?0+$/, ''); });
         }
     }
+    // Vision image-size slider shows a px suffix (integer).
+    const imgMax = document.getElementById('llma-s-image-max');
+    const imgMaxVal = document.getElementById('llma-s-image-max-val');
+    if (imgMax && imgMaxVal) {
+        imgMax.addEventListener('input', () => { imgMaxVal.textContent = `${imgMax.value}px`; });
+    }
 
     // Assistant editor buttons
     document.getElementById('llma-create-asst-btn')?.addEventListener('click', llmaOpenCreateEditor);
@@ -1384,6 +1387,7 @@ function llmaReadSettingsFromModal() {
     const seedRaw        = parseInt(document.getElementById('llma-s-seed')?.value, 10);
     g.seed               = Number.isFinite(seedRaw) ? seedRaw : -1;
     g.maxContextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)    || 0;
+    g.imageMaxDimension  = parseInt(document.getElementById('llma-s-image-max')?.value, 10)  || 1536;
     g.stream             = document.getElementById('llma-s-stream')?.checked ?? true;
     LLMAState.settings.parameters = g;
 
@@ -1429,6 +1433,8 @@ function llmaWriteSettingsToModal() {
     llmaSetEl('llma-s-top-p-val',           g.topP               ?? 0.9, 'text');
     llmaSetEl('llma-s-seed',                g.seed               ?? -1);
     llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
+    llmaSetEl('llma-s-image-max',           g.imageMaxDimension  ?? 1536);
+    llmaSetEl('llma-s-image-max-val',       `${g.imageMaxDimension ?? 1536}px`, 'text');
     llmaSetElChecked('llma-s-stream',       g.stream             !== false);
 
     const u = LLMAState.settings?.ui || LLMA_DEFAULT_SETTINGS.ui;

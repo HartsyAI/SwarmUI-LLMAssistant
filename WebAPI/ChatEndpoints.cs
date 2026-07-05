@@ -42,8 +42,12 @@ public static class ChatEndpoints
         }
         try
         {
+            // Respect the user's "Vision Image Max Size" setting so uploads are downscaled before storage,
+            // trimming vision-token cost on remote APIs. Falls back to the service default when unset.
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            int maxDim = (settings["parameters"] as JObject)?["imageMaxDimension"]?.Value<int>() ?? MediaStorageService.MaxDimension;
             MediaStorageService.StoredImage stored = await MediaStorageService.SaveDataUriAsync(
-                session.User, threadId, messageId, imageData);
+                session.User, threadId, messageId, imageData, maxDimension: maxDim);
             if (stored is null)
             {
                 return new JObject { ["success"] = false, ["error"] = "Malformed data URI." };

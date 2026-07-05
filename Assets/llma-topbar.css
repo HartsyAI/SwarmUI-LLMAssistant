@@ -146,7 +146,7 @@
     padding: 8px 30px 8px 12px;
     border-radius: 8px;
     border: 1px solid var(--light-border);
-    background: var(--background-panel-subtle);
+    background: var(--background-soft);   /* SOLID — --background-panel-subtle is ~0.03 alpha (see-through) */
     color: var(--text);
     outline: none;
     cursor: pointer;
@@ -188,46 +188,50 @@
     align-items: center;
     font-size: 14px;
     border-radius: 8px;
-    border-color: var(--light-border);
-    background: var(--background-panel-subtle);
+    border-color: var(--light-border) !important;
+    background: var(--background-soft) !important;   /* SOLID */
 }
-.llma-topbar .select2-container--bootstrap-5 .select2-selection__rendered { color: var(--text); }
+.llma-topbar .select2-container--bootstrap-5 .select2-selection__rendered { color: var(--text) !important; }
+/* Themed dropdown caret + placeholder so the closed pill matches the dark UI. */
+.llma-topbar .select2-container--bootstrap-5 .select2-selection__arrow b { border-color: var(--text-soft) transparent transparent transparent !important; }
+.llma-topbar .select2-container--bootstrap-5 .select2-selection__placeholder { color: var(--text-soft) !important; }
 /* The open dropdown panel is appended to <body>, outside .llma-topbar — theme it via the tagged class
    (dropdownCssClass) so the list, search box, and options use SwarmUI's dark theme vars, not select2's
-   default light styling (which is what looked "borked"). */
+   default light styling. !important is required: the bootstrap-5 select2 theme uses selectors of equal
+   specificity and loads after this file, so plain rules lose (that's why the search box stayed white). */
 .select2-dropdown.llma-select2-dropdown,
 .llma-select2-dropdown .select2-dropdown {
-    background: var(--background-panel-subtle);
-    border: 1px solid var(--light-border);
-    color: var(--text);
+    background: var(--background-soft) !important;   /* SOLID — not --background-panel-subtle (~0.03 alpha) */
+    border: 1px solid var(--light-border) !important;
+    color: var(--text) !important;
 }
 .llma-select2-dropdown .select2-results__option {
-    background: var(--background-panel-subtle);
-    color: var(--text);
+    background: var(--background-soft) !important;
+    color: var(--text) !important;
 }
 .llma-select2-dropdown .select2-results__option--highlighted,
 .llma-select2-dropdown .select2-results__option--highlighted[aria-selected] {
-    background: var(--emphasis);
-    color: var(--button-text, #fff);
+    background: var(--emphasis) !important;
+    color: #fff !important;
 }
 .llma-select2-dropdown .select2-results__option[aria-selected="true"],
 .llma-select2-dropdown .select2-results__option--selected {
-    background: color-mix(in srgb, var(--emphasis) 22%, transparent);
-    color: var(--text);
+    background: color-mix(in srgb, var(--emphasis) 22%, var(--background-soft)) !important;
+    color: var(--text) !important;
 }
 .llma-select2-dropdown .select2-results__group {
-    color: var(--text-soft);
+    color: var(--text-soft) !important;
     font-weight: 600;
 }
 .llma-select2-dropdown .select2-search--dropdown .select2-search__field {
-    background: var(--background);
-    border: 1px solid var(--light-border);
-    color: var(--text);
+    background: var(--background) !important;
+    border: 1px solid var(--light-border) !important;
+    color: var(--text) !important;
     border-radius: 6px;
     outline: none;
 }
 .llma-select2-dropdown .select2-search--dropdown .select2-search__field:focus {
-    border-color: var(--emphasis);
+    border-color: var(--emphasis) !important;
 }
 /* Mirror the "no model selected" error outline onto the select2 box (the native select is hidden). */
 .llma-model-select.error + .select2-container--bootstrap-5 .select2-selection {

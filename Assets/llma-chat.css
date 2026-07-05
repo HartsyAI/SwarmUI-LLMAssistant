@@ -941,3 +941,75 @@ mark.llma-find-mark.active {
     color: var(--text);
     opacity: 0.5;
 }
+
+/* Reasoning (<think>) collapsible block for thinking models (Qwen3, DeepSeek-R1, GLM thinking, …). */
+.llma-think {
+    margin: 6px 0 10px;
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--emphasis) 7%, transparent);
+    overflow: hidden;
+}
+.llma-think-summary {
+    cursor: pointer;
+    user-select: none;
+    padding: 6px 10px;
+    font-size: 0.85em;
+    color: var(--text-soft);
+    list-style: none;
+}
+.llma-think-summary::-webkit-details-marker { display: none; }
+.llma-think-summary::before {
+    content: '▸';
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s ease;
+}
+.llma-think[open] > .llma-think-summary::before { transform: rotate(90deg); }
+.llma-think-body {
+    padding: 2px 12px 8px;
+    font-size: 0.9em;
+    color: var(--text-soft);
+    border-top: 1px solid var(--light-border);
+    opacity: 0.9;
+}
+.llma-think-body > *:first-child { margin-top: 6px; }
+
+/* Large-image nudge under the attachment preview → points at the Vision Image Max Size setting. */
+.llma-attach-warn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    padding: 6px 10px;
+    font-size: 0.82em;
+    line-height: 1.35;
+    color: var(--text);
+    background: color-mix(in srgb, var(--warning, #e0a800) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #e0a800) 40%, transparent);
+    border-radius: 8px;
+}
+.llma-attach-warn::before { content: '⚠'; opacity: 0.9; }
+.llma-attach-warn span { flex: 1; min-width: 120px; }
+.llma-attach-warn-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--emphasis);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.llma-attach-warn-dismiss {
+    background: none;
+    border: none;
+    padding: 0 2px;
+    color: var(--text-soft);
+    font-size: 1.1em;
+    line-height: 1;
+    cursor: pointer;
+}
+.llma-attach-warn-dismiss:hover { color: var(--text); }

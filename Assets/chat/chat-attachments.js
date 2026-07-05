@@ -60,6 +60,11 @@
         img.src = dataUrl;
         preview.appendChild(img);
 
+        // Nudge if the image is big enough that it'll cost real vision tokens. It gets downscaled to the
+        // "Vision Image Max Size" setting on upload, so only warn when that cap is still large — i.e. when
+        // lowering it would actually save tokens. Otherwise stay quiet.
+        llmaMaybeWarnLargeImage(dataUrl, preview);
+
         // "Caption ▾" opens an inline style picker that runs caption_image directly via the tool
         // execute endpoint — no chat round-trip, no thread persistence.
         const captionWrap = document.createElement('div');
@@ -74,6 +79,43 @@
             }
         }));
         preview.appendChild(llmaCreateActionBtn('×', () => llmaClearAttachment(), 'llma-attachment-remove'));
+    }
+
+    /**
+     * If the attached image is large enough to cost meaningful vision tokens, append a dismissible hint
+     * that points at the "Vision Image Max Size" setting. Measures the source off-DOM; only warns when the
+     * effective sent size (min of source long-edge and the current cap) still exceeds LLMA_LARGE_IMAGE_PX —
+     * so a user who already lowered the cap, or a small image, sees nothing. File-private.
+     */
+    const LLMA_LARGE_IMAGE_PX = 1024;
+    function llmaMaybeWarnLargeImage(dataUrl, preview) {
+        const probe = new Image();
+        probe.onload = () => {
+            const longEdge = Math.max(probe.naturalWidth, probe.naturalHeight);
+            const cap = parseInt(LLMAState.settings?.parameters?.imageMaxDimension, 10) || 1536;
+            const effective = Math.min(longEdge, cap);
+            if (effective <= LLMA_LARGE_IMAGE_PX) return;
+            // Don't stack duplicates if the preview re-renders.
+            if (preview.querySelector('.llma-attach-warn')) return;
+            const warn = document.createElement('div');
+            warn.className = 'llma-attach-warn';
+            const msg = document.createElement('span');
+            msg.textContent = `Large image (${probe.naturalWidth}×${probe.naturalHeight}, sent at ~${effective}px). Vision models bill by resolution — lower it to save tokens.`;
+            const settingsLink = document.createElement('button');
+            settingsLink.type = 'button';
+            settingsLink.className = 'llma-attach-warn-link';
+            settingsLink.textContent = 'Adjust in Settings';
+            settingsLink.addEventListener('click', () => { if (typeof llmaOpenSettings === 'function') llmaOpenSettings(); });
+            const dismiss = document.createElement('button');
+            dismiss.type = 'button';
+            dismiss.className = 'llma-attach-warn-dismiss';
+            dismiss.title = 'Dismiss';
+            dismiss.textContent = '×';
+            dismiss.addEventListener('click', () => warn.remove());
+            warn.append(msg, settingsLink, dismiss);
+            preview.appendChild(warn);
+        };
+        probe.src = dataUrl;
     }
 
     /**

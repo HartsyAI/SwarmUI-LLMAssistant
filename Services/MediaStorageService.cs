@@ -70,8 +70,10 @@ public static class MediaStorageService
     /// <summary>Decodes a data URI, optionally resizes if larger than <see cref="MaxDimension"/>
     /// on the long edge, and writes to disk. Returns null if the input is malformed; throws on
     /// IO errors so the caller can surface a clean error.</summary>
-    public static async Task<StoredImage> SaveDataUriAsync(User user, string threadId, string messageId, string dataUri, CancellationToken ct = default)
+    public static async Task<StoredImage> SaveDataUriAsync(User user, string threadId, string messageId, string dataUri, CancellationToken ct = default, int maxDimension = MaxDimension)
     {
+        // Clamp the caller-supplied cap into a sane range; 0/negative → the default.
+        int cap = maxDimension <= 0 ? MaxDimension : Math.Clamp(maxDimension, 256, 2048);
         if (user is null || string.IsNullOrEmpty(dataUri))
         {
             return null;
@@ -106,11 +108,11 @@ public static class MediaStorageService
         {
             throw new InvalidOperationException($"Image too large ({img.RawData.Length} bytes; max {MaxBytes}).");
         }
-        // Cap to MaxDimension on the long edge, preserving aspect ratio. No-op if already small.
+        // Cap to the configured long edge, preserving aspect ratio. No-op if already small.
         (int origW, int origH) = img.GetResolution();
-        if (origW > MaxDimension || origH > MaxDimension)
+        if (origW > cap || origH > cap)
         {
-            double scale = (double)MaxDimension / Math.Max(origW, origH);
+            double scale = (double)cap / Math.Max(origW, origH);
             int newW = Math.Max(1, (int)Math.Round(origW * scale));
             int newH = Math.Max(1, (int)Math.Round(origH * scale));
             img = img.Resize(newW, newH);

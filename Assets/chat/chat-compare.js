@@ -227,8 +227,7 @@
         const optionFor = (m) => {
             const dev = (m.metadata && m.metadata.device) ? m.metadata.device : '';
             const base = llmaEscapeHtml(m.name || m.id);
-            const vis = (typeof llmaIsVisionModel === 'function' && llmaIsVisionModel(m) === true) ? ' 📷' : '';
-            const label = dev ? `${base} · ${dev}${vis}` : `${base}${vis}`;
+            const label = dev ? `${base} · ${dev}` : base;
             return `<option value="${llmaEscapeHtml(m.id)}" data-device="${llmaEscapeHtml(dev || 'cloud')}">${label}</option>`;
         };
         const provKeys = Object.keys(byProvider);

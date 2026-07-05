@@ -15,8 +15,8 @@ public class AnthropicLLMProvider : LLMProviderBackend
 {
     public class AnthropicLLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("The default model to use when a request doesn't specify one.\nFor example: claude-sonnet-4-20250514")]
-        public string DefaultModel = "claude-sonnet-4-20250514";
+        [ConfigComment("The default model to use when a request doesn't specify one.\nFor example: claude-opus-4-8")]
+        public string DefaultModel = "claude-opus-4-8";
 
         [ConfigComment("Maximum timeout in seconds for API requests.")]
         public int TimeoutSeconds = 120;
@@ -92,15 +92,35 @@ public class AnthropicLLMProvider : LLMProviderBackend
         {
             body["system"] = systemPrompt;
         }
-        if (input.Temperature >= 0)
+        // temperature / top_p were removed on the current flagship generation (Opus 4.7+, Sonnet 5, Fable 5)
+        // and return a 400 if sent — only forward them for models that still accept them. Even where accepted,
+        // Claude 4+ rejects specifying BOTH ("temperature and top_p cannot both be specified") — send only one.
+        if (AcceptsSamplingParams(model))
         {
-            body["temperature"] = input.Temperature;
-        }
-        if (input.TopP >= 0 && input.TopP < 1.0)
-        {
-            body["top_p"] = input.TopP;
+            if (input.Temperature >= 0)
+            {
+                // Anthropic's temperature range is 0–1.0 (the UI slider goes to 2, OpenAI-style) — clamp.
+                body["temperature"] = Math.Min(input.Temperature, 1.0);
+            }
+            else if (input.TopP >= 0 && input.TopP < 1.0)
+            {
+                body["top_p"] = input.TopP;
+            }
         }
         return body;
+    }
+
+    /// <summary>Whether a model accepts the <c>temperature</c>/<c>top_p</c> sampling params. Anthropic
+    /// removed them on the current flagship generation (Opus 4.7/4.8, Sonnet 5, Fable 5) — sending them
+    /// there returns a 400. Allowlist of older families that still accept them; unknown/new models default
+    /// to OFF so a request never fails on an unrecognized model.</summary>
+    private static bool AcceptsSamplingParams(string model)
+    {
+        string m = (model ?? "").ToLowerInvariant();
+        return m.Contains("claude-3")       // Claude 3.x (opus 3, sonnet 3.5, haiku 3/3.5)
+            || m.Contains("opus-4-0") || m.Contains("opus-4-1") || m.Contains("opus-4-5") || m.Contains("opus-4-6")
+            || m.Contains("sonnet-4-0") || m.Contains("sonnet-4-5") || m.Contains("sonnet-4-6")
+            || m.Contains("haiku-4-5");
     }
 
     /// <summary>Builds the Anthropic-shaped <c>content</c> for one message: a plain string when
@@ -214,16 +234,16 @@ public class AnthropicLLMProvider : LLMProviderBackend
         }
     }
 
-    /// <summary>Well-known Anthropic model definitions. Updated as new models release.</summary>
+    /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases —
+    /// never date-suffixed IDs. Older Claude 3.x / 4.0 models were retired and 404 if requested.</summary>
     public static readonly List<(string Id, string Name, int ContextLength)> KnownModels =
     [
-        ("claude-opus-4-20250514", "Claude Opus 4", 200000),
-        ("claude-sonnet-4-20250514", "Claude Sonnet 4", 200000),
-        ("claude-haiku-4-20250514", "Claude Haiku 4", 200000),
-        ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet", 200000),
-        ("claude-3-5-haiku-20241022", "Claude 3.5 Haiku", 200000),
-        ("claude-3-opus-20240229", "Claude 3 Opus", 200000),
-        ("claude-3-haiku-20240307", "Claude 3 Haiku", 200000)
+        ("claude-opus-4-8", "Claude Opus 4.8", 1000000),
+        ("claude-opus-4-7", "Claude Opus 4.7", 1000000),
+        ("claude-opus-4-6", "Claude Opus 4.6", 1000000),
+        ("claude-sonnet-5", "Claude Sonnet 5", 1000000),
+        ("claude-sonnet-4-6", "Claude Sonnet 4.6", 1000000),
+        ("claude-haiku-4-5", "Claude Haiku 4.5", 200000)
     ];
 
     /// <inheritdoc/>

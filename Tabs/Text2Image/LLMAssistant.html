@@ -288,6 +288,14 @@
                             <label for="llma-s-stream">Stream</label>
                             <input type="checkbox" id="llma-s-stream" checked>
                         </div>
+                        <div class="llma-setting-row">
+                            <label for="llma-s-image-max">Vision Image Max Size</label>
+                            <div class="llma-range-wrap">
+                                <input type="range" id="llma-s-image-max" min="256" max="2048" step="128" value="1536">
+                                <span class="llma-range-val" id="llma-s-image-max-val">1536px</span>
+                            </div>
+                            <span class="llma-setting-hint">Lower = fewer vision tokens</span>
+                        </div>
                     </div>
                     <div class="llma-setting-section">
                         <h4>Interface</h4>

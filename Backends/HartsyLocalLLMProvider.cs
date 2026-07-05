@@ -12,6 +12,11 @@ using HartsyInference.Cuda;
 using HartsyInference.LLM.ChatTemplates;
 using HartsyInference.LLM.Generation;
 using HartsyInference.LLM.Sampling;
+using HartsyInference.Core.Tensors;
+using HartsyInference.LLM.Multimodal;
+using SwarmUI.Extensions.LLMAssistant.Services;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace SwarmUI.Extensions.LLMAssistant.Backends;
 
@@ -59,7 +64,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         public GgufLanguageModel Model;
         public TextGenerationPipeline Pipeline;
         public string LoadedPath;
+
+        // Multimodal (vision) state, loaded alongside the text model when a sidecar mmproj is found.
+        // Exactly one of these is non-null on a vision model; both null on a plain text model.
+        public IVlmImageEncoder SpliceVision;    // gemma3 / qwen2-vl / qwen2.5-vl / minicpm-v / internvl / llava / smolvlm
+        public MllamaVisionEncoder MllamaVision; // llama-3.2-vision (cross-attention, separate generator)
+        public string VisionPath;                // the loaded mmproj path (null = no vision)
     }
+
+    /// <summary>OpenAI CLIP normalization used by the mllama (Llama-3.2-Vision) image processor. The splice
+    /// encoders expose their own mean/std via <see cref="IVlmImageEncoder"/>; mllama does not, so it's fixed here.</summary>
+    private static readonly float[] MllamaMean = [0.48145466f, 0.4578275f, 0.40821073f];
+    private static readonly float[] MllamaStd = [0.26862954f, 0.26130258f, 0.27577711f];
 
     /// <summary>Loaded state per device key ("cpu", "cuda:0", …). Created lazily on first request for a
     /// device. Each holds at most one model (swapped when a different model is asked of that device).</summary>
@@ -209,14 +225,92 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         UnloadSlot(slot);
         slot.Backend ??= CreateBackendFor(deviceKey);
-        slot.Model = GgufLanguageModel.Load(path, Settings.LowVramQuant);
+        bool isCpu = slot.Backend is CpuBackend;
+        slot.Model = GgufLanguageModel.Load(path, Settings.LowVramQuant, dequantizeToF32: isCpu);
         if (slot.Backend is CudaBackend)
         {
             slot.Backend.PreloadWeights(slot.Model.Transformer.EnumerateWeights());
         }
         slot.Pipeline = new TextGenerationPipeline(slot.Model.Transformer, slot.Model.Tokenizer, slot.Backend, slot.Model.Template);
         slot.LoadedPath = path;
-        Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF model '{Path.GetFileName(path)}' ({slot.Model.Architecture}) on {deviceKey}.");
+        LoadVisionInto(slot, path);
+        Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF model '{Path.GetFileName(path)}' ({slot.Model.Architecture}) on {deviceKey}"
+            + (slot.VisionPath is not null ? $" + vision '{Path.GetFileName(slot.VisionPath)}'." : "."));
+    }
+
+    /// <summary>Pairs the just-loaded text model with a sidecar mmproj GGUF (if one sits next to it) and loads
+    /// the matching vision encoder: the cross-attention <see cref="MllamaVisionEncoder"/> for Llama-3.2-Vision,
+    /// or a splice <see cref="IVlmImageEncoder"/> (Qwen2.x-VL vs SigLIP-family) for everyone else. No mmproj →
+    /// the model stays text-only. Caller holds <c>slot.Lock</c>.</summary>
+    private static void LoadVisionInto(DeviceSlot slot, string textPath)
+    {
+        string mmproj = FindMmproj(textPath);
+        if (mmproj is null)
+        {
+            return;
+        }
+        try
+        {
+            bool isMllama = slot.Model.Architecture == "mllama" || (slot.Model.Config.CrossAttnLayers?.Count ?? 0) > 0;
+            if (isMllama)
+            {
+                slot.MllamaVision = MllamaVisionEncoder.Load(mmproj);
+            }
+            else
+            {
+                slot.SpliceVision = IsQwen25Vl(mmproj) ? Qwen25VlEncoder.Load(mmproj) : SiglipVlmEncoder.Load(mmproj);
+            }
+            slot.VisionPath = mmproj;
+        }
+        catch (Exception ex)
+        {
+            // A bad/unsupported mmproj must not break text generation — degrade to text-only.
+            slot.SpliceVision = null;
+            slot.MllamaVision = null;
+            slot.VisionPath = null;
+            Logs.Warning($"[HartsyLocalLLMProvider] Failed to load vision encoder '{Path.GetFileName(mmproj)}': {ex.Message}. Model stays text-only.");
+        }
+    }
+
+    /// <summary>Finds a sidecar mmproj GGUF next to a text model (any *.gguf in the same folder whose name
+    /// contains "mmproj"), preferring an f16 projector when several are present. Null if none.</summary>
+    private static string FindMmproj(string textPath)
+    {
+        string dir = Path.GetDirectoryName(textPath);
+        if (string.IsNullOrEmpty(dir))
+        {
+            return null;
+        }
+        string best = null;
+        foreach (string f in Directory.EnumerateFiles(dir, "*.gguf"))
+        {
+            string name = Path.GetFileName(f);
+            if (!name.Contains("mmproj", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (best is null || name.Contains("f16", StringComparison.OrdinalIgnoreCase))
+            {
+                best = f;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>True if the mmproj is a Qwen2/Qwen2.5-VL merger — detected via the <c>clip.projector_type</c>
+    /// metadata (robust to arbitrary file names), falling back to the filename. Mirrors the engine's VlmRunner.</summary>
+    private static bool IsQwen25Vl(string mmprojPath)
+    {
+        try
+        {
+            using HartsyInference.ModelHandler.Gguf.GgufLoader probe = new();
+            probe.Load(mmprojPath);
+            string proj = (probe.Metadata.GetString("clip.projector_type") ?? "").ToLowerInvariant();
+            if (proj.Contains("qwen")) { return true; }
+            if (proj.Length > 0) { return false; }
+        }
+        catch { /* fall through to the filename heuristic */ }
+        return Path.GetFileName(mmprojPath).Replace(".", "").Replace("-", "").Contains("qwen2", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Frees the slot's loaded model (keeps its backend/device alive). Caller holds <c>slot.Lock</c>.</summary>
@@ -228,6 +322,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         // cast/activation/pool memory (and depends on Tensor reference identity), which leaked several GB per
         // model swap → VRAM climbed to ~10 GB and OOM'd after a few models. FreeAllDeviceMemory = EvictAll +
         // TrimPool reclaims all of it and returns the stream-ordered pool reservations to the driver.
+        // Dispose the vision encoders first so their weights are gone before the device-wide free.
+        slot.SpliceVision?.Dispose();
+        slot.SpliceVision = null;
+        slot.MllamaVision?.Dispose();
+        slot.MllamaVision = null;
+        slot.VisionPath = null;
         if (slot.Model is not null && slot.Backend is CudaBackend cuda)
         {
             try { cuda.FreeAllDeviceMemory(); }
@@ -242,18 +342,34 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <summary>Builds the engine generation request from the extension's input. Per-request controls
     /// (temperature/top-p/seed/max-tokens) come from the chat UI; model-tuning knobs (top-k / repetition
     /// penalty / min-p) come from this backend's settings.</summary>
+    private SamplingOptions BuildSampling(ExtendedLLMInput input) => SamplingOptions.Default with
+    {
+        Temperature = (float)Math.Max(0, input.Temperature),
+        TopP = (float)(input.TopP > 0 ? input.TopP : 1.0),
+        TopK = Math.Max(0, Settings.TopK),
+        MinP = (float)Math.Max(0, Settings.MinP),
+        RepetitionPenalty = (float)(Settings.RepetitionPenalty > 0 ? Settings.RepetitionPenalty : 1.0),
+        Seed = input.Seed >= 0 ? (ulong)input.Seed : 0,
+        Greedy = input.Temperature <= 0
+    };
+
+    /// <summary>Sampling for the vision path. VLMs (especially small quantized ones) are calibrated for a gentle
+    /// sampler; forcing the text-model's aggressive Top-K (40) makes weak VLMs hallucinate. So we keep the user's
+    /// temperature/top-p/seed but drop Top-K and floor the temperature to the engine's VLM-tuned default (0.4).</summary>
+    private SamplingOptions BuildVisionSampling(ExtendedLLMInput input) => SamplingOptions.Default with
+    {
+        Temperature = input.Temperature <= 0 ? 0f : (float)Math.Max(0.4, input.Temperature),
+        TopP = (float)(input.TopP > 0 ? input.TopP : 0.9),
+        TopK = 0,
+        MinP = (float)Math.Max(0, Settings.MinP),
+        RepetitionPenalty = (float)(Settings.RepetitionPenalty > 0 ? Settings.RepetitionPenalty : 1.0),
+        Seed = input.Seed >= 0 ? (ulong)input.Seed : 1,
+        Greedy = input.Temperature <= 0
+    };
+
     private GenerationRequest BuildRequest(ExtendedLLMInput input)
     {
-        SamplingOptions sampling = SamplingOptions.Default with
-        {
-            Temperature = (float)Math.Max(0, input.Temperature),
-            TopP = (float)(input.TopP > 0 ? input.TopP : 1.0),
-            TopK = Math.Max(0, Settings.TopK),
-            MinP = (float)Math.Max(0, Settings.MinP),
-            RepetitionPenalty = (float)(Settings.RepetitionPenalty > 0 ? Settings.RepetitionPenalty : 1.0),
-            Seed = input.Seed >= 0 ? (ulong)input.Seed : 0,
-            Greedy = input.Temperature <= 0
-        };
+        SamplingOptions sampling = BuildSampling(input);
         GenerationRequest request = new()
         {
             MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 1024,
@@ -271,6 +387,94 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return request;
     }
 
+    /// <summary>The most recent user-message image attachment in the request, or null. The VLM generators take a
+    /// single image, so the latest one wins.</summary>
+    private static LLMMediaAttachment TryGetImage(ExtendedLLMInput input)
+    {
+        if (input.Messages is null)
+        {
+            return null;
+        }
+        for (int i = input.Messages.Count - 1; i >= 0; i--)
+        {
+            LLMMessage m = input.Messages[i];
+            if (m.Role == LLMRoles.User && m.Media is not null)
+            {
+                foreach (LLMMediaAttachment a in m.Media)
+                {
+                    if (a is not null && !string.IsNullOrEmpty(a.Data))
+                    {
+                        return a;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Runs the vision-language generator: resolves the attachment to bytes, decodes + normalizes to the
+    /// encoder's pixel tensor, and generates an answer to the user's question. The engine's multimodal path has
+    /// no token callback, so the reply arrives as one block (emitted as a single chunk by the caller).</summary>
+    private async Task<string> GenerateVision(DeviceSlot slot, ExtendedLLMInput input, LLMMediaAttachment att, CancellationToken ct)
+    {
+        string reference = att.Type == "base64"
+            ? $"data:{(string.IsNullOrEmpty(att.MediaType) ? "image/png" : att.MediaType)};base64,{att.Data}"
+            : att.Data;
+        ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(reference, ct);
+        string question = VisionQuestion(input);
+        SamplingOptions sampling = BuildVisionSampling(input);
+        int maxTokens = input.MaxTokens > 0 ? input.MaxTokens : 512;
+        return await Task.Run(() =>
+        {
+            if (slot.MllamaVision is not null)
+            {
+                using Tensor px = BuildPixels(img.Bytes, slot.MllamaVision.ImageSize, MllamaMean, MllamaStd);
+                return new MllamaGenerator(slot.Model, slot.MllamaVision, slot.Backend).Generate(px, question, maxTokens, sampling);
+            }
+            IVlmImageEncoder v = slot.SpliceVision;
+            using Tensor pix = BuildPixels(img.Bytes, v.ImageSize, v.ImageMean, v.ImageStd);
+            return new MultimodalGenerator(slot.Model, v, slot.Backend).Generate(pix, question, maxTokens, sampling);
+        }, ct);
+    }
+
+    /// <summary>The question to ask the VLM: the latest user text, or a sensible default when the turn was just an
+    /// image with no words.</summary>
+    private static string VisionQuestion(ExtendedLLMInput input)
+    {
+        string q = input.UserMessage;
+        if (string.IsNullOrWhiteSpace(q))
+        {
+            q = input.Messages?.LastOrDefault(m => m.Role == LLMRoles.User)?.Content;
+        }
+        q = StripImageAnnotations(q);
+        return string.IsNullOrWhiteSpace(q) ? "Describe this image in detail." : q;
+    }
+
+    /// <summary>Removes the "[Attached image URL: …]" lines the chat layer appends to a user message (for
+    /// tool-chaining). Those file paths must never reach the VLM's question — feeding a path into the vision
+    /// prompt badly degrades small models (the image is already delivered as pixels, not as a URL).</summary>
+    private static string StripImageAnnotations(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+        IEnumerable<string> kept = text.Split('\n')
+            .Where(l => !l.TrimStart().StartsWith("[Attached image URL:", StringComparison.OrdinalIgnoreCase));
+        return string.Join('\n', kept).Trim();
+    }
+
+    /// <summary>Decodes image bytes (PNG/JPEG/WebP/…) to interleaved RGB and normalizes to the encoder's
+    /// [1,3,size,size] pixel tensor via the engine preprocessor (which bilinear-resizes to size).</summary>
+    private static Tensor BuildPixels(byte[] bytes, int size, float[] mean, float[] std)
+    {
+        using Image<Rgb24> img = SixLabors.ImageSharp.Image.Load<Rgb24>(bytes);
+        int w = img.Width, h = img.Height;
+        byte[] rgb = new byte[w * h * 3];
+        img.CopyPixelDataTo(rgb);
+        return VlmImagePreprocessor.Preprocess(rgb, w, h, size, mean, std);
+    }
+
     /// <inheritdoc/>
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
     {
@@ -282,6 +486,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         try
         {
             LoadInto(slot, deviceKey, input.Model);
+            // Multimodal path: a vision model + an image in this request → run the (non-streaming) VLM generator
+            // and emit the whole answer as one chunk. No image (or a plain text model) falls through to text.
+            if ((slot.SpliceVision is not null || slot.MllamaVision is not null) && TryGetImage(input) is LLMMediaAttachment imageAtt)
+            {
+                string answer = await GenerateVision(slot, input, imageAtt, ct);
+                onChunk(new JObject() { ["chunk"] = answer });
+                if (Settings.AlwaysFreeMemory)
+                {
+                    UnloadSlot(slot);
+                }
+                return;
+            }
             GenerationRequest request = BuildRequest(input);
             // Stream by decoding the running token list and emitting the newly-appeared text. (Byte-level
             // BPE means a single token doesn't cleanly map to a substring, so decode-and-diff is the
@@ -360,9 +576,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             {
                 ct.ThrowIfCancellationRequested();
                 string id = Path.GetFileName(file);
+                // mmproj projectors are companions to a text model, not selectable chat models — hide them.
+                if (id.Contains("mmproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
                 long size = -1;
                 try { size = new FileInfo(file).Length; } catch { }
-                models.Add(new LLMModelInfo()
+                LLMModelInfo info = new()
                 {
                     Id = id,
                     Name = Path.GetFileNameWithoutExtension(file),
@@ -371,7 +592,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     SizeBytes = size,
                     IsLoaded = loadedPaths.Contains(file),
                     Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
-                });
+                };
+                // Advertise vision capability when a sidecar mmproj sits next to the model (UI can badge it).
+                if (FindMmproj(file) is not null)
+                {
+                    info.Metadata["vision"] = "true";
+                }
+                models.Add(info);
             }
         }
         return models;
