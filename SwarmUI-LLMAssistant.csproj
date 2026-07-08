@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
     <AssemblyName>SwarmExtensionLLMAssistant</AssemblyName>
-    <!-- false = published HartsyInference NuGet; true = local SharpInference build (see Directory.Build.props). -->
+    <!-- false = published HartsyInference NuGet; true = local HartsyInference engine build (see Directory.Build.props). -->
     <UseLocalHartsy Condition="'$(UseLocalHartsy)' == ''">false</UseLocalHartsy>
-    <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../SharpInference</HartsyRepo>
+    <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../HartsyInference</HartsyRepo>
   </PropertyGroup>
 
   <Import Project="../../SwarmUI.extension.props" />
