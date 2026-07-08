@@ -213,7 +213,7 @@ public static class ChatEndpoints
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null)
             {
-                return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+                return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
             }
             // Append the user message to the thread BEFORE generation so it persists even if generation
             // fails or the client disconnects mid-stream. In the branch model this hangs off the current
@@ -271,7 +271,7 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
             if (content is null) { return Fail("content is required."); }
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (thread is null) { return Fail($"Thread '{threadId}' not found."); }
+            if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
             JObject original = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
             if (original is null) { return Fail($"Message '{messageId}' not found in thread."); }
             // Build the edited sibling: same role, new content, carry the original's media.
@@ -305,7 +305,7 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (thread is null) { return Fail($"Thread '{threadId}' not found."); }
+            if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
             JObject target = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
             if (target is null) { return Fail($"Message '{messageId}' not found in thread."); }
             JToken pidTok = target["parentId"];
@@ -344,7 +344,7 @@ public static class ChatEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            await SendWsError(socket, $"Thread '{threadId}' not found.");
+            await SendWsError(socket, $"Chat '{threadId}' not found.");
             return;
         }
         // Assistant is locked to the thread (set at creation). Per-message override would make history
@@ -368,6 +368,79 @@ public static class ChatEndpoints
         List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
         ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
         await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
+        await MaybeGenerateTitleAsync(socket, session, threadId, model);
+    }
+
+    /// <summary>Claude/ChatGPT-style auto-titling: right after a chat's first exchange, asks the model
+    /// for a short title and replaces the raw-first-message fallback with it. No-ops once the title has
+    /// been claimed (by a prior attempt or a manual rename — see <see cref="ThreadStorageService.NeedsGeneratedTitle"/>),
+    /// and never throws into the caller — a failed title generation just leaves the fallback title in place.</summary>
+    private static async Task MaybeGenerateTitleAsync(WebSocket socket, Session session, string threadId, string model)
+    {
+        try
+        {
+            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+            if (!ThreadStorageService.NeedsGeneratedTitle(thread))
+            {
+                return;
+            }
+            // Claim immediately (before the LLM call) so a slow/failed generation can't be retried forever
+            // by the next message in the same exchange, and so it can never race a manual rename backwards.
+            ThreadStorageService.MarkTitleClaimed(thread);
+            List<JObject> active = ThreadStorageService.GetActivePath(thread);
+            string userText = active[0]?["content"]?.ToString();
+            string replyText = active[1]?["content"]?.ToString();
+            if (string.IsNullOrWhiteSpace(userText))
+            {
+                ThreadStorageService.SaveThread(session.User, thread);
+                return;
+            }
+            string title = await GenerateChatTitle(userText, replyText, model);
+            if (!string.IsNullOrWhiteSpace(title))
+            {
+                thread["title"] = title;
+            }
+            ThreadStorageService.SaveThread(session.User, thread);
+            if (!string.IsNullOrWhiteSpace(title) && socket.State == WebSocketState.Open)
+            {
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(new JObject { ["titleUpdated"] = title, ["threadId"] = threadId }.ToString(Newtonsoft.Json.Formatting.None));
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Auto-title generation failed for chat {threadId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>Asks the LLM for a short (3-6 word) chat title from the first exchange. Returns null on
+    /// any failure or if the model ignores the format and returns something unusably long.</summary>
+    private static async Task<string> GenerateChatTitle(string userText, string replyText, string model)
+    {
+        const string system = "You write extremely short titles for chat conversations, in the style of Claude.ai or ChatGPT's auto-generated chat names. Reply with ONLY the title: 3-6 words, no quotes, no trailing punctuation, no preamble like \"Title:\".";
+        string prompt = $"User: {Truncate(userText, 400)}";
+        if (!string.IsNullOrWhiteSpace(replyText))
+        {
+            prompt += $"\nAssistant: {Truncate(replyText, 400)}";
+        }
+        ExtendedLLMInput input = ExtendedLLMInput.Create(prompt, system, model);
+        input.MaxTokens = 20;
+        input.Temperature = 0.7;
+        string raw = await LLMDispatcher.Generate(input);
+        string cleaned = (raw ?? "").Trim().Trim('"', '\'', '.', ' ');
+        // Models occasionally ignore the instruction and answer the question instead of titling it —
+        // a real title is short; anything long enough to be a paragraph isn't usable, so fall back.
+        if (string.IsNullOrWhiteSpace(cleaned) || cleaned.Length > 80 || cleaned.Contains('\n'))
+        {
+            return null;
+        }
+        return cleaned;
+    }
+
+    /// <summary>Truncates text to at most <paramref name="maxLen"/> chars, on a clean boundary.</summary>
+    private static string Truncate(string text, int maxLen)
+    {
+        return string.IsNullOrEmpty(text) || text.Length <= maxLen ? text : text[..maxLen] + "…";
     }
 
     /// <summary>Enriches the assistant's enabled tools per-user, injects their descriptions into the system
@@ -418,7 +491,7 @@ public static class ChatEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            await SendWsError(socket, $"Thread '{threadId}' not found.");
+            await SendWsError(socket, $"Chat '{threadId}' not found.");
             return;
         }
         string assistantId = thread["assistantId"]?.ToString();

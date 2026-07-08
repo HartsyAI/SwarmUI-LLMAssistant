@@ -18,9 +18,9 @@ const LLMA_WELCOME_TIPS = [
     "Tip: Drop an image into the input area to ask questions about it (vision-capable assistants only).",
     "Tip: Each assistant has its own personality and tool set — try creating a coding agent, a prompt-crafter, and a research agent and switching between them.",
     "Tip: Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to jump straight to the input box.",
-    "Tip: Threads are grouped by date in the sidebar — search by title to find an old conversation fast.",
+    "Tip: Chats are grouped by date in the sidebar — search by title to find an old conversation fast.",
     "Tip: Click any code block in a reply to copy it. Markdown, mermaid diagrams, and KaTeX math all render inline.",
-    "Tip: Adjust temperature, max tokens, and the model per-thread from the assistant panel on the right.",
+    "Tip: Adjust temperature, max tokens, and the model per-chat from the assistant panel on the right.",
     "Tip: Tool calls (web search, file read, image gen) show as compact cards in chat — click to expand.",
     "Tip: Your memory profile is strictly per-user — no other Swarm user can read it, ever.",
 ];
@@ -522,14 +522,14 @@ function llmaSetupParamsPopover() {
 
     if (apply) {
         apply.addEventListener('click', () => {
-            if (!LLMAState.activeThreadId) { llmaShowToast('No active thread', 'info'); return; }
+            if (!LLMAState.activeThreadId) { llmaShowToast('No active chat', 'info'); return; }
             LLMAState.threadParams[LLMAState.activeThreadId] = {
                 temperature:     parseFloat(document.getElementById('llma-p-temperature')?.value) || undefined,
                 maxTokens:       parseInt(document.getElementById('llma-p-max-tokens')?.value, 10) || undefined,
                 topP:               parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
                 maxContextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
             };
-            llmaShowToast('Parameters applied to this thread', 'success');
+            llmaShowToast('Parameters applied to this chat', 'success');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });
@@ -538,7 +538,7 @@ function llmaSetupParamsPopover() {
     if (reset) {
         reset.addEventListener('click', () => {
             if (LLMAState.activeThreadId) delete LLMAState.threadParams[LLMAState.activeThreadId];
-            llmaShowToast('Thread parameters reset', 'info');
+            llmaShowToast('Chat parameters reset', 'info');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });

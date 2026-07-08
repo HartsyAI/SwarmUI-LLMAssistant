@@ -20,7 +20,7 @@ public static class AssetEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         JArray assets = thread["assets"] as JArray ?? [];
         return new JObject
@@ -41,7 +41,7 @@ public static class AssetEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         JArray assets = thread["assets"] as JArray ?? [];
         JObject asset = assets.OfType<JObject>().FirstOrDefault(a => a["id"]?.ToString() == assetId);
@@ -67,7 +67,7 @@ public static class AssetEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         JArray assets = thread["assets"] as JArray;
         if (assets is null)

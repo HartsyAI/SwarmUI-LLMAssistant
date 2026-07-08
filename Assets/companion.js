@@ -371,7 +371,7 @@ async function llmaCompanionAsk(message, mediaPayload = null, contextPrefix = nu
     }
     const threadId = await llmaCompanionGetOrCreateThread(persona.id);
     if (!threadId) {
-        llmaCompanionSetBubbleText('Could not start a companion thread. Check that you have LLM Chat permission.');
+        llmaCompanionSetBubbleText('Could not start a companion chat. Check that you have LLM Chat permission.');
         return;
     }
     // Make sure the bubble is visible (auto-expand on first send).

@@ -145,6 +145,82 @@ async function llmaLoadThreads() {
     llmaRenderThreadList(LLMAState.threads);
 }
 
+// -- Branch picker (sidebar) --
+// Chats with branches (an edit or regenerate created a sibling somewhere — see the server's
+// `hasBranches` flag) get a small toggle to expand a flat list of every branch's endpoint (leaf),
+// so you can jump straight to a specific version of the conversation without opening the chat first.
+const llmaExpandedBranchThreads = new Set();
+// Cache of fetched branch node arrays, keyed by thread id. Only used for chats OTHER than the
+// active one — the active chat's nodes can change live, so its branches are always read fresh
+// from LLMAState.allNodes instead of this cache (see llmaRenderThreadBranches).
+const llmaBranchDataCache = new Map();
+
+// A leaf is any node nothing else points to as a parent — ie the tip of one branch.
+function llmaComputeLeaves(allNodes) {
+    if (!Array.isArray(allNodes) || allNodes.length === 0) return [];
+    const hasChildren = new Set();
+    for (const n of allNodes) {
+        const pid = llmaParentId(n);
+        if (pid !== null) hasChildren.add(pid);
+    }
+    return allNodes.filter(n => n && n.id && !hasChildren.has(n.id));
+}
+
+function llmaLeafPreviewLabel(leaf) {
+    const raw = (leaf.content || '').replace(/\s+/g, ' ').trim();
+    const text = raw ? (raw.length > 46 ? raw.slice(0, 46) + '…' : raw) : '(empty)';
+    return `${leaf.role === 'user' ? 'You' : 'Reply'}: ${text}`;
+}
+
+async function llmaToggleBranchExpand(threadId) {
+    if (llmaExpandedBranchThreads.has(threadId)) {
+        llmaExpandedBranchThreads.delete(threadId);
+        llmaRenderThreadList(LLMAState.threads);
+        return;
+    }
+    llmaExpandedBranchThreads.add(threadId);
+    if (threadId !== LLMAState.activeThreadId && !llmaBranchDataCache.has(threadId)) {
+        llmaRenderThreadList(LLMAState.threads); // paints a "Loading…" row while the fetch is in flight
+        try {
+            const result = await llmaRequest('LLMAssistantGetThread', { threadId });
+            const thread = result?.thread ? (typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread) : null;
+            llmaBranchDataCache.set(threadId, Array.isArray(thread?.messages) ? thread.messages : []);
+        } catch {
+            llmaBranchDataCache.set(threadId, []);
+        }
+    }
+    llmaRenderThreadList(LLMAState.threads);
+}
+
+// Switches to `threadId` (if not already active) and jumps straight to `leafId` within it.
+async function llmaJumpToBranch(threadId, leafId) {
+    if (LLMAState.activeThreadId !== threadId) {
+        await llmaSwitchThread(threadId);
+    }
+    if (LLMAState.activeThreadId === threadId && LLMAState.activeLeafId !== leafId) {
+        await llmaSetActiveLeaf(leafId);
+    }
+}
+
+// Builds the expanded branch sub-list HTML for one chat, or null if it isn't expanded.
+function llmaRenderThreadBranchesHtml(thread) {
+    if (!llmaExpandedBranchThreads.has(thread.id)) return '';
+    const allNodes = thread.id === LLMAState.activeThreadId ? (LLMAState.allNodes || []) : llmaBranchDataCache.get(thread.id);
+    if (!allNodes) {
+        return `<div class="llma-thread-branches"><div class="llma-thread-branch-loading">Loading branches…</div></div>`;
+    }
+    const leaves = llmaComputeLeaves(allNodes).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    if (leaves.length < 2) return '';
+    const activeLeafId = thread.id === LLMAState.activeThreadId ? LLMAState.activeLeafId : null;
+    const rows = leaves.map(leaf => `
+        <button type="button" class="llma-thread-branch-row${leaf.id === activeLeafId ? ' active' : ''}"
+                data-thread-id="${llmaEscapeHtml(thread.id)}" data-leaf-id="${llmaEscapeHtml(leaf.id)}">
+            <span class="llma-thread-branch-text">${llmaEscapeHtml(llmaLeafPreviewLabel(leaf))}</span>
+            <span class="llma-thread-branch-time">${leaf.timestamp ? llmaRelativeTime(leaf.timestamp) : ''}</span>
+        </button>`).join('');
+    return `<div class="llma-thread-branches">${rows}</div>`;
+}
+
 // -- Render Sidebar --
 function llmaRenderThreadList(threads) {
     const list = document.getElementById('llma-thread-list');
@@ -184,6 +260,11 @@ function llmaRenderThreadList(threads) {
             const badge = assistant
                 ? `<span class="llma-thread-assist-badge" style="background:${llmaEscapeHtml(assistant.color || 'var(--emphasis)')}" title="${llmaEscapeHtml(assistant.name || 'Assistant')}">${llmaCategoryIcon(assistant.icon || assistant.category || 'chat')}</span>`
                 : '';
+            const expanded = llmaExpandedBranchThreads.has(thread.id);
+            const branchToggle = thread.hasBranches
+                ? `<button class="llma-thread-branch-toggle${expanded ? ' expanded' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
+                        title="${expanded ? 'Hide' : 'Show'} branches" aria-label="Toggle branches">&#9656;</button>`
+                : '';
             html += `
                 <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
@@ -192,11 +273,13 @@ function llmaRenderThreadList(threads) {
                     ${checkbox}
                     ${badge}
                     <span class="llma-thread-name">${llmaEscapeHtml(thread.title || 'Untitled')}</span>
+                    ${branchToggle}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
-                            title="Rename thread" aria-label="Rename thread">&#9998;</button>
+                            title="Rename chat" aria-label="Rename chat">&#9998;</button>
                     <button class="llma-thread-del" data-id="${llmaEscapeHtml(thread.id)}"
-                            title="Delete thread" aria-label="Delete thread">&times;</button>
-                </div>`;
+                            title="Delete chat" aria-label="Delete chat">&times;</button>
+                </div>
+                ${llmaRenderThreadBranchesHtml(thread)}`;
         }
     }
 
@@ -208,7 +291,7 @@ function llmaBindThreadListEvents(list) {
     list.querySelectorAll('.llma-thread-item').forEach(item => {
         item.addEventListener('click', (e) => {
             // Swallow clicks on hover-only action buttons; they handle their own events.
-            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-rename-input')) return;
+            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-rename-input, .llma-thread-branch-toggle')) return;
             // In select mode, clicking the row toggles the checkbox instead of switching threads.
             if (llmaThreadSelectMode) {
                 if (!e.target.classList.contains('llma-thread-checkbox')) {
@@ -248,6 +331,18 @@ function llmaBindThreadListEvents(list) {
             e.stopPropagation();
             const item = btn.closest('.llma-thread-item');
             if (item) llmaBeginRenameThread(item);
+        });
+    });
+    list.querySelectorAll('.llma-thread-branch-toggle').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            llmaToggleBranchExpand(btn.dataset.id);
+        });
+    });
+    list.querySelectorAll('.llma-thread-branch-row').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            llmaJumpToBranch(btn.dataset.threadId, btn.dataset.leafId);
         });
     });
     list.querySelectorAll('.llma-thread-checkbox').forEach(box => {
@@ -410,12 +505,12 @@ async function llmaCreateThread(assistantId) {
     try {
         const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle });
         if (!result?.success || !result.thread) {
-            llmaShowToast(result?.error || 'Failed to create thread', 'error');
+            llmaShowToast(result?.error || 'Failed to create chat', 'error');
             return;
         }
         thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
     } catch {
-        llmaShowToast('Failed to create thread', 'error');
+        llmaShowToast('Failed to create chat', 'error');
         return;
     }
 
@@ -458,7 +553,7 @@ async function llmaCreateThread(assistantId) {
 // -- Switch Thread --
 async function llmaSwitchThread(threadId) {
     if (LLMAState.isGenerating) {
-        llmaShowToast('Stop generation before switching threads', 'info');
+        llmaShowToast('Stop generation before switching chats', 'info');
         return;
     }
 
@@ -467,7 +562,7 @@ async function llmaSwitchThread(threadId) {
         const thread = result?.thread
             ? (typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread)
             : null;
-        if (!thread) { llmaShowToast('Thread not found', 'error'); return; }
+        if (!thread) { llmaShowToast('Chat not found', 'error'); return; }
 
         LLMAState.activeThreadId    = thread.id;
         llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
@@ -518,7 +613,7 @@ async function llmaSwitchThread(threadId) {
             document.getElementById('llma-sidebar')?.classList.remove('sidebar-open');
         }
     } catch {
-        llmaShowToast('Failed to load thread', 'error');
+        llmaShowToast('Failed to load chat', 'error');
     }
 }
 
@@ -582,7 +677,7 @@ async function llmaDeleteThread(threadId) {
     try {
         await llmaRequest('LLMAssistantDeleteThread', { threadId });
     } catch {
-        llmaShowToast('Failed to delete thread', 'error');
+        llmaShowToast('Failed to delete chat', 'error');
         return;
     }
 

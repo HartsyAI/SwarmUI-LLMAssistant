@@ -27,7 +27,7 @@ public static class ThreadEndpoints
             return new JObject
             {
                 ["success"] = false,
-                ["error"] = $"Thread '{threadId}' not found."
+                ["error"] = $"Chat '{threadId}' not found."
             };
         }
         return new JObject
@@ -44,7 +44,7 @@ public static class ThreadEndpoints
         // failure and logs it, so `error = null` on success produces a spurious empty-message error log.
         if (!deleted)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         return new JObject { ["success"] = true };
     }
@@ -92,7 +92,7 @@ public static class ThreadEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         JArray messages = thread["messages"] as JArray;
         if (messages is null)
@@ -126,9 +126,11 @@ public static class ThreadEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         thread["title"] = title.Trim();
+        // A manual rename claims the title permanently — the auto-title generator must never overwrite it.
+        ThreadStorageService.MarkTitleClaimed(thread);
         ThreadStorageService.SaveThread(session.User, thread);
         return new JObject
         {
@@ -167,7 +169,7 @@ public static class ThreadEndpoints
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
-            return new JObject { ["success"] = false, ["error"] = $"Thread '{threadId}' not found." };
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
         string title = thread["title"]?.ToString() ?? "thread";
         string safeTitle = new string(title.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == ' ').ToArray()).Replace(' ', '_');

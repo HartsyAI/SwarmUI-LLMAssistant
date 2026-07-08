@@ -201,7 +201,7 @@
     async function llmaUploadAttachedImage(messageId) {
         if (!LLMAState.attachedImage) return null;
         if (!LLMAState.activeThreadId) {
-            llmaShowToast('Cannot upload image without an active thread', 'error');
+            llmaShowToast('Cannot upload image without an active chat', 'error');
             return null;
         }
         try {

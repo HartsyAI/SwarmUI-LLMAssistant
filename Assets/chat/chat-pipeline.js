@@ -209,6 +209,21 @@
                     }
                     return;
                 }
+                // Auto-generated chat title, sent once after a chat's first exchange (see
+                // ChatEndpoints.MaybeGenerateTitleAsync) — a side-channel event on this same socket,
+                // unrelated to the reply currently streaming into this bubble.
+                if (data.titleUpdated) {
+                    const meta = LLMAState.threads.find(t => t.id === data.threadId);
+                    if (meta) {
+                        meta.title = data.titleUpdated;
+                        llmaRenderThreadList(LLMAState.threads);
+                    }
+                    if (LLMAState.activeThreadId === data.threadId) {
+                        const titleEl = document.getElementById('llma-thread-title');
+                        if (titleEl) titleEl.textContent = data.titleUpdated;
+                    }
+                    return;
+                }
                 if (data.chunk) {
                     if (firstChunk) {
                         firstChunk = false;
