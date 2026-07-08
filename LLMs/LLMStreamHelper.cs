@@ -58,6 +58,7 @@ public static class LLMStreamHelper
             // provider generating further instead of running to its token limit for nothing.
             using CancellationTokenSource roundCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
             bool toolCallDetected = false;
+            string roundStopReason = null;
             try
             {
                 await LLMDispatcher.GenerateStreaming(input, chunk =>
@@ -89,6 +90,12 @@ public static class LLMStreamHelper
                         // Forward backend status events (eg "loading_model") so the UI can show a spinner.
                         SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
                     }
+                    else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
+                    {
+                        // Only meaningful on the round that actually finishes the reply (below); a tool-call
+                        // round hitting this is unlikely (tool calls are short) and gets overwritten anyway.
+                        roundStopReason = stopReasonToken.ToString();
+                    }
                 }, roundCts.Token);
             }
             catch (OperationCanceledException) when (toolCallDetected && !linked.IsCancellationRequested)
@@ -106,11 +113,12 @@ public static class LLMStreamHelper
             if (toolCalls.Count == 0)
             {
                 fullResponse.Append(roundText);
-                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
+                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, stopReason: roundStopReason, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
                 await SendJson(socket, new JObject
                 {
                     ["done"] = true,
-                    ["full_text"] = fullResponse.ToString()
+                    ["full_text"] = fullResponse.ToString(),
+                    ["stopReason"] = roundStopReason
                 }, lane, sendLock);
                 return;
             }
@@ -183,6 +191,7 @@ public static class LLMStreamHelper
         int lane = -1, SemaphoreSlim sendLock = null, string parentMessageId = null, string compareGroupId = null, string deviceLabel = null, bool setActiveLeaf = true)
     {
         StringBuilder fullText = new();
+        string stopReason = null;
         await LLMDispatcher.GenerateStreaming(input, chunk =>
         {
             if (SocketGone(socket))
@@ -205,16 +214,21 @@ public static class LLMStreamHelper
                 // Backend status events (eg model load progress) — forward verbatim to the UI.
                 SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
             }
+            else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
+            {
+                stopReason = stopReasonToken.ToString();
+            }
         }, linked.Token);
         if (SocketGone(socket))
         {
             return;
         }
-        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
+        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, stopReason: stopReason, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
         await SendJson(socket, new JObject
         {
             ["done"] = true,
-            ["full_text"] = fullText.ToString()
+            ["full_text"] = fullText.ToString(),
+            ["stopReason"] = stopReason
         }, lane, sendLock);
     }
 
@@ -272,7 +286,7 @@ public static class LLMStreamHelper
 
     /// <summary>Appends the just-generated assistant message to the saved thread.
     /// No-ops if user/threadId are missing (eg non-chat callers).</summary>
-    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string clientMessageId = null,
+    private static void PersistAssistantMessage(Session session, string threadId, string rawText, JArray toolEvents, string model, DateTime startTime, bool truncated = false, string reason = null, string stopReason = null, string clientMessageId = null,
         string parentMessageId = null, string compareGroupId = null, int lane = -1, string deviceLabel = null, bool setActiveLeaf = true)
     {
         if (session?.User is null || string.IsNullOrEmpty(threadId))
@@ -291,7 +305,9 @@ public static class LLMStreamHelper
                 ["model"] = model ?? "",
                 ["genTime"] = Math.Round(genSeconds, 2),
                 ["truncated"] = truncated,
-                ["reason"] = reason
+                ["reason"] = reason,
+                // "length" = the provider cut the reply off at the max-tokens cap rather than a natural stop.
+                ["stopReason"] = stopReason
             };
             if (!string.IsNullOrEmpty(deviceLabel))
             {

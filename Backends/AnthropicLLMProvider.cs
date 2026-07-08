@@ -226,6 +226,16 @@ public class AnthropicLLMProvider : LLMProviderBackend
                         onChunk(new JObject() { ["chunk"] = text });
                     }
                 }
+                else if (currentEvent == "message_delta")
+                {
+                    // stop_reason "max_tokens" means Anthropic cut the reply off at the token cap, not
+                    // because the model was done — surface that so the UI can tell the user why.
+                    string stopReason = parsed.Value<JObject>("delta")?.Value<string>("stop_reason");
+                    if (stopReason == "max_tokens")
+                    {
+                        onChunk(new JObject() { ["stopReason"] = "length" });
+                    }
+                }
             }
             catch (Exception ex)
             {

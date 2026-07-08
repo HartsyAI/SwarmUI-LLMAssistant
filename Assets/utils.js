@@ -433,7 +433,7 @@ function llmaGroupByDate(threads) {
     const oneDay = 86400000;
     const groups = { Today: [], Yesterday: [], 'This week': [], Older: [] };
     for (const t of threads) {
-        const age = now - new Date(t.updated || t.created).getTime();
+        const age = now - new Date(t.updatedAt || t.createdAt).getTime();
         if (age < oneDay)           groups['Today'].push(t);
         else if (age < 2 * oneDay)  groups['Yesterday'].push(t);
         else if (age < 7 * oneDay)  groups['This week'].push(t);
@@ -536,7 +536,7 @@ const LLMA_DEFAULT_SETTINGS = {
     // General-tab defaults silently don't apply to requests.
     parameters: {
         temperature:        0.8,
-        maxTokens:          2048,
+        maxTokens:          4096,
         topP:               0.9,
         seed:               -1,
         maxContextMessages: 0,

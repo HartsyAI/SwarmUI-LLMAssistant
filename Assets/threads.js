@@ -168,7 +168,7 @@ function llmaRenderThreadList(threads) {
         return;
     }
 
-    const groups = llmaGroupByDate([...threads].sort((a, b) => new Date(b.updated || b.created) - new Date(a.updated || a.created)));
+    const groups = llmaGroupByDate([...threads].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)));
     let html = '';
 
     for (const [label, group] of Object.entries(groups)) {
@@ -180,12 +180,17 @@ function llmaRenderThreadList(threads) {
             const checkbox = llmaThreadSelectMode
                 ? `<input type="checkbox" class="llma-thread-checkbox" data-id="${llmaEscapeHtml(thread.id)}" ${checked} aria-label="Select chat">`
                 : '';
+            const assistant = LLMAState.assistants.find(a => a.id === thread.assistantId);
+            const badge = assistant
+                ? `<span class="llma-thread-assist-badge" style="background:${llmaEscapeHtml(assistant.color || 'var(--emphasis)')}" title="${llmaEscapeHtml(assistant.name || 'Assistant')}">${llmaCategoryIcon(assistant.icon || assistant.category || 'chat')}</span>`
+                : '';
             html += `
                 <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
-                     title="${llmaEscapeHtml(thread.title || 'Untitled')} \u2014 ${llmaRelativeTime(thread.updated || thread.created)}"
+                     title="${llmaEscapeHtml(thread.title || 'Untitled')} \u2014 ${llmaRelativeTime(thread.updatedAt || thread.createdAt)}"
                      role="button" tabindex="0">
                     ${checkbox}
+                    ${badge}
                     <span class="llma-thread-name">${llmaEscapeHtml(thread.title || 'Untitled')}</span>
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
                             title="Rename thread" aria-label="Rename thread">&#9998;</button>
@@ -376,7 +381,7 @@ function llmaBeginRenameThread(itemEl) {
             const t = LLMAState.threads.find(x => x.id === threadId);
             if (t) {
                 t.title = next;
-                t.updated = new Date().toISOString();
+                t.updatedAt = new Date().toISOString();
             }
             restore(next);
             const titleEl = document.getElementById('llma-thread-title');
@@ -418,8 +423,8 @@ async function llmaCreateThread(assistantId) {
         id:           thread.id,
         title:        thread.title,
         assistantId:  thread.assistantId,
-        created:      thread.createdAt || thread.created,
-        updated:      thread.updatedAt || thread.updated,
+        createdAt:    thread.createdAt,
+        updatedAt:    thread.updatedAt,
         messageCount: 0,
     });
 
@@ -540,7 +545,7 @@ async function llmaReloadActiveThread() {
     const meta = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);
     if (meta) {
         meta.title        = thread.title || meta.title;
-        meta.updated      = thread.updatedAt || thread.updated || meta.updated;
+        meta.updatedAt    = thread.updatedAt || meta.updatedAt;
         meta.messageCount = LLMAState.messages.length;
         const titleEl = document.getElementById('llma-thread-title');
         if (titleEl) titleEl.textContent = meta.title;
@@ -617,7 +622,7 @@ async function llmaSaveActiveThread() {
     if (!saved) return;
     // Trust the server's view of the thread.
     meta.title        = saved.title || meta.title;
-    meta.updated      = saved.updatedAt || saved.updated || meta.updated;
+    meta.updatedAt    = saved.updatedAt || meta.updatedAt;
     meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : meta.messageCount;
 
     const titleEl = document.getElementById('llma-thread-title');

@@ -162,6 +162,12 @@ function llmaBuildAsset({ id, type, language, content, msgId, source, toolId, id
 }
 
 // ── Fenced code-block extractor ──────────────────────────────────
+// Blocks smaller than this stay inline as a regular highlighted+copyable code block (see the
+// "Copy" button utils.js adds to every <pre>) instead of being hidden behind a click-to-open file
+// card — a 2-line shell command doesn't need a modal.
+const LLMA_ASSET_MIN_LINES = 8;
+const LLMA_ASSET_MIN_BYTES = 400;
+
 // Returns { assets: [...], tokenizedMarkdown: "..." }
 // The tokenized markdown has each extracted fence replaced with a bare-line token
 // `LLMA_ASSET_TOKEN_{id}` which survives marked + DOMPurify as plain text.
@@ -176,11 +182,18 @@ function llmaExtractAssetsFromMarkdown(raw, msgId) {
         const langLower = (lang || '').toLowerCase();
         if (langLower === 'mermaid') return match; // leave to mermaid pipeline
         const trimmedBody = body.replace(/\n$/, '');
-        // Skip very short unlabeled blocks (likely an inline snippet)
-        if (!langLower && llmaLineCount(trimmedBody) < 4) return match;
 
         let type = LLMA_LANG_TO_TYPE[langLower];
         if (!type) type = langLower ? 'code' : 'text';
+
+        // HTML/SVG always get promoted — their dedicated viewer (live preview / sanitized render)
+        // adds real value even for a short snippet. Everything else (including plain labeled code
+        // like ```bash) only becomes a card once it's actually big enough that hiding it behind a
+        // click-to-open modal beats just reading it inline.
+        const alwaysPromote = type === 'html' || type === 'svg';
+        if (!alwaysPromote && llmaLineCount(trimmedBody) < LLMA_ASSET_MIN_LINES && llmaByteSize(trimmedBody) < LLMA_ASSET_MIN_BYTES) {
+            return match;
+        }
 
         const assetId = `${msgId}-blk-${idx}`;
         const asset = llmaBuildAsset({

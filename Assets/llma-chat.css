@@ -134,7 +134,7 @@
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    padding: 24px 16px 18px;
+    padding: 24px 16px 44px;
     text-align: center;
     animation: llma-greet-in 0.32s ease;
 }
@@ -530,6 +530,11 @@
     color: var(--text-soft);
     opacity: 0.4;
     padding: 2px 2px 0;
+}
+/* Reply was cut off by the max-tokens cap, not a natural stop — call it out. */
+.llma-msg-meta-truncated {
+    color: var(--backend-errored);
+    opacity: 0.8;
 }
 
 /* Error display inside bubble — a small card with an icon, plain-language title, and an actionable hint. */

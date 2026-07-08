@@ -273,6 +273,7 @@
                         msg.meta = { genTime: elapsed, model: modelName };
                         if (data.truncated) msg.meta.truncated = true;
                         if (data.reason) msg.meta.reason = data.reason;
+                        if (data.stopReason) msg.meta.stopReason = data.stopReason;
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;
@@ -294,7 +295,12 @@
                         const parts = [];
                         if (modelName) parts.push(modelName);
                         parts.push(`${elapsed}s`);
+                        if (data.stopReason === 'length') parts.push('cut off (max tokens)');
                         metaDiv.textContent = parts.join(' · ');
+                        metaDiv.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
+                    }
+                    if (data.stopReason === 'length') {
+                        llmaShowToast('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
                     LLMAState._activeSocket = null;

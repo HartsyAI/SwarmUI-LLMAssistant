@@ -372,7 +372,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         SamplingOptions sampling = BuildSampling(input);
         GenerationRequest request = new()
         {
-            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 1024,
+            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
             Sampling = sampling
         };
         if (input.Messages is not null && input.Messages.Count > 0)
@@ -519,6 +519,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 }
             }
             await Task.Run(() => slot.Pipeline.Generate(request, OnToken), ct);
+            // The engine has no explicit stop-reason API — but a generation that used every token in the
+            // budget almost certainly got cut off mid-thought rather than hitting a natural EOS, so treat
+            // reaching the cap as truncation and surface it the same way the remote providers do.
+            if (acc.Count >= request.MaxTokens)
+            {
+                onChunk(new JObject() { ["stopReason"] = "length" });
+            }
             if (Settings.AlwaysFreeMemory)
             {
                 UnloadSlot(slot);

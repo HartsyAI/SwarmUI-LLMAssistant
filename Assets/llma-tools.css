@@ -195,13 +195,14 @@
 
 /* ── Tool List (Settings Tab) ───────────────────────────────── */
 .llma-tool-list-wrap {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     gap: 8px;
     margin-bottom: 12px;
 }
 .llma-tool-list-item {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-start;
     gap: 12px;
     padding: 10px 12px;

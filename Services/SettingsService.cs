@@ -32,7 +32,7 @@ public static class SettingsService
         ["parameters"] = new JObject
         {
             ["temperature"] = 1.0,
-            ["maxTokens"] = 1024,
+            ["maxTokens"] = 4096,
             ["topP"] = 0.9,
             // -1 = backend picks a random seed; pin to any non-negative value for reproducibility.
             // Only backends that honor LLMParamInput.Seed (SimpleRemote/OpenAI-compatible, LlamaSharp) will use it.

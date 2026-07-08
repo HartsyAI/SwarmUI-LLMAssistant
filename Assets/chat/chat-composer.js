@@ -145,6 +145,10 @@
         const bubble = document.querySelector(`[data-msg-id="${msgId}"] .llma-msg-bubble`);
         if (!bubble) return;
         const original = msg.content;
+        // Match the textarea's height to the rendered bubble's current height — `rows` alone only
+        // accounts for explicit newlines, not wrapped lines, so a long single-line message would
+        // otherwise collapse to a tiny 2-row box the moment you click Edit.
+        const originalHeight = bubble.getBoundingClientRect().height;
         bubble.innerHTML = '';
 
         const textarea = document.createElement('textarea');
@@ -152,7 +156,7 @@
         textarea.value = original;
         textarea.rows = Math.max(2, original.split('\n').length);
         textarea.style.width = '100%';
-        textarea.style.minHeight = '40px';
+        textarea.style.minHeight = `${Math.max(40, originalHeight)}px`;
 
         const btnRow = document.createElement('div');
         btnRow.className = 'llma-msg-edit-actions';

@@ -26,6 +26,14 @@
     overflow: hidden;
     animation: llma-modal-in 0.18s ease;
 }
+/* Settings holds 4 dense tabs (General/Assistants/Tools/Companion) — the shared modal size is too
+   cramped for it. Two classes on purpose: beats the single-class .llma-modal responsive override
+   in llma-common.css regardless of stylesheet order. */
+.llma-modal.llma-settings-modal {
+    width: min(1100px, 94%);
+    max-height: 90%;
+    min-height: 600px;
+}
 @keyframes llma-modal-in {
     from { opacity: 0; transform: scale(0.97) translateY(-8px); }
     to   { opacity: 1; transform: scale(1) translateY(0); }
@@ -91,9 +99,16 @@
 /* Modal body — scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
 .llma-modal-body { flex: 1; overflow-y: auto; padding: 16px; }
 
-/* Settings sections */
-.llma-setting-section { margin-bottom: 18px; }
+/* Settings sections — rows flow two-up now that the modal is wide enough to fit them side by
+   side; the heading and any free-text note still span the full width above the row grid. */
+.llma-setting-section {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 28px;
+    margin-bottom: 18px;
+}
 .llma-setting-section h4 {
+    grid-column: 1 / -1;
     font-size: 11.5px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -102,6 +117,7 @@
     opacity: 0.45;
     margin: 0 0 10px;
 }
+.llma-setting-section .llma-settings-note { grid-column: 1 / -1; }
 .llma-setting-row {
     display: grid;
     grid-template-columns: 130px 1fr auto;
@@ -120,6 +136,7 @@
 .llma-setting-row input[type="number"],
 .llma-setting-row input[type="text"] {
     grid-column: 2 / -1;
+    max-width: 340px;
     padding: 5px 9px;
     border-radius: 7px;
     border: 1px solid var(--light-border);
@@ -173,7 +190,7 @@
     color: var(--text);
     opacity: 0.7;
 }
-.llma-asst-list-wrap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.llma-asst-list-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
 .llma-asst-create-row { display: flex; gap: 8px; align-items: center; }
 .llma-template-select {
     flex: 1;

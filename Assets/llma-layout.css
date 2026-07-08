@@ -7,7 +7,7 @@
 .llma-container {
     display: grid;
     grid-template-columns:
-        var(--llma-sidebar-w, 220px)
+        var(--llma-sidebar-w, 260px)
         var(--llma-splitbar-w, 5px)
         1fr
         var(--llma-splitbar-w, 5px)
@@ -200,6 +200,20 @@
     flex: 0 0 auto;
     margin: 0 4px 0 0;
     cursor: pointer;
+}
+
+/* Small colored icon showing which assistant a thread belongs to. */
+.llma-thread-assist-badge {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    line-height: 1;
+    color: var(--text);
 }
 
 .llma-thread-item {

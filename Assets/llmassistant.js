@@ -506,7 +506,7 @@ function llmaSetupParamsPopover() {
             const get = (k) => tp[k] ?? d[k];
             llmaSetEl('llma-p-temperature',     get('temperature')        ?? 0.8);
             llmaSetEl('llma-p-temperature-val', get('temperature')        ?? 0.8, 'text');
-            llmaSetEl('llma-p-max-tokens',      get('maxTokens')          ?? 2048);
+            llmaSetEl('llma-p-max-tokens',      get('maxTokens')          ?? 4096);
             llmaSetEl('llma-p-top-p',           get('topP')               ?? 0.9);
             llmaSetEl('llma-p-top-p-val',       get('topP')               ?? 0.9, 'text');
             llmaSetEl('llma-p-context',         get('maxContextMessages') ?? 0);
@@ -1382,7 +1382,7 @@ function llmaRemoveFocusTrap(modal) {
 function llmaReadSettingsFromModal() {
     const g = LLMAState.settings.parameters || {};
     g.temperature        = parseFloat(document.getElementById('llma-s-temperature')?.value)  || 0.8;
-    g.maxTokens          = parseInt(document.getElementById('llma-s-max-tokens')?.value, 10) || 2048;
+    g.maxTokens          = parseInt(document.getElementById('llma-s-max-tokens')?.value, 10) || 4096;
     g.topP               = parseFloat(document.getElementById('llma-s-top-p')?.value)        || 0.9;
     const seedRaw        = parseInt(document.getElementById('llma-s-seed')?.value, 10);
     g.seed               = Number.isFinite(seedRaw) ? seedRaw : -1;
@@ -1428,7 +1428,7 @@ function llmaWriteSettingsToModal() {
     const g = LLMAState.settings?.parameters || LLMA_DEFAULT_SETTINGS.parameters;
     llmaSetEl('llma-s-temperature',         g.temperature        ?? 0.8);
     llmaSetEl('llma-s-temperature-val',     g.temperature        ?? 0.8, 'text');
-    llmaSetEl('llma-s-max-tokens',          g.maxTokens          ?? 2048);
+    llmaSetEl('llma-s-max-tokens',          g.maxTokens          ?? 4096);
     llmaSetEl('llma-s-top-p',               g.topP               ?? 0.9);
     llmaSetEl('llma-s-top-p-val',           g.topP               ?? 0.9, 'text');
     llmaSetEl('llma-s-seed',                g.seed               ?? -1);

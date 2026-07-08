@@ -242,6 +242,10 @@
                 const parts = [];
                 if (meta.model) parts.push(meta.model);
                 parts.push(`${meta.genTime || '?'}s`);
+                if (meta.stopReason === 'length') {
+                    parts.push('cut off (max tokens)');
+                    metaDiv.classList.add('llma-msg-meta-truncated');
+                }
                 metaDiv.textContent = parts.join(' · ');
             }
 

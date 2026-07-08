@@ -80,7 +80,7 @@
                             </div>
                             <div class="llma-param-row">
                                 <label>Max Tokens</label>
-                                <input type="number" id="llma-p-max-tokens" min="1" max="32768" value="2048">
+                                <input type="number" id="llma-p-max-tokens" min="1" max="32768" value="4096">
                             </div>
                             <div class="llma-param-row">
                                 <label>Top P</label>
@@ -101,10 +101,11 @@
                 </div>
                 <!-- Export -->
                 <div class="llma-popover-anchor">
-                    <button class="llma-icon-btn" id="llma-export-btn" title="Export" aria-label="Export">
+                    <button class="llma-icon-btn" id="llma-export-btn" title="Export this chat as a file" aria-label="Export this chat">
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v8M3.5 6L7 9.5 10.5 6M2 11.5h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                     <div class="llma-export-menu" id="llma-export-menu" style="display:none;">
+                        <div class="llma-menu-heading">Export this chat as…</div>
                         <button class="llma-menu-item" id="llma-export-json">JSON</button>
                         <button class="llma-menu-item" id="llma-export-md">Markdown</button>
                         <button class="llma-menu-item" id="llma-export-txt">Plain Text</button>
@@ -240,7 +241,7 @@
 
     <!-- ── Settings Modal ────────────────────────────────────── -->
     <div class="llma-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
-        <div class="llma-modal">
+        <div class="llma-modal llma-settings-modal">
             <div class="llma-modal-header">
                 <h3>Settings</h3>
                 <button class="llma-modal-close" id="llma-settings-close" aria-label="Close settings">&times;</button>
@@ -265,7 +266,7 @@
                         </div>
                         <div class="llma-setting-row">
                             <label for="llma-s-max-tokens">Max Tokens</label>
-                            <input type="number" id="llma-s-max-tokens" min="1" max="32768" value="2048">
+                            <input type="number" id="llma-s-max-tokens" min="1" max="32768" value="4096">
                         </div>
                         <div class="llma-setting-row">
                             <label for="llma-s-top-p">Top P</label>
@@ -496,6 +497,11 @@
                                 <input type="text" id="llma-config-extra-extensions" placeholder="py, html, css">
                                 <div class="llma-config-help">Comma-separated. Always-allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition. Only add extensions you trust the LLM to write — combined with shell_exec these can become a foot-gun.</div>
                             </div>
+                            <div class="llma-tool-config-block" id="llma-tool-config-ratelimit" style="display:none;">
+                                <label for="llma-config-rate-limit">Rate limit (calls per hour)</label>
+                                <input type="number" id="llma-config-rate-limit" min="0" step="1" placeholder="Default">
+                                <div class="llma-config-help">Caps how many times an LLM can call this tool per hour, to stop a runaway agentic loop from hammering it. Leave blank to use the default shown above. <code>0</code> means no limit.</div>
+                            </div>
                         </div>
                         <div class="llma-tool-test-section">
                             <h5>Test Execution</h5>
@@ -520,7 +526,7 @@
                 <div class="llma-modal-panel" id="llma-settings-companion" style="display:none;">
                     <div class="llma-setting-section">
                         <h4>Floating Companion</h4>
-                        <div class="llma-setting-note">
+                        <div class="llma-settings-note">
                             A small in-page helper that floats over the SwarmUI UI. Click the persona's
                             avatar to ask a quick question, send your last image for a critique, or get
                             prompt suggestions — all powered by the assistant you pick below.

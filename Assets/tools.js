@@ -13,6 +13,17 @@ LLMAState.tools = LLMAState.tools || [];
 // Add new IDs here when wiring config support for additional tools.
 const LLMA_TOOLS_WITH_CONFIG = new Set(['generate_image', 'file_write']);
 
+// Built-in tools that are rate-limited server-side (ToolRateLimitService.DefaultLimits) — these get a
+// generic "Rate limit" field in the editor regardless of whether they also have tool-specific config.
+// Values here are for display only (the placeholder); the server's defaults are the source of truth.
+const LLMA_TOOL_DEFAULT_RATE_LIMITS = {
+    http_request: 60,
+    web_search: 30,
+    shell_exec: 20,
+    generate_image: 100,
+    batch_caption_folder: 5,
+};
+
 // -- Load Tools --
 async function llmaLoadTools() {
     try {
@@ -168,27 +179,36 @@ function llmaShowToolEditor(tool) {
 }
 
 // -- Per-tool config panel --
-// Shows the right config block for the tool being edited and loads its current values.
+// Shows the right config block(s) for the tool being edited and loads their current values.
 function llmaSetupToolConfigPanel(tool) {
     const section = document.getElementById('llma-tool-config-section');
     if (!section) return;
     // Hide every config block first.
     section.querySelectorAll('.llma-tool-config-block').forEach(el => el.style.display = 'none');
-    if (!tool || !LLMA_TOOLS_WITH_CONFIG.has(tool.id)) {
-        section.style.display = 'none';
-        return;
-    }
-    const block = document.getElementById(`llma-tool-config-${tool.id}`);
-    if (!block) {
+    const hasSpecificConfig = tool && LLMA_TOOLS_WITH_CONFIG.has(tool.id);
+    const hasRateLimit = tool && tool.id in LLMA_TOOL_DEFAULT_RATE_LIMITS;
+    if (!hasSpecificConfig && !hasRateLimit) {
         section.style.display = 'none';
         return;
     }
     section.style.display = '';
-    block.style.display = '';
-    if (tool.id === 'generate_image') {
-        llmaPopulateImagePresetConfig();
-    } else if (tool.id === 'file_write') {
-        llmaPopulateFileWriteConfig();
+    if (hasSpecificConfig) {
+        const block = document.getElementById(`llma-tool-config-${tool.id}`);
+        if (block) {
+            block.style.display = '';
+            if (tool.id === 'generate_image') {
+                llmaPopulateImagePresetConfig();
+            } else if (tool.id === 'file_write') {
+                llmaPopulateFileWriteConfig();
+            }
+        }
+    }
+    if (hasRateLimit) {
+        const rlBlock = document.getElementById('llma-tool-config-ratelimit');
+        if (rlBlock) {
+            rlBlock.style.display = '';
+            llmaPopulateRateLimitConfig(tool.id);
+        }
     }
 }
 
@@ -233,10 +253,24 @@ async function llmaPopulateFileWriteConfig() {
     } catch { /* leave empty */ }
 }
 
-// Reads the current values out of the visible config block and sends them to the server.
+async function llmaPopulateRateLimitConfig(toolId) {
+    const input = document.getElementById('llma-config-rate-limit');
+    if (!input) return;
+    input.value = '';
+    input.placeholder = `Default: ${LLMA_TOOL_DEFAULT_RATE_LIMITS[toolId] ?? '?'}/hour`;
+    try {
+        const res = await llmaRequest('LLMAssistantGetToolConfig', { toolId });
+        const val = res?.config?.rateLimitPerHour;
+        if (typeof val === 'number') input.value = String(val);
+    } catch { /* leave blank — falls back to the default shown in the placeholder */ }
+}
+
+// Reads the current values out of the visible config block(s) and sends them to the server.
 // Returns true on success, false on any error (caller decides whether to surface a toast).
 async function llmaSaveCurrentToolConfig(toolId) {
-    if (!toolId || !LLMA_TOOLS_WITH_CONFIG.has(toolId)) return true;
+    const hasSpecificConfig = LLMA_TOOLS_WITH_CONFIG.has(toolId);
+    const hasRateLimit = toolId in LLMA_TOOL_DEFAULT_RATE_LIMITS;
+    if (!toolId || (!hasSpecificConfig && !hasRateLimit)) return true;
     let config = {};
     if (toolId === 'generate_image') {
         const sel = document.getElementById('llma-config-default-preset');
@@ -247,6 +281,14 @@ async function llmaSaveCurrentToolConfig(toolId) {
         const raw = input?.value || '';
         const exts = raw.split(',').map(s => s.trim().replace(/^\./, '')).filter(Boolean);
         if (exts.length) config.extraExtensions = exts;
+    }
+    if (hasRateLimit) {
+        const rlInput = document.getElementById('llma-config-rate-limit');
+        const rawVal = rlInput?.value?.trim() || '';
+        if (rawVal !== '') {
+            const n = parseInt(rawVal, 10);
+            if (!isNaN(n) && n >= 0) config.rateLimitPerHour = n;
+        }
     }
     try {
         const res = await llmaRequest('LLMAssistantSetToolConfig', {

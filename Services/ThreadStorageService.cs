@@ -12,10 +12,14 @@ public static class ThreadStorageService
     public const string IndexKey = "thread_index";
     public const string ThreadPrefix = "thread_";
 
-    /// <summary>Serializes read-modify-write append operations. <see cref="GetThread"/> parses a fresh copy
-    /// each call, so two concurrent appends to the same thread (eg both compare lanes finishing at once)
-    /// would lost-update — one reply would clobber the other. This makes the get→add→save atomic.</summary>
-    private static readonly object AppendLock = new();
+    /// <summary>Serializes every read-modify-write mutation in this service. <see cref="GetThread"/> parses
+    /// a fresh copy each call, so two overlapping mutations of the same user's data (compare lanes finishing
+    /// at once, multiple browser tabs, a retried request) would lost-update or corrupt the shared thread
+    /// index — eg <see cref="UpdateIndex"/> reading a stale snapshot and re-inserting a since-removed row,
+    /// producing a duplicate sidebar entry for the same thread. Every mutator below takes this lock around
+    /// its whole get→mutate→save sequence, not just the final write; it's reentrant (System.Threading.Monitor)
+    /// so a mutator that itself calls <see cref="SaveThread"/> under the lock does not deadlock.</summary>
+    private static readonly object ThreadWriteLock = new();
 
     /// <summary>Gets the thread index for a user.</summary>
     public static JArray GetThreadIndex(User user)
@@ -135,35 +139,38 @@ public static class ThreadStorageService
     /// <summary>Saves a thread and updates the index.</summary>
     public static void SaveThread(User user, JObject thread)
     {
-        string threadId = thread["id"]?.ToString();
-        if (string.IsNullOrEmpty(threadId))
+        lock (ThreadWriteLock)
         {
-            threadId = GenerateThreadId();
-            thread["id"] = threadId;
-        }
-        thread["updatedAt"] = DateTime.UtcNow.ToString("o");
-        if (thread["createdAt"] is null)
-        {
-            thread["createdAt"] = DateTime.UtcNow.ToString("o");
-        }
-        JArray messages = thread["messages"] as JArray ?? [];
-        EnsureTreeShape(thread);
-        // messageCount reflects the active branch (what the user sees), not every node across all branches.
-        thread["messageCount"] = GetActivePath(thread).Count;
-        // Auto-title: if the title is missing or is a placeholder, derive one from the first user message.
-        string currentTitle = thread["title"]?.ToString();
-        if (IsPlaceholderTitle(currentTitle))
-        {
-            string derived = DeriveTitleFromMessages(messages);
-            if (!string.IsNullOrEmpty(derived))
+            string threadId = thread["id"]?.ToString();
+            if (string.IsNullOrEmpty(threadId))
             {
-                thread["title"] = derived;
+                threadId = GenerateThreadId();
+                thread["id"] = threadId;
             }
+            thread["updatedAt"] = DateTime.UtcNow.ToString("o");
+            if (thread["createdAt"] is null)
+            {
+                thread["createdAt"] = DateTime.UtcNow.ToString("o");
+            }
+            JArray messages = thread["messages"] as JArray ?? [];
+            EnsureTreeShape(thread);
+            // messageCount reflects the active branch (what the user sees), not every node across all branches.
+            thread["messageCount"] = GetActivePath(thread).Count;
+            // Auto-title: if the title is missing or is a placeholder, derive one from the first user message.
+            string currentTitle = thread["title"]?.ToString();
+            if (IsPlaceholderTitle(currentTitle))
+            {
+                string derived = DeriveTitleFromMessages(messages);
+                if (!string.IsNullOrEmpty(derived))
+                {
+                    thread["title"] = derived;
+                }
+            }
+            // Save thread data
+            user.SaveGenericData(DataName, ThreadPrefix + threadId, thread.ToString(Formatting.None));
+            // Update index
+            UpdateIndex(user, thread);
         }
-        // Save thread data
-        user.SaveGenericData(DataName, ThreadPrefix + threadId, thread.ToString(Formatting.None));
-        // Update index
-        UpdateIndex(user, thread);
     }
 
     /// <summary>Returns true if the given title is null, empty, or a known placeholder.</summary>
@@ -243,32 +250,37 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JObject thread = GetThread(user, threadId);
-        if (thread is null)
+        // Atomic get→add→save so an overlapping mutation of the same thread (another tab, a retried
+        // request) can't lost-update it or race the shared index (see ThreadWriteLock).
+        lock (ThreadWriteLock)
         {
-            return null;
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            JArray messages = thread["messages"] as JArray ?? [];
+            if (message["id"] is null)
+            {
+                message["id"] = Guid.NewGuid().ToString("N");
+            }
+            if (message["timestamp"] is null)
+            {
+                message["timestamp"] = DateTime.UtcNow.ToString("o");
+            }
+            // Branch model: a new message hangs off the current active leaf and becomes the new leaf. For a
+            // linear thread the active leaf is the last message, so this is identical to a plain append.
+            if (!message.ContainsKey("parentId"))
+            {
+                string leaf = thread["activeLeafId"]?.ToString();
+                message["parentId"] = string.IsNullOrEmpty(leaf) ? JValue.CreateNull() : new JValue(leaf);
+            }
+            messages.Add(message);
+            thread["messages"] = messages;
+            thread["activeLeafId"] = message["id"];
+            SaveThread(user, thread);
+            return thread;
         }
-        JArray messages = thread["messages"] as JArray ?? [];
-        if (message["id"] is null)
-        {
-            message["id"] = Guid.NewGuid().ToString("N");
-        }
-        if (message["timestamp"] is null)
-        {
-            message["timestamp"] = DateTime.UtcNow.ToString("o");
-        }
-        // Branch model: a new message hangs off the current active leaf and becomes the new leaf. For a
-        // linear thread the active leaf is the last message, so this is identical to a plain append.
-        if (!message.ContainsKey("parentId"))
-        {
-            string leaf = thread["activeLeafId"]?.ToString();
-            message["parentId"] = string.IsNullOrEmpty(leaf) ? JValue.CreateNull() : new JValue(leaf);
-        }
-        messages.Add(message);
-        thread["messages"] = messages;
-        thread["activeLeafId"] = message["id"];
-        SaveThread(user, thread);
-        return thread;
     }
 
     /// <summary>Appends <paramref name="message"/> as a child of an EXPLICIT parent (not the current
@@ -282,7 +294,7 @@ public static class ThreadStorageService
             return null;
         }
         // Atomic get→add→save so concurrent compare-lane appends don't lost-update each other.
-        lock (AppendLock)
+        lock (ThreadWriteLock)
         {
             JObject thread = GetThread(user, threadId);
             if (thread is null)
@@ -319,18 +331,21 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JObject thread = GetThread(user, threadId);
-        if (thread is null || thread["messages"] is not JArray messages)
+        lock (ThreadWriteLock)
         {
-            return null;
+            JObject thread = GetThread(user, threadId);
+            if (thread is null || thread["messages"] is not JArray messages)
+            {
+                return null;
+            }
+            if (!messages.OfType<JObject>().Any(m => m["id"]?.ToString() == messageId))
+            {
+                return null;
+            }
+            thread["activeLeafId"] = messageId;
+            SaveThread(user, thread);
+            return thread;
         }
-        if (!messages.OfType<JObject>().Any(m => m["id"]?.ToString() == messageId))
-        {
-            return null;
-        }
-        thread["activeLeafId"] = messageId;
-        SaveThread(user, thread);
-        return thread;
     }
 
     /// <summary>Adds <paramref name="newMessage"/> as a sibling of <paramref name="refMessageId"/> (same
@@ -342,30 +357,33 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JObject thread = GetThread(user, threadId);
-        if (thread is null || thread["messages"] is not JArray messages)
+        lock (ThreadWriteLock)
         {
-            return null;
+            JObject thread = GetThread(user, threadId);
+            if (thread is null || thread["messages"] is not JArray messages)
+            {
+                return null;
+            }
+            JObject refNode = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == refMessageId);
+            if (refNode is null)
+            {
+                return null;
+            }
+            if (newMessage["id"] is null)
+            {
+                newMessage["id"] = Guid.NewGuid().ToString("N");
+            }
+            if (newMessage["timestamp"] is null)
+            {
+                newMessage["timestamp"] = DateTime.UtcNow.ToString("o");
+            }
+            newMessage["parentId"] = refNode["parentId"]?.DeepClone() ?? JValue.CreateNull();
+            messages.Add(newMessage);
+            thread["messages"] = messages;
+            thread["activeLeafId"] = newMessage["id"];
+            SaveThread(user, thread);
+            return thread;
         }
-        JObject refNode = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == refMessageId);
-        if (refNode is null)
-        {
-            return null;
-        }
-        if (newMessage["id"] is null)
-        {
-            newMessage["id"] = Guid.NewGuid().ToString("N");
-        }
-        if (newMessage["timestamp"] is null)
-        {
-            newMessage["timestamp"] = DateTime.UtcNow.ToString("o");
-        }
-        newMessage["parentId"] = refNode["parentId"]?.DeepClone() ?? JValue.CreateNull();
-        messages.Add(newMessage);
-        thread["messages"] = messages;
-        thread["activeLeafId"] = newMessage["id"];
-        SaveThread(user, thread);
-        return thread;
     }
 
     /// <summary>Removes a message and its entire subtree (all descendant branches) by id and persists.
@@ -378,50 +396,53 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JObject thread = GetThread(user, threadId);
-        if (thread is null || thread["messages"] is not JArray messages)
+        lock (ThreadWriteLock)
         {
-            return null;
-        }
-        JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
-        if (target is null)
-        {
-            return null;
-        }
-        // Collect the target plus every transitive descendant.
-        HashSet<string> toRemove = [messageId];
-        bool grew = true;
-        while (grew)
-        {
-            grew = false;
-            foreach (JObject m in messages.OfType<JObject>())
+            JObject thread = GetThread(user, threadId);
+            if (thread is null || thread["messages"] is not JArray messages)
             {
-                string id = m["id"]?.ToString();
-                string pid = ParentIdOf(m);
-                if (id is not null && pid is not null && toRemove.Contains(pid) && !toRemove.Contains(id))
+                return null;
+            }
+            JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+            if (target is null)
+            {
+                return null;
+            }
+            // Collect the target plus every transitive descendant.
+            HashSet<string> toRemove = [messageId];
+            bool grew = true;
+            while (grew)
+            {
+                grew = false;
+                foreach (JObject m in messages.OfType<JObject>())
                 {
-                    toRemove.Add(id);
-                    grew = true;
+                    string id = m["id"]?.ToString();
+                    string pid = ParentIdOf(m);
+                    if (id is not null && pid is not null && toRemove.Contains(pid) && !toRemove.Contains(id))
+                    {
+                        toRemove.Add(id);
+                        grew = true;
+                    }
                 }
             }
-        }
-        string parentOfDeleted = ParentIdOf(target);
-        JArray survivors = [];
-        foreach (JObject m in messages.OfType<JObject>())
-        {
-            if (!toRemove.Contains(m["id"]?.ToString()))
+            string parentOfDeleted = ParentIdOf(target);
+            JArray survivors = [];
+            foreach (JObject m in messages.OfType<JObject>())
             {
-                survivors.Add(m);
+                if (!toRemove.Contains(m["id"]?.ToString()))
+                {
+                    survivors.Add(m);
+                }
             }
+            thread["messages"] = survivors;
+            string leaf = thread["activeLeafId"]?.ToString();
+            if (string.IsNullOrEmpty(leaf) || toRemove.Contains(leaf))
+            {
+                thread["activeLeafId"] = parentOfDeleted is null ? JValue.CreateNull() : new JValue(parentOfDeleted);
+            }
+            SaveThread(user, thread);
+            return thread;
         }
-        thread["messages"] = survivors;
-        string leaf = thread["activeLeafId"]?.ToString();
-        if (string.IsNullOrEmpty(leaf) || toRemove.Contains(leaf))
-        {
-            thread["activeLeafId"] = parentOfDeleted is null ? JValue.CreateNull() : new JValue(parentOfDeleted);
-        }
-        SaveThread(user, thread);
-        return thread;
     }
 
     /// <summary>Replaces the <c>content</c> field of a single message and persists. Other fields
@@ -432,35 +453,41 @@ public static class ThreadStorageService
         {
             return null;
         }
-        JObject thread = GetThread(user, threadId);
-        if (thread is null)
+        lock (ThreadWriteLock)
         {
-            return null;
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            if (thread["messages"] is not JArray messages)
+            {
+                return null;
+            }
+            JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+            if (target is null)
+            {
+                return null;
+            }
+            target["content"] = newContent ?? "";
+            target["editedAt"] = DateTime.UtcNow.ToString("o");
+            SaveThread(user, thread);
+            return thread;
         }
-        if (thread["messages"] is not JArray messages)
-        {
-            return null;
-        }
-        JObject target = messages.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
-        if (target is null)
-        {
-            return null;
-        }
-        target["content"] = newContent ?? "";
-        target["editedAt"] = DateTime.UtcNow.ToString("o");
-        SaveThread(user, thread);
-        return thread;
     }
 
-    /// <summary>Deletes a thread and removes it from the index.</summary>
+    /// <summary>Deletes a thread and removes it from the index. Succeeds if either the thread blob or
+    /// its index entry existed — an index row can outlive its blob (eg an orphaned entry from an old
+    /// bug, or a manually-edited data file), and the user's intent ("get this out of my chat list") is
+    /// satisfied either way. Reporting 404 here just traps them with a phantom entry they can never clear.</summary>
     public static bool DeleteThread(User user, string threadId)
     {
-        bool deleted = user.DeleteGenericData(DataName, ThreadPrefix + threadId);
-        if (deleted)
+        lock (ThreadWriteLock)
         {
-            RemoveFromIndex(user, threadId);
+            bool blobDeleted = user.DeleteGenericData(DataName, ThreadPrefix + threadId);
+            bool indexHadEntry = RemoveFromIndex(user, threadId);
+            return blobDeleted || indexHadEntry;
         }
-        return deleted;
     }
 
     /// <summary>Generates a unique thread ID.</summary>
@@ -504,21 +531,29 @@ public static class ThreadStorageService
             ["preview"] = preview,
             ["createdAt"] = thread["createdAt"],
             ["updatedAt"] = thread["updatedAt"],
-            ["messageCount"] = thread["messageCount"]
+            ["messageCount"] = thread["messageCount"],
+            ["assistantId"] = thread["assistantId"]
         };
         // Insert at beginning (most recent first)
         index.Insert(0, summary);
         user.SaveGenericData(DataName, IndexKey, index.ToString(Formatting.None));
     }
 
-    private static void RemoveFromIndex(User user, string threadId)
+    /// <summary>Removes a thread's entry from the index, if present. Returns whether anything was removed.</summary>
+    private static bool RemoveFromIndex(User user, string threadId)
     {
         JArray index = GetThreadIndex(user);
-        JToken existing = index.FirstOrDefault(t => t["id"]?.ToString() == threadId);
-        if (existing is not null)
+        // A stale index can carry more than one row for the same id (see ThreadWriteLock) — strip all of them.
+        List<JToken> matches = index.Where(t => t["id"]?.ToString() == threadId).ToList();
+        if (matches.Count == 0)
         {
-            index.Remove(existing);
-            user.SaveGenericData(DataName, IndexKey, index.ToString(Formatting.None));
+            return false;
         }
+        foreach (JToken m in matches)
+        {
+            index.Remove(m);
+        }
+        user.SaveGenericData(DataName, IndexKey, index.ToString(Formatting.None));
+        return true;
     }
 }

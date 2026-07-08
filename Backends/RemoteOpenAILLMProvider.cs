@@ -251,6 +251,12 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     {
                         onChunk(new JObject() { ["chunk"] = content });
                     }
+                    // finish_reason "length" means the server truncated the reply at the token cap, not
+                    // a natural stop — surface that so the UI can tell the user why.
+                    if (firstChoice?.Value<string>("finish_reason") == "length")
+                    {
+                        onChunk(new JObject() { ["stopReason"] = "length" });
+                    }
                 }
             }
             catch (Exception ex)

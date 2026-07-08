@@ -412,6 +412,7 @@
                 L.node.meta = Object.assign({}, L.node.meta, { genTime: elapsed, model: L.model, device: L.device });
                 if (data.truncated) L.node.meta.truncated = true;
                 if (data.reason) L.node.meta.reason = data.reason;
+                if (data.stopReason) L.node.meta.stopReason = data.stopReason;
                 const tc = ensureTC();
                 if (tc) {
                     tc.innerHTML = (typeof llmaRenderAssistantContent === 'function')
@@ -423,7 +424,8 @@
                 const metaEl = L.col && L.col.querySelector('.llma-msg-meta');
                 if (metaEl) {
                     const devLabel = (L.device && L.device !== 'cloud') ? `${L.device} · ` : '';
-                    metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · truncated' : ''}`;
+                    metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · truncated' : ''}${data.stopReason === 'length' ? ' · cut off (max tokens)' : ''}`;
+                    metaEl.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                 }
             },
             fail(err) {
@@ -563,7 +565,11 @@
                 llmaReplayToolCalls(bubble, node.toolCalls);
             }
             const metaEl = col.querySelector('.llma-msg-meta');
-            if (metaEl) metaEl.textContent = `${label}${node.meta && node.meta.genTime ? ` · ${node.meta.genTime}s` : ''}`;
+            if (metaEl) {
+                const cutOff = node.meta && node.meta.stopReason === 'length';
+                metaEl.textContent = `${label}${node.meta && node.meta.genTime ? ` · ${node.meta.genTime}s` : ''}${cutOff ? ' · cut off (max tokens)' : ''}`;
+                metaEl.classList.toggle('llma-msg-meta-truncated', !!cutOff);
+            }
             col.querySelector('.llma-msg-body').appendChild(llmaBuildCompareActions(node.id));
             row.appendChild(col);
         }

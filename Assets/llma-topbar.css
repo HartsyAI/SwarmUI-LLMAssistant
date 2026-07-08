@@ -308,6 +308,15 @@
 
 /* Export menu */
 .llma-export-menu { min-width: 160px; padding: 5px; }
+.llma-menu-heading {
+    padding: 4px 10px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-soft);
+    opacity: 0.5;
+}
 .llma-menu-item {
     display: block;
     width: 100%;

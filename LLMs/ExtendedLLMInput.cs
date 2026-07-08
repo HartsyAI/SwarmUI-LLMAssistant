@@ -26,7 +26,7 @@ public class ExtendedLLMInput
     public double Temperature = 1.0;
 
     /// <summary>Max response tokens.</summary>
-    public int MaxTokens = 1024;
+    public int MaxTokens = 4096;
 
     /// <summary>Nucleus sampling cutoff.</summary>
     public double TopP = 0.9;
