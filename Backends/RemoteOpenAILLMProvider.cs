@@ -32,11 +32,9 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         [ConfigComment("The default model name to request if none is specified in the generation request.\nFor example: 'gpt-4o' for OpenAI, or 'llama3.2' for Ollama.")]
         public string DefaultModel = "";
 
-        [ConfigComment("Which JSON field carries the response-length limit.\n"
-            + "'auto' picks 'max_completion_tokens' for api.openai.com (required by o1/o3/GPT-5, accepted by 4o/4.1) and 'max_tokens' everywhere else (Ollama, vLLM, LM Studio, Azure, OpenRouter, …).\n"
+        [ConfigComment("Which JSON field carries the response-length limit.\n 'auto' picks 'max_completion_tokens' for api.openai.com (required by o1/o3/GPT-5, accepted by 4o/4.1) and 'max_tokens' everywhere else (Ollama, vLLM, LM Studio, Azure, OpenRouter, …).\n"
             + "Override only if your endpoint rejects the auto choice.")]
-        [ManualSettingsOptions(Vals = ["auto", "max_tokens", "max_completion_tokens"],
-            ManualNames = ["Auto (detect from address)", "max_tokens (legacy / local servers)", "max_completion_tokens (OpenAI o1+ / GPT-5)"])]
+        [ManualSettingsOptions(Vals = ["auto", "max_tokens", "max_completion_tokens"], ManualNames = ["Auto (detect from address)", "max_tokens (legacy / local servers)", "max_completion_tokens (OpenAI o1+ / GPT-5)"])]
         public string TokenLimitParameter = "auto";
 
         [ConfigComment("When attempting to connect to the backend, this is the maximum time Swarm will wait before considering the connection to be failed.\nNote that depending on other configurations, it may fail faster than this.\nFor local network machines, set this to a low value (eg 5) to avoid 'Loading...' delays.")]
@@ -129,9 +127,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             return choice;
         }
-        return (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase)
-            ? "max_completion_tokens"
-            : "max_tokens";
+        return (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase) ? "max_completion_tokens" : "max_tokens";
     }
 
     /// <summary>Builds an OpenAI chat completions request body from the given LLM input.</summary>
@@ -141,7 +137,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         JArray messages = [];
         if (input.Messages.Count > 0)
         {
-            // Messages list already includes the system prompt if one was set.
             foreach (LLMMessage msg in input.Messages)
             {
                 messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
@@ -149,7 +144,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         }
         else
         {
-            // Fallback: no pre-built message list, construct from individual fields.
             if (!string.IsNullOrEmpty(input.SystemPrompt))
             {
                 messages.Add(new JObject() { ["role"] = LLMRoles.System, ["content"] = input.SystemPrompt });
@@ -279,8 +273,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
             return models;
         }
         string address = Settings.Address.TrimEnd('/');
-        // Bound by the caller's token AND our own connection timeout — whichever fires first cancels
-        // the request, so an interactive caller (the model dropdown) isn't held for the full timeout.
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(Settings.ConnectionAttemptTimeoutSeconds));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
         try
@@ -330,7 +322,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                 {
                     info.SizeBytes = size;
                 }
-                // Collect any other top-level string fields as metadata.
                 foreach (KeyValuePair<string, JToken> prop in model)
                 {
                     if (prop.Key is "id" or "name" or "family" or "size" or "details" or "object")
@@ -347,8 +338,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         }
         catch (OperationCanceledException)
         {
-            // Caller bound (eg the dropdown) or our own timeout fired — surface it so the caller can
-            // report "backend unreachable" rather than mistaking it for an empty model list.
             throw;
         }
         catch (Exception ex)

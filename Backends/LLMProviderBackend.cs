@@ -36,8 +36,6 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public virtual int? CountTokens(string text) => null;
 
     /// <inheritdoc/>
-    // Reuses the core FreeMemory(systemRam) path: the local backend overrides it to unload its slots; the
-    // remote backends inherit the base false (nothing resident to free).
     public async Task<bool> Unload() => await FreeMemory(true);
 
     /// <inheritdoc/>
@@ -68,8 +66,6 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public sealed override async Task Init()
     {
         await OnProviderInit();
-        // Only expose usable backends to the dispatcher; an errored/disabled one shouldn't be
-        // picked as the fallback "first provider".
         if (Status is BackendStatus.RUNNING or BackendStatus.IDLE)
         {
             LLMProviderRegistry.Register(this);
@@ -82,8 +78,6 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
         LLMProviderRegistry.Unregister(Id);
         await OnProviderShutdown();
     }
-
-    // --- Thin core-API bridges (rarely used; the extension drives the rich ILLMProvider path) ---
 
     /// <inheritdoc/>
     public override Task<string> Generate(SwarmUI.LLMs.LLMParamInput user_input) => Generate(ToRich(user_input));

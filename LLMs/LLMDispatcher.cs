@@ -19,15 +19,11 @@ public static class LLMDispatcher
         {
             throw new SwarmReadableErrorException("No LLM backend is running. Add one in Server > Backends.");
         }
-        // A pinned backend id (compare-mode device selection) must be honored even with one provider —
-        // it may not be the one that owns the model, and the caller explicitly chose it.
         int backendId = input?.BackendId ?? -1;
         if ((providers.Count == 1 && backendId < 0) || string.IsNullOrEmpty(input?.Model))
         {
             return providers[0];
         }
-        // Find the owner via the cached roster lookup (never calls ListModels live here, so an unreachable
-        // remote backend can't stall the request). When a backend id is pinned, route to that exact instance.
         ILLMProvider owner = await LLMModelLookup.GetOwningProviderAsync(input.Model, backendId);
         return owner ?? providers[0];
     }
@@ -66,7 +62,6 @@ public static class LLMDispatcher
             }
             catch
             {
-                // Ignore and try the next provider / heuristic.
             }
         }
         return (Math.Max(0, (int)Math.Ceiling(text.Length / 4.0)), false, "heuristic");

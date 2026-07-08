@@ -77,8 +77,6 @@ public class LLMModelMatcher
                 {
                     return false;
                 }
-                // Tags can be expressed as a comma-separated "tags" metadata value, or as
-                // individual `tag:<name>` keys with truthy values.
                 if (model.Metadata.TryGetValue("tags", out string tagList))
                 {
                     foreach (string tag in tagList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -139,7 +137,7 @@ public class LLMModelMatcher
         return anyMatch ? bestValue : defaultValue;
     }
 
-    // ---- Serialization ----
+    #region serialization
 
     /// <summary>Builds a matcher from a JSON object of the form
     /// <c>{ "match": "claude-*", "matchKind": "glob" }</c>. Unknown <c>matchKind</c> values
@@ -184,4 +182,6 @@ public class LLMModelMatcher
             _ => defaultIfEmpty
         };
     }
+
+    #endregion
 }

@@ -95,8 +95,6 @@ public class ExtendedLLMInput
             {
                 Role = llmRole,
                 Content = msg.Content,
-                // Convert URL-shaped attachments (eg local Output paths) to base64 so backends
-                // can ship them inline. External HTTPS URLs pass through untouched.
                 Media = Services.MediaResolver.ResolveForLLM(msg.Media)
             });
         }

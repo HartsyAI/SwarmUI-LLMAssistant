@@ -7,23 +7,18 @@ using SwarmUI.Utils;
 
 namespace SwarmUI.Extensions.LLMAssistant.LLMs;
 
-/// <summary>Bridges GenerateLive callback output to WebSocket streaming.
-/// Supports an agentic tool-calling loop: when the model emits &lt;tool_call&gt; blocks,
-/// the stream is interrupted, tools execute, results are injected into history, and
-/// generation resumes for up to <see cref="ToolConstants.MaxAgenticIterations"/> rounds.
-/// <para>Cancellation: a linked CancellationTokenSource is created from
-/// <c>Program.GlobalProgramCancel</c>. Between iterations and tool calls we check
-/// <c>socket.State</c> and cancel if the client has gone away — adopted from T2IAPI's
-/// <c>GenerateText2ImageWS</c> pattern. Tool handlers receive the linked token and must
-/// honor it; long-running ones (HTTP, shell exec, file IO) all do.</para></summary>
+/// <summary>Bridges GenerateLive callback output to WebSocket streaming, including an agentic
+/// tool-calling loop: when the model emits &lt;tool_call&gt; blocks, the stream is interrupted,
+/// tools execute, results are injected into history, and generation resumes for up to
+/// <see cref="ToolConstants.MaxAgenticIterations"/> rounds. A CancellationTokenSource linked to
+/// <c>Program.GlobalProgramCancel</c> is cancelled if the socket closes mid-stream; tool handlers
+/// receive that token and must honor it.</summary>
 public static class LLMStreamHelper
 {
-    /// <summary>Streams LLM generation output over a WebSocket connection.
-    /// If <paramref name="threadId"/> is non-null and the session has a user, the assistant's
-    /// reply (and any tool events that happened during the agentic loop) is appended to the
-    /// stored thread when generation completes — server is authoritative for chat history.
-    /// <paramref name="assistantId"/> flows through to tool execution so per-assistant tool
-    /// config (eg <c>generate_image</c>'s default preset) takes effect.</summary>
+    /// <summary>Streams LLM generation output over a WebSocket connection. If <paramref name="threadId"/>
+    /// is set and the session has a user, the reply (and any tool events) is appended to the stored
+    /// thread on completion. <paramref name="assistantId"/> flows through to tool execution so
+    /// per-assistant tool config takes effect.</summary>
     /// <param name="lane">Compare-mode column index (0/1/…). <c>-1</c> = normal single-model mode (no lane tag).</param>
     /// <param name="sendLock">Shared lock serializing socket writes when multiple lanes share one socket.</param>
     /// <param name="parentMessageId">When set, the reply is persisted as a child of THIS message (the user
@@ -59,9 +54,8 @@ public static class LLMStreamHelper
                 await SendJson(socket, new JObject { ["iteration"] = iteration + 1 }, lane, sendLock);
             }
             StringBuilder roundBuffer = new();
-            // A complete tool call ends the round early: cancel a round-scoped token so the provider
-            // actually stops generating (reusing the cancellation path every provider already honors)
-            // instead of running to its token limit while we discard the output.
+            // A complete tool call ends the round early: cancelling this round-scoped token stops the
+            // provider generating further instead of running to its token limit for nothing.
             using CancellationTokenSource roundCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
             bool toolCallDetected = false;
             try
@@ -76,8 +70,8 @@ public static class LLMStreamHelper
                     {
                         string text = chunkToken.ToString();
                         roundBuffer.Append(text);
-                        // Send on `linked` (not `roundCts`) so the chunk carrying </tool_call> still
-                        // reaches the UI before we cancel the round.
+                        // Send on `linked`, not `roundCts` — the chunk carrying </tool_call> must reach
+                        // the UI before the round gets cancelled.
                         SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
                         if (ToolPromptService.ContainsCompleteToolCall(roundBuffer.ToString()))
                         {
@@ -92,16 +86,15 @@ public static class LLMStreamHelper
                     }
                     else if (chunk.TryGetValue("status", out JToken statusToken))
                     {
-                        // Forward backend-side status events (eg "loading_model" / "model_ready") to the
-                        // client so the UI can show a spinner during slow loads.
+                        // Forward backend status events (eg "loading_model") so the UI can show a spinner.
                         SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
                     }
                 }, roundCts.Token);
             }
             catch (OperationCanceledException) when (toolCallDetected && !linked.IsCancellationRequested)
             {
-                // Expected: we cancelled the round because a complete tool call arrived — fall through to
-                // parse and execute it. (A real user-Stop / socket-close cancels `linked` and is not caught.)
+                // Expected: the round was cancelled because a tool call completed — fall through and
+                // execute it. A real user-Stop / socket-close cancels `linked` and isn't caught here.
             }
             if (SocketGone(socket))
             {
@@ -121,10 +114,8 @@ public static class LLMStreamHelper
                 }, lane, sendLock);
                 return;
             }
-            // Append round output (with tool call tags) to the accumulated response and to history
             fullResponse.Append(roundText);
             input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = roundText });
-            // Execute each tool call and feed the result back
             foreach (ToolPromptService.ParsedToolCall call in toolCalls)
             {
                 if (SocketGone(socket) || linked.IsCancellationRequested)
@@ -165,7 +156,6 @@ public static class LLMStreamHelper
                         ["result"] = result
                     }
                 }, lane, sendLock);
-                // Record for thread persistence at end of stream
                 toolEvents.Add(new JObject
                 {
                     ["id"] = call.Id,
@@ -173,12 +163,11 @@ public static class LLMStreamHelper
                     ["arguments"] = call.Arguments,
                     ["result"] = result
                 });
-                // Inject formatted result back into history as a user-role message so the model sees it
+                // Feed the result back as a user-role message so the model sees it next round.
                 string formatted = ToolPromptService.FormatToolResult(call.Name, result);
                 input.Messages.Add(new LLMMessage() { Role = LLMRoles.User, Content = formatted });
             }
         }
-        // Hit max iterations without finishing
         PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, truncated: true, reason: "max_iterations", clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
         await SendJson(socket, new JObject
         {

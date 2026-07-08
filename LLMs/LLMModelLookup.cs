@@ -38,7 +38,6 @@ public static class LLMModelLookup
         }
         catch
         {
-            // Timeout or provider error — cache an empty roster (don't re-hammer for TTL).
             models = [];
         }
         ProviderCache[provider.Id] = new ProviderEntry(DateTime.UtcNow + TTL, models);
@@ -67,8 +66,7 @@ public static class LLMModelLookup
 
     /// <summary>Returns the provider that advertises the given model id, or null. Cached, so this is safe
     /// to call on every generation request without re-hitting remote endpoints.</summary>
-    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId)
-        => await GetOwningProviderAsync(modelId, -1);
+    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId) => await GetOwningProviderAsync(modelId, -1);
 
     /// <summary>Returns the provider that advertises the given model id on the given backend instance.
     /// When <paramref name="backendId"/> is &gt;= 0, only a provider advertising the model with that exact
