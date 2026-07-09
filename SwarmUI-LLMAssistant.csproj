@@ -15,7 +15,7 @@
 
   <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.44" />
+    <PackageReference Include="HartsyInference" Version="1.0.0-alpha.46" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
