@@ -14,6 +14,7 @@ using HartsyInference.LLM.Generation;
 using HartsyInference.LLM.Sampling;
 using HartsyInference.Core.Tensors;
 using HartsyInference.LLM.Multimodal;
+using HartsyInference.LLM.Ssm;
 using SwarmUI.Extensions.LLMAssistant.Services;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -48,6 +49,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
         [ConfigComment("If enabled, the model is unloaded immediately after each generation completes.\nIf false, it stays resident for faster subsequent requests.")]
         public bool AlwaysFreeMemory = false;
+
+        [ConfigComment("Use CUDA-graph decode when eligible (plain dense Llama/Qwen/Mistral-shape models, CUDA backend only).\nRemoves per-token kernel-launch overhead for faster decode, but only kicks in when the request ends up greedy\n(Temperature = 0) — normal temperature sampling on the chat UI still uses the regular decode path for now.")]
+        public bool GraphDecode = false;
+
+        [ConfigComment("Use prompt-lookup speculative decoding when eligible (no draft model — drafts from repeated n-grams in the\nprompt/response so far). Same eligibility as GraphDecode (greedy / Temperature = 0 only) plus JSON mode must be off.\nBiggest win on repetitive output (regenerating similar structure, quoting earlier text); costs nothing extra otherwise.")]
+        public bool SpeculativeDecode = false;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -62,10 +69,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         public readonly SemaphoreSlim Lock = new(1, 1);
         /// <summary>The compute backend (CPU/CUDA) bound to this slot's device.</summary>
         public IBackend Backend;
-        /// <summary>The currently-loaded GGUF text model, or null if nothing is loaded.</summary>
+        /// <summary>The currently-loaded GGUF text model, or null if nothing is loaded (or a state-space model is loaded instead — see <see cref="SsmModel"/>).</summary>
         public GgufLanguageModel Model;
         /// <summary>The generation pipeline built for <see cref="Model"/> on <see cref="Backend"/>.</summary>
         public TextGenerationPipeline Pipeline;
+        /// <summary>The currently-loaded GGUF state-space model (mamba/mamba2/rwkv6/rwkv7), or null when <see cref="Model"/> is a transformer instead.</summary>
+        public SsmLanguageModel SsmModel;
+        /// <summary>The generation pipeline built for <see cref="SsmModel"/> on <see cref="Backend"/>.</summary>
+        public SsmGenerationPipeline SsmPipeline;
         /// <summary>Full path of the currently-loaded GGUF file, or null if nothing is loaded.</summary>
         public string LoadedPath;
 
@@ -228,8 +239,20 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             return;
         }
         UnloadSlot(slot);
+        EnsureRamHeadroomFor(path);
         slot.Backend ??= CreateBackendFor(deviceKey);
         bool isCpu = slot.Backend is CpuBackend;
+        string architecture = PeekArchitecture(path);
+        if (SsmLanguageModel.IsSsmArchitecture(architecture))
+        {
+            // State-space decoders (mamba/mamba2/rwkv6/rwkv7) are not GenericTransformer models — no
+            // attention.head_count metadata, no KV cache, no vision sidecar support.
+            slot.SsmModel = SsmLanguageModel.Load(path, architecture);
+            slot.SsmPipeline = new SsmGenerationPipeline(slot.SsmModel.Model, slot.SsmModel.Tokenizer, slot.Backend, slot.SsmModel.Template);
+            slot.LoadedPath = path;
+            Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF SSM model '{Path.GetFileName(path)}' ({architecture}) on {deviceKey}.");
+            return;
+        }
         slot.Model = GgufLanguageModel.Load(path, Settings.LowVramQuant, dequantizeToF32: isCpu);
         if (slot.Backend is CudaBackend)
         {
@@ -240,6 +263,66 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         LoadVisionInto(slot, path);
         Logs.Info($"[HartsyLocalLLMProvider] Loaded GGUF model '{Path.GetFileName(path)}' ({slot.Model.Architecture}) on {deviceKey}"
             + (slot.VisionPath is not null ? $" + vision '{Path.GetFileName(slot.VisionPath)}'." : "."));
+    }
+
+    /// <summary>Cheap <c>general.architecture</c> read (metadata + tensor descriptors only, no weight data
+    /// touched) used to route a GGUF to the transformer or SSM loader before committing to either.</summary>
+    private static string PeekArchitecture(string path)
+    {
+        using HartsyInference.ModelHandler.Gguf.GgufLoader probe = new();
+        probe.Load(path);
+        return probe.Metadata.GetString("general.architecture") ?? "";
+    }
+
+    /// <summary>Minimum free-RAM-to-file-size ratio required before loading a GGUF. Loading dequantizes the
+    /// tensors the GPU matmul path can't consume directly to F32/F16 host buffers on top of the mmap'd file
+    /// itself, so peak host usage during load comfortably exceeds the raw file size — observed ~1.5-2x on a
+    /// 9GB qwen1.5-moe file that OOM-killed the whole SwarmUI process (not just this request) when headroom was
+    /// thin. 2.5x is a safety margin, not a measured ceiling.</summary>
+    private const double RamHeadroomMultiplier = 2.5;
+
+    /// <summary>Refuses to load <paramref name="path"/> when there isn't enough free host RAM to survive
+    /// dequantization, so a big model fails with a clear error instead of OOM-killing the whole SwarmUI process
+    /// (host RAM, not VRAM, is the gate during weight load — the GPU can have plenty of headroom while this
+    /// still kills the process). No-op when <c>/proc/meminfo</c> isn't available (non-Linux).</summary>
+    private static void EnsureRamHeadroomFor(string path)
+    {
+        long availableKb = ReadAvailableMemoryKb();
+        if (availableKb <= 0)
+        {
+            return;
+        }
+        long fileBytes;
+        try { fileBytes = new FileInfo(path).Length; }
+        catch { return; }
+        double availableBytes = availableKb * 1024.0;
+        double requiredBytes = fileBytes * RamHeadroomMultiplier;
+        if (availableBytes < requiredBytes)
+        {
+            throw new SwarmReadableErrorException(
+                $"Not enough free host RAM to safely load '{Path.GetFileName(path)}' ({fileBytes / 1024.0 / 1024 / 1024:0.0} GB file): "
+                + $"{availableBytes / 1024 / 1024 / 1024:0.0} GB free, need ~{requiredBytes / 1024 / 1024 / 1024:0.0} GB headroom for dequantization. "
+                + "Free RAM (close other apps / unload other models) or use a smaller quant, then retry — loading anyway risks crashing the whole SwarmUI process, not just this request.");
+        }
+    }
+
+    /// <summary>MemAvailable from /proc/meminfo in KiB, or 0 when unavailable (non-Linux). Mirrors AudioLab's
+    /// AudioEngine.ReadAvailableMemoryKb — same signal, same reasoning, different subsystem.</summary>
+    private static long ReadAvailableMemoryKb()
+    {
+        try
+        {
+            foreach (string line in File.ReadLines("/proc/meminfo"))
+            {
+                if (line.StartsWith("MemAvailable:", StringComparison.Ordinal))
+                {
+                    string[] parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    return long.TryParse(parts[1], out long kb) ? kb : 0;
+                }
+            }
+        }
+        catch (Exception) { }
+        return 0;
     }
 
     /// <summary>Pairs the just-loaded text model with a sidecar mmproj GGUF (if one sits next to it) and loads
@@ -327,7 +410,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         slot.MllamaVision?.Dispose();
         slot.MllamaVision = null;
         slot.VisionPath = null;
-        if (slot.Model is not null && slot.Backend is CudaBackend cuda)
+        if ((slot.Model is not null || slot.SsmModel is not null) && slot.Backend is CudaBackend cuda)
         {
             try { cuda.FreeAllDeviceMemory(); }
             catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] FreeAllDeviceMemory failed: {ex.Message}"); }
@@ -335,7 +418,21 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         slot.Pipeline = null;
         slot.Model?.Dispose();
         slot.Model = null;
+        slot.SsmPipeline = null;
+        slot.SsmModel?.Dispose();
+        slot.SsmModel = null;
+        bool hadModel = slot.LoadedPath is not null;
         slot.LoadedPath = null;
+        // Same fix as AudioLab's provider-switch eviction: a GGUF load leaves multi-GB dequantized host buffers
+        // (and the closed mmap's pages) reachable only via finalizers/GC timing, not freed synchronously by
+        // Dispose alone. Without forcing a collection here, available host RAM monotonically shrinks across
+        // sequential model loads until the process is restarted (observed: 13GB -> 7.4GB free over ~6 loads).
+        if (hadModel)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+        }
     }
 
     /// <summary>Builds the engine generation request from the extension's input. Per-request controls
@@ -366,15 +463,37 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         Greedy = input.Temperature <= 0
     };
 
-    /// <summary>Builds the engine's <see cref="GenerationRequest"/> (chat history or plain prompt) with sampling from <see cref="BuildSampling"/>.</summary>
-    private GenerationRequest BuildRequest(ExtendedLLMInput input)
+    /// <summary>True when this model has no usable chat template: <see cref="GgufLanguageModel.BuildTemplate"/> /
+    /// <see cref="HartsyInference.LLM.Ssm.SsmLanguageModel"/> already fall back to <see cref="ChatMlTemplate"/>
+    /// whenever a GGUF carries no real <c>chat_template</c> (or fails to compile one), but ChatML itself needs
+    /// <c>&lt;|im_start|&gt;</c>/<c>&lt;|im_end|&gt;</c> special tokens — base/non-instruct checkpoints (bloom,
+    /// gpt2, pythia/gptneox, starcoder2, and any GGUF whose tokenizer never registered those tokens) don't have
+    /// them, so the ChatML encoder throws. Checking <c>template is ChatMlTemplate</c> (not just "tokens
+    /// missing") avoids a false positive on a model with a real custom Jinja template that just happens not to
+    /// use ChatML's tokens.</summary>
+    private static bool NeedsRawCompletion(IChatTemplate template, HartsyInference.Tokenizers.ILlmTokenizer tokenizer)
+        => template is ChatMlTemplate && tokenizer.SpecialId("<|im_start|>") is null;
+
+    /// <summary>Builds the engine's <see cref="GenerationRequest"/> with sampling from <see cref="BuildSampling"/>.
+    /// <paramref name="rawCompletion"/> (see <see cref="NeedsRawCompletion"/>) skips chat templating entirely —
+    /// base checkpoints have no notion of roles/turns, so this feeds the latest message's plain text straight to
+    /// the tokenizer via <see cref="GenerationRequest.RawTokenIds"/> instead of wrapping it in a template that
+    /// would just throw (or, if it didn't throw, confuse a model that was never trained on chat markup).</summary>
+    private GenerationRequest BuildRequest(ExtendedLLMInput input, bool rawCompletion, HartsyInference.Tokenizers.ILlmTokenizer tokenizer)
     {
         SamplingOptions sampling = BuildSampling(input);
         GenerationRequest request = new()
         {
             MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
-            Sampling = sampling
+            Sampling = sampling,
+            GraphDecode = Settings.GraphDecode ? true : null,
+            SpeculativeDecode = Settings.SpeculativeDecode ? true : null
         };
+        if (rawCompletion)
+        {
+            string rawText = input.Messages is { Count: > 0 } msgs ? (msgs[^1].Content ?? "") : (input.UserMessage ?? "");
+            return request with { RawTokenIds = tokenizer.EncodeOrdinary(rawText) };
+        }
         if (input.Messages is not null && input.Messages.Count > 0)
         {
             // GGUF text models are not multimodal here — content text only.
@@ -498,10 +617,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 }
                 return;
             }
-            GenerationRequest request = BuildRequest(input);
             // Stream by decoding the running token list and emitting the newly-appeared text. (Byte-level
             // BPE means a single token doesn't cleanly map to a substring, so decode-and-diff is the
             // correct way to surface incremental text.)
+            HartsyInference.Tokenizers.ILlmTokenizer tokenizer = slot.SsmModel is not null ? slot.SsmModel.Tokenizer : slot.Model.Tokenizer;
+            IChatTemplate template = slot.SsmModel is not null ? slot.SsmModel.Template : slot.Model.Template;
+            bool rawCompletion = NeedsRawCompletion(template, tokenizer);
+            GenerationRequest request = BuildRequest(input, rawCompletion, tokenizer);
             List<int> acc = [];
             int emitted = 0;
             void OnToken(int id)
@@ -511,14 +633,21 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     throw new OperationCanceledException(ct);
                 }
                 acc.Add(id);
-                string full = slot.Model.Tokenizer.Decode(acc);
+                string full = tokenizer.Decode(acc);
                 if (full.Length > emitted)
                 {
                     onChunk(new JObject() { ["chunk"] = full[emitted..] });
                     emitted = full.Length;
                 }
             }
-            await Task.Run(() => slot.Pipeline.Generate(request, OnToken), ct);
+            if (slot.SsmModel is not null)
+            {
+                await Task.Run(() => slot.SsmPipeline.Generate(request, OnToken), ct);
+            }
+            else
+            {
+                await Task.Run(() => slot.Pipeline.Generate(request, OnToken), ct);
+            }
             // The engine has no explicit stop-reason API — but a generation that used every token in the
             // budget almost certainly got cut off mid-thought rather than hitting a natural EOS, so treat
             // reaching the cap as truncation and surface it the same way the remote providers do.
@@ -553,6 +682,10 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 if (slot.Model is not null)
                 {
                     return slot.Model.Tokenizer.EncodeOrdinary(text ?? "").Length;
+                }
+                if (slot.SsmModel is not null)
+                {
+                    return slot.SsmModel.Tokenizer.EncodeOrdinary(text ?? "").Length;
                 }
             }
             catch

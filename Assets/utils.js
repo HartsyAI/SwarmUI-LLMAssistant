@@ -140,6 +140,100 @@ async function llmaLoadVendoredLibs() {
         .catch(() => console.warn('[LLMAssistant] Mermaid failed to load'));
 }
 
+// -- Streaming render (shared by chat-pipeline.js's single stream and chat-compare.js's lanes) --
+
+/**
+ * Incrementally filters `openTag...closeTag` spans (including a still-open, unclosed span) out of a
+ * streamed text feed WITHOUT ever re-scanning previously-processed text — only a small tail (shorter than
+ * either tag) is carried across `feed()` calls to catch a tag split across a chunk boundary. Mirrors the
+ * server-side `ToolPromptService.TailWindowSentinel` technique, applied bidirectionally (open AND close).
+ * Replaces the old per-tick `streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '')`, which
+ * re-scanned the entire accumulated message on every render.
+ */
+function llmaMakeHiddenSpanFilter(openTag, closeTag) {
+    let visible = '';
+    let hidden = false;
+    let buf = '';
+    function feed(chunk) {
+        buf += chunk;
+        for (;;) {
+            if (!hidden) {
+                const idx = buf.indexOf(openTag);
+                if (idx === -1) {
+                    const safeLen = Math.max(0, buf.length - (openTag.length - 1));
+                    visible += buf.slice(0, safeLen);
+                    buf = buf.slice(safeLen);
+                    return;
+                }
+                visible += buf.slice(0, idx);
+                buf = buf.slice(idx + openTag.length);
+                hidden = true;
+            } else {
+                const idx = buf.indexOf(closeTag);
+                if (idx === -1) {
+                    // Hidden content is never shown, so there's nothing to flush — just bound the carried
+                    // tail so a huge streaming tool-call argument doesn't grow `buf` unboundedly.
+                    const safeLen = Math.max(0, buf.length - (closeTag.length - 1));
+                    buf = buf.slice(safeLen);
+                    return;
+                }
+                buf = buf.slice(idx + closeTag.length);
+                hidden = false;
+            }
+        }
+    }
+    return { feed, visibleText: () => visible };
+}
+
+/**
+ * Streaming-render controller: owns the accumulated raw text for one message segment, the hidden-span
+ * filter above, and a length-adaptive throttled render so long single-segment replies don't pay a fixed
+ * tick rate (and full markdown reparse+sanitize cost) regardless of length.
+ * @param {() => HTMLElement} getBubble - Returns the current bubble element to render into.
+ */
+function llmaMakeStreamRenderer(getBubble) {
+    const openTag = '<tool_call>', closeTag = '</tool_call>';
+    const baseIntervalMs = 60, maxIntervalMs = 250;
+    let rawText = '';
+    let filter = llmaMakeHiddenSpanFilter(openTag, closeTag);
+    let textContainer = null;
+    let lastRender = 0;
+    let pending = null;
+    const clearPendingRender = () => { if (pending) { clearTimeout(pending); pending = null; } };
+    const ensureTextContainer = () => {
+        const bubble = getBubble();
+        if (!bubble) return null;
+        if (!textContainer || !textContainer.isConnected) {
+            textContainer = document.createElement('div');
+            textContainer.className = 'llma-msg-text-segment';
+            bubble.appendChild(textContainer);
+        }
+        return textContainer;
+    };
+    const renderNow = () => {
+        const tc = ensureTextContainer();
+        if (!tc) return;
+        tc.innerHTML = llmaRenderMarkdown(filter.visibleText().trim());
+        lastRender = performance.now();
+    };
+    // Scales up (capped) as the segment grows — re-render cost (markdown parse + sanitize) grows with
+    // length too, so a long reply shouldn't keep re-paying a fixed 60ms tick rate for its whole duration.
+    const currentIntervalMs = () => Math.min(maxIntervalMs, Math.max(baseIntervalMs, rawText.length / 50));
+    const schedule = () => {
+        const interval = currentIntervalMs();
+        const since = performance.now() - lastRender;
+        if (since >= interval) { clearPendingRender(); renderNow(); }
+        else if (!pending) { pending = setTimeout(() => { pending = null; renderNow(); }, interval - since); }
+    };
+    return {
+        appendChunk(text) { rawText += text; filter.feed(text); schedule(); },
+        breakSegment() { clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
+        cancelPendingRender: clearPendingRender,
+        ensureTextContainer,
+        getRawText: () => rawText,
+    };
+}
+
 // -- Markdown Renderer --
 let llmaMermaidCounter = 0;
 

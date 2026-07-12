@@ -55,7 +55,9 @@ public static class LLMStreamHelper
             }
             StringBuilder roundBuffer = new();
             // A complete tool call ends the round early: cancelling this round-scoped token stops the
-            // provider generating further instead of running to its token limit for nothing.
+            // provider generating further instead of running to its token limit for nothing. Tail-window
+            // scan (not a full-buffer re-scan) since this callback fires once per streamed chunk.
+            ToolPromptService.TailWindowSentinel closeTagWatcher = new("</tool_call>");
             using CancellationTokenSource roundCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
             bool toolCallDetected = false;
             string roundStopReason = null;
@@ -74,7 +76,7 @@ public static class LLMStreamHelper
                         // Send on `linked`, not `roundCts` — the chunk carrying </tool_call> must reach
                         // the UI before the round gets cancelled.
                         SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
-                        if (ToolPromptService.ContainsCompleteToolCall(roundBuffer.ToString()))
+                        if (closeTagWatcher.Feed(text))
                         {
                             toolCallDetected = true;
                             roundCts.Cancel();
@@ -109,8 +111,8 @@ public static class LLMStreamHelper
                 return;
             }
             string roundText = roundBuffer.ToString();
-            List<ToolPromptService.ParsedToolCall> toolCalls = ToolPromptService.ParseToolCalls(roundText);
-            if (toolCalls.Count == 0)
+            List<ToolPromptService.ParsedToolCall> toolCalls = ToolPromptService.ParseToolCalls(roundText, out List<string> malformedCalls);
+            if (toolCalls.Count == 0 && malformedCalls.Count == 0)
             {
                 fullResponse.Append(roundText);
                 PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, stopReason: roundStopReason, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
@@ -124,6 +126,18 @@ public static class LLMStreamHelper
             }
             fullResponse.Append(roundText);
             input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = roundText });
+            foreach (string rawMalformed in malformedCalls)
+            {
+                // Previously these vanished silently — the model had no idea its call didn't register and
+                // no way to retry. Feed an error result back exactly like a real failed tool execution.
+                Logs.Debug($"[LLMAssistant] Malformed <tool_call> JSON dropped, feeding retry hint: {rawMalformed}");
+                string formatted = ToolPromptService.FormatToolResult("tool_call", new JObject
+                {
+                    ["success"] = false,
+                    ["error"] = "Could not parse this tool call — invalid or incomplete JSON. Re-emit it as a single well-formed <tool_call>{\"name\":\"...\",\"arguments\":{...}}</tool_call> block."
+                });
+                input.Messages.Add(new LLMMessage() { Role = LLMRoles.User, Content = formatted });
+            }
             foreach (ToolPromptService.ParsedToolCall call in toolCalls)
             {
                 if (SocketGone(socket) || linked.IsCancellationRequested)

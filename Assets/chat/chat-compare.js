@@ -340,36 +340,9 @@
      *  machinery (throttled markdown, tool bubbles, final asset-swapped render) scoped to one bubble. */
     function llmaMakeLaneController(L, startTime) {
         const bubble = L.bubble;
-        let streamingText = '';
         let firstChunk = true;
         let done = false;
-        let textContainer = null;
-        const STREAM_RENDER_MS = 60;
-        let lastRender = 0;
-        let pending = null;
-        const clearPending = () => { if (pending) { clearTimeout(pending); pending = null; } };
-        const ensureTC = () => {
-            if (!bubble) return null;
-            if (!textContainer || !textContainer.isConnected) {
-                textContainer = document.createElement('div');
-                textContainer.className = 'llma-msg-text-segment';
-                bubble.appendChild(textContainer);
-            }
-            return textContainer;
-        };
-        const renderNow = () => {
-            const tc = ensureTC();
-            if (!tc) return;
-            const clean = streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').trim();
-            tc.innerHTML = llmaRenderMarkdown(clean);
-            lastRender = performance.now();
-        };
-        const schedule = () => {
-            const since = performance.now() - lastRender;
-            if (since >= STREAM_RENDER_MS) { clearPending(); renderNow(); }
-            else if (!pending) { pending = setTimeout(() => { pending = null; renderNow(); }, STREAM_RENDER_MS - since); }
-        };
-        const markText = (t) => { L.node.content = t; };
+        const renderer = llmaMakeStreamRenderer(() => bubble);
 
         return {
             isDone: () => done,
@@ -383,14 +356,13 @@
                     bubble && bubble.querySelector('.llma-typing')?.remove();
                     llmaShowLoadStatusInBubble(bubble, null);
                 }
-                streamingText += text;
-                markText(streamingText);
-                schedule();
+                renderer.appendChunk(text);
+                L.node.content = renderer.getRawText();
                 if (typeof llmaScrollToBottom === 'function') llmaScrollToBottom();
             },
-            newIteration() { clearPending(); textContainer = null; streamingText = ''; },
+            newIteration() { renderer.breakSegment(); },
             toolCall(tc) {
-                clearPending(); textContainer = null; streamingText = '';
+                renderer.breakSegment();
                 L.node.toolCalls = L.node.toolCalls || [];
                 L.node.toolCalls.push({ id: tc.id, name: tc.name, arguments: tc.arguments, result: null });
                 if (bubble && typeof llmaRenderToolCall === 'function') llmaRenderToolCall(bubble, tc);
@@ -403,9 +375,10 @@
             done(data) {
                 if (done) return;
                 done = true;
-                clearPending();
+                renderer.cancelPendingRender();
                 const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-                const fullRaw = data.full_text || streamingText;
+                const rawText = renderer.getRawText();
+                const fullRaw = data.full_text || rawText;
                 const cleanFull = (typeof llmaStripToolTags === 'function') ? llmaStripToolTags(fullRaw) : fullRaw;
                 L.node.content = cleanFull;
                 L.node.rawContent = fullRaw;
@@ -413,11 +386,11 @@
                 if (data.truncated) L.node.meta.truncated = true;
                 if (data.reason) L.node.meta.reason = data.reason;
                 if (data.stopReason) L.node.meta.stopReason = data.stopReason;
-                const tc = ensureTC();
+                const tc = renderer.ensureTextContainer();
                 if (tc) {
                     tc.innerHTML = (typeof llmaRenderAssistantContent === 'function')
-                        ? llmaRenderAssistantContent(llmaStripToolTags(streamingText), L.msgId)
-                        : llmaRenderMarkdown(streamingText);
+                        ? llmaRenderAssistantContent(llmaStripToolTags(rawText), L.msgId)
+                        : llmaRenderMarkdown(rawText);
                     if (typeof llmaPostRenderMermaid === 'function') llmaPostRenderMermaid(tc);
                 }
                 bubble && bubble.querySelector('.llma-typing')?.remove();
@@ -431,7 +404,7 @@
             fail(err) {
                 if (done) return;
                 done = true;
-                clearPending();
+                renderer.cancelPendingRender();
                 bubble && bubble.querySelector('.llma-typing')?.remove();
                 if (typeof llmaShowErrorInBubble === 'function') llmaShowErrorInBubble(bubble, err);
             },

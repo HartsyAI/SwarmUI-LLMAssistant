@@ -145,47 +145,10 @@
 
         const bubble = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-bubble`);
         const startTime = performance.now();
-        let streamingText = '';
         let firstChunk = true;
-        // Text content containers per iteration — tool call/result bubbles sit between them
-        let textContainer = null;
-        const ensureTextContainer = () => {
-            if (!bubble) return null;
-            if (!textContainer || !textContainer.isConnected) {
-                textContainer = document.createElement('div');
-                textContainer.className = 'llma-msg-text-segment';
-                bubble.appendChild(textContainer);
-            }
-            return textContainer;
-        };
-        // Streaming markdown is throttled: re-parsing + re-sanitizing the whole message on every token is
-        // O(n^2) and janky on long replies. Render at most once per STREAM_RENDER_MS during streaming; the
-        // `done` handler always does the final authoritative render. Trailing-edge so the last partial isn't lost.
-        const STREAM_RENDER_MS = 60;
-        let lastStreamRender = 0;
-        let pendingStreamRender = null;
-        const clearPendingRender = () => {
-            if (pendingStreamRender) { clearTimeout(pendingStreamRender); pendingStreamRender = null; }
-        };
-        const renderStreamingNow = () => {
-            const tc = ensureTextContainer();
-            if (!tc) return;
-            // Hide any (possibly partial) <tool_call> markup during streaming for a clean UI.
-            const cleanText = streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '').trim();
-            tc.innerHTML = llmaRenderMarkdown(cleanText);
-            lastStreamRender = performance.now();
-        };
-        const scheduleStreamingRender = () => {
-            const since = performance.now() - lastStreamRender;
-            if (since >= STREAM_RENDER_MS) {
-                clearPendingRender();
-                renderStreamingNow();
-            } else if (!pendingStreamRender) {
-                pendingStreamRender = setTimeout(() => { pendingStreamRender = null; renderStreamingNow(); }, STREAM_RENDER_MS - since);
-            }
-        };
-        // Reset so next chunk after a tool result starts a fresh text segment
-        const breakTextSegment = () => { clearPendingRender(); textContainer = null; streamingText = ''; };
+        // Text content containers per iteration — tool call/result bubbles sit between them. Owns the
+        // accumulated text, the <tool_call> hide filter, and the throttled render (see utils.js).
+        const renderer = llmaMakeStreamRenderer(() => bubble);
 
         LLMAState._streamingMsgId = assistantMsgId;
         LLMAState._streamingText  = '';
@@ -193,7 +156,7 @@
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
                 if (data.error) {
-                    clearPendingRender();
+                    renderer.cancelPendingRender();
                     llmaShowErrorInBubble(bubble, data.error);
                     llmaSetStreaming(false);
                     return;
@@ -232,18 +195,17 @@
                         // Drop any lingering load-status indicator the moment real tokens start flowing.
                         llmaShowLoadStatusInBubble(bubble, null);
                     }
-                    streamingText += data.chunk;
-                    LLMAState._streamingText = streamingText;
-                    scheduleStreamingRender();
+                    renderer.appendChunk(data.chunk);
+                    LLMAState._streamingText = renderer.getRawText();
                     llmaScrollToBottom();
                 }
                 if (data.iteration !== undefined) {
                     // New agentic iteration beginning — start a fresh text segment
-                    breakTextSegment();
+                    renderer.breakSegment();
                 }
                 if (data.tool_call) {
                     // Append tool call bubble inline
-                    breakTextSegment();
+                    renderer.breakSegment();
                     const msgObj = LLMAState.messages.find(m => m.id === assistantMsgId);
                     if (msgObj) {
                         msgObj.toolCalls = msgObj.toolCalls || [];
@@ -272,12 +234,12 @@
                 }
                 if (data.done) {
                     // Cancel any trailing throttled render so it can't overwrite the final asset-swapped render.
-                    clearPendingRender();
+                    renderer.cancelPendingRender();
                     const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
                     const modelName = LLMAState.currentModel || '';
 
                     // Persist full (possibly multi-iteration) content with tags stripped
-                    const fullRaw = data.full_text || streamingText;
+                    const fullRaw = data.full_text || renderer.getRawText();
                     const cleanFull = llmaStripToolTags(fullRaw);
 
                     // Update message in state
@@ -294,8 +256,8 @@
                     LLMAState.activeLeafId = assistantMsgId;
                     // Render the final text of this (last) iteration into the current segment
                     // with asset-card swap applied
-                    const cleanFinal = llmaStripToolTags(streamingText);
-                    const tc = ensureTextContainer();
+                    const cleanFinal = llmaStripToolTags(renderer.getRawText());
+                    const tc = renderer.ensureTextContainer();
                     if (tc) {
                         tc.innerHTML = llmaRenderAssistantContent(cleanFinal, assistantMsgId);
                         llmaPostRenderMermaid(tc);

@@ -54,10 +54,14 @@ public static partial class ToolPromptService
         return sb.ToString();
     }
 
-    /// <summary>Parses all complete &lt;tool_call&gt; blocks from the given text.</summary>
-    public static List<ParsedToolCall> ParseToolCalls(string text)
+    /// <summary>Parses all complete &lt;tool_call&gt; blocks from the given text. Blocks whose JSON fails to
+    /// parse or has no <c>name</c> field are dropped from the returned list but their raw matched text is
+    /// collected into <paramref name="malformedRawMatches"/> so the caller can feed a retry hint back to the
+    /// model instead of letting the call silently vanish.</summary>
+    public static List<ParsedToolCall> ParseToolCalls(string text, out List<string> malformedRawMatches)
     {
         List<ParsedToolCall> result = [];
+        malformedRawMatches = [];
         if (string.IsNullOrEmpty(text))
         {
             return result;
@@ -72,6 +76,7 @@ public static partial class ToolPromptService
                 string name = obj["name"]?.ToString();
                 if (string.IsNullOrEmpty(name))
                 {
+                    malformedRawMatches.Add(match.Value);
                     continue;
                 }
                 JObject args = obj["arguments"] as JObject ?? new JObject();
@@ -85,20 +90,29 @@ public static partial class ToolPromptService
             }
             catch
             {
-                // Malformed JSON in tool call — skip it
+                malformedRawMatches.Add(match.Value);
             }
         }
         return result;
     }
 
-    /// <summary>Checks whether the buffered text contains a closing tool_call tag (heuristic for early stop).</summary>
-    public static bool ContainsCompleteToolCall(string text)
+    /// <summary>Incrementally detects a literal sentinel (eg <c>&lt;/tool_call&gt;</c>) across a stream of
+    /// appended chunks without re-scanning the whole accumulated buffer on every chunk — only the last
+    /// <c>sentinel.Length - 1</c> characters need to be carried between calls, since a match can span at most
+    /// one chunk boundary.</summary>
+    public sealed class TailWindowSentinel(string sentinel)
     {
-        if (string.IsNullOrEmpty(text))
+        private readonly int _carryLength = sentinel.Length - 1;
+        private string _tail = "";
+
+        /// <summary>Feeds the next appended chunk; returns true the moment the sentinel is found (once).</summary>
+        public bool Feed(string chunk)
         {
-            return false;
+            string window = _tail + chunk;
+            bool found = window.Contains(sentinel, StringComparison.Ordinal);
+            _tail = window.Length > _carryLength ? window[^_carryLength..] : window;
+            return found;
         }
-        return text.Contains("</tool_call>");
     }
 
     /// <summary>Formats a tool execution result for injection back into conversation history.
