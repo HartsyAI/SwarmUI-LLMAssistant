@@ -39,6 +39,14 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
         [ConfigComment("When attempting to connect to the backend, this is the maximum time Swarm will wait before considering the connection to be failed.\nNote that depending on other configurations, it may fail faster than this.\nFor local network machines, set this to a low value (eg 5) to avoid 'Loading...' delays.")]
         public int ConnectionAttemptTimeoutSeconds = 30;
+
+        [ConfigComment("Whether to use this endpoint's native `tools`/`tool_calls` wire mechanism instead of the "
+            + "text-based <tool_call> tag convention. 'Auto' only enables it for api.openai.com (the one dialect "
+            + "guaranteed to support it correctly) — arbitrary self-hosted OpenAI-compatible servers (Ollama, "
+            + "LM Studio, vLLM, older llama.cpp builds) vary in tool_calls support and quality, so they stay on "
+            + "the safer tag convention unless you confirm your endpoint supports it and turn this on manually.")]
+        [ManualSettingsOptions(Vals = ["auto", "on", "off"], ManualNames = ["Auto (only api.openai.com)", "On (this endpoint supports tool_calls)", "Off (always use the <tool_call> tag convention)"])]
+        public string NativeToolCalling = "auto";
     }
 
     /// <summary>Shared HTTP client for all instances of this backend type.</summary>
@@ -55,6 +63,14 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm"];
+
+    /// <inheritdoc/>
+    public bool SupportsNativeToolCalling => Settings.NativeToolCalling switch
+    {
+        "on" => true,
+        "off" => false,
+        _ => (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase),
+    };
 
     /// <inheritdoc/>
     protected override async Task OnProviderInit()
@@ -166,7 +182,46 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             body["seed"] = input.Seed;
         }
+        // Re-check SupportsNativeToolCalling here (not just trust the caller already gated it) — input.Tools
+        // is populated unconditionally by ChatEndpoints.ApplyToolsToInput regardless of native/legacy mode
+        // (only the tag-convention system-prompt injection is conditional), so this is the single place that
+        // actually decides whether THIS request emits a native tools field.
+        if (input.Tools is { Count: > 0 } && SupportsNativeToolCalling)
+        {
+            body["tools"] = BuildOpenAITools(input.Tools);
+            body["tool_choice"] = !string.IsNullOrEmpty(input.ForceToolId)
+                ? new JObject { ["type"] = "function", ["function"] = new JObject { ["name"] = input.ForceToolId } }
+                : "auto";
+        }
         return body;
+    }
+
+    /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto
+    /// the OpenAI function-tool definition (<c>{type:"function", function:{name, description, parameters}}</c>).
+    /// <c>id</c> (snake_case, eg <c>generate_image</c>) is used as the function name, matching
+    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key — same reasoning as Anthropic's mapping.</summary>
+    private static JArray BuildOpenAITools(List<JObject> tools)
+    {
+        JArray result = [];
+        foreach (JObject tool in tools)
+        {
+            string id = tool["id"]?.ToString() ?? tool["name"]?.ToString();
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+            result.Add(new JObject
+            {
+                ["type"] = "function",
+                ["function"] = new JObject
+                {
+                    ["name"] = id,
+                    ["description"] = tool["description"]?.ToString() ?? "",
+                    ["parameters"] = tool["parameters"] as JObject ?? new JObject { ["type"] = "object", ["properties"] = new JObject() },
+                },
+            });
+        }
+        return result;
     }
 
     /// <summary>Builds the OpenAI-shaped <c>content</c> for one message: a plain string when there's
@@ -217,6 +272,10 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         }
         using Stream stream = await response.Content.ReadAsStreamAsync(ct);
         using StreamReader reader = new(stream, Encoding.UTF8);
+        // Tracks in-progress native tool_calls by their `index` — OpenAI streams id/name once on the first
+        // delta for an index and `arguments` as incremental string fragments across subsequent deltas for
+        // the same index; nothing is complete/parseable until `finish_reason == "tool_calls"` arrives.
+        Dictionary<int, (string Id, string Name, StringBuilder Args)> pendingToolCalls = [];
         while (true)
         {
             if (ct.IsCancellationRequested) { break; }
@@ -251,11 +310,50 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     {
                         onChunk(new JObject() { ["chunk"] = content });
                     }
+                    if (delta?.Value<JArray>("tool_calls") is JArray toolCallDeltas)
+                    {
+                        foreach (JObject tcDelta in toolCallDeltas.OfType<JObject>())
+                        {
+                            int index = tcDelta.Value<int?>("index") ?? 0;
+                            if (!pendingToolCalls.TryGetValue(index, out (string Id, string Name, StringBuilder Args) call))
+                            {
+                                call = (null, null, new StringBuilder());
+                            }
+                            string id = tcDelta.Value<string>("id") ?? call.Id;
+                            JObject function = tcDelta.Value<JObject>("function");
+                            string name = function?.Value<string>("name") ?? call.Name;
+                            call.Args.Append(function?.Value<string>("arguments"));
+                            pendingToolCalls[index] = (id, name, call.Args);
+                        }
+                    }
+                    string finishReason = firstChoice?.Value<string>("finish_reason");
                     // finish_reason "length" means the server truncated the reply at the token cap, not
                     // a natural stop — surface that so the UI can tell the user why.
-                    if (firstChoice?.Value<string>("finish_reason") == "length")
+                    if (finishReason == "length")
                     {
                         onChunk(new JObject() { ["stopReason"] = "length" });
+                    }
+                    else if (finishReason == "tool_calls" && pendingToolCalls.Count > 0)
+                    {
+                        foreach ((string id, string name, StringBuilder argsBuilder) in pendingToolCalls.Values)
+                        {
+                            JObject args;
+                            try
+                            {
+                                string json = argsBuilder.ToString();
+                                args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                            }
+                            catch (Exception ex)
+                            {
+                                Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}: {ex.Message}");
+                                args = new JObject();
+                            }
+                            onChunk(new JObject()
+                            {
+                                ["native_tool_call"] = new JObject { ["id"] = id, ["name"] = name, ["arguments"] = args }
+                            });
+                        }
+                        pendingToolCalls.Clear();
                     }
                 }
             }

@@ -19,7 +19,11 @@ The seam means the runtime is swappable without touching the rest of the extensi
 ### Core chat
 - **Dedicated tab** — Resizable sidebar (threads), main chat area, right-hand assistant panel. Split bars persist their widths to localStorage; double-click to reset.
 - **Server-authoritative threads** — Chat history lives on the server. Edit, delete, rename, search, and export. Empty threads aren't saved until the first message; messages persist *before* the LLM is called so nothing is lost on disconnect.
-- **WebSocket streaming** with typing indicator and stop button.
+- **WebSocket streaming** with typing indicator and stop button. The streamed-render pipeline
+  (`llmaMakeStreamRenderer`/`llmaMakeHiddenSpanFilter` in `utils.js`, shared by the single-stream and
+  compare-mode paths) incrementally filters in-flight `<tool_call>` markup instead of re-scanning the whole
+  accumulated message on every render tick, and the render throttle scales up on long replies instead of a
+  fixed 60ms regardless of length.
 - **Markdown rendering** — Full GFM, syntax-highlighted code blocks, tables, KaTeX math, Mermaid diagrams. Output is sanitized through DOMPurify.
 - **Image attachments** — Paperclip or drag-drop. Uploaded once, downscaled to ≤1536px long edge, persisted as URLs on the message so thread blobs stay small.
 - **Token counting** — Exact via the running llama.cpp tokenizer when available; cheap `chars/4` heuristic otherwise.
@@ -34,7 +38,9 @@ The seam means the runtime is swappable without touching the rest of the extensi
 - **Test runner** in the editor — Run a sample input through the unsaved instruction text before committing.
 
 ### Tool calling (agentic)
-The extension implements tool calling via **prompt injection**, so it works with any LLM backend that streams plain text. The streaming layer watches for `</tool_call>`, parses the JSON, dispatches via `ToolExecutorService`, formats the result, and re-prompts. Up to `ToolConstants.MaxAgenticIterations` (8) rounds per user turn before forced termination with `truncated: true`.
+The extension implements tool calling via **prompt injection** by default, so it works with any LLM backend that streams plain text — the streaming layer watches for `</tool_call>` (a cheap tail-window scan, not a full-buffer rescan), parses the JSON, dispatches via `ToolExecutorService`, formats the result, and re-prompts. Up to `ToolConstants.MaxAgenticIterations` (8) rounds per user turn before forced termination with `truncated: true`. A malformed `<tool_call>` no longer vanishes silently — the model gets a `{"success":false,"error":...}` result back and can retry.
+
+Providers that have their own real structured-output mechanism use it instead of (or hardening) the tag convention — see [Reliable tool-calling per provider](#reliable-tool-calling-per-provider-2026-07-12) below. Every provider still normalizes down to the same `tool_call`/`tool_result` events, so the rest of this section (execution, results, agentic loop) is identical regardless of which provider resolved the call.
 
 **Built-in tools** (13):
 
@@ -371,18 +377,15 @@ is it roughly sane" baseline to diff future runs against.
   [Qwen3.5 support](#qwen35-support-gated-deltanet-hybrid-2026-07-10) below. Not added as rows to the table
   above since they were verified via a standalone CLI harness against the engine directly, not this
   live-`LLMAssistantSendMessage`-API methodology — the underlying engine support is identical either way.
-- **Deployment status**: everything on this page — the 6 original bug fixes, the granite RoPE fix, the SSM
-  incremental-state rewrite, the Q5_0 kernel, CUDA graph decode, Gemma-4, Qwen3.5, the raw-completion
-  fallback, and the Jinja for-loop-filter fix — is now **committed** in the `HartsyInference` engine repo
-  (multiple commits since `b65e8bd`, most recently `fcfbbf6`), **except** the raw-completion fallback itself
-  (`HartsyLocalLLMProvider.cs`) and this README, which live in the extension's own separate git repo
-  (`src/Extensions/SwarmUI-LLMAssistant/`, gitignored from SwarmUI's own tree) and are still uncommitted there
-  as of this writing. It is *not yet published to NuGet* (still `alpha.46` on the feed as of this writing) —
-  extensions still need
-  `UseLocalHartsy=true` against a local build of that repo, or a future NuGet bump past `alpha.46`, to pick
-  it up (see [[feedback_engine_bump_checklist]]). Re-check `git log`/`git status` in the engine repo before
-  citing a specific commit hash here in the future — this note has already gone stale once this session
-  (the user commits independently and doesn't announce it).
+- **Deployment status**: everything on this page through the raw-completion fallback and the Jinja
+  for-loop-filter fix is committed in the `HartsyInference` engine repo and **published to NuGet as
+  `1.0.0-alpha.48`**, which is also the extension's current `PackageReference` pin — the default build
+  (no `UseLocalHartsy`) picks all of it up directly. The [reliable tool-calling per
+  provider](#reliable-tool-calling-per-provider-2026-07-12) work above (`SentinelJsonGrammarStep`,
+  `SamplingOptions.JsonModeSentinel`, the VLM `SamplerChain` fix) is included in that same `alpha.48`
+  publish. Re-check `git log`/`git status` in both repos and the NuGet feed before citing a specific
+  version here in the future — this note has already gone stale more than once this session (the user
+  commits and publishes independently and doesn't announce it).
 
 ### Raw-completion fallback for base/non-instruct checkpoints (2026-07-10)
 
@@ -430,6 +433,40 @@ most on small/fast models where launch latency, not compute, is the bottleneck.
   matching the launch-bound-vs-compute-bound prediction in the engine's perf docs).
 - Architectures outside the plain dense GQA/RoPE shape (MoE, SSM/recurrent, vision-text) are not eligible and
   silently fall back to the normal eager decode loop.
+
+### Reliable tool-calling per provider (2026-07-12)
+
+Each provider now uses its own best mechanism to make tool-calling reliable, converging on the same
+`tool_call`/`tool_result` wire events and `ToolExecutorService` dispatch regardless of which one resolved
+the call — nothing downstream (execution, result formatting, the frontend) needs to know or care which path
+was used.
+
+- **Anthropic**: wires real `tools`/`tool_choice` into the Messages API request and parses the native
+  `content_block_start` (`type=="tool_use"`) / `input_json_delta` / `content_block_stop` SSE events Anthropic
+  already sends — previously received and silently discarded in favor of plain text deltas. Always on; no
+  setting, since Anthropic's tool API is one stable, universal contract. A forced tool (the `/toolId` picker)
+  becomes a real `tool_choice: {"type":"tool","name":...}` constraint instead of a prose instruction the
+  model could ignore.
+- **OpenAI-compatible**: wires `tools` + parses incremental `delta.tool_calls[]` accumulation (id/name arrive
+  once, `arguments` streams as fragments, resolved at `finish_reason=="tool_calls"`). New setting
+  `NativeToolCalling` (auto/on/off) — **default `auto`, which only enables it for `api.openai.com`**.
+  Arbitrary self-hosted OpenAI-compatible servers (Ollama, LM Studio, vLLM, older llama.cpp builds) vary in
+  `tool_calls` support and quality, so they stay on the tag convention unless you confirm your endpoint
+  supports it and switch this to `on`.
+- **HartsyLocal**: takes a different approach, since forcing the *entire* response (including plain chat
+  replies) through JSON grammar-masking would cost real generation quality/speed for zero benefit outside
+  tool calls — no major chat API (Claude, OpenAI, Ollama, vLLM, llama.cpp) does that either; they all
+  constrain only the tool-call span. New setting `StructuredToolCalling` (**off by default**, unverified
+  against real models yet) grammar-masks *only* the JSON body between `<tool_call>` and `</tool_call>` — the
+  engine's `SentinelJsonGrammarStep` activates the instant the sentinel is seen in the token stream and
+  deactivates the instant the JSON value completes (not by matching the closing tag — the model literally
+  cannot type `<` while still masked to valid JSON). Plain chat text is completely unconstrained throughout;
+  the model still needs the `<tool_call>` prompt teaching (unlike Anthropic/OpenAI-native, this provider does
+  *not* skip that system-prompt injection). The engine feature this depends on (`SentinelJsonGrammarStep`)
+  is published (see the deployment-status note above) — the toggle is off by default because it's new and
+  not yet verified against real models, not because of a packaging gap. Disabled automatically for
+  raw-completion (base/non-instruct) requests, which have no chat-template slot to teach the convention in
+  anyway.
 
 ### Gemma-4 support (new architecture, 2026-07-10)
 

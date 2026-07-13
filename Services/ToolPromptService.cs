@@ -70,28 +70,37 @@ public static partial class ToolPromptService
         foreach (Match match in matches)
         {
             string json = match.Groups[1].Value;
+            JObject obj;
             try
             {
-                JObject obj = JObject.Parse(json);
-                string name = obj["name"]?.ToString();
-                if (string.IsNullOrEmpty(name))
+                obj = JObject.Parse(json);
+            }
+            catch
+            {
+                // Cheap last-resort recovery (markdown fences, trailing commas, unquoted keys, truncated
+                // brackets) before giving up — see JsonRepairService's doc for how this relates to the
+                // grammar-masked path (HartsyLocalLLMProvider.StructuredToolCalling), which prevents these
+                // errors outright rather than patching them after the fact.
+                if (!JsonRepairService.TryRepair(json, out obj))
                 {
                     malformedRawMatches.Add(match.Value);
                     continue;
                 }
-                JObject args = obj["arguments"] as JObject ?? new JObject();
-                result.Add(new ParsedToolCall
-                {
-                    Id = $"call-{Guid.NewGuid():N}",
-                    Name = name,
-                    Arguments = args,
-                    RawMatch = match.Value
-                });
             }
-            catch
+            string name = obj["name"]?.ToString();
+            if (string.IsNullOrEmpty(name))
             {
                 malformedRawMatches.Add(match.Value);
+                continue;
             }
+            JObject args = obj["arguments"] as JObject ?? new JObject();
+            result.Add(new ParsedToolCall
+            {
+                Id = $"call-{Guid.NewGuid():N}",
+                Name = name,
+                Arguments = args,
+                RawMatch = match.Value
+            });
         }
         return result;
     }

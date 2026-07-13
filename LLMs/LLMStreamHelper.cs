@@ -61,6 +61,10 @@ public static class LLMStreamHelper
             using CancellationTokenSource roundCts = CancellationTokenSource.CreateLinkedTokenSource(linked.Token);
             bool toolCallDetected = false;
             string roundStopReason = null;
+            // Populated by providers with ILLMProvider.SupportsNativeToolCalling (eg Anthropic's tool_use
+            // blocks) — already-resolved, already-valid calls delivered as a discrete event instead of a
+            // <tool_call> tag embedded in the text stream, so no tag-scanning/JSON-parsing is needed for them.
+            List<ToolPromptService.ParsedToolCall> nativeToolCalls = [];
             try
             {
                 await LLMDispatcher.GenerateStreaming(input, chunk =>
@@ -81,6 +85,19 @@ public static class LLMStreamHelper
                             toolCallDetected = true;
                             roundCts.Cancel();
                         }
+                    }
+                    else if (chunk.TryGetValue("native_tool_call", out JToken nativeToken) && nativeToken is JObject nativeCall)
+                    {
+                        nativeToolCalls.Add(new ToolPromptService.ParsedToolCall
+                        {
+                            Id = nativeCall["id"]?.ToString() ?? $"call-{Guid.NewGuid():N}",
+                            Name = nativeCall["name"]?.ToString(),
+                            Arguments = nativeCall["arguments"] as JObject ?? new JObject(),
+                        });
+                        // Same early-stop semantics as the tag convention: one resolved call ends the round
+                        // (execute it, feed the result back, let the model decide whether to call another).
+                        toolCallDetected = true;
+                        roundCts.Cancel();
                     }
                     else if (chunk.TryGetValue("result", out JToken resultToken))
                     {
@@ -112,6 +129,10 @@ public static class LLMStreamHelper
             }
             string roundText = roundBuffer.ToString();
             List<ToolPromptService.ParsedToolCall> toolCalls = ToolPromptService.ParseToolCalls(roundText, out List<string> malformedCalls);
+            if (nativeToolCalls.Count > 0)
+            {
+                toolCalls.AddRange(nativeToolCalls);
+            }
             if (toolCalls.Count == 0 && malformedCalls.Count == 0)
             {
                 fullResponse.Append(roundText);

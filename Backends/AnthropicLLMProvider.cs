@@ -41,6 +41,9 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm", "anthropic"];
 
     /// <inheritdoc/>
+    public bool SupportsNativeToolCalling => true;
+
+    /// <inheritdoc/>
     protected override async Task OnProviderInit() => Status = BackendStatus.RUNNING;
 
     /// <inheritdoc/>
@@ -91,6 +94,15 @@ public class AnthropicLLMProvider : LLMProviderBackend
         if (!string.IsNullOrEmpty(systemPrompt))
         {
             body["system"] = systemPrompt;
+        }
+        if (input.Tools is { Count: > 0 })
+        {
+            body["tools"] = BuildAnthropicTools(input.Tools);
+            // Forced tool_choice mirrors the legacy convention's "IMPORTANT: you MUST call X" directive,
+            // but as a real API-level constraint instead of a prose instruction the model could ignore.
+            body["tool_choice"] = !string.IsNullOrEmpty(input.ForceToolId)
+                ? new JObject { ["type"] = "tool", ["name"] = input.ForceToolId }
+                : new JObject { ["type"] = "auto" };
         }
         // temperature / top_p were removed on the current flagship generation (Opus 4.7+, Sonnet 5, Fable 5)
         // and return a 400 if sent — only forward them for models that still accept them. Even where accepted,
@@ -158,6 +170,32 @@ public class AnthropicLLMProvider : LLMProviderBackend
         return blocks;
     }
 
+    /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>, the
+    /// same shape <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> reads for the legacy
+    /// convention) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
+    /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c> —
+    /// not the human display <c>name</c> field — since that's what <c>ToolExecutorService.ExecuteTool</c>
+    /// dispatches on for the returned tool_use block.</summary>
+    private static JArray BuildAnthropicTools(List<JObject> tools)
+    {
+        JArray result = [];
+        foreach (JObject tool in tools)
+        {
+            string id = tool["id"]?.ToString() ?? tool["name"]?.ToString();
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+            result.Add(new JObject
+            {
+                ["name"] = id,
+                ["description"] = tool["description"]?.ToString() ?? "",
+                ["input_schema"] = tool["parameters"] as JObject ?? new JObject { ["type"] = "object", ["properties"] = new JObject() },
+            });
+        }
+        return result;
+    }
+
     /// <inheritdoc/>
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
     {
@@ -187,6 +225,10 @@ public class AnthropicLLMProvider : LLMProviderBackend
         using Stream stream = await response.Content.ReadAsStreamAsync(linked.Token);
         using StreamReader reader = new(stream, Encoding.UTF8);
         string currentEvent = "";
+        // Tracks in-progress native tool_use blocks by their content-block index — Anthropic streams a
+        // block's `input` as incremental `input_json_delta.partial_json` fragments (never mid-stream
+        // parseable on their own), only complete/valid once the block's content_block_stop arrives.
+        Dictionary<int, (string Id, string Name, StringBuilder Json)> pendingToolUse = [];
         while (true)
         {
             if (linked.IsCancellationRequested) { break; }
@@ -217,13 +259,55 @@ public class AnthropicLLMProvider : LLMProviderBackend
             try
             {
                 JObject parsed = JObject.Parse(data);
-                if (currentEvent == "content_block_delta")
+                if (currentEvent == "content_block_start")
+                {
+                    JObject block = parsed.Value<JObject>("content_block");
+                    if (block?.Value<string>("type") == "tool_use")
+                    {
+                        int index = parsed.Value<int?>("index") ?? 0;
+                        pendingToolUse[index] = (block.Value<string>("id"), block.Value<string>("name"), new StringBuilder());
+                    }
+                }
+                else if (currentEvent == "content_block_delta")
                 {
                     JObject delta = parsed.Value<JObject>("delta");
-                    string text = delta?.Value<string>("text");
-                    if (!string.IsNullOrEmpty(text))
+                    string deltaType = delta?.Value<string>("type");
+                    int index = parsed.Value<int?>("index") ?? 0;
+                    if (deltaType == "input_json_delta" && pendingToolUse.TryGetValue(index, out (string Id, string Name, StringBuilder Json) call))
                     {
-                        onChunk(new JObject() { ["chunk"] = text });
+                        call.Json.Append(delta.Value<string>("partial_json"));
+                    }
+                    else
+                    {
+                        string text = delta?.Value<string>("text");
+                        if (!string.IsNullOrEmpty(text))
+                        {
+                            onChunk(new JObject() { ["chunk"] = text });
+                        }
+                    }
+                }
+                else if (currentEvent == "content_block_stop")
+                {
+                    int index = parsed.Value<int?>("index") ?? 0;
+                    if (pendingToolUse.Remove(index, out (string Id, string Name, StringBuilder Json) call))
+                    {
+                        JObject args;
+                        try
+                        {
+                            string json = call.Json.ToString();
+                            args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Genuinely shouldn't happen (Anthropic's own tool-use JSON is always
+                            // well-formed) — fail soft rather than drop the whole stream over one call.
+                            Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}: {ex.Message}");
+                            args = new JObject();
+                        }
+                        onChunk(new JObject()
+                        {
+                            ["native_tool_call"] = new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = args }
+                        });
                     }
                 }
                 else if (currentEvent == "message_delta")

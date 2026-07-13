@@ -366,7 +366,7 @@ public static class ChatEndpoints
         ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
         // Load tools enabled for this assistant and inject their descriptions into the system prompt.
         List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
-        ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+        await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
         await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
         await MaybeGenerateTitleAsync(socket, session, threadId, model);
     }
@@ -443,9 +443,13 @@ public static class ChatEndpoints
         return string.IsNullOrEmpty(text) || text.Length <= maxLen ? text : text[..maxLen] + "…";
     }
 
-    /// <summary>Enriches the assistant's enabled tools per-user, injects their descriptions into the system
-    /// prompt, and (optionally) appends a force-tool directive. Shared by single-model and compare streaming.</summary>
-    private static void ApplyToolsToInput(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
+    /// <summary>Enriches the assistant's enabled tools per-user and attaches them to the request. Providers
+    /// with <see cref="ILLMProvider.SupportsNativeToolCalling"/> (eg Anthropic) get <see cref="ExtendedLLMInput.Tools"/>
+    /// / <see cref="ExtendedLLMInput.ForceToolId"/> and nothing else — their own native tools/tool_choice
+    /// wire mechanism teaches the model, so injecting the &lt;tool_call&gt; tag convention on top would
+    /// confuse it. Every other provider gets today's prompt-injected tag convention. Shared by single-model
+    /// and compare streaming.</summary>
+    private static async Task ApplyToolsToInput(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
     {
         if (enabledTools is null || enabledTools.Count == 0)
         {
@@ -458,6 +462,15 @@ public static class ChatEndpoints
             enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
         }
         input.Tools = enrichedTools;
+        if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+        {
+            input.ForceToolId = forceToolId;
+        }
+        ILLMProvider provider = await LLMDispatcher.GetProvider(input);
+        if (provider?.SupportsNativeToolCalling == true)
+        {
+            return;
+        }
         string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
         input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
         if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
@@ -468,7 +481,7 @@ public static class ChatEndpoints
         {
             input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
         }
-        if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+        if (!string.IsNullOrEmpty(input.ForceToolId))
         {
             string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
             input.SystemPrompt += directive;
@@ -544,7 +557,7 @@ public static class ChatEndpoints
                 input.BackendId = L.BackendId;
                 input.Device = L.Device;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
-                ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+                await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
                     clientAssistantMessageId: L.AssistantMessageId,
                     lane: lane, sendLock: sendLock, parentMessageId: parentUserId,

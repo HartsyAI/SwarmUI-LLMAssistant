@@ -40,6 +40,15 @@ public interface ILLMProvider
     /// Returns true if something was actually freed. A no-op for providers that hold nothing locally
     /// (remote/cloud). The next request lazily reloads.</summary>
     Task<bool> Unload();
+
+    /// <summary>Whether this provider produces reliable structured tool-calls through a real native wire
+    /// mechanism (Anthropic's <c>tool_use</c> blocks, OpenAI's <c>tool_calls</c> deltas) rather than the
+    /// text-based <c>&lt;tool_call&gt;</c> tag convention. When true, the caller skips injecting
+    /// <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> into the system prompt — mixing both
+    /// conventions in one request would confuse the model — and expects a <c>native_tool_call</c> event on
+    /// the <see cref="GenerateLive"/> stream instead of a <c>&lt;tool_call&gt;</c> tag embedded in text.
+    /// Defaults false so every provider is opt-in, not opt-out.</summary>
+    bool SupportsNativeToolCalling => false;
 }
 
 /// <summary>In-memory registry of the LLM providers supplied by the removable backend pack.

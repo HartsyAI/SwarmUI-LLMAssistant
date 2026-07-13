@@ -50,8 +50,14 @@ public class ExtendedLLMInput
     /// different devices generate concurrently. Ignored by backends that don't do local device placement.</summary>
     public string Device;
 
-    /// <summary>Tools available to the LLM for this request (prompt-injected for local models).</summary>
+    /// <summary>Tools available to the LLM for this request (prompt-injected for legacy/tag-convention
+    /// providers, sent as a native <c>tools</c> field for providers with
+    /// <see cref="ILLMProvider.SupportsNativeToolCalling"/>).</summary>
     public List<JObject> Tools { get; set; } = [];
+
+    /// <summary>When set, the user explicitly requested this specific tool id — a native provider maps
+    /// this to a forced <c>tool_choice</c>; a legacy provider gets an extra system-prompt directive.</summary>
+    public string ForceToolId;
 
     /// <summary>Creates an ExtendedLLMInput from a user message and optional system prompt.</summary>
     public static ExtendedLLMInput Create(string userMessage, string systemPrompt = null, string model = null)

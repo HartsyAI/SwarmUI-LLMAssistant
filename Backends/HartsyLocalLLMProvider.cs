@@ -55,6 +55,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
         [ConfigComment("Use prompt-lookup speculative decoding when eligible (no draft model — drafts from repeated n-grams in the\nprompt/response so far). Same eligibility as GraphDecode (greedy / Temperature = 0 only) plus JSON mode must be off.\nBiggest win on repetitive output (regenerating similar structure, quoting earlier text); costs nothing extra otherwise.")]
         public bool SpeculativeDecode = false;
+
+        [ConfigComment("When tools are enabled for a chat, grammar-mask the JSON body of a <tool_call>{...}</tool_call> block so it's\nalways syntactically valid — plain chat text stays completely unconstrained, only the JSON between the tags is\nguaranteed-valid (same technique every major chat API uses: constrain only the tool-call span, never the whole\nreply). Off by default until verified against real models — see docs.")]
+        public bool StructuredToolCalling = false;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -482,6 +485,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     private GenerationRequest BuildRequest(ExtendedLLMInput input, bool rawCompletion, HartsyInference.Tokenizers.ILlmTokenizer tokenizer)
     {
         SamplingOptions sampling = BuildSampling(input);
+        // Raw-completion (base/non-instruct) checkpoints have no chat-template slot to teach the <tool_call>
+        // convention in, so there's nothing to grammar-harden — tools already can't reach this path.
+        if (!rawCompletion && Settings.StructuredToolCalling && input.Tools is { Count: > 0 })
+        {
+            sampling = sampling with { JsonModeSentinel = "<tool_call>" };
+        }
         GenerationRequest request = new()
         {
             MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
