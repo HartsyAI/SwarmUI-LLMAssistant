@@ -14,7 +14,7 @@ namespace SwarmUI.Extensions.LLMAssistant;
 public class LLMAssistantExtension : Extension
 {
     /// <summary>Current version of the LLM Assistant extension.</summary>
-    public static new readonly string Version = "1.0.0";
+    public static new readonly string Version = "2.0.0-alpha.2";
 
     public override void OnPreInit()
     {
