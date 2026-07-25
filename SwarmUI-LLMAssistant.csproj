@@ -24,19 +24,15 @@
   <PropertyGroup Condition="'$(UseLocalHartsy)' == 'true'">
     <HartsyCfg Condition="'$(HartsyCfg)' == '' and Exists('$(HartsyRepo)/src/HartsyInference.LLM/bin/Release/net8.0/HartsyInference.LLM.dll')">Release</HartsyCfg>
     <HartsyCfg Condition="'$(HartsyCfg)' == ''">Debug</HartsyCfg>
-    <HartsyLLMBin>$(HartsyRepo)/src/HartsyInference.LLM/bin/$(HartsyCfg)/net8.0</HartsyLLMBin>
-    <HartsyCpuBin>$(HartsyRepo)/src/HartsyInference.Cpu/bin/$(HartsyCfg)/net8.0</HartsyCpuBin>
-    <HartsyCudaBin>$(HartsyRepo)/src/HartsyInference.Cuda/bin/$(HartsyCfg)/net8.0</HartsyCudaBin>
+    <HartsyEngineBin>$(HartsyRepo)/src/HartsyInference.Engine/bin/$(HartsyCfg)/net8.0</HartsyEngineBin>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseLocalHartsy)' == 'true'">
-    <Reference Include="HartsyInference.LLM"><HintPath>$(HartsyLLMBin)/HartsyInference.LLM.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="HartsyInference.Core"><HintPath>$(HartsyLLMBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
-    <!-- ModelHandler and Tokenizers were both retired in the engine's package refactor: GgufLoader,
-         GgufMetadata, and ILlmTokenizer now all live in ModelAssets (confirmed 2026-07-25 against a fresh
-         engine build — neither the ModelHandler nor Tokenizers project folders even have a .csproj anymore). -->
-    <Reference Include="HartsyInference.ModelAssets"><HintPath>$(HartsyLLMBin)/HartsyInference.ModelAssets.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="HartsyInference.Cpu"><HintPath>$(HartsyCpuBin)/HartsyInference.Cpu.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="HartsyInference.Cuda"><HintPath>$(HartsyCudaBin)/HartsyInference.Cuda.dll</HintPath><Private>true</Private></Reference>
+    <!-- The extension now talks only to HartsyInference.Engine's ITextService — it no longer touches
+         HartsyInference.LLM/ModelAssets/Cpu/Cuda types directly. This <Reference> was missing entirely
+         from this ItemGroup before the Engine-delegation cutover (2026-07-25); Engine's own build output
+         already carries its dependency closure (LLM/Core/ModelAssets/Cpu/Cuda), so those don't need
+         separate entries here. -->
+    <Reference Include="HartsyInference.Engine"><HintPath>$(HartsyEngineBin)/HartsyInference.Engine.dll</HintPath><Private>true</Private></Reference>
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

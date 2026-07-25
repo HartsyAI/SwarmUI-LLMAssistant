@@ -531,6 +531,16 @@ async function llmaCreateThread(assistantId) {
     LLMAState.activeAssistantId = assistantId || LLMAState.activeAssistantId;
     llmaSetSessionState({ activeThreadId: thread.id });
 
+    // A Tools toggle flipped before this thread existed (LLMAState.activeThreadToolsEnabled was set
+    // against no thread id) needs to land on the thread now that it has one, BEFORE the caller's first
+    // message goes out — otherwise the override silently never took effect server-side.
+    if (typeof LLMAState.activeThreadToolsEnabled === 'boolean') {
+        try {
+            await llmaRequest('LLMAssistantSetThreadToolsEnabled', { threadId: thread.id, enabled: LLMAState.activeThreadToolsEnabled });
+        } catch { /* best-effort — worst case this send falls back to the assistant default */ }
+    }
+    if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
 
@@ -567,6 +577,9 @@ async function llmaSwitchThread(threadId) {
         LLMAState.activeThreadId    = thread.id;
         llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
         LLMAState.activeAssistantId = thread.assistantId || LLMAState.activeAssistantId;
+        // null when the thread has no override (inherits the assistant's toolsEnabled default).
+        LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
+        if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
@@ -632,6 +645,8 @@ async function llmaReloadActiveThread() {
     } catch { /* fall through */ }
     if (!thread) return;
     llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
+    LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
+    if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
     llmaRenderMessageHistory(LLMAState.messages);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();

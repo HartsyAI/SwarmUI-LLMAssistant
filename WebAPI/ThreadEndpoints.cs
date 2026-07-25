@@ -139,6 +139,42 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Sets (or clears) this thread's tool-calling override. <c>enabled</c> present and boolean →
+    /// pins the thread to that state regardless of the assistant's default; <c>enabled</c> absent/null →
+    /// clears the override so the thread goes back to inheriting the assistant's master switch. Request:
+    /// <c>{ threadId, enabled? }</c>. This is the per-conversation "Tools" toggle in the chat composer — the
+    /// assistant-level default lives on the assistant itself (<c>toolsEnabled</c>, edited in the assistant
+    /// editor) and is what a new thread starts from until this override is set.</summary>
+    public static async Task<JObject> LLMAssistantSetThreadToolsEnabled(Session session, JObject rawInput)
+    {
+        string threadId = rawInput["threadId"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        JToken enabledToken = rawInput["enabled"];
+        if (enabledToken?.Type == JTokenType.Boolean)
+        {
+            thread["toolsEnabled"] = enabledToken.Value<bool>();
+        }
+        else
+        {
+            thread.Remove("toolsEnabled");
+        }
+        ThreadStorageService.SaveThread(session.User, thread);
+        return new JObject
+        {
+            ["success"] = true,
+            ["threadId"] = threadId,
+            ["toolsEnabled"] = thread["toolsEnabled"] ?? JValue.CreateNull()
+        };
+    }
+
     /// <summary>Points a thread's active branch at a specific message (Fork / branch-switcher pager).
     /// In the in-thread tree model "forking" doesn't copy the thread — it just moves the active leaf so the
     /// rendered conversation becomes root→that message and the next sent message branches from there.

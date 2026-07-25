@@ -9,6 +9,10 @@
 // -- Global State --
 const LLMAState = {
     activeThreadId:    null,
+    // Per-thread tool-calling override: true/false pins it regardless of the assistant's default;
+    // null/undefined means "inherit the active assistant's toolsEnabled". See tool-picker.js's
+    // llmaEffectiveToolsEnabled()/llmaToggleThreadTools() and the composer's Tools toggle button.
+    activeThreadToolsEnabled: null,
     activeAssistantId: null,
     messages:          [],
     threads:           [],

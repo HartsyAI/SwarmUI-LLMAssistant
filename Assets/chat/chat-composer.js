@@ -22,6 +22,13 @@
             if (typeof llmaPickerOpenAll === 'function') llmaPickerOpenAll();
         });
 
+        // Tools on/off toggle for the active chat — see tool-picker.js's llmaToggleThreadTools().
+        const toolsToggleBtn = document.getElementById('llma-tools-toggle-btn');
+        if (toolsToggleBtn) toolsToggleBtn.addEventListener('click', () => {
+            if (typeof llmaToggleThreadTools === 'function') llmaToggleThreadTools();
+        });
+        if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+
         if (input) {
             input.addEventListener('keydown', e => {
                 // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).

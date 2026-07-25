@@ -23,10 +23,61 @@ const LLMAToolPicker = {
 };
 
 // Tools available to the active assistant: its enabledToolIds, intersected with globally-enabled tools.
+// Empty whenever tool calling itself is off (see llmaEffectiveToolsEnabled) — the picker has nothing to
+// offer in that state, same as the backend injecting no tool prompt at all.
 function llmaPickerTools() {
+    if (!llmaEffectiveToolsEnabled()) return [];
     const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
     const enabledIds = asst?.enabledToolIds || [];
     return (LLMAState.tools || []).filter(t => enabledIds.includes(t.id) && t.enabled !== false);
+}
+
+// -- Per-chat "Tools" master toggle (composer button, next to the "/" picker) --------------------
+
+// Effective state for the ACTIVE thread: an explicit per-thread override wins; otherwise falls back
+// to the active assistant's toolsEnabled default (missing/undefined = on, matching the server default).
+function llmaEffectiveToolsEnabled() {
+    if (typeof LLMAState.activeThreadToolsEnabled === 'boolean') return LLMAState.activeThreadToolsEnabled;
+    const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
+    return asst?.toolsEnabled !== false;
+}
+
+// Reflects the current effective state onto the composer button (icon slash + title + aria-pressed).
+function llmaUpdateToolsToggleBtn() {
+    const btn = document.getElementById('llma-tools-toggle-btn');
+    if (!btn) return;
+    const enabled = llmaEffectiveToolsEnabled();
+    btn.classList.toggle('off', !enabled);
+    btn.setAttribute('aria-pressed', String(enabled));
+    btn.title = enabled
+        ? 'Tool calling is ON for this chat — click to turn off'
+        : 'Tool calling is OFF for this chat — no tool prompt is sent. Click to turn on.';
+}
+
+// Flips the per-thread override and persists it server-side. A brand-new (not-yet-created) thread has
+// no id yet — in that case just flip the assistant-inherited default locally; llmaCreateThread will
+// carry it over as the thread's initial override once the first message actually creates the thread.
+async function llmaToggleThreadTools() {
+    const next = !llmaEffectiveToolsEnabled();
+    if (!LLMAState.activeThreadId) {
+        LLMAState.activeThreadToolsEnabled = next;
+        llmaUpdateToolsToggleBtn();
+        llmaPickerClose();
+        return;
+    }
+    try {
+        const result = await llmaRequest('LLMAssistantSetThreadToolsEnabled', { threadId: LLMAState.activeThreadId, enabled: next });
+        if (!result?.success) {
+            llmaShowToast(result?.error || 'Failed to update the tools setting.', 'error');
+            return;
+        }
+        LLMAState.activeThreadToolsEnabled = next;
+        llmaUpdateToolsToggleBtn();
+        llmaPickerClose();
+        llmaShowToast(next ? 'Tool calling enabled for this chat.' : 'Tool calling disabled for this chat — no tool prompt will be sent.', 'info');
+    } catch (e) {
+        llmaShowToast(llmaShortError(e) || 'Failed to update the tools setting.', 'error');
+    }
 }
 
 // A "/word" token immediately before the cursor (slash at start or after whitespace — so URLs/paths
@@ -83,7 +134,11 @@ function llmaPickerOpenAll() {
     if (LLMAToolPicker.open && LLMAToolPicker.tokenStart === -1) { llmaPickerClose(); return; }
     const tools = llmaPickerTools();
     if (tools.length === 0) {
-        if (typeof llmaShowToast === 'function') llmaShowToast('No tools are enabled for this assistant.', 'info');
+        if (typeof llmaShowToast === 'function') {
+            llmaShowToast(llmaEffectiveToolsEnabled()
+                ? 'No tools are enabled for this assistant.'
+                : 'Tool calling is off for this chat — click the tools toggle to turn it back on.', 'info');
+        }
         input?.focus();
         return;
     }

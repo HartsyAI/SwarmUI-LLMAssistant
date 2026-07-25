@@ -364,8 +364,11 @@ public static class ChatEndpoints
         input.RequestSession = session;
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
-        // Load tools enabled for this assistant and inject their descriptions into the system prompt.
-        List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
+        // Load tools enabled for this assistant and inject their descriptions into the system prompt —
+        // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
+        List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+            ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+            : [];
         await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
         await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
         await MaybeGenerateTitleAsync(socket, session, threadId, model);
@@ -441,6 +444,20 @@ public static class ChatEndpoints
     private static string Truncate(string text, int maxLen)
     {
         return string.IsNullOrEmpty(text) || text.Length <= maxLen ? text : text[..maxLen] + "…";
+    }
+
+    /// <summary>Whether tool-calling is active for this thread: an explicit per-thread override (set via
+    /// <see cref="ThreadEndpoints.LLMAssistantSetThreadToolsEnabled"/>) wins; otherwise falls back to the
+    /// resolved assistant's master switch. Callers must pass an empty tools list when this is false so
+    /// <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> never runs — small local GGUF models
+    /// reliably get confused by tool descriptions in the system prompt regardless of how compact they are.</summary>
+    private static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
+    {
+        if (thread["toolsEnabled"]?.Type == JTokenType.Boolean)
+        {
+            return thread["toolsEnabled"].Value<bool>();
+        }
+        return AssistantResolver.Resolve(assistantId, user, settings).ToolsEnabled;
     }
 
     /// <summary>Enriches the assistant's enabled tools per-user and attaches them to the request. Providers
@@ -522,7 +539,9 @@ public static class ChatEndpoints
         // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-        List<JObject> enabledTools = ToolRegistryService.GetEnabledTools(assistantId, settings, session.User);
+        List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+            ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+            : [];
         SemaphoreSlim sendLock = new(1, 1);
         // Parse lane descriptors: each is { model, device?, assistantMessageId? }.
         List<(string Model, string Device, int BackendId, string AssistantMessageId)> lanes = [];

@@ -9,6 +9,10 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* Same shrink-to-fit issue as .llma-main — without this, a tall message history can push
+       .llma-input-area below the visible area on a short (eg tablet) viewport instead of the
+       messages list scrolling internally. See .llma-main's comment in llma-layout.css. */
+    min-height: 0;
 }
 
 /* ── Side-by-side compare columns ───────────────────────────────
@@ -202,6 +206,7 @@
 /* Messages — centered column */
 .llma-messages {
     flex: 1;
+    min-height: 0; /* the actual scroll container in the chain — see .llma-chat-panel's comment */
     overflow-y: auto;
     padding: 24px max(16px, calc((100% - 780px) / 2)) 16px;
     display: flex;
@@ -802,6 +807,35 @@
 .llma-tools-btn.active {
     background: color-mix(in srgb, var(--emphasis) 16%, transparent);
     color: var(--emphasis);
+}
+/* Per-chat "tools on/off" toggle, next to the tools picker button. The slash line is only shown
+   when tools are off — same icon either way so the toggle reads as one control, not two. */
+.llma-tools-toggle-btn {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-soft);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+.llma-tools-toggle-btn:hover {
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    color: var(--text);
+}
+.llma-tools-toggle-btn .llma-tools-toggle-slash {
+    display: none;
+}
+.llma-tools-toggle-btn.off {
+    color: var(--warning, #d9822b);
+}
+.llma-tools-toggle-btn.off .llma-tools-toggle-slash {
+    display: inline;
 }
 .llma-input-actions .llma-icon-btn {
     width: 32px;

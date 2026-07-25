@@ -150,6 +150,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);

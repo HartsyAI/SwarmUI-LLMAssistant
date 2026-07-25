@@ -28,6 +28,14 @@ public class ResolvedAssistant
     /// <summary>Tools available to this assistant. Union of the inheritance chain.</summary>
     public HashSet<string> EnabledToolIds = [];
 
+    /// <summary>Master switch for tool-calling on this assistant — separate from
+    /// <see cref="EnabledToolIds"/> (which tools) — this is whether ANY tool system prompt is injected at
+    /// all. Off by default is not the default here (true) since most assistants want tools; small local
+    /// GGUF models are the case this exists for (see <c>HartsyLocalLLMProviderSettings</c> doc notes on
+    /// tool-prompt confusion). Child wins when explicitly set, like the identity fields above — not unioned
+    /// like <see cref="EnabledToolIds"/>, since this is a single on/off switch, not a set to grow.</summary>
+    public bool ToolsEnabled = true;
+
     /// <summary>Per-tool config blobs, deep-merged across the chain. Read by tools at execution
     /// time via <see cref="ToolConfigService"/>.</summary>
     public Dictionary<string, JObject> ToolConfig = [];
@@ -189,6 +197,11 @@ public static class AssistantResolver
         if (layer["parameters"] is JObject layerParams && layerParams.Count > 0)
         {
             target.Parameters.Merge(layerParams, DeepMerge);
+        }
+        // ToolsEnabled — child wins iff explicitly present (identity-field semantics, not a union).
+        if (layer["toolsEnabled"]?.Type == JTokenType.Boolean)
+        {
+            target.ToolsEnabled = layer["toolsEnabled"].Value<bool>();
         }
         // EnabledToolIds — union (child can only ADD).
         if (layer["enabledToolIds"] is JArray ids)

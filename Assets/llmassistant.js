@@ -116,8 +116,10 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
 
     LLMAState.activeAssistantId = assistantId;
     LLMAState.activeThreadId    = null;
+    LLMAState.activeThreadToolsEnabled = null;
     LLMAState.messages          = [];
     LLMAState.assets            = [];
+    if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
 
     // Clear rendered messages so the empty-chat CSS state kicks in
     const msgList = document.getElementById('llma-messages');
@@ -1315,6 +1317,9 @@ function llmaSetupSettingsModal() {
             tmplSelect.value = '';
         });
     }
+    document.getElementById('llma-asst-tools-enabled')?.addEventListener('change', (e) => {
+        llmaUpdateAssistantToolsChecklistState(e.target.checked);
+    });
     document.getElementById('llma-asst-save')?.addEventListener('click', llmaSaveAssistantFromEditor);
     document.getElementById('llma-asst-delete')?.addEventListener('click', () => llmaDeleteAssistant(llmaEditingAsstId));
     document.getElementById('llma-asst-cancel')?.addEventListener('click', () => {
@@ -1645,9 +1650,24 @@ function llmaShowAssistantEditor(assistant) {
     llmaSetEl('llma-asst-max-tokens',  assistant?.parameters?.maxTokens ?? '');
     llmaSetEl('llma-asst-top-p',       assistant?.parameters?.topP ?? '');
 
+    // Master tool-calling switch (separate from which tools are checked below — this is whether ANY
+    // tool system prompt is injected at all). Defaults to on for new/unset assistants.
+    const toolsEnabledBox = document.getElementById('llma-asst-tools-enabled');
+    if (toolsEnabledBox) {
+        toolsEnabledBox.checked = assistant?.toolsEnabled !== false;
+        llmaUpdateAssistantToolsChecklistState(toolsEnabledBox.checked);
+    }
+
     // Enabled tools checklist (and the per-assistant tool config blocks below it)
     llmaRenderAssistantToolsChecklist(assistant?.enabledToolIds || []);
     llmaRenderAssistantToolConfig(assistant);
+}
+
+// Greys out (but doesn't clear) the per-tool checklist when the master switch is off, so it's visually
+// clear the individual checkboxes don't matter until tool calling is turned back on for this assistant.
+function llmaUpdateAssistantToolsChecklistState(enabled) {
+    const container = document.getElementById('llma-assist-tools');
+    if (container) container.classList.toggle('llma-tools-master-off', !enabled);
 }
 
 // Normalizes any instruction value into the editing-state shape.
@@ -1718,6 +1738,7 @@ async function llmaSaveAssistantFromEditor() {
     if (maxTok?.value) assistant.parameters.maxTokens = parseInt(maxTok.value, 10);
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
+    assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
     assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
     const toolConfig = llmaSerializeAssistantToolConfig();
     if (toolConfig) assistant.toolConfig = toolConfig;

@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -19,7 +20,15 @@ public static partial class ToolPromptService
         public string RawMatch { get; set; }
     }
 
-    /// <summary>Builds the system-prompt snippet describing available tools to the LLM.</summary>
+    /// <summary>Builds the system-prompt snippet describing available tools to the LLM. Deliberately compact:
+    /// the previous version emitted each tool's full prose description plus its raw JSON-schema dump verbatim
+    /// (often 500+ characters per tool — <c>generate_image</c> alone ran well over a thousand), which reliably
+    /// overwhelmed small local GGUF models (0.5B-7B, especially quantized) into either producing garbage or
+    /// reciting the schema back instead of answering the user — confirmed live 2026-07-25, identical on both the
+    /// pre- and post-Engine-cutover provider code, so this is a prompt-size problem, not a code bug. Every tool
+    /// here collapses to one line: name, a compact <c>name: type</c> argument signature, and a one-sentence
+    /// summary — enough for a model to shape a valid <see cref="ParseToolCalls"/>-compatible call without
+    /// drowning in prose it doesn't need.</summary>
     public static string BuildToolSystemPrompt(List<JObject> tools)
     {
         if (tools is null || tools.Count == 0)
@@ -30,28 +39,66 @@ public static partial class ToolPromptService
         sb.AppendLine();
         sb.AppendLine();
         sb.AppendLine("## Tools");
-        sb.AppendLine();
-        sb.AppendLine("You have access to the tools listed below. When you want to use a tool, output EXACTLY this format on its own line (and nothing else on that line):");
-        sb.AppendLine();
-        sb.AppendLine("<tool_call>{\"name\":\"TOOL_NAME\",\"arguments\":{\"PARAM\":\"VALUE\"}}</tool_call>");
-        sb.AppendLine();
-        sb.AppendLine("After the tool executes, you will see a <tool_result name=\"TOOL_NAME\">RESULT_JSON</tool_result> message. You may then continue your response or call another tool. Do not call tools unnecessarily. Only call a tool when it materially helps answer the user.");
-        sb.AppendLine();
-        sb.AppendLine("### Available Tools:");
+        sb.AppendLine("To call a tool, output ONLY this on its own line: <tool_call>{\"name\":\"TOOL_NAME\",\"arguments\":{...}}</tool_call>");
+        sb.AppendLine("Wait for the <tool_result> before continuing. Only call a tool when it materially helps answer the user.");
         sb.AppendLine();
         foreach (JObject tool in tools)
         {
             string name = tool["id"]?.ToString() ?? tool["name"]?.ToString() ?? "unknown";
-            string description = tool["description"]?.ToString() ?? "";
-            sb.Append("- **").Append(name).Append("**: ").AppendLine(description);
-            if (tool["parameters"] is JObject parameters)
+            string description = Summarize(tool["description"]?.ToString() ?? "", 100);
+            string signature = BuildCompactSignature(tool["parameters"] as JObject);
+            sb.Append("- ").Append(name).Append('(').Append(signature).Append(')');
+            if (!string.IsNullOrEmpty(description))
             {
-                string compact = parameters.ToString(Formatting.None);
-                sb.Append("  Parameters schema: ").AppendLine(compact);
+                sb.Append(" — ").Append(description);
             }
+            sb.AppendLine();
         }
         sb.AppendLine();
         return sb.ToString();
+    }
+
+    /// <summary>Compacts a tool description to its first sentence, or a hard length cap if that sentence is
+    /// still long — the fixed budget is what keeps a dozen enabled tools from dwarfing the actual conversation.</summary>
+    private static string Summarize(string text, int maxLen)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return "";
+        }
+        int period = text.IndexOf(". ", StringComparison.Ordinal);
+        string cut = period > 0 && period < maxLen ? text[..(period + 1)] : text;
+        return cut.Length > maxLen ? cut[..maxLen].TrimEnd() + "…" : cut.TrimEnd();
+    }
+
+    /// <summary>Renders a JSON-schema <c>parameters</c> object as a compact <c>name: type, name2?: type2</c>
+    /// argument signature (optional params get a <c>?</c> suffix; short enums are inlined as <c>[a,b,c]</c>) —
+    /// enough for the model to shape valid <c>arguments</c> JSON without the per-parameter prose descriptions
+    /// that dominated the old prompt.</summary>
+    private static string BuildCompactSignature(JObject parameters)
+    {
+        if (parameters?["properties"] is not JObject props || props.Count == 0)
+        {
+            return "";
+        }
+        HashSet<string> required = [.. (parameters["required"] as JArray)?.Select(t => t.ToString()) ?? []];
+        List<string> parts = [];
+        foreach (JProperty prop in props.Properties())
+        {
+            string type = (prop.Value as JObject)?["type"]?.ToString() ?? "any";
+            string suffix = required.Contains(prop.Name) ? "" : "?";
+            string enumSuffix = "";
+            if ((prop.Value as JObject)?["enum"] is JArray enumVals && enumVals.Count is > 0 and <= 6)
+            {
+                string joined = string.Join(",", enumVals.Select(v => v.ToString()));
+                if (joined.Length <= 60)
+                {
+                    enumSuffix = $"[{joined}]";
+                }
+            }
+            parts.Add($"{prop.Name}{suffix}: {type}{enumSuffix}");
+        }
+        return string.Join(", ", parts);
     }
 
     /// <summary>Parses all complete &lt;tool_call&gt; blocks from the given text. Blocks whose JSON fails to

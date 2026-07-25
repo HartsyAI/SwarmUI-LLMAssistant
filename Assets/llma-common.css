@@ -133,6 +133,18 @@
     .llma-tool-list-wrap { grid-template-columns: 1fr; }
 }
 
+/* Short viewport (tablet in a browser with visible chrome, small laptop window, phone landscape):
+   every breakpoint above is width-only, so a device with plenty of width but limited height (a tablet
+   being the common case) hit none of them. .llma-container's 520px min-height floor plus the input
+   area's generous 64px bottom padding were together enough to force the composer below the visible
+   area with no way to scroll to it — the min-height:0 fixes on .llma-main/.llma-chat-panel/.llma-messages
+   make the message list the thing that scrolls instead of the whole page overflowing, but these two
+   still reclaim real space back for it on a genuinely short screen. */
+@media (max-height: 700px) {
+    .llma-container { min-height: 320px; }
+    .llma-input-area { padding-bottom: 20px; }
+}
+
 /* Reusable spinner — used in pending tool bubbles, asset-viewer lazy loads, and welcome skeleton.
    Pure CSS, no SVG. Inline-block so it sits naturally next to status text. */
 .llma-spinner {

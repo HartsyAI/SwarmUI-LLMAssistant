@@ -372,6 +372,23 @@
     font-weight: 600;
     color: var(--text-strong);
 }
+.llma-tools-master-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-strong);
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+.llma-tools-master-toggle input { margin: 0; }
+/* Greys out (not disables — state is preserved) the per-tool checklist while the master switch above is off,
+   so it's visually clear the individual picks don't take effect until tool calling is turned back on. */
+#llma-assist-tools.llma-tools-master-off {
+    opacity: 0.45;
+    pointer-events: none;
+}
 .llma-tool-checklist {
     display: flex;
     flex-direction: column;
