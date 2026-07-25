@@ -272,7 +272,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// touched) used to route a GGUF to the transformer or SSM loader before committing to either.</summary>
     private static string PeekArchitecture(string path)
     {
-        using HartsyInference.ModelHandler.Gguf.GgufLoader probe = new();
+        using HartsyInference.ModelAssets.Gguf.GgufLoader probe = new();
         probe.Load(path);
         return probe.Metadata.GetString("general.architecture") ?? "";
     }
@@ -459,7 +459,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     {
         try
         {
-            using HartsyInference.ModelHandler.Gguf.GgufLoader probe = new();
+            using HartsyInference.ModelAssets.Gguf.GgufLoader probe = new();
             probe.Load(mmprojPath);
             string proj = (probe.Metadata.GetString("clip.projector_type") ?? "").ToLowerInvariant();
             if (proj.Contains("qwen")) { return true; }

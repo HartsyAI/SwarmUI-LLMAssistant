@@ -31,15 +31,10 @@
   <ItemGroup Condition="'$(UseLocalHartsy)' == 'true'">
     <Reference Include="HartsyInference.LLM"><HintPath>$(HartsyLLMBin)/HartsyInference.LLM.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="HartsyInference.Core"><HintPath>$(HartsyLLMBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="HartsyInference.ModelHandler"><HintPath>$(HartsyLLMBin)/HartsyInference.ModelHandler.dll</HintPath><Private>true</Private></Reference>
-    <!-- HartsyInference.LLM.dll now depends on ModelAssets (the renamed successor package to ModelHandler,
-         per the engine's own refactor) but this ItemGroup never picked up a reference to it — added 2026-07-25
-         while wiring LLaVA-NeXT support through. ModelHandler itself may now be entirely unused by a fresh
-         engine build (nothing under src/HartsyInference.ModelHandler defines the GgufLoader/GgufMetadata types
-         IsQwen25Vl calls — that DLL is a stale artifact from before the rename); left in place rather than
-         removed since IsQwen25Vl still references it directly and this pass didn't touch that method. -->
+    <!-- ModelHandler and Tokenizers were both retired in the engine's package refactor: GgufLoader,
+         GgufMetadata, and ILlmTokenizer now all live in ModelAssets (confirmed 2026-07-25 against a fresh
+         engine build — neither the ModelHandler nor Tokenizers project folders even have a .csproj anymore). -->
     <Reference Include="HartsyInference.ModelAssets"><HintPath>$(HartsyLLMBin)/HartsyInference.ModelAssets.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="HartsyInference.Tokenizers"><HintPath>$(HartsyLLMBin)/HartsyInference.Tokenizers.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="HartsyInference.Cpu"><HintPath>$(HartsyCpuBin)/HartsyInference.Cpu.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="HartsyInference.Cuda"><HintPath>$(HartsyCudaBin)/HartsyInference.Cuda.dll</HintPath><Private>true</Private></Reference>
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
