@@ -330,7 +330,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Pairs the just-loaded text model with a sidecar mmproj GGUF (if one sits next to it) and loads
     /// the matching vision encoder: the cross-attention <see cref="MllamaVisionEncoder"/> for Llama-3.2-Vision,
-    /// or a splice <see cref="IVlmImageEncoder"/> (Qwen2.x-VL vs SigLIP-family) for everyone else. No mmproj →
+    /// the anyres-tiling <see cref="LlavaNextEncoder"/> for LLaVA-NeXT/1.6, or a splice
+    /// <see cref="IVlmImageEncoder"/> (Qwen2.x-VL vs SigLIP-family) for everyone else. No mmproj →
     /// the model stays text-only. Caller holds <c>slot.Lock</c>.</summary>
     private static void LoadVisionInto(DeviceSlot slot, string textPath)
     {
@@ -342,13 +343,10 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         try
         {
             bool isMllama = slot.Model.Architecture == "mllama" || (slot.Model.Config.CrossAttnLayers?.Count ?? 0) > 0;
+            slot.SpliceVision = isMllama ? null : LoadSpliceVision(mmproj);
             if (isMllama)
             {
                 slot.MllamaVision = MllamaVisionEncoder.Load(mmproj);
-            }
-            else
-            {
-                slot.SpliceVision = IsQwen25Vl(mmproj) ? Qwen25VlEncoder.Load(mmproj) : SiglipVlmEncoder.Load(mmproj);
             }
             slot.VisionPath = mmproj;
         }
@@ -362,14 +360,65 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
     }
 
-    /// <summary>Finds a sidecar mmproj GGUF next to a text model (any *.gguf in the same folder whose name
-    /// contains "mmproj"), preferring an f16 projector when several are present. Null if none.</summary>
+    /// <summary>Picks the splice encoder for a non-mllama mmproj: LLaVA-NeXT/1.6's anyres tiling
+    /// (<see cref="LlavaNextEncoder"/>) when the checkpoint carries the anyres <c>image_grid_pinpoints</c>/
+    /// <c>model.image_newline</c> metadata, Qwen2.x-VL's own tower, or the shared SigLIP/CLIP tower for
+    /// everyone else (LLaVA-1.5, Gemma-3, SmolVLM2, ...). Tries <see cref="LlavaNextEncoder.Load"/> FIRST and
+    /// falls back on ITS OWN validation failure (it throws <see cref="InvalidOperationException"/> when the
+    /// pinpoints/newline are missing) rather than a separate metadata probe — this extension's only
+    /// GGUF-metadata reader (<c>HartsyInference.ModelHandler.Gguf.GgufLoader</c>, used by
+    /// <see cref="IsQwen25Vl"/>) turned out to be a stale reference to a package
+    /// <c>HartsyInference.LLM</c> no longer depends on (its <c>HintPath</c> resolves to a file a fresh engine
+    /// build doesn't produce) — reusing <see cref="LlavaNextEncoder.Load"/>'s own well-defined failure signal
+    /// sidesteps that entirely instead of trying to fix an unrelated, pre-existing build-config problem here.</summary>
+    private static IVlmImageEncoder LoadSpliceVision(string mmproj)
+    {
+        try
+        {
+            return LlavaNextEncoder.Load(mmproj);
+        }
+        catch (InvalidOperationException)
+        {
+            // Not an anyres checkpoint (missing image_grid_pinpoints / model.image_newline) — fall through.
+        }
+        return IsQwen25Vl(mmproj) ? Qwen25VlEncoder.Load(mmproj) : SiglipVlmEncoder.Load(mmproj);
+    }
+
+    /// <summary>Finds a sidecar mmproj GGUF paired with a text model: prefers a candidate whose REAL
+    /// (symlink-resolved) source directory matches the text model's own — this is the authoritative signal
+    /// and survives Swarm's flat <c>Models/llm/</c> directory (every model here is a symlink back into its own
+    /// real subfolder, eg <c>HartsyInference/Models/LLM/&lt;catalog-id&gt;/</c>). Falls back to the old
+    /// same-flat-folder "any *.gguf containing 'mmproj', preferring f16" heuristic when no real-path match is
+    /// found (non-symlinked layouts, or unresolvable links).
+    ///
+    /// <para>BUG THIS FIXES: the old heuristic scanned the text model's OWN (flat) directory for ANY mmproj
+    /// file, with no correlation to the specific text model — once two VLM families both had "f16" in their
+    /// mmproj filename sharing that flat folder (true for LLaVA-1.5, LLaVA-NeXT, Qwen2.5-VL, SmolVLM2, and
+    /// mllama today), whichever the OS's directory enumeration returned last silently won, regardless of which
+    /// text model was actually being loaded — eg pairing LLaVA-NeXT's Vicuna-7B text model with Qwen2.5-VL's
+    /// mmproj, producing an empty/garbage response with no error (confirmed live 2026-07-25).</para></summary>
     private static string FindMmproj(string textPath)
     {
         string dir = Path.GetDirectoryName(textPath);
         if (string.IsNullOrEmpty(dir))
         {
             return null;
+        }
+        string realTextDir = ResolveRealDirectory(textPath);
+        if (realTextDir is not null)
+        {
+            foreach (string f in Directory.EnumerateFiles(dir, "*.gguf"))
+            {
+                string name = Path.GetFileName(f);
+                if (!name.Contains("mmproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                if (string.Equals(ResolveRealDirectory(f), realTextDir, StringComparison.Ordinal))
+                {
+                    return f;   // Unambiguous: same real source folder as the text model.
+                }
+            }
         }
         string best = null;
         foreach (string f in Directory.EnumerateFiles(dir, "*.gguf"))
@@ -385,6 +434,23 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             }
         }
         return best;
+    }
+
+    /// <summary>Resolves <paramref name="path"/> through any symlink chain to its final target's containing
+    /// directory. Null on failure (not a symlink and doesn't exist, permission error, etc) — callers must treat
+    /// null as "no signal", not "no match".</summary>
+    private static string ResolveRealDirectory(string path)
+    {
+        try
+        {
+            System.IO.FileSystemInfo target = File.ResolveLinkTarget(path, returnFinalTarget: true);
+            string real = target?.FullName ?? Path.GetFullPath(path);
+            return Path.GetDirectoryName(real);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     /// <summary>True if the mmproj is a Qwen2/Qwen2.5-VL merger — detected via the <c>clip.projector_type</c>
@@ -474,7 +540,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// them, so the ChatML encoder throws. Checking <c>template is ChatMlTemplate</c> (not just "tokens
     /// missing") avoids a false positive on a model with a real custom Jinja template that just happens not to
     /// use ChatML's tokens.</summary>
-    private static bool NeedsRawCompletion(IChatTemplate template, HartsyInference.Tokenizers.ILlmTokenizer tokenizer)
+    private static bool NeedsRawCompletion(IChatTemplate template, HartsyInference.ModelAssets.Tokenizers.ILlmTokenizer tokenizer)
         => template is ChatMlTemplate && tokenizer.SpecialId("<|im_start|>") is null;
 
     /// <summary>Builds the engine's <see cref="GenerationRequest"/> with sampling from <see cref="BuildSampling"/>.
@@ -482,7 +548,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// base checkpoints have no notion of roles/turns, so this feeds the latest message's plain text straight to
     /// the tokenizer via <see cref="GenerationRequest.RawTokenIds"/> instead of wrapping it in a template that
     /// would just throw (or, if it didn't throw, confuse a model that was never trained on chat markup).</summary>
-    private GenerationRequest BuildRequest(ExtendedLLMInput input, bool rawCompletion, HartsyInference.Tokenizers.ILlmTokenizer tokenizer)
+    private GenerationRequest BuildRequest(ExtendedLLMInput input, bool rawCompletion, HartsyInference.ModelAssets.Tokenizers.ILlmTokenizer tokenizer)
     {
         SamplingOptions sampling = BuildSampling(input);
         // Raw-completion (base/non-instruct) checkpoints have no chat-template slot to teach the <tool_call>
@@ -629,7 +695,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             // Stream by decoding the running token list and emitting the newly-appeared text. (Byte-level
             // BPE means a single token doesn't cleanly map to a substring, so decode-and-diff is the
             // correct way to surface incremental text.)
-            HartsyInference.Tokenizers.ILlmTokenizer tokenizer = slot.SsmModel is not null ? slot.SsmModel.Tokenizer : slot.Model.Tokenizer;
+            // Stale namespace fixed 2026-07-25: the engine renamed this package (ModelHandler -> ModelAssets)
+            // at some point after this line was written; slot.Model.Tokenizer's real type moved with it.
+            var tokenizer = slot.SsmModel is not null ? slot.SsmModel.Tokenizer : slot.Model.Tokenizer;
             IChatTemplate template = slot.SsmModel is not null ? slot.SsmModel.Template : slot.Model.Template;
             bool rawCompletion = NeedsRawCompletion(template, tokenizer);
             GenerationRequest request = BuildRequest(input, rawCompletion, tokenizer);
