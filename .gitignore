@@ -43,3 +43,4 @@
 /bin
 /.vs
 Directory.Build.props
+NuGet.config

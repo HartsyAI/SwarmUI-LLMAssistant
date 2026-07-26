@@ -4,6 +4,9 @@
     <!-- false = published HartsyInference NuGet; true = local HartsyInference engine build (see Directory.Build.props). -->
     <UseLocalHartsy Condition="'$(UseLocalHartsy)' == ''">false</UseLocalHartsy>
     <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../HartsyInference</HartsyRepo>
+    <!-- Force the alpha.4 ref (just pinned below, ahead of its publish) to resolve as soon as it's live,
+         bypassing NuGet's ~30 min flat-container HTTP cache (same reasoning as the sibling extensions). -->
+    <RestoreNoHttpCache>true</RestoreNoHttpCache>
   </PropertyGroup>
 
   <Import Project="../../SwarmUI.extension.props" />
@@ -13,9 +16,16 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
-  <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference -->
+  <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference
+       Pinned ahead of nuget.org's alpha.3 (its latest published version as of this writing): alpha.3
+       predates the 2026-07-25 commit that made TextService.FindMmproj public, which this extension's
+       HartsyLocalLLMProvider now calls. Pinned to alpha.4 in step with the other two SwarmUI-Hartsy
+       extensions, ahead of the engine repo's manual publish of that version — restore will 404 until
+       that push lands on nuget.org. NEVER pin a "-local" suffix here: this extension is cloned by
+       end users who only have nuget.org, and a "-local" version only resolves on the dev feed at
+       /home/hartsy/.local/share/hartsy-local-nuget. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.3" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.4" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
