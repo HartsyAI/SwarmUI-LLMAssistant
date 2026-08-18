@@ -439,6 +439,9 @@ function llmaRenderAssistantToolsChecklist(enabledToolIds) {
     // that tool's config block. Re-render whatever the config section was last given.
     container.querySelectorAll('.llma-assist-tool-check').forEach(box => {
         box.addEventListener('change', () => {
+            // The user explicitly changed the tool set — the save must now write an explicit list
+            // instead of inheriting (see llmaSaveAssistantFromEditor).
+            LLMAState._editingToolsTouched = true;
             // We pass null as assistant so the renderer rebuilds from current checklist state +
             // whatever values are currently in the form (preserved by reading from DOM first).
             llmaRenderAssistantToolConfig(null);

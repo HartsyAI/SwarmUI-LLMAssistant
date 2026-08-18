@@ -1595,8 +1595,20 @@ function llmaShowAssistantEditor(assistant) {
     const title = document.getElementById('llma-editor-title');
     if (title) title.textContent = assistant ? `Edit: ${assistant.name}` : 'New Assistant';
 
+    // Delete button semantics: a personal overlay of a shared id gets "Revert to default" (removing
+    // it brings the shared version back); a pure shared built-in (Swarmie, no overlay) has nothing to
+    // delete; everything else is a plain delete in its own layer.
     const deleteBtn = document.getElementById('llma-asst-delete');
-    if (deleteBtn) deleteBtn.style.display = (assistant && !assistant.isBuiltIn) ? '' : 'none';
+    if (deleteBtn) {
+        const isOverlay = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
+        if (!assistant || (assistant.isBuiltIn && !isOverlay)) {
+            deleteBtn.style.display = 'none';
+        }
+        else {
+            deleteBtn.style.display = '';
+            deleteBtn.textContent = isOverlay ? 'Revert to default' : (assistant._scope === 'shared' ? 'Delete (shared)' : 'Delete');
+        }
+    }
 
     // Scope toggle: only admins (canWriteShared) see it. When editing an existing assistant,
     // pre-fill from its current scope so they can re-save to the same layer.
@@ -1606,7 +1618,10 @@ function llmaShowAssistantEditor(assistant) {
         scopeWrap.style.display = LLMAState.canWriteShared ? '' : 'none';
     }
     if (scopeCheckbox) {
-        scopeCheckbox.checked = assistant?._scope === 'shared';
+        // Built-ins default to UNCHECKED even for admins: saving then creates a personal overlay
+        // (revertible via "Revert to default") instead of silently mutating the shared baseline for
+        // every user. Editing the baseline itself stays possible — tick the box deliberately.
+        scopeCheckbox.checked = assistant?._scope === 'shared' && !assistant?.isBuiltIn;
     }
 
     // Basic fields
@@ -1658,8 +1673,13 @@ function llmaShowAssistantEditor(assistant) {
         llmaUpdateAssistantToolsChecklistState(toolsEnabledBox.checked);
     }
 
-    // Enabled tools checklist (and the per-assistant tool config blocks below it)
-    llmaRenderAssistantToolsChecklist(assistant?.enabledToolIds || []);
+    // Enabled tools checklist (and the per-assistant tool config blocks below it). Prefill from the
+    // server-resolved effective set so an inheriting assistant shows what it actually gets. Whether
+    // the SAVE writes an explicit list is tracked separately (see llmaSaveAssistantFromEditor): an
+    // assistant with no list of its own keeps inheriting unless the user touches a checkbox.
+    LLMAState._editingHadOwnToolList = Array.isArray(assistant?.enabledToolIds);
+    LLMAState._editingToolsTouched = false;
+    llmaRenderAssistantToolsChecklist(assistant?._effectiveToolIds || assistant?.enabledToolIds || []);
     llmaRenderAssistantToolConfig(assistant);
 }
 
@@ -1739,7 +1759,11 @@ async function llmaSaveAssistantFromEditor() {
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
     assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
-    assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
+    // Explicit list wins server-side; an omitted field inherits from the extends parent. So only
+    // send the list when this assistant already had its own, or the user changed a checkbox now.
+    if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {
+        assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
+    }
     const toolConfig = llmaSerializeAssistantToolConfig();
     if (toolConfig) assistant.toolConfig = toolConfig;
 
@@ -1777,11 +1801,17 @@ async function llmaSaveAssistantFromEditor() {
 }
 
 async function llmaDeleteAssistant(id) {
-    if (!id || !confirm('Delete this assistant?')) return;
-    // Pass scope so an admin's delete of a shared assistant goes to the shared layer,
-    // and a personal delete goes to the personal layer.
+    if (!id) return;
+    // Pass scope so an admin's delete of a shared assistant goes to the shared layer, and a
+    // personal delete goes to the personal layer. A personal overlay of a shared id is a REVERT:
+    // removing it brings the shared version back, so confirm with the right words.
     const assistant = LLMAState.assistants.find(a => a.id === id);
     const scope = assistant?._scope || undefined;
+    const isRevert = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
+    const confirmText = isRevert
+        ? 'Revert this assistant to the shared default? Your personal customizations will be removed.'
+        : 'Delete this assistant?';
+    if (!confirm(confirmText)) return;
     try {
         const result = await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id, scope });
         if (result && result.success === false) {
@@ -1792,7 +1822,7 @@ async function llmaDeleteAssistant(id) {
         await llmaLoadAssistants();
         llmaRenderAssistantList();
         llmaRenderWelcomeAssistants();
-        llmaShowToast('Assistant deleted', 'info');
+        llmaShowToast(result?.reverted ? 'Reverted to the shared version' : 'Assistant deleted', 'info');
     } catch {
         llmaShowToast('Failed to delete assistant', 'error');
     }
@@ -1802,7 +1832,7 @@ async function llmaDeleteAssistant(id) {
 // Picks a file → reads as data URI for preview → uploads to the per-user OutputDirectory
 // via LLMAssistantUploadAssistantAvatar → stores the returned URL on the preview's dataset.
 // We upload eagerly (on file pick, not on save) so the assistant JSON never carries base64 —
-// it carries a URL. The /Output/{*Path} route already enforces per-user auth.
+// it carries a URL. The /View/{user}/{rest} route already enforces per-user auth.
 function llmaSetupAvatarUpload() {
     const uploadBtn = document.getElementById('llma-avatar-upload-btn');
     const fileInput = document.getElementById('llma-avatar-file');
@@ -2165,23 +2195,48 @@ function llmaSetupPromptButtons() {
 }
 
 // -- Auto-boot --
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-        if (document.getElementById('llma-container')) llmaInit();
-    });
-} else {
-    if (document.getElementById('llma-container')) {
-        llmaInit();
-    } else {
+// Gated on SwarmUI's `sessionReadyCallbacks` (the same hook every builtin extension uses, and the
+// one companion.js already used). Booting on DOMContentLoaded instead raced `getSession()`: the very
+// first call, LLMAssistantGetSettings, went out before `session_id` existed and came back 401, so the
+// tab silently fell back to default settings for the whole page load. Same MutationObserver fallback
+// as before for the case where the tab markup arrives after boot.
+(function llmaAttachBoot() {
+    let started = false;
+    function start() {
+        if (started) return;
+        if (document.getElementById('llma-container')) {
+            started = true;
+            llmaInit();
+            return;
+        }
         const obs = new MutationObserver(() => {
             if (document.getElementById('llma-container')) {
                 obs.disconnect();
+                started = true;
                 llmaInit();
             }
         });
         obs.observe(document.body, { childList: true, subtree: true });
     }
-}
+    function tryAttach() {
+        if (typeof sessionReadyCallbacks !== 'undefined' && Array.isArray(sessionReadyCallbacks)) {
+            sessionReadyCallbacks.push(start);
+            return true;
+        }
+        return false;
+    }
+    if (tryAttach()) return;
+    let tries = 0;
+    const iv = setInterval(() => {
+        if (tryAttach() || ++tries > 50) {
+            clearInterval(iv);
+            if (tries > 50) {
+                console.warn('[LLMAssistant] sessionReadyCallbacks never appeared; booting without it.');
+                start();
+            }
+        }
+    }, 100);
+})();
 
 // Also try to inject prompt buttons when DOM changes
 const llmaPromptObs = new MutationObserver(() => {

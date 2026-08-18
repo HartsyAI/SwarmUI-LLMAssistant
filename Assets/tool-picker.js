@@ -22,23 +22,26 @@ const LLMAToolPicker = {
     el: null,
 };
 
-// Tools available to the active assistant: its enabledToolIds, intersected with globally-enabled tools.
+// Tools available to the active assistant, intersected with globally-enabled tools. Uses the
+// server-resolved `_effectiveToolIds` (inheritance applied) so the picker never disagrees with what
+// the backend actually offers the model; raw `enabledToolIds` is only a fallback for stale payloads.
 // Empty whenever tool calling itself is off (see llmaEffectiveToolsEnabled) — the picker has nothing to
 // offer in that state, same as the backend injecting no tool prompt at all.
 function llmaPickerTools() {
     if (!llmaEffectiveToolsEnabled()) return [];
     const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
-    const enabledIds = asst?.enabledToolIds || [];
+    const enabledIds = asst?._effectiveToolIds || asst?.enabledToolIds || [];
     return (LLMAState.tools || []).filter(t => enabledIds.includes(t.id) && t.enabled !== false);
 }
 
 // -- Per-chat "Tools" master toggle (composer button, next to the "/" picker) --------------------
 
 // Effective state for the ACTIVE thread: an explicit per-thread override wins; otherwise falls back
-// to the active assistant's toolsEnabled default (missing/undefined = on, matching the server default).
+// to the active assistant's resolved master switch (missing/undefined = on, matching the server default).
 function llmaEffectiveToolsEnabled() {
     if (typeof LLMAState.activeThreadToolsEnabled === 'boolean') return LLMAState.activeThreadToolsEnabled;
     const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
+    if (typeof asst?._effectiveToolsEnabled === 'boolean') return asst._effectiveToolsEnabled;
     return asst?.toolsEnabled !== false;
 }
 
