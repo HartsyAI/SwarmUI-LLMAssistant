@@ -2,11 +2,11 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: walks a folder under the user's OutputDirectory, captions every image
 /// inside (using a chosen <see cref="CaptionImageTool"/> style), and writes the result as

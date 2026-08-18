@@ -4,7 +4,7 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Manages extension-level settings (instructions, features, parameters). Backend config
 /// is in Server > Backends. Two-layer, multi-user aware storage: a shared admin-curated baseline

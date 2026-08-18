@@ -1,4 +1,4 @@
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>LRU cache with request deduplication for LLM prompt responses.</summary>
 public class PromptCacheService

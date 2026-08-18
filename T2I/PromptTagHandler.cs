@@ -1,9 +1,9 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.T2I;
+namespace Hartsy.Extensions.LLMAssistant.T2I;
 
 /// <summary>Registers T2I parameters and prompt tag handlers for LLM integration.</summary>
 public static class PromptTagHandler

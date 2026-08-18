@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: runs a vision-model pass on a single image and returns a caption in
 /// one of several styles (see <see cref="StyleInstructions"/>). Image resolution delegates to

@@ -1,11 +1,11 @@
 using System.Text.RegularExpressions;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.T2I;
+namespace Hartsy.Extensions.LLMAssistant.T2I;
 
 /// <summary>Processes <llmprompt> and <mpprompt> tags in T2I prompts.</summary>
 public static class PromptProcessor

@@ -1,7 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools;
+namespace Hartsy.Extensions.LLMAssistant.Tools;
 
 /// <summary>Per-call context passed to a <see cref="ToolHandler"/>. A struct-shaped context lets
 /// us add new fields (eg <c>ThreadId</c>, <c>ModelId</c>, future audit fields) without churning

@@ -2,10 +2,10 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>API endpoints for assistant CRUD and activation. All endpoints are user-scoped:
 /// reads return the caller's merged view (shared ⊕ personal), writes target the caller's

@@ -1,10 +1,10 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Centralized service for assistant CRUD, resolution, and parameter merging.
 ///

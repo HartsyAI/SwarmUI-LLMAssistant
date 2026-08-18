@@ -4,10 +4,10 @@ using System.Text;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>LLM backend for the Anthropic Messages API (Claude models). Uses the calling user's
 /// per-user <c>anthropic_api</c> key (set in the User tab).</summary>

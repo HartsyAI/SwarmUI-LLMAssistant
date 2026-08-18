@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>The single seam between the extension and whatever actually runs an LLM.
 /// <para>Everything in the stable extension core (chat, threads, tools, companion, T2I) talks only

@@ -1,8 +1,8 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Endpoints for the calling user's memory profile (read / clear). Both endpoints
 /// operate strictly on <c>session.User</c>'s own profile — there is no addressing scheme that

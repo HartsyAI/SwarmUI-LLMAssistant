@@ -5,7 +5,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: basic web search via DuckDuckGo HTML scraping.</summary>
 public partial class WebSearchTool : ToolHandler

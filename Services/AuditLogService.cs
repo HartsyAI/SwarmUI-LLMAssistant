@@ -5,7 +5,7 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Append-only JSONL audit trail for dangerous tool calls (<see cref="RecordToolCall"/>)
 /// and shared-layer mutations (<see cref="RecordSharedWrite"/>). Stored at

@@ -2,10 +2,10 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Background sweeper (started from <see cref="LLMAssistantExtension.OnInit"/>, runs
 /// roughly once a day) that deletes files under each user's file_write sandbox, avatar, and

@@ -1,7 +1,7 @@
 using SwarmUI.Accounts;
 using SwarmUI.WebAPI;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Registers all LLM Assistant API endpoints and permissions.</summary>
 public static class LLMAssistantAPI

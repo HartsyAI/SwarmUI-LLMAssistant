@@ -1,7 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>The extension's self-contained LLM request shape, handed to an <see cref="ILLMProvider"/>.
 /// <para>Originally subclassed SwarmUI core's <c>LLMParamInput</c>; it's now standalone so the

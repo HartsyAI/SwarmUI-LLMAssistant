@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>SSRF guard helpers shared by tools/services that fetch from arbitrary URLs.
 /// Centralized here so each new tool doesn't reinvent the same loopback/private-range checks

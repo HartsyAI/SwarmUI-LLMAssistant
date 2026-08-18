@@ -1,7 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Routes LLM requests to a registered <see cref="ILLMProvider"/>.
 /// <para>When the request names a model, the dispatcher asks each provider's

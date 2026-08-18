@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>TTL cache around walking the registered <see cref="ILLMProvider"/>s to resolve a model id.
 /// <para>Why this exists: <see cref="LLMModelMatcher"/>'s richer kinds (Family/Provider/Tag) need the full

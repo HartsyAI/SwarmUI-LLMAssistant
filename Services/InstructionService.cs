@@ -2,7 +2,7 @@ using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves instructions by ID/title and substitutes variables.
 ///

@@ -2,10 +2,10 @@ using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Bridges GenerateLive callback output to WebSocket streaming, including an agentic
 /// tool-calling loop: when the model emits &lt;tool_call&gt; blocks, the stream is interrupted,

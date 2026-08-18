@@ -1,6 +1,6 @@
 using Newtonsoft.Json.Linq;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Standard chat role identifiers.
 /// <para>These used to live in SwarmUI core (a branch that expanded the native LLM API). The

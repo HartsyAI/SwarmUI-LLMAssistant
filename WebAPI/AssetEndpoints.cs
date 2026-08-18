@@ -1,8 +1,8 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Asset endpoints. Assets (markdown/html/code/image/etc produced by the assistant or
 /// tools) are persisted as part of the owning thread's JSON blob under the <c>assets</c> key.

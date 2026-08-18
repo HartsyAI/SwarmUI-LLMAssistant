@@ -1,9 +1,9 @@
 using System.IO;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves <see cref="LLMMediaAttachment"/>s for delivery to LLM backends.
 /// <para>Inbound shape (from saved threads): always <c>{ Type: "url", Data: "Output/{userId}/..." }</c>.</para>

@@ -2,7 +2,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>One-time migrations for the instructions-to-assistants model and built-in tool seeding.</summary>
 public static class MigrationService

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Per-user-per-tool sliding-window rate limit, guarding against a misbehaving LLM
 /// agentic loop hammering external services or burning API quota. Storage is in-memory only

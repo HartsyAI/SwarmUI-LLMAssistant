@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Tools;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.Tools;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Central registry for tool definitions (stored in settings) and executable handlers (in-memory).
 ///

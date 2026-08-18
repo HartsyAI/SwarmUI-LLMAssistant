@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>API endpoints for tool CRUD and manual execution. User-scoped: reads return the
 /// caller's merged view (shared ⊕ personal); writes target personal unless <c>scope: "shared"</c>
@@ -123,7 +123,7 @@ public static class ToolEndpoints
         JArray presets = [];
         if (session?.User is not null)
         {
-            foreach (Text2Image.T2IPreset preset in session.User.GetAllPresets())
+            foreach (SwarmUI.Text2Image.T2IPreset preset in session.User.GetAllPresets())
             {
                 presets.Add(new JObject
                 {

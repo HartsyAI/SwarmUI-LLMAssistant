@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: captions multiple images with role-specific prompts (style / subject /
 /// setting / reference) and fuses the descriptions into a single image-generation prompt. Used for

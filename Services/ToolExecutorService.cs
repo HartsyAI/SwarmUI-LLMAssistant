@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Tools;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.Tools;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Validates and executes tools by ID with args. Wraps exceptions into structured error results.</summary>
 public static class ToolExecutorService

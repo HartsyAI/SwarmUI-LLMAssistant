@@ -1,4 +1,4 @@
-namespace SwarmUI.Extensions.LLMAssistant;
+namespace Hartsy.Extensions.LLMAssistant;
 
 /// <summary>Built-in instruction IDs used across the extension.</summary>
 public static class InstructionIds

@@ -2,7 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Per-user session state for the LLM Assistant (active thread, last model, etc.).
 /// Kept separate from the global <see cref="SettingsService"/> so different users can have

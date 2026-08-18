@@ -5,10 +5,10 @@ using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>LLM backend for any OpenAI API-compatible provider (OpenAI, Ollama, LM Studio, vLLM,
 /// OpenRouter, …). A per-user <c>openai_api</c> key overrides the configured Authorization header.</summary>

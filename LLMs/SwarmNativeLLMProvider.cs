@@ -2,8 +2,9 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Utils;
+using SwarmUI.LLMs;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Cutover bridge: exposes SwarmUI's own running <see cref="AbstractLLMBackend"/>s through the
 /// extension's <see cref="ILLMProvider"/> seam.
@@ -33,10 +34,10 @@ public sealed class SwarmNativeLLMProvider : ILLMProvider
     }
 
     /// <summary>Adapts the extension's rich input to the minimal upstream <c>LLMParamInput</c>.</summary>
-    private static SwarmUI.LLMs.LLMParamInput ToCore(ExtendedLLMInput input)
+    private static LLMParamInput ToCore(ExtendedLLMInput input)
     {
         // TODO(native-api): map Messages / SystemPrompt / params / media once the native API carries them.
-        return new SwarmUI.LLMs.LLMParamInput { UserMessage = input.UserMessage, Model = input.Model };
+        return new LLMParamInput { UserMessage = input.UserMessage, Model = input.Model };
     }
 
     /// <inheritdoc/>

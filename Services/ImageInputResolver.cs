@@ -4,7 +4,7 @@ using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves an image referenced by an LLM tool call (or any code path that takes a
 /// "user-supplied image input") into raw bytes + MIME. Accepts a data URI, a local

@@ -2,10 +2,10 @@ using System.Collections.Concurrent;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>An assistant fully flattened through its <c>extends</c> inheritance chain.
 /// Identity fields use child-wins; instructions union variants per id with child overrides;

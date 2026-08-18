@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Best-effort syntactic repair for near-valid JSON, applied only as a cheap last resort when
 /// <c>JObject.Parse</c> has already failed — mirrors the scope of OpenRouter's "response healing" plugin

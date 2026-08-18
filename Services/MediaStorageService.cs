@@ -4,7 +4,7 @@ using SwarmUI.Core;
 using SwarmUI.Media;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Persists chat-attached images to the calling user's per-user output directory and
 /// returns a served URL (rather than storing base64 in the thread blob, which would bloat every

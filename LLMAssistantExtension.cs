@@ -1,13 +1,13 @@
 using System.IO;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.Extensions.LLMAssistant.T2I;
-using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.T2I;
+using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant;
+namespace Hartsy.Extensions.LLMAssistant;
 
 /// <summary>LLM Assistant extension for SwarmUI. Provides chat UI, threads, instructions, and T2I integration
 /// using SwarmUI's native LLM model registry and backends.</summary>

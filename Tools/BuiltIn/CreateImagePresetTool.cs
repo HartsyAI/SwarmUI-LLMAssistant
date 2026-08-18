@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: lets the LLM design and save a new T2I preset for the calling user,
 /// via SwarmUI's core <see cref="BasicAPIFeatures.AddNewPreset"/> API. Requires SwarmUI's core

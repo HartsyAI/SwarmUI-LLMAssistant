@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>How a <see cref="LLMModelMatcher"/> compares against a model. The kind also
 /// determines specificity: more specific kinds beat less specific ones when several match.</summary>

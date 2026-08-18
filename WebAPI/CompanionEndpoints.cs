@@ -5,7 +5,7 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Endpoints supporting the floating Companion overlay (the in-page Clippy-style helper).
 /// Kept separate from <see cref="ChatEndpoints"/> so this surface stays small and easy to gate

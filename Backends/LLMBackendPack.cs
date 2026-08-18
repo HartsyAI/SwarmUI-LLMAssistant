@@ -3,7 +3,7 @@ using SwarmUI.Core;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>The single registration entry point for the removable LLM backend pack.
 /// <para><b>To remove the bundled backends</b> when SwarmUI ships a native LLM API: delete this

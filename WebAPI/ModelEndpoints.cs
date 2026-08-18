@@ -1,8 +1,8 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Model listing endpoints for LLM models.
 /// Delegates to the registered <see cref="ILLMProvider"/>s (supplied by the removable backend pack)

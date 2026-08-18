@@ -1,9 +1,10 @@
 using System.Text;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using SwarmUI.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>Shared base for the extension's removable LLM backends.
 /// <para>Each concrete backend is both a Swarm <see cref="AbstractLLMBackend"/> (so it shows under
@@ -80,14 +81,14 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     }
 
     /// <inheritdoc/>
-    public override Task<string> Generate(SwarmUI.LLMs.LLMParamInput user_input) => Generate(ToRich(user_input));
+    public override Task<string> Generate(LLMParamInput user_input) => Generate(ToRich(user_input));
 
     /// <inheritdoc/>
-    public override Task GenerateLive(SwarmUI.LLMs.LLMParamInput user_input, string batchId, Action<JObject> takeOutput)
+    public override Task GenerateLive(LLMParamInput user_input, string batchId, Action<JObject> takeOutput)
         => GenerateLive(ToRich(user_input), batchId, takeOutput, CancellationToken.None);
 
     /// <summary>Adapts the minimal upstream <c>LLMParamInput</c> to the extension's rich input.</summary>
-    private static ExtendedLLMInput ToRich(SwarmUI.LLMs.LLMParamInput core)
+    private static ExtendedLLMInput ToRich(LLMParamInput core)
     {
         ExtendedLLMInput rich = new() { UserMessage = core.UserMessage, Model = core.Model };
         if (!string.IsNullOrEmpty(core.UserMessage))

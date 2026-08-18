@@ -4,8 +4,8 @@ using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
@@ -14,7 +14,7 @@ using HartsyInference.Engine.Services;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>Thin local LLM backend: maps the extension's chat input onto HartsyInference.Engine's native
 /// <see cref="ITextService"/> contract (<see cref="TextRequest"/>/<see cref="TextChunk"/>) and lets the engine
