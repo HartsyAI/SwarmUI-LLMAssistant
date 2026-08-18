@@ -31,7 +31,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public abstract Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default);
 
     /// <inheritdoc/>
-    public abstract Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct);
+    public abstract Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct);
 
     /// <inheritdoc/>
     public virtual int? CountTokens(string text) => null;
@@ -53,6 +53,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
             {
                 output.Append($"{result}");
             }
+            return Task.CompletedTask;
         }, CancellationToken.None);
         return output.ToString();
     }
@@ -85,7 +86,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
 
     /// <inheritdoc/>
     public override Task GenerateLive(LLMParamInput user_input, string batchId, Action<JObject> takeOutput)
-        => GenerateLive(ToRich(user_input), batchId, takeOutput, CancellationToken.None);
+        => GenerateLive(ToRich(user_input), batchId, j => { takeOutput(j); return Task.CompletedTask; }, CancellationToken.None);
 
     /// <summary>Adapts the minimal upstream <c>LLMParamInput</c> to the extension's rich input.</summary>
     private static ExtendedLLMInput ToRich(LLMParamInput core)

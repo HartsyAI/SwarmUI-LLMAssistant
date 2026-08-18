@@ -38,7 +38,7 @@ public static class LLMDispatcher
     /// <summary>Sends a message with streaming chunks via callback. <paramref name="ct"/> is
     /// forwarded to the provider so HTTP requests and async-enumerable streams can be cancelled
     /// when the user hits Stop or the WebSocket closes.</summary>
-    public static async Task GenerateStreaming(ExtendedLLMInput input, Action<JObject> onChunk, CancellationToken ct = default)
+    public static async Task GenerateStreaming(ExtendedLLMInput input, Func<JObject, Task> onChunk, CancellationToken ct = default)
     {
         ILLMProvider provider = await GetProvider(input);
         await provider.GenerateLive(input, "0", onChunk, ct);

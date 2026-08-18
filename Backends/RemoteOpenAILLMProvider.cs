@@ -255,7 +255,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     }
 
     /// <inheritdoc/>
-    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
+    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         string address = Settings.Address.TrimEnd('/');
         JObject body = BuildRequestBody(input, true);
@@ -308,7 +308,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     string content = delta?.Value<string>("content");
                     if (!string.IsNullOrEmpty(content))
                     {
-                        onChunk(new JObject() { ["chunk"] = content });
+                        await onChunk(new JObject() { ["chunk"] = content });
                     }
                     if (delta?.Value<JArray>("tool_calls") is JArray toolCallDeltas)
                     {
@@ -331,7 +331,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     // a natural stop — surface that so the UI can tell the user why.
                     if (finishReason == "length")
                     {
-                        onChunk(new JObject() { ["stopReason"] = "length" });
+                        await onChunk(new JObject() { ["stopReason"] = "length" });
                     }
                     else if (finishReason == "tool_calls" && pendingToolCalls.Count > 0)
                     {
@@ -348,7 +348,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                                 Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}: {ex.Message}");
                                 args = new JObject();
                             }
-                            onChunk(new JObject()
+                            await onChunk(new JObject()
                             {
                                 ["native_tool_call"] = new JObject { ["id"] = id, ["name"] = name, ["arguments"] = args }
                             });

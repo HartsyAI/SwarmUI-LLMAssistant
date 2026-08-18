@@ -51,11 +51,13 @@ public sealed class SwarmNativeLLMProvider : ILLMProvider
     public Task<string> Generate(ExtendedLLMInput input) => FirstRunning().Generate(ToCore(input));
 
     /// <inheritdoc/>
-    public Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
+    public Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         // Skeleton GenerateLive has no CancellationToken; honor ct best-effort before dispatching.
         ct.ThrowIfCancellationRequested();
-        return FirstRunning().GenerateLive(ToCore(input), batchId, onChunk);
+        // Core's seam is Action-based — this disabled-by-default bridge blocks per event at that
+        // boundary; the extension's own providers await the callback natively.
+        return FirstRunning().GenerateLive(ToCore(input), batchId, j => onChunk(j).GetAwaiter().GetResult());
     }
 
     /// <inheritdoc/>
