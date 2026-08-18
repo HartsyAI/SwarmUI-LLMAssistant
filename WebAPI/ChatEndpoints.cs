@@ -167,7 +167,7 @@ public static class ChatEndpoints
             }
             else
             {
-                response = await Cache.GetOrCreate(message, instructionId, async () =>
+                response = await Cache.GetOrCreate(session.User?.UserID, model, assistantId, message, instructionId, async () =>
                 {
                     return await LLMDispatcher.Generate(input);
                 });
