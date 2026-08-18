@@ -119,11 +119,8 @@ public class FileWriteTool : ToolHandler
                 };
             }
             await File.WriteAllTextAsync(fullPath, content, System.Text.Encoding.UTF8, ct);
-            // The /Output/{*Path} route serves files from the OutputPath root with per-user
-            // auth, so the URL we return must be relative to the OutputPath root.
-            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-            string relPath = Path.GetRelativePath(outputRoot, fullPath).Replace('\\', '/');
-            string url = $"Output/{relPath}";
+            // Served through the /View/{user}/{rest} route (per-user auth enforced there) — see OutputUrls.
+            string url = Services.OutputUrls.ForFullPath(fullPath);
             return new JObject
             {
                 ["success"] = true,

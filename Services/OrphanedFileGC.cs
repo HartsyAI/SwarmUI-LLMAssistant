@@ -57,23 +57,6 @@ public static class OrphanedFileGC
         }
     }
 
-    /// <summary>Sets the sweep interval. Admin-facing helper — clamps to the allowed range and
-    /// persists. The next iteration of the sweep loop picks up the new value automatically; no
-    /// restart needed.</summary>
-    public static void SetInterval(double hours)
-    {
-        hours = Math.Clamp(hours, MinIntervalHours, MaxIntervalHours);
-        try
-        {
-            Program.Sessions?.GenericSharedUser?.SaveGenericData(IntervalDataName, IntervalSettingKey,
-                hours.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
-        }
-        catch (Exception ex)
-        {
-            Logs.Warning($"[LLMAssistant] GC interval write failed: {ex.Message}");
-        }
-    }
-
     /// <summary>Idempotent: starts the background sweeper once. Safe to call from extension OnInit.</summary>
     public static void Start()
     {
@@ -219,7 +202,6 @@ public static class OrphanedFileGC
     private static HashSet<string> CollectReferencedPaths(User user)
     {
         HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
-        string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
         // Avatar refs from every assistant the user can see (shared + personal). A shared
         // assistant's avatar shouldn't be deleted just because nobody chats with it.
         JObject settings = SettingsService.GetMergedSettings(user);
@@ -228,10 +210,9 @@ public static class OrphanedFileGC
             foreach (KeyValuePair<string, JToken> kv in assistants)
             {
                 string avatar = (kv.Value as JObject)?["avatar"]?.ToString();
-                if (!string.IsNullOrEmpty(avatar) && avatar.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+                if (OutputUrls.ToFullPath(avatar) is string avatarPath)
                 {
-                    string rel = avatar["Output/".Length..];
-                    result.Add(Path.GetFullPath(Path.Combine(outputRoot, rel)).Replace('\\', '/'));
+                    result.Add(avatarPath.Replace('\\', '/'));
                 }
             }
         }
@@ -255,11 +236,9 @@ public static class OrphanedFileGC
                 {
                     foreach (JToken m in mediaArr)
                     {
-                        string url = m?["url"]?.ToString();
-                        if (!string.IsNullOrEmpty(url) && url.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+                        if (OutputUrls.ToFullPath(m?["url"]?.ToString()) is string mediaPath)
                         {
-                            string rel = url["Output/".Length..];
-                            result.Add(Path.GetFullPath(Path.Combine(outputRoot, rel)).Replace('\\', '/'));
+                            result.Add(mediaPath.Replace('\\', '/'));
                         }
                     }
                 }
@@ -281,12 +260,10 @@ public static class OrphanedFileGC
                         result.Add(Path.GetFullPath(full).Replace('\\', '/'));
                         continue;
                     }
-                    // Fallback for older entries that only have url (eg "Output/{userId}/llm_assistant/foo.md")
-                    string url = res["url"]?.ToString();
-                    if (!string.IsNullOrEmpty(url) && url.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+                    // Fallback for entries that only have url (eg "View/{userId}/llm_assistant/foo.md").
+                    if (OutputUrls.ToFullPath(res["url"]?.ToString()) is string writtenPath)
                     {
-                        string rel = url["Output/".Length..];
-                        result.Add(Path.GetFullPath(Path.Combine(outputRoot, rel)).Replace('\\', '/'));
+                        result.Add(writtenPath.Replace('\\', '/'));
                     }
                 }
             }

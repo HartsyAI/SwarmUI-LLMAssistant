@@ -6,7 +6,8 @@ using SwarmUI.Utils;
 namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves <see cref="LLMMediaAttachment"/>s for delivery to LLM backends.
-/// <para>Inbound shape (from saved threads): always <c>{ Type: "url", Data: "Output/{userId}/..." }</c>.</para>
+/// <para>Inbound shape (from saved threads): always <c>{ Type: "url", Data: "View/{userId}/..." }</c>
+/// (or the legacy <c>Output/</c> prefix on older saved threads — see <see cref="OutputUrls"/>).</para>
 /// <para>Outbound shape needed by backends:</para>
 /// <list type="bullet">
 /// <item><b>HTTPS URL</b> — pass through as-is (the model can fetch it directly).</item>
@@ -28,7 +29,6 @@ public static class MediaResolver
             return null;
         }
         List<LLMMediaAttachment> resolved = [];
-        string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
         foreach (LLMMediaAttachment att in attachments)
         {
             if (att is null || string.IsNullOrEmpty(att.Data))
@@ -43,14 +43,14 @@ public static class MediaResolver
                 resolved.Add(att);
                 continue;
             }
-            // Local Output-relative URL — read off disk, base64.
-            if (att.Type == "url" && att.Data.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+            // Local output-relative URL — read off disk, base64.
+            if (att.Type == "url" && OutputUrls.IsLocal(att.Data))
             {
-                string rel = att.Data["Output/".Length..];
-                string fullPath = Path.GetFullPath(Path.Combine(outputRoot, rel));
-                // Defense in depth: stay inside outputRoot. (URLs come from our own upload
-                // endpoint so they're trusted, but we shouldn't assume that for all callers.)
-                if (!fullPath.StartsWith(outputRoot, StringComparison.OrdinalIgnoreCase))
+                // Defense in depth: ToFullPath returns null on traversal outside the output root.
+                // (URLs come from our own upload endpoint so they're trusted, but we shouldn't
+                // assume that for all callers.)
+                string fullPath = OutputUrls.ToFullPath(att.Data);
+                if (fullPath is null)
                 {
                     Logs.Warning($"[LLMAssistant] MediaResolver refused path traversal: {att.Data}");
                     continue;

@@ -46,13 +46,6 @@ public static class MediaStorageService
         public int Height;
     }
 
-    /// <summary>Returns the absolute uploads root for a user — a single thread's worth of images.
-    /// Exposed so the orphan-file GC can sweep this directory the same way it does file_write.</summary>
-    public static string GetThreadUploadsDir(User user, string threadId)
-    {
-        return Path.GetFullPath(Path.Combine(user.OutputDirectory, SubdirRoot, threadId ?? "_unknown"));
-    }
-
     /// <summary>Returns the absolute root of all uploads for this user (every thread).</summary>
     public static string GetAllUploadsRoot(User user)
     {
@@ -120,11 +113,9 @@ public static class MediaStorageService
         string fullPath = Path.GetFullPath(Path.Combine(dir, safeMessage + ext));
         await File.WriteAllBytesAsync(fullPath, img.RawData, ct);
         (int finalW, int finalH) = img.GetResolution();
-        string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-        string relPath = Path.GetRelativePath(outputRoot, fullPath).Replace('\\', '/');
         return new StoredImage
         {
-            Url = $"Output/{relPath}",
+            Url = OutputUrls.ForFullPath(fullPath),
             FullPath = fullPath,
             MimeType = mime,
             BytesWritten = img.RawData.Length,
