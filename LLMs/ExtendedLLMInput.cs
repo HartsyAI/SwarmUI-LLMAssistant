@@ -120,8 +120,6 @@ public class ChatMessageData
     public string Role { get; set; }
     /// <summary>The message text.</summary>
     public string Content { get; set; }
-    /// <summary>When the message was saved.</summary>
-    public string Timestamp { get; set; }
     /// <summary>The message's persisted id within its thread.</summary>
     public string Id { get; set; }
     /// <summary>Media URLs persisted on the saved message (eg user-attached images). Built into

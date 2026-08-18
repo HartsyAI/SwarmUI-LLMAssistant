@@ -74,9 +74,6 @@ public static class ToolRateLimitService
         return DefaultLimits.TryGetValue(handlerId, out int dflt) ? dflt : -1;
     }
 
-    /// <summary>For tests / admin tooling. Clears the in-memory state.</summary>
-    public static void ResetAll() => Rings.Clear();
-
     /// <summary>Lock-free-ish ring of timestamps. Adding when full overwrites the oldest. Reads
     /// are advisory (no snapshot semantics) — fine because we always re-evaluate against the
     /// configured limit just before allowing the next call.</summary>
