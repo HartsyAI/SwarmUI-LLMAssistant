@@ -47,6 +47,21 @@ public static class ToolExecutorService
             {
                 return Error($"Tool is disabled: {toolId}");
             }
+            // Assistant-scoped calls (the agentic loop and the in-chat picker both pass assistantId)
+            // must honor that assistant's resolved allowlist — the global enabled flag and the handler
+            // permission alone would let a model call tools its assistant was never granted. Calls with
+            // no assistant context (Settings > Tools "Run Test") stay permission-gated only.
+            // Deliberately NOT checked here: the resolved ToolsEnabled master switch — that's a
+            // prompt-injection decision owned by the callers, and the per-thread tools toggle may
+            // legitimately override it ON for a thread (see ChatEndpoints.EffectiveToolsEnabled).
+            if (!string.IsNullOrEmpty(assistantId))
+            {
+                ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, session?.User);
+                if (!resolved.EnabledToolIds.Contains(toolId))
+                {
+                    return Error($"Tool '{toolId}' is not enabled for assistant '{assistantId}'.");
+                }
+            }
             string handlerId = tool["handlerId"]?.ToString();
             ToolHandler handler = ToolRegistryService.GetHandler(handlerId);
             if (handler is null)

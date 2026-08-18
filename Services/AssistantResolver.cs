@@ -9,8 +9,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>An assistant fully flattened through its <c>extends</c> inheritance chain.
 /// Identity fields use child-wins; instructions union variants per id with child overrides;
-/// <c>enabledToolIds</c> are unioned (child can only add); <c>toolConfig</c> deep-merges with
-/// child winning per-key.</summary>
+/// <c>enabledToolIds</c> is replace-if-present (an explicit list fully defines the set, an absent
+/// field inherits); <c>toolConfig</c> deep-merges with child winning per-key.</summary>
 public class ResolvedAssistant
 {
     public string Id;
@@ -25,7 +25,8 @@ public class ResolvedAssistant
     /// <summary>Parameter overrides (temperature, maxTokens, topP). Merged across the chain.</summary>
     public JObject Parameters = [];
 
-    /// <summary>Tools available to this assistant. Union of the inheritance chain.</summary>
+    /// <summary>Tools available to this assistant. The nearest layer in the chain that declares an
+    /// explicit <c>enabledToolIds</c> list fully defines this set; layers without one inherit.</summary>
     public HashSet<string> EnabledToolIds = [];
 
     /// <summary>Master switch for tool-calling on this assistant — separate from
@@ -157,13 +158,10 @@ public static class AssistantResolver
             chain.Add(fallback);
             lineage.Add(AssistantConstants.DefaultId);
         }
-        // Ensure default is always at the bottom of the chain so missing fields fall back to
-        // sane defaults — even if the user broke the inheritance link.
-        if (lineage[^1] != AssistantConstants.DefaultId && assistants[AssistantConstants.DefaultId] is JObject defaultAssistant)
-        {
-            chain.Add(defaultAssistant);
-            lineage.Add(AssistantConstants.DefaultId);
-        }
+        // NOTE: the default assistant is deliberately NOT appended to every chain. Doing so silently
+        // unioned Swarmie's full tool list (and identity fields) into every assistant, which made the
+        // per-assistant tool checklist inert. Missing instruction text now falls back at read time in
+        // AssistantService.ResolveInstruction instead (settings-level instruction → built-in constant).
         // Merge parent → child (so child wins). chain[0] is the requested id (most-child).
         chain.Reverse();
         ResolvedAssistant resolved = new() { Id = assistantId, Lineage = lineage };
@@ -203,9 +201,12 @@ public static class AssistantResolver
         {
             target.ToolsEnabled = layer["toolsEnabled"].Value<bool>();
         }
-        // EnabledToolIds — union (child can only ADD).
+        // EnabledToolIds — replace-if-present: an explicit list (even an empty one) IS the assistant's
+        // tool set, matching what the editor checklist visually promises (checked = on, unchecked = off).
+        // An absent field inherits the parent's set — same child-wins-iff-present rule as toolsEnabled.
         if (layer["enabledToolIds"] is JArray ids)
         {
+            target.EnabledToolIds.Clear();
             foreach (JToken t in ids)
             {
                 string id = t?.ToString();
