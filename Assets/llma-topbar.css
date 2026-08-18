@@ -13,7 +13,6 @@
     flex-shrink: 0;
     border-bottom: 1px solid var(--light-border);
     background: var(--background);
-    position: relative; /* anchor for the centered thread title */
 }
 .llma-topbar-left {
     display: flex;
@@ -28,14 +27,13 @@
     gap: 4px;
     flex-shrink: 0;
 }
-/* Centered over the chat column (it reflects the active assistant/thread and updates on switch). */
+/* Reflects the active assistant/thread and updates on switch. Kept in the normal flow inside
+   .llma-topbar-left (which is `flex: 1`) rather than absolutely centered on the bar: the right-hand
+   control group is wide (model picker + 5 buttons) and a 50%-anchored title overlapped it on any
+   normal chat-column width. In-flow it simply takes the space that's actually free and ellipsizes. */
 .llma-thread-title {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    max-width: 45%;
-    text-align: center;
+    flex: 0 1 auto;
+    min-width: 0;
     pointer-events: none; /* purely a label — never block the controls behind it */
     font-size: 13.5px;
     font-weight: 500;

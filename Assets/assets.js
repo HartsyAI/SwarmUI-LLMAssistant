@@ -127,6 +127,13 @@ function llmaGuessFilename(content, lang, type) {
         const h = content.match(/^#\s+(.+)$/m);
         if (h) return h[1].trim().slice(0, 40).replace(/[^\w\s.-]/g, '').replace(/\s+/g, '_') + '.md';
     }
+    // Code with no explicit filename: name it after the first top-level declaration. Beats the
+    // "Untitled-1.py" fallback, which tells the user nothing about which snippet a card holds.
+    if (type === 'code') {
+        const decl = content.match(
+            /^\s*(?:export\s+(?:default\s+)?)?(?:public\s+|private\s+|internal\s+|static\s+|async\s+)*(?:class|def|func|fn|function|interface|struct|type)\s+([A-Za-z_]\w*)/m);
+        if (decl) return decl[1] + '.' + llmaLangExt(lang);
+    }
     return null;
 }
 
@@ -253,6 +260,10 @@ function llmaExtractAssetsFromToolCalls(toolCalls, msgId) {
             asset.meta = asset.meta || {};
             asset.meta.url = r.url;
             asset.meta.writtenPath = r.path || null;
+            // Content is fetched lazily from the URL when the viewer opens, so llmaBuildAsset saw an
+            // empty string and computed size 0 — the card read "0 B" for a file that clearly isn't.
+            // The tool already reports the real byte count; use it until the lazy load replaces it.
+            if (typeof r.bytesWritten === 'number') asset.meta.size = r.bytesWritten;
             out.push(asset);
         } else if (name === 'file_read' && typeof r.content === 'string') {
             const path = r.path || '';

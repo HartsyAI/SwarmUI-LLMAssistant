@@ -33,7 +33,15 @@
             input.addEventListener('keydown', e => {
                 // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).
                 if (typeof llmaPickerOnKeydown === 'function' && llmaPickerOnKeydown(e)) return;
-                if (e.key === 'Enter' && !e.shiftKey && LLMAState.enterToSend) {
+                if (e.key !== 'Enter' || e.shiftKey) return;
+                // Ctrl/Cmd+Enter always sends. Without it, turning "Enter to Send" off left the
+                // keyboard with no way to send at all — you had to reach for the mouse.
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    llmaSendMessage();
+                    return;
+                }
+                if (LLMAState.enterToSend && !e.altKey) {
                     e.preventDefault();
                     llmaSendMessage();
                 }
