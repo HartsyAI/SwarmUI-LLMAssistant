@@ -23,8 +23,19 @@ public static class SettingsService
     public const string ScopeShared = "shared";
     public const string ScopePersonal = "personal";
 
-    /// <summary>Default settings structure.</summary>
-    public static JObject DefaultSettings => new()
+    /// <summary>Serializes every settings-layer read-modify-write (this service's mutators, plus the
+    /// assistant/tool/instruction services that compose multi-step sequences on top of them). The
+    /// GenericData store has no compare-and-swap, so two overlapping mutations — two browser tabs, a
+    /// retried request, compare lanes finishing together — would silently lose one write. Reentrant
+    /// (C# Monitor), so a composing service holding the lock may call the mutators below freely.</summary>
+    public static readonly object SettingsLock = new();
+
+    /// <summary>Default settings template, built once. The full tree includes all 13 built-in tool
+    /// definitions with their JSON Schemas — rebuilding it on every read (the old expression-bodied
+    /// property) cost ~1.2ms per call across ~40 call sites, several per chat request. Lazy (not a
+    /// plain static initializer) because BuildDefaultTools/BuildDefaultAssistant touch other statics
+    /// and this avoids any type-initialization-order surprises.</summary>
+    private static readonly Lazy<JObject> DefaultSettingsTemplate = new(() => new()
     {
         ["preferredModel"] = "",
         ["preferredVisionModel"] = "",
@@ -71,7 +82,11 @@ public static class SettingsService
             [FeatureKeys.CompanionMode] = InstructionIds.Companion
         },
         ["companion"] = BuildDefaultCompanionSettings()
-    };
+    });
+
+    /// <summary>Default settings structure — a fresh deep clone of the template per call, so callers
+    /// may mutate the result freely (exactly the old per-call-build semantics, minus the rebuild).</summary>
+    public static JObject DefaultSettings => (JObject)DefaultSettingsTemplate.Value.DeepClone();
 
     /// <summary>Default companion overlay settings — a per-user block controlling whether the
     /// floating in-page helper is visible, which assistant powers it, and which quick-action
@@ -157,7 +172,7 @@ public static class SettingsService
     {
         string raw = Program.Sessions.GenericSharedUser.GetGenericData(DataName, ConfigKey);
         JObject settings = string.IsNullOrEmpty(raw) ? new JObject() : JObject.Parse(raw);
-        JObject result = (JObject)DefaultSettings.DeepClone();
+        JObject result = DefaultSettings; // already a fresh clone per call
         result.Merge(settings, MergeSettings);
         return result;
     }
@@ -166,10 +181,13 @@ public static class SettingsService
     /// <see cref="ReplaceSharedSettings"/> for write paths that need to remove keys (deletes).</summary>
     public static JObject SaveSettings(JObject incoming)
     {
-        JObject current = GetSettings();
-        current.Merge(incoming, MergeSettings);
-        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, current.ToString(Formatting.None));
-        return current;
+        lock (SettingsLock)
+        {
+            JObject current = GetSettings();
+            current.Merge(incoming, MergeSettings);
+            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, current.ToString(Formatting.None));
+            return current;
+        }
     }
 
     /// <summary>Fully replaces the shared settings blob. Unlike <see cref="SaveSettings"/>, keys
@@ -177,17 +195,23 @@ public static class SettingsService
     /// any mutation of assistants/tools/instructions so that deletes are honored.</summary>
     public static JObject ReplaceSharedSettings(JObject replacement)
     {
-        replacement ??= [];
-        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, replacement.ToString(Formatting.None));
-        return replacement;
+        lock (SettingsLock)
+        {
+            replacement ??= [];
+            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, replacement.ToString(Formatting.None));
+            return replacement;
+        }
     }
 
     /// <summary>Resets shared settings to defaults. Does NOT touch user overrides.</summary>
     public static JObject ResetSettings()
     {
-        JObject defaults = DefaultSettings;
-        Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, defaults.ToString(Formatting.None));
-        return defaults;
+        lock (SettingsLock)
+        {
+            JObject defaults = DefaultSettings;
+            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, defaults.ToString(Formatting.None));
+            return defaults;
+        }
     }
 
     /// <summary>Loads a user's personal override layer. Returns an empty object if the user has no overrides.</summary>
@@ -219,27 +243,45 @@ public static class SettingsService
         {
             return;
         }
-        userSettings ??= [];
-        user.SaveGenericData(DataName, UserConfigKey, userSettings.ToString(Formatting.None));
+        lock (SettingsLock)
+        {
+            userSettings ??= [];
+            user.SaveGenericData(DataName, UserConfigKey, userSettings.ToString(Formatting.None));
+        }
     }
+
+    /// <summary>Request-envelope keys that must never end up inside a stored settings blob. Older builds
+    /// of <c>LLMAssistantSaveSettings</c> merged the whole raw request when <c>settings</c> arrived as a
+    /// JSON string, so real configs can already carry these; stripping them on every patch self-heals.</summary>
+    private static readonly string[] NonSettingsKeys = ["session_id", "settings", "scope"];
 
     /// <summary>Merges the given patch into the user's personal override layer. Returns the new personal layer.</summary>
     public static JObject PatchUserSettings(User user, JObject patch)
     {
-        JObject current = GetUserSettings(user);
-        if (patch is not null)
+        lock (SettingsLock)
         {
-            current.Merge(patch, MergeSettings);
+            JObject current = GetUserSettings(user);
+            if (patch is not null)
+            {
+                current.Merge(patch, MergeSettings);
+            }
+            foreach (string key in NonSettingsKeys)
+            {
+                current.Remove(key);
+            }
+            ReplaceUserSettings(user, current);
+            return current;
         }
-        ReplaceUserSettings(user, current);
-        return current;
     }
 
     /// <summary>Clears a user's personal override layer entirely (reset-to-defaults for that user).
     /// Does NOT touch the shared layer.</summary>
     public static void ResetUserSettings(User user)
     {
-        user?.DeleteGenericData(DataName, UserConfigKey);
+        lock (SettingsLock)
+        {
+            user?.DeleteGenericData(DataName, UserConfigKey);
+        }
     }
 
     /// <summary>Returns the effective settings for a user: shared baseline ⊕ user overrides.

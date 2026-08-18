@@ -119,38 +119,41 @@ public static class ToolRegistryService
             toolData["id"] = id;
         }
         JObject stripped = SettingsService.StripScope(toolData);
-        if (scope == SettingsService.ScopeShared)
+        lock (SettingsService.SettingsLock)
         {
-            JObject shared = SettingsService.GetSettings();
-            JObject tools = shared["tools"] as JObject ?? [];
-            bool isUpdate = tools.ContainsKey(id);
-            ApplyToolUpsert(tools, id, stripped);
-            shared["tools"] = tools;
-            SettingsService.ReplaceSharedSettings(shared);
-            AuditLogService.RecordSharedWrite(isUpdate ? "update" : "create", $"tool:{id}", user,
-                new JObject { ["name"] = stripped["name"]?.ToString(), ["handlerId"] = stripped["handlerId"]?.ToString() });
-        }
-        else
-        {
-            JObject personal = SettingsService.GetUserSettings(user);
-            JObject tools = personal["tools"] as JObject ?? [];
-            // Personal-layer tools are never built-in; always store full overrides.
-            stripped["updated"] = DateTime.UtcNow.ToString("o");
-            if (stripped["created"] is null)
+            if (scope == SettingsService.ScopeShared)
             {
-                stripped["created"] = DateTime.UtcNow.ToString("o");
+                JObject shared = SettingsService.GetSettings();
+                JObject tools = shared["tools"] as JObject ?? [];
+                bool isUpdate = tools.ContainsKey(id);
+                ApplyToolUpsert(tools, id, stripped);
+                shared["tools"] = tools;
+                SettingsService.ReplaceSharedSettings(shared);
+                AuditLogService.RecordSharedWrite(isUpdate ? "update" : "create", $"tool:{id}", user,
+                    new JObject { ["name"] = stripped["name"]?.ToString(), ["handlerId"] = stripped["handlerId"]?.ToString() });
             }
-            if (stripped["handlerType"] is null)
+            else
             {
-                stripped["handlerType"] = ToolConstants.HandlerBuiltIn;
+                JObject personal = SettingsService.GetUserSettings(user);
+                JObject tools = personal["tools"] as JObject ?? [];
+                // Personal-layer tools are never built-in; always store full overrides.
+                stripped["updated"] = DateTime.UtcNow.ToString("o");
+                if (stripped["created"] is null)
+                {
+                    stripped["created"] = DateTime.UtcNow.ToString("o");
+                }
+                if (stripped["handlerType"] is null)
+                {
+                    stripped["handlerType"] = ToolConstants.HandlerBuiltIn;
+                }
+                if (stripped["enabled"] is null)
+                {
+                    stripped["enabled"] = true;
+                }
+                tools[id] = stripped;
+                personal["tools"] = tools;
+                SettingsService.ReplaceUserSettings(user, personal);
             }
-            if (stripped["enabled"] is null)
-            {
-                stripped["enabled"] = true;
-            }
-            tools[id] = stripped;
-            personal["tools"] = tools;
-            SettingsService.ReplaceUserSettings(user, personal);
         }
         return id;
     }
@@ -190,6 +193,8 @@ public static class ToolRegistryService
     public static bool DeleteTool(string toolId, User user, string scope = null)
     {
         scope = NormalizeScope(scope, allowAuto: true);
+        lock (SettingsService.SettingsLock)
+        {
         JObject personal = SettingsService.GetUserSettings(user);
         JObject personalTools = personal["tools"] as JObject;
         bool inPersonal = personalTools is not null && personalTools.ContainsKey(toolId);
@@ -228,6 +233,7 @@ public static class ToolRegistryService
             personalTools.Remove(toolId);
             SettingsService.ReplaceUserSettings(user, personal);
             return true;
+        }
         }
     }
 

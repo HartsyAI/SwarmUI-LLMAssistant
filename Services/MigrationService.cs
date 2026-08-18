@@ -17,6 +17,9 @@ public static class MigrationService
         MigrateTools();
         BackfillBuiltInTools();
         BackfillCompanionDefaults();
+        // Migrations mutate the shared settings blob directly — drop any resolution cached before
+        // (or during) them so nothing serves pre-migration state for the resolver's TTL window.
+        AssistantResolver.InvalidateAll();
     }
 
     /// <summary>Idempotent top-up for the floating Companion overlay. Adds the default
