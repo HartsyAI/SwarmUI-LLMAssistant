@@ -125,17 +125,14 @@ public static class PromptTagHandler
             }
         ));
 
-        // Register late parameter handler for prompt processing
-        T2IParamInput.LateSpecialParameterHandlers.Add(input =>
+        // Must run before core's PreparsePromptLikes (element 0), which consumes the <llmprompt> tags.
+        T2IParamInput.LateSpecialParameterHandlers.Insert(0, input =>
         {
             PromptProcessor.ProcessPrompt(input);
         });
     }
 
-    /// <summary>Registers the <c>llmprompt</c>/<c>llmresponse</c>/<c>llmoriginal</c> custom prompt-tag
-    /// prefixes and their (no-op) post-processors, plus the <c>mp*</c> aliases — the migration path for
-    /// prompts written for Hartsy's MagicPrompt extension. PromptProcessor's regexes already matched
-    /// both spellings; without this registration the <c>mp*</c> half never reached the parser.</summary>
+    /// <summary>Registers the prompt-tag prefixes (+ <c>mp*</c> MagicPrompt-compat aliases).</summary>
     private static void RegisterPromptTags()
     {
         foreach (string prefix in new[] { "llmprompt", "llmresponse", "llmoriginal", "mpprompt", "mpresponse", "mporiginal" })

@@ -34,8 +34,7 @@
                 // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).
                 if (typeof llmaPickerOnKeydown === 'function' && llmaPickerOnKeydown(e)) return;
                 if (e.key !== 'Enter' || e.shiftKey) return;
-                // Ctrl/Cmd+Enter always sends. Without it, turning "Enter to Send" off left the
-                // keyboard with no way to send at all — you had to reach for the mouse.
+                // Ctrl/Cmd+Enter always sends, regardless of the Enter-to-Send setting.
                 if (e.ctrlKey || e.metaKey) {
                     e.preventDefault();
                     llmaSendMessage();

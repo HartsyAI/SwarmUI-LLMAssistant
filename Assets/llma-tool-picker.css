@@ -50,6 +50,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.llma-tool-popup-empty {
+    padding: 12px 10px;
+    font-size: 12px;
+    color: var(--text-soft);
+    text-align: center;
+}
 .llma-tool-popup-foot {
     position: sticky;
     bottom: 0;

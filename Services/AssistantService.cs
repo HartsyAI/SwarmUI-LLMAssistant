@@ -67,10 +67,7 @@ public static class AssistantService
         {
             return text;
         }
-        // The resolver no longer force-inherits the default assistant, so an assistant with no text for
-        // this mode falls back here: the settings-level instruction for the id (which the merged view
-        // always seeds with the correct per-mode default for the 7 built-in ids), then that service's
-        // own DefaultInstructions terminal fallback.
+        // Fall back to the settings-level instruction for this id (seeded with the per-mode default).
         return InstructionService.ResolveInstruction(featureInstructionId, settings, user);
     }
 
@@ -115,11 +112,8 @@ public static class AssistantService
         return result;
     }
 
-    /// <summary>Annotates an assistant entry with its inheritance-resolved effective view, so the
-    /// frontend has one source of truth instead of re-deriving (and disagreeing about) resolution:
-    /// <c>_effectiveToolIds</c> (the tool set the model will actually be offered),
-    /// <c>_effectiveToolsEnabled</c> (the resolved master switch), and <c>_hasSharedCounterpart</c>
-    /// (this personal entry shadows a shared one — deleting it reverts rather than removes).</summary>
+    /// <summary>Attaches the resolver-derived effective view (<c>_effectiveToolIds</c>,
+    /// <c>_effectiveToolsEnabled</c>, <c>_hasSharedCounterpart</c>) so the frontend shares one source of truth.</summary>
     private static void AnnotateEffective(JObject entry, string id, JObject settings, User user, JObject sharedAssistants)
     {
         ResolvedAssistant resolved = AssistantResolver.Resolve(id, user, settings);
@@ -141,9 +135,7 @@ public static class AssistantService
     /// <para>Returns the new/updated assistant ID, or <c>null</c> if the caller is not allowed to
     /// write to the requested scope.</para>
     /// </summary>
-    /// <summary>Fields the assistant editor owns outright — authoritative from a save payload.
-    /// Anything NOT in this list (and not <c>instructions</c>, handled per-mode below) is preserved
-    /// from the stored record, so a save can never destroy data the editor doesn't know about.</summary>
+    /// <summary>Editor-owned fields, authoritative from a save payload; everything else on the stored record survives.</summary>
     private static readonly string[] EditorOwnedFields =
         ["name", "description", "icon", "color", "extends", "parameters", "toolsEnabled", "enabledToolIds", "toolConfig", "avatar"];
 
@@ -194,8 +186,7 @@ public static class AssistantService
             {
                 return $"Parent assistant '{extendsId}' does not exist.";
             }
-            // Save-time cycle walk (the resolver is also cycle-safe at read time, but rejecting here
-            // gives the user an actionable error instead of a silently-truncated chain).
+            // Reject cycles at save time so the user gets an error instead of a silently-truncated chain.
             HashSet<string> visited = [id];
             string current = extendsId;
             for (int depth = 0; depth < AssistantResolver.MaxDepth && !string.IsNullOrEmpty(current); depth++)
@@ -210,11 +201,8 @@ public static class AssistantService
         return null;
     }
 
-    /// <summary>Builds the record to store: the existing stored record (if any) with the editor-owned
-    /// fields replaced from the payload. Instructions merge per-mode: the built-in mode ids are
-    /// authoritative from the payload (absent = cleared), any other instruction id on the stored
-    /// record is preserved. <c>created</c> is preserved; <c>isBuiltIn</c> is forced from stored state
-    /// (never trusted from the client).</summary>
+    /// <summary>Merges a save payload onto the stored record: editor fields + built-in instruction modes
+    /// from the payload, everything else preserved; <c>isBuiltIn</c> forced from stored state.</summary>
     private static JObject MergeForSave(JObject payload, JObject existing, bool storedIsBuiltIn)
     {
         JObject result = existing is null ? [] : (JObject)existing.DeepClone();
@@ -300,9 +288,6 @@ public static class AssistantService
             {
                 return (null, validationError);
             }
-            // isBuiltIn comes from stored state only: the target layer's record if present, else the
-            // shared counterpart (so a personal overlay of Swarmie keeps the flag — and a client can't
-            // spoof it onto a new assistant).
             JObject sharedLayer = SettingsService.GetSettings();
             JObject sharedAssistants = sharedLayer["assistants"] as JObject ?? [];
             if (scope == SettingsService.ScopeShared)
@@ -379,9 +364,7 @@ public static class AssistantService
                 {
                     return DeleteResult.Failed;
                 }
-                // Shared built-ins (Swarmie) are the permanent baseline — they can never be removed
-                // from the shared layer. Personal overlays of them ARE removable (that's the revert
-                // path below); shared non-built-ins remain admin-deletable.
+                // Shared built-ins are the permanent baseline; only personal overlays of them are removable.
                 if ((sharedAssistants[assistantId] as JObject)?["isBuiltIn"]?.Value<bool>() == true)
                 {
                     return DeleteResult.Failed;
@@ -409,8 +392,6 @@ public static class AssistantService
                 }
                 SettingsService.ReplaceUserSettings(user, personal);
                 AssistantResolver.Invalidate(user);
-                // Removing a personal overlay of a shared id is a revert — the shared version
-                // (including built-in Swarmie) is what the merged view shows from now on.
                 return inShared ? DeleteResult.Reverted : DeleteResult.Deleted;
             }
         }

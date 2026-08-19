@@ -22,11 +22,7 @@ const LLMAToolPicker = {
     el: null,
 };
 
-// Tools available to the active assistant, intersected with globally-enabled tools. Uses the
-// server-resolved `_effectiveToolIds` (inheritance applied) so the picker never disagrees with what
-// the backend actually offers the model; raw `enabledToolIds` is only a fallback for stale payloads.
-// Empty whenever tool calling itself is off (see llmaEffectiveToolsEnabled) — the picker has nothing to
-// offer in that state, same as the backend injecting no tool prompt at all.
+// Server-resolved effective tools ∩ globally-enabled; empty when tool calling is off for the chat.
 function llmaPickerTools() {
     if (!llmaEffectiveToolsEnabled()) return [];
     const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
@@ -174,7 +170,12 @@ function llmaPickerOnInput(input) {
     const items = tok.query
         ? tools.filter(t => `${t.id} ${t.name || ''}`.toLowerCase().includes(tok.query))
         : tools;
-    if (items.length === 0) { llmaPickerClose(); return; }
+    // Keep the popup open with an explanatory empty state — silently closing looked broken.
+    LLMAToolPicker.emptyMessage = items.length === 0
+        ? (tools.length === 0
+            ? (llmaEffectiveToolsEnabled() ? 'No tools are enabled for this assistant.' : 'Tool calling is off for this chat.')
+            : `No tools match "/${tok.query}".`)
+        : null;
     LLMAToolPicker.items = items;
     LLMAToolPicker.tokenStart = tok.start;
     LLMAToolPicker.active = 0;
@@ -185,6 +186,11 @@ function llmaPickerOnInput(input) {
 function llmaPickerRender() {
     const el = llmaPickerEnsureEl();
     if (!el) return;
+    if (LLMAToolPicker.items.length === 0) {
+        el.innerHTML = `<div class="llma-tool-popup-empty">${llmaEscapeHtml(LLMAToolPicker.emptyMessage || 'No tools available.')}</div>`;
+        el.style.display = '';
+        return;
+    }
     el.innerHTML =
         LLMAToolPicker.items.map((t, i) => `
             <div class="llma-tool-popup-item${i === LLMAToolPicker.active ? ' active' : ''}" id="llma-tool-opt-${i}" data-idx="${i}" role="option" aria-selected="${i === LLMAToolPicker.active}">
@@ -222,7 +228,12 @@ function llmaPickerOnKeydown(e) {
     if (!LLMAToolPicker.open) return false;
     if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); llmaPickerMove(1); return true; }
     if (e.key === 'ArrowUp'   || (e.key === 'Tab' && e.shiftKey))  { e.preventDefault(); llmaPickerMove(-1); return true; }
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); llmaPickerSelect(LLMAToolPicker.items[LLMAToolPicker.active]); return true; }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        const t = LLMAToolPicker.items[LLMAToolPicker.active];
+        if (t) llmaPickerSelect(t);
+        return true;
+    }
     if (e.key === 'Escape') { e.preventDefault(); llmaPickerClose(); return true; }
     // Plain Enter and ordinary typing fall through — Enter sends (Option B).
     return false;
@@ -293,7 +304,8 @@ function llmaToolFormField(key, def, req) {
         control = `<input type="checkbox" id="${id}" data-key="${safeKey}" data-type="boolean">`;
     } else if (type === 'number' || type === 'integer') {
         control = `<input type="number" id="${id}" data-key="${safeKey}" data-type="number" placeholder="${ph}">`;
-    } else if (key === 'content' || key === 'text' || key === 'body' || (def.description || '').length > 70) {
+    } else if (['content', 'text', 'body', 'prompt', 'negativeprompt'].includes(key)) {
+        // Multi-line only for body-like keys — a verbose description doesn't make `path` a textarea.
         control = `<textarea id="${id}" data-key="${safeKey}" data-type="string" rows="4" placeholder="${ph}"></textarea>`;
     } else {
         control = `<input type="text" id="${id}" data-key="${safeKey}" data-type="string" placeholder="${ph}">`;

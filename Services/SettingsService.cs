@@ -23,18 +23,10 @@ public static class SettingsService
     public const string ScopeShared = "shared";
     public const string ScopePersonal = "personal";
 
-    /// <summary>Serializes every settings-layer read-modify-write (this service's mutators, plus the
-    /// assistant/tool/instruction services that compose multi-step sequences on top of them). The
-    /// GenericData store has no compare-and-swap, so two overlapping mutations — two browser tabs, a
-    /// retried request, compare lanes finishing together — would silently lose one write. Reentrant
-    /// (C# Monitor), so a composing service holding the lock may call the mutators below freely.</summary>
+    /// <summary>Reentrant lock for all settings-layer read-modify-writes (the store has no CAS).</summary>
     public static readonly object SettingsLock = new();
 
-    /// <summary>Default settings template, built once. The full tree includes all 13 built-in tool
-    /// definitions with their JSON Schemas — rebuilding it on every read (the old expression-bodied
-    /// property) cost ~1.2ms per call across ~40 call sites, several per chat request. Lazy (not a
-    /// plain static initializer) because BuildDefaultTools/BuildDefaultAssistant touch other statics
-    /// and this avoids any type-initialization-order surprises.</summary>
+    /// <summary>Built once; rebuilding the full tree (13 tool schemas) per read cost ~1.2ms x 40 call sites.</summary>
     private static readonly Lazy<JObject> DefaultSettingsTemplate = new(() => new()
     {
         ["preferredModel"] = "",
@@ -84,8 +76,7 @@ public static class SettingsService
         ["companion"] = BuildDefaultCompanionSettings()
     });
 
-    /// <summary>Default settings structure — a fresh deep clone of the template per call, so callers
-    /// may mutate the result freely (exactly the old per-call-build semantics, minus the rebuild).</summary>
+    /// <summary>Fresh deep clone per call — callers may mutate freely.</summary>
     public static JObject DefaultSettings => (JObject)DefaultSettingsTemplate.Value.DeepClone();
 
     /// <summary>Default companion overlay settings — a per-user block controlling whether the
@@ -250,9 +241,7 @@ public static class SettingsService
         }
     }
 
-    /// <summary>Request-envelope keys that must never end up inside a stored settings blob. Older builds
-    /// of <c>LLMAssistantSaveSettings</c> merged the whole raw request when <c>settings</c> arrived as a
-    /// JSON string, so real configs can already carry these; stripping them on every patch self-heals.</summary>
+    /// <summary>Request-envelope keys stripped on every patch (self-heals configs polluted by old builds).</summary>
     private static readonly string[] NonSettingsKeys = ["session_id", "settings", "scope"];
 
     /// <summary>Merges the given patch into the user's personal override layer. Returns the new personal layer.</summary>

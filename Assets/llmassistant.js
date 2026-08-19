@@ -1595,9 +1595,7 @@ function llmaShowAssistantEditor(assistant) {
     const title = document.getElementById('llma-editor-title');
     if (title) title.textContent = assistant ? `Edit: ${assistant.name}` : 'New Assistant';
 
-    // Delete button semantics: a personal overlay of a shared id gets "Revert to default" (removing
-    // it brings the shared version back); a pure shared built-in (Swarmie, no overlay) has nothing to
-    // delete; everything else is a plain delete in its own layer.
+    // Overlay of a shared id => "Revert to default"; pure shared built-in => no delete button.
     const deleteBtn = document.getElementById('llma-asst-delete');
     if (deleteBtn) {
         const isOverlay = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
@@ -1618,9 +1616,7 @@ function llmaShowAssistantEditor(assistant) {
         scopeWrap.style.display = LLMAState.canWriteShared ? '' : 'none';
     }
     if (scopeCheckbox) {
-        // Built-ins default to UNCHECKED even for admins: saving then creates a personal overlay
-        // (revertible via "Revert to default") instead of silently mutating the shared baseline for
-        // every user. Editing the baseline itself stays possible — tick the box deliberately.
+        // Built-ins default unchecked even for admins — an edit overlays instead of mutating the baseline.
         scopeCheckbox.checked = assistant?._scope === 'shared' && !assistant?.isBuiltIn;
     }
 
@@ -1673,10 +1669,8 @@ function llmaShowAssistantEditor(assistant) {
         llmaUpdateAssistantToolsChecklistState(toolsEnabledBox.checked);
     }
 
-    // Enabled tools checklist (and the per-assistant tool config blocks below it). Prefill from the
-    // server-resolved effective set so an inheriting assistant shows what it actually gets. Whether
-    // the SAVE writes an explicit list is tracked separately (see llmaSaveAssistantFromEditor): an
-    // assistant with no list of its own keeps inheriting unless the user touches a checkbox.
+    // Prefill from the resolved effective set; the save only writes an explicit list if one existed
+    // or the user touches a checkbox (see llmaSaveAssistantFromEditor).
     LLMAState._editingHadOwnToolList = Array.isArray(assistant?.enabledToolIds);
     LLMAState._editingToolsTouched = false;
     llmaRenderAssistantToolsChecklist(assistant?._effectiveToolIds || assistant?.enabledToolIds || []);
@@ -1759,8 +1753,7 @@ async function llmaSaveAssistantFromEditor() {
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
     assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
-    // Explicit list wins server-side; an omitted field inherits from the extends parent. So only
-    // send the list when this assistant already had its own, or the user changed a checkbox now.
+    // Omitted list = inherit from parent; only send when explicit or touched.
     if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {
         assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
     }
@@ -1802,9 +1795,6 @@ async function llmaSaveAssistantFromEditor() {
 
 async function llmaDeleteAssistant(id) {
     if (!id) return;
-    // Pass scope so an admin's delete of a shared assistant goes to the shared layer, and a
-    // personal delete goes to the personal layer. A personal overlay of a shared id is a REVERT:
-    // removing it brings the shared version back, so confirm with the right words.
     const assistant = LLMAState.assistants.find(a => a.id === id);
     const scope = assistant?._scope || undefined;
     const isRevert = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
@@ -2194,12 +2184,7 @@ function llmaSetupPromptButtons() {
     llmaPromptButtonsInjected = true;
 }
 
-// -- Auto-boot --
-// Gated on SwarmUI's `sessionReadyCallbacks` (the same hook every builtin extension uses, and the
-// one companion.js already used). Booting on DOMContentLoaded instead raced `getSession()`: the very
-// first call, LLMAssistantGetSettings, went out before `session_id` existed and came back 401, so the
-// tab silently fell back to default settings for the whole page load. Same MutationObserver fallback
-// as before for the case where the tab markup arrives after boot.
+// -- Auto-boot -- gated on sessionReadyCallbacks; booting earlier races getSession() (401 on first call).
 (function llmaAttachBoot() {
     let started = false;
     function start() {

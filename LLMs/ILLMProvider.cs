@@ -26,11 +26,8 @@ public interface ILLMProvider
     /// <summary>Generates a full (non-streamed) response.</summary>
     Task<string> Generate(ExtendedLLMInput input);
 
-    /// <summary>Generates with live chunks. <paramref name="onChunk"/> receives streaming output
-    /// objects and is awaited per event — implementations must <c>await onChunk(...)</c> so a slow
-    /// consumer (eg a WebSocket write) applies natural backpressure instead of forcing the consumer
-    /// to block a thread with <c>.Wait()</c>. <paramref name="ct"/> must be honored so the chat UI's
-    /// Stop button cancels a single generation mid-stream.</summary>
+    /// <summary>Generates with live chunks. Implementations must <c>await onChunk(...)</c> (consumer
+    /// backpressure) and honor <paramref name="ct"/> (the chat UI's Stop button).</summary>
     Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct);
 
     /// <summary>Exact token count for the given text, or null if this provider can't tokenize cheaply

@@ -1,15 +1,10 @@
 namespace Hartsy.Extensions.LLMAssistant.Services;
 
-/// <summary>LRU + TTL cache with request deduplication for LLM prompt responses.
-/// <para>Keys include the calling user, model, and assistant — the response depends on all of them
-/// (persona/system prompt, the user's memory profile via <c>{{userProfile}}</c>, model choice), so a
-/// prompt-text-only key served one user's response (seeded with their personal profile facts) to
-/// another user, and kept serving a stale persona after the caller switched assistants.</para></summary>
+/// <summary>LRU + TTL cache with request dedup. Keyed per user/model/assistant — the response depends
+/// on all three (including the user's private memory profile), so a text-only key leaked across users.</summary>
 public class PromptCacheService
 {
     private readonly int MaxEntries;
-    /// <summary>Entries older than this are treated as misses. The cache exists to dedupe a batch
-    /// (seconds apart) and quick regenerate loops — not to pin yesterday's response forever.</summary>
     private static readonly TimeSpan TTL = TimeSpan.FromMinutes(30);
     private readonly Dictionary<string, LinkedListNode<CacheEntry>> Cache = new();
     private readonly LinkedList<CacheEntry> LruList = new();
@@ -21,9 +16,7 @@ public class PromptCacheService
         MaxEntries = maxEntries;
     }
 
-    /// <summary>Gets a cached response or creates one via the factory. Deduplicates concurrent identical
-    /// requests. <paramref name="userId"/>, <paramref name="model"/>, and <paramref name="assistantId"/>
-    /// are part of the key — see the class doc for why they must be.</summary>
+    /// <summary>Gets a cached response or creates one via the factory. Dedupes concurrent identical requests.</summary>
     public async Task<string> GetOrCreate(string userId, string model, string assistantId, string prompt, string instructionId, Func<Task<string>> factory, int timeoutMs = 90000)
     {
         string key = BuildKey(userId, model, assistantId, prompt, instructionId);
@@ -112,9 +105,7 @@ public class PromptCacheService
 
     private static string BuildKey(string userId, string model, string assistantId, string prompt, string instructionId)
     {
-        // Trim-only on the prompt: batch dedup only needs exact repeats of the same prompt string.
-        // (The old lowercase + strip-ALL-spaces normalization was aggressive enough to collide
-        // genuinely different prompts.) '\u001F' (unit separator) can't appear in the components.
+        // Trim-only: batch dedup needs exact repeats; '\u001F' can't appear in the components.
         return string.Join('\u001F',
             userId ?? "<anon>",
             model ?? "",
