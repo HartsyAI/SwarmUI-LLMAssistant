@@ -125,8 +125,13 @@ public static class PromptTagHandler
             }
         ));
 
-        // Register late parameter handler for prompt processing
-        T2IParamInput.LateSpecialParameterHandlers.Add(input =>
+        // Register the prompt-processing handler AHEAD of core's own entry: core initializes
+        // LateSpecialParameterHandlers = [PreparsePromptLikes], and PreparsePromptLikes applies the
+        // registered <llmprompt> post-processor (which substitutes the tag's inner text) — so an
+        // Add()ed handler ran AFTER the tags were already consumed, saw no <llmprompt>, and
+        // early-returned: the whole feature was inert. Insert(0) runs the LLM replacement (and the
+        // wildcard-seed pin) first, then core parses the LLM-expanded prompt normally.
+        T2IParamInput.LateSpecialParameterHandlers.Insert(0, input =>
         {
             PromptProcessor.ProcessPrompt(input);
         });
