@@ -430,10 +430,14 @@ public static class ChatEndpoints
         input.MaxTokens = 20;
         input.Temperature = 0.7;
         string raw = await LLMDispatcher.Generate(input);
-        string cleaned = (raw ?? "").Trim().Trim('"', '\'', '.', ' ');
-        // Models occasionally ignore the instruction and answer the question instead of titling it —
-        // a real title is short; anything long enough to be a paragraph isn't usable, so fall back.
-        if (string.IsNullOrWhiteSpace(cleaned) || cleaned.Length > 80 || cleaned.Contains('\n'))
+        // Small models return junk like `Assistant: **"Something` — take the first line, strip label
+        // prefixes / markdown / quotes, and fall back to the default title if what's left isn't usable.
+        string cleaned = (raw ?? "").Trim();
+        cleaned = cleaned.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault("").Trim();
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"^(title|chat title|assistant|answer)\s*[:\-]\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        cleaned = cleaned.Replace("**", "").Replace("`", "").Trim().Trim('"', '\'', '*', '_', '.', ' ', '\u201C', '\u201D');
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ");
+        if (cleaned.Length is < 3 or > 80 || !cleaned.Any(char.IsLetter))
         {
             return null;
         }
