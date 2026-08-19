@@ -4,10 +4,10 @@ using System.Text;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Backends;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: make an HTTP request to a URL (GET/POST/etc).
 /// Uses SwarmUI's native <see cref="NetworkBackendUtils.MakeHttpClient"/> helper so it inherits

@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: execute a shell command and return stdout/stderr/exit code.
 /// DANGEROUS — this gives the LLM full access to the host shell. Disabled by default in the

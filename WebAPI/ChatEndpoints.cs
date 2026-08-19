@@ -3,12 +3,12 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.Extensions.LLMAssistant.Tools;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Tools;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Chat message endpoints (HTTP and WebSocket streaming).</summary>
 public static class ChatEndpoints
@@ -167,7 +167,7 @@ public static class ChatEndpoints
             }
             else
             {
-                response = await Cache.GetOrCreate(message, instructionId, async () =>
+                response = await Cache.GetOrCreate(session.User?.UserID, model, assistantId, message, instructionId, async () =>
                 {
                     return await LLMDispatcher.Generate(input);
                 });

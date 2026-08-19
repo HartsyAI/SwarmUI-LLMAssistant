@@ -2,9 +2,10 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using SwarmUI.Utils;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: write a text file into the calling user's per-user sandbox under
 /// <c>{user.OutputDirectory}/llm_assistant/</c>. The path lives inside SwarmUI's <c>/Output/</c>
@@ -87,7 +88,7 @@ public class FileWriteTool : ToolHandler
             (string fullPath, string consoleError, string userError) = WebServer.CheckFilePath(sandboxRoot, path);
             if (fullPath is null)
             {
-                if (consoleError is not null) Utils.Logs.Warning($"[LLMAssistant] file_write rejected path: {consoleError}");
+                if (consoleError is not null) Logs.Warning($"[LLMAssistant] file_write rejected path: {consoleError}");
                 return new JObject { ["success"] = false, ["error"] = userError ?? "Invalid path." };
             }
             // Defense-in-depth: re-verify the resolved path lives inside the sandbox. WebServer.CheckFilePath
@@ -100,7 +101,7 @@ public class FileWriteTool : ToolHandler
                 || targetFull.StartsWith(sandboxFull + Path.AltDirectorySeparatorChar, StringComparison.Ordinal);
             if (!isInside)
             {
-                Utils.Logs.Warning($"[LLMAssistant] file_write defense-in-depth check rejected '{targetFull}' (sandbox '{sandboxFull}').");
+                Logs.Warning($"[LLMAssistant] file_write defense-in-depth check rejected '{targetFull}' (sandbox '{sandboxFull}').");
                 return new JObject { ["success"] = false, ["error"] = "Path escaped sandbox (defense-in-depth check failed)." };
             }
             string parentDir = Path.GetDirectoryName(fullPath);
@@ -118,11 +119,8 @@ public class FileWriteTool : ToolHandler
                 };
             }
             await File.WriteAllTextAsync(fullPath, content, System.Text.Encoding.UTF8, ct);
-            // The /Output/{*Path} route serves files from the OutputPath root with per-user
-            // auth, so the URL we return must be relative to the OutputPath root.
-            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-            string relPath = Path.GetRelativePath(outputRoot, fullPath).Replace('\\', '/');
-            string url = $"Output/{relPath}";
+            // Served through the /View/{user}/{rest} route (per-user auth enforced there) — see OutputUrls.
+            string url = Services.OutputUrls.ForFullPath(fullPath);
             return new JObject
             {
                 ["success"] = true,

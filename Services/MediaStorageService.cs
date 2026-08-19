@@ -4,7 +4,7 @@ using SwarmUI.Core;
 using SwarmUI.Media;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Persists chat-attached images to the calling user's per-user output directory and
 /// returns a served URL (rather than storing base64 in the thread blob, which would bloat every
@@ -44,13 +44,6 @@ public static class MediaStorageService
         public int BytesWritten;
         public int Width;
         public int Height;
-    }
-
-    /// <summary>Returns the absolute uploads root for a user — a single thread's worth of images.
-    /// Exposed so the orphan-file GC can sweep this directory the same way it does file_write.</summary>
-    public static string GetThreadUploadsDir(User user, string threadId)
-    {
-        return Path.GetFullPath(Path.Combine(user.OutputDirectory, SubdirRoot, threadId ?? "_unknown"));
     }
 
     /// <summary>Returns the absolute root of all uploads for this user (every thread).</summary>
@@ -120,11 +113,9 @@ public static class MediaStorageService
         string fullPath = Path.GetFullPath(Path.Combine(dir, safeMessage + ext));
         await File.WriteAllBytesAsync(fullPath, img.RawData, ct);
         (int finalW, int finalH) = img.GetResolution();
-        string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-        string relPath = Path.GetRelativePath(outputRoot, fullPath).Replace('\\', '/');
         return new StoredImage
         {
-            Url = $"Output/{relPath}",
+            Url = OutputUrls.ForFullPath(fullPath),
             FullPath = fullPath,
             MimeType = mime,
             BytesWritten = img.RawData.Length,

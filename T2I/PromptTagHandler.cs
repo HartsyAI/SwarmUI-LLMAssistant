@@ -1,9 +1,9 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.T2I;
+namespace Hartsy.Extensions.LLMAssistant.T2I;
 
 /// <summary>Registers T2I parameters and prompt tag handlers for LLM integration.</summary>
 public static class PromptTagHandler
@@ -132,14 +132,16 @@ public static class PromptTagHandler
         });
     }
 
-    /// <summary>Registers the <c>llmprompt</c>/<c>llmresponse</c>/<c>llmoriginal</c> custom prompt-tag prefixes and their (no-op) post-processors.</summary>
+    /// <summary>Registers the <c>llmprompt</c>/<c>llmresponse</c>/<c>llmoriginal</c> custom prompt-tag
+    /// prefixes and their (no-op) post-processors, plus the <c>mp*</c> aliases — the migration path for
+    /// prompts written for Hartsy's MagicPrompt extension. PromptProcessor's regexes already matched
+    /// both spellings; without this registration the <c>mp*</c> half never reached the parser.</summary>
     private static void RegisterPromptTags()
     {
-        PromptRegion.RegisterCustomPrefix("llmprompt");
-        PromptRegion.RegisterCustomPrefix("llmresponse");
-        PromptRegion.RegisterCustomPrefix("llmoriginal");
-        T2IPromptHandling.PromptTagPostProcessors["llmprompt"] = (tag, _) => tag;
-        T2IPromptHandling.PromptTagPostProcessors["llmresponse"] = (tag, _) => tag;
-        T2IPromptHandling.PromptTagPostProcessors["llmoriginal"] = (tag, _) => tag;
+        foreach (string prefix in new[] { "llmprompt", "llmresponse", "llmoriginal", "mpprompt", "mpresponse", "mporiginal" })
+        {
+            PromptRegion.RegisterCustomPrefix(prefix);
+            T2IPromptHandling.PromptTagPostProcessors[prefix] = (tag, _) => tag;
+        }
     }
 }

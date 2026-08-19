@@ -4,7 +4,7 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: read a text file from the SwarmUI Data directory (sandboxed via
 /// <see cref="WebServer.CheckFilePath"/>).</summary>

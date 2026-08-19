@@ -3,7 +3,7 @@ using SwarmUI.Core;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>The single registration entry point for the removable LLM backend pack.
 /// <para><b>To remove the bundled backends</b> when SwarmUI ships a native LLM API: delete this
@@ -30,12 +30,15 @@ public static class LLMBackendPack
             new("To use OpenAI (or other OpenAI-compatible) models via the Remote LLM backend, set your API key below.<br>This allows you to use GPT models for text generation.")));
         BasicAPIFeatures.AcceptedAPIKeyTypes.Add("anthropic_api");
         BasicAPIFeatures.AcceptedAPIKeyTypes.Add("openai_api");
-        Program.Backends.RegisterBackendType<AnthropicLLMProvider>("llmassistant-anthropic", "Anthropic Claude (LLM)",
-            "(LLM Assistant) Anthropic Messages API — Claude models, via your per-user Anthropic key.", true);
-        Program.Backends.RegisterBackendType<RemoteOpenAILLMProvider>("llmassistant-openai", "Remote LLM — OpenAI API (LLM)",
-            "(LLM Assistant) Any OpenAI-compatible endpoint (OpenAI, Ollama, LM Studio, vLLM, OpenRouter, …).", true);
-        Program.Backends.RegisterBackendType<HartsyLocalLLMProvider>("llmassistant-hartsy-local", "Local LLM — HartsyInference (LLM)",
-            "(LLM Assistant) Fully-native pure-C# local GGUF inference (Qwen2/Qwen3/Llama) — no llama.cpp, no external process.", true);
+        // isStandard: true — these show in the Server > Backends type row without "Show Advanced" and
+        // without the "advanced users only" confirm. Type IDS must never change (Backends.fds persists
+        // instances by id); display names/descriptions are free to change.
+        Program.Backends.RegisterBackendType<AnthropicLLMProvider>("llmassistant-anthropic", "LLM: Anthropic Claude",
+            "(LLM Assistant) Claude models via the Anthropic API. Each user sets their own API key in the User tab.", true, isStandard: true);
+        Program.Backends.RegisterBackendType<RemoteOpenAILLMProvider>("llmassistant-openai", "LLM: Remote (OpenAI-Compatible)",
+            "(LLM Assistant) Any OpenAI-compatible endpoint — OpenAI, Ollama, LM Studio, vLLM, OpenRouter, and more. Point Address at the server; a per-user API key from the User tab overrides the configured auth header.", true, isStandard: true);
+        Program.Backends.RegisterBackendType<HartsyLocalLLMProvider>("llmassistant-hartsy-local", "LLM: Local (HartsyInference GGUF)",
+            "(LLM Assistant) Fully-native pure-C# local GGUF inference — no llama.cpp, no Python, no external process. Drop .gguf files into Models/llm.", true, isStandard: true);
         Logs.Info("[LLMAssistant] Registered LLM backend pack (Anthropic, Remote OpenAI, HartsyInference local).");
     }
 

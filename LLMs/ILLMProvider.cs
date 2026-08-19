@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>The single seam between the extension and whatever actually runs an LLM.
 /// <para>Everything in the stable extension core (chat, threads, tools, companion, T2I) talks only
@@ -27,9 +27,11 @@ public interface ILLMProvider
     Task<string> Generate(ExtendedLLMInput input);
 
     /// <summary>Generates with live chunks. <paramref name="onChunk"/> receives streaming output
-    /// objects; <paramref name="ct"/> must be honored so the chat UI's Stop button cancels a single
-    /// generation mid-stream.</summary>
-    Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct);
+    /// objects and is awaited per event — implementations must <c>await onChunk(...)</c> so a slow
+    /// consumer (eg a WebSocket write) applies natural backpressure instead of forcing the consumer
+    /// to block a thread with <c>.Wait()</c>. <paramref name="ct"/> must be honored so the chat UI's
+    /// Stop button cancels a single generation mid-stream.</summary>
+    Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct);
 
     /// <summary>Exact token count for the given text, or null if this provider can't tokenize cheaply
     /// (the caller then falls back to a chars/4 heuristic). Implementations must never block on a

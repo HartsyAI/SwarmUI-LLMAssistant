@@ -46,6 +46,12 @@
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Loud reminder that a local-engine build is NOT what end users get: they build against the
+       NuGet pin above. Before any release, prove that path compiles: dotnet build -p:UseLocalHartsy=false -->
+  <Target Name="WarnLocalHartsy" BeforeTargets="Build" Condition="'$(UseLocalHartsy)' == 'true'">
+    <Warning Text="Building against the LOCAL HartsyInference engine (Directory.Build.props). Release builds must use the NuGet pin: dotnet build -p:UseLocalHartsy=false" />
+  </Target>
+
   <!-- Compile against the packages the SwarmUI host already loads, without copying their runtime DLLs.
        Keep in sync with SwarmUI.deps.props. -->
   <ItemGroup>

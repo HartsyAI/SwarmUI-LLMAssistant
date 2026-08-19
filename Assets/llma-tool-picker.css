@@ -19,7 +19,9 @@
     border: 1px solid var(--border-color);
     border-radius: 10px;
     box-shadow: 0 10px 30px color-mix(in srgb, var(--black) 42%, transparent);
-    padding: 4px;
+    /* No bottom padding: the footer is `position: sticky; bottom: 0`, which pins it to the padding
+       edge — any bottom padding leaves a band under it where the scrolled list peeks through. */
+    padding: 4px 4px 0;
     animation: llma-popover-in 0.12s ease;
 }
 .llma-tool-popup-item {
@@ -52,7 +54,7 @@
     position: sticky;
     bottom: 0;
     margin-top: 2px;
-    padding: 5px 10px;
+    padding: 5px 10px 8px;
     font-size: 10px;
     color: var(--text-soft);
     opacity: 0.6;

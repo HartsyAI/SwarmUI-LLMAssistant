@@ -1,9 +1,10 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
+using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Settings CRUD endpoints. Reads return the caller's merged (shared ⊕ personal) view
 /// so the UI always sees a single effective settings object. Writes target the personal layer
@@ -28,9 +29,51 @@ public static class SettingsEndpoints
         };
     }
 
+    /// <summary>Envelope keys that are never part of the settings blob itself.</summary>
+    private static readonly string[] EnvelopeKeys = ["session_id", "settings", "scope"];
+
+    /// <summary>Resolves the settings object from a save request: the <c>settings</c> field as an object,
+    /// as a JSON string, or — for callers that pass settings fields at the top level — the raw input with
+    /// the envelope keys stripped. Returns null when <c>settings</c> is present but unparseable.</summary>
+    private static JObject ParseSettingsPayload(JObject rawInput)
+    {
+        JToken raw = rawInput?["settings"];
+        if (raw is JObject obj)
+        {
+            return obj;
+        }
+        if (raw is not null && raw.Type == JTokenType.String)
+        {
+            try
+            {
+                return JObject.Parse(raw.ToString());
+            }
+            catch (Exception ex)
+            {
+                Logs.Warning($"[LLMAssistant] SaveSettings received an unparseable settings string: {ex.Message}");
+                return null;
+            }
+        }
+        JObject topLevel = rawInput is null ? [] : (JObject)rawInput.DeepClone();
+        foreach (string key in EnvelopeKeys)
+        {
+            topLevel.Remove(key);
+        }
+        return topLevel;
+    }
+
     public static async Task<JObject> LLMAssistantSaveSettings(Session session, JObject rawInput)
     {
-        JObject incoming = rawInput["settings"] as JObject ?? rawInput;
+        // The `settings` field may be a JObject or a JSON string — the UI sends the latter
+        // (`JSON.stringify(LLMAState.settings)`), same as the tool/assistant endpoints. Without the
+        // string branch this fell through to `?? rawInput` and merged the raw envelope
+        // (`session_id` + the unparsed `settings` string) into the user's config instead of the
+        // actual settings, so every Save & Close from the UI was a silent no-op.
+        JObject incoming = ParseSettingsPayload(rawInput);
+        if (incoming is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "settings must be an object or a JSON string." };
+        }
         string scope = rawInput["scope"]?.ToString();
         bool wantsShared = string.Equals(scope, SettingsService.ScopeShared, StringComparison.OrdinalIgnoreCase);
         if (wantsShared && session.User?.HasPermission(LLMAssistantAPI.PermSharedWrite) != true)
@@ -47,16 +90,24 @@ public static class SettingsEndpoints
         JObject saved;
         if (wantsShared)
         {
-            JObject sharedCurrent = SettingsService.GetSettings();
-            sharedCurrent.Merge(filtered, MergeSettings);
-            SettingsService.ReplaceSharedSettings(sharedCurrent);
+            JObject sharedCurrent;
+            lock (SettingsService.SettingsLock)
+            {
+                sharedCurrent = SettingsService.GetSettings();
+                sharedCurrent.Merge(filtered, MergeSettings);
+                SettingsService.ReplaceSharedSettings(sharedCurrent);
+            }
             saved = sharedCurrent;
+            // Settings feed assistant resolution (parameters, instructions, activeAssistantId) — drop
+            // every user's cached resolution so the change is visible immediately, not after the TTL.
+            AssistantResolver.InvalidateAll();
             AuditLogService.RecordSharedWrite("update", "settings", session.User,
                 new JObject { ["keys"] = string.Join(",", filtered.Properties().Select(p => p.Name)) });
         }
         else
         {
             SettingsService.PatchUserSettings(session.User, filtered);
+            AssistantResolver.Invalidate(session.User);
             saved = SettingsService.GetMergedSettings(session.User);
         }
         return new JObject
@@ -82,10 +133,12 @@ public static class SettingsEndpoints
                 return new JObject { ["success"] = false, ["error"] = "Shared reset requires llm_shared_write permission." };
             }
             JObject defaults = SettingsService.ResetSettings();
+            AssistantResolver.InvalidateAll();
             AuditLogService.RecordSharedWrite("reset", "settings", session.User);
             return new JObject { ["success"] = true, ["settings"] = defaults, ["scope"] = SettingsService.ScopeShared };
         }
         SettingsService.ResetUserSettings(session.User);
+        AssistantResolver.Invalidate(session.User);
         return new JObject
         {
             ["success"] = true,

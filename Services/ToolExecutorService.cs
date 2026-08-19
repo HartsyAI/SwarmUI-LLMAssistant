@@ -1,10 +1,10 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Tools;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.Tools;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Validates and executes tools by ID with args. Wraps exceptions into structured error results.</summary>
 public static class ToolExecutorService
@@ -46,6 +46,21 @@ public static class ToolExecutorService
             if (tool["enabled"]?.Value<bool>() == false)
             {
                 return Error($"Tool is disabled: {toolId}");
+            }
+            // Assistant-scoped calls (the agentic loop and the in-chat picker both pass assistantId)
+            // must honor that assistant's resolved allowlist — the global enabled flag and the handler
+            // permission alone would let a model call tools its assistant was never granted. Calls with
+            // no assistant context (Settings > Tools "Run Test") stay permission-gated only.
+            // Deliberately NOT checked here: the resolved ToolsEnabled master switch — that's a
+            // prompt-injection decision owned by the callers, and the per-thread tools toggle may
+            // legitimately override it ON for a thread (see ChatEndpoints.EffectiveToolsEnabled).
+            if (!string.IsNullOrEmpty(assistantId))
+            {
+                ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, session?.User);
+                if (!resolved.EnabledToolIds.Contains(toolId))
+                {
+                    return Error($"Tool '{toolId}' is not enabled for assistant '{assistantId}'.");
+                }
             }
             string handlerId = tool["handlerId"]?.ToString();
             ToolHandler handler = ToolRegistryService.GetHandler(handlerId);

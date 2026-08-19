@@ -2,7 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Per-user profile and long-term memory storage. The LLM manages this blob via the
 /// <c>memory_read</c> / <c>memory_write</c> tools, and users can view/clear it via the settings

@@ -2,10 +2,10 @@ using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.LLMs;
+namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Bridges GenerateLive callback output to WebSocket streaming, including an agentic
 /// tool-calling loop: when the model emits &lt;tool_call&gt; blocks, the stream is interrupted,
@@ -67,7 +67,7 @@ public static class LLMStreamHelper
             List<ToolPromptService.ParsedToolCall> nativeToolCalls = [];
             try
             {
-                await LLMDispatcher.GenerateStreaming(input, chunk =>
+                await LLMDispatcher.GenerateStreaming(input, async chunk =>
                 {
                     if (toolCallDetected || SocketGone(socket))
                     {
@@ -77,9 +77,10 @@ public static class LLMStreamHelper
                     {
                         string text = chunkToken.ToString();
                         roundBuffer.Append(text);
-                        // Send on `linked`, not `roundCts` — the chunk carrying </tool_call> must reach
-                        // the UI before the round gets cancelled.
-                        SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
+                        // Awaited directly (the seam's callback is async) — the old sync callback had to
+                        // block a provider thread per chunk with .Wait(). The chunk carrying </tool_call>
+                        // still reaches the UI before the round gets cancelled below.
+                        await SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock);
                         if (closeTagWatcher.Feed(text))
                         {
                             toolCallDetected = true;
@@ -107,7 +108,7 @@ public static class LLMStreamHelper
                     else if (chunk.TryGetValue("status", out JToken statusToken))
                     {
                         // Forward backend status events (eg "loading_model") so the UI can show a spinner.
-                        SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
+                        await SendJson(socket, chunk, lane, sendLock);
                     }
                     else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
                     {
@@ -227,7 +228,7 @@ public static class LLMStreamHelper
     {
         StringBuilder fullText = new();
         string stopReason = null;
-        await LLMDispatcher.GenerateStreaming(input, chunk =>
+        await LLMDispatcher.GenerateStreaming(input, async chunk =>
         {
             if (SocketGone(socket))
             {
@@ -237,7 +238,7 @@ public static class LLMStreamHelper
             {
                 string text = chunkToken.ToString();
                 fullText.Append(text);
-                SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock).Wait(linked.Token);
+                await SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock);
             }
             else if (chunk.TryGetValue("result", out JToken resultToken))
             {
@@ -247,7 +248,7 @@ public static class LLMStreamHelper
             else if (chunk.TryGetValue("status", out JToken _))
             {
                 // Backend status events (eg model load progress) — forward verbatim to the UI.
-                SendJson(socket, chunk, lane, sendLock).Wait(linked.Token);
+                await SendJson(socket, chunk, lane, sendLock);
             }
             else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
             {

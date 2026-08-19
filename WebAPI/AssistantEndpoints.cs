@@ -2,10 +2,10 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>API endpoints for assistant CRUD and activation. All endpoints are user-scoped:
 /// reads return the caller's merged view (shared ⊕ personal), writes target the caller's
@@ -50,14 +50,10 @@ public static class AssistantEndpoints
             return new JObject { ["success"] = false, ["error"] = "No assistant data provided." };
         }
         string scope = rawInput["scope"]?.ToString();
-        string id = AssistantService.SaveAssistant(assistantData, session.User, scope);
+        (string id, string error) = AssistantService.SaveAssistant(assistantData, session.User, scope);
         if (id is null)
         {
-            return new JObject
-            {
-                ["success"] = false,
-                ["error"] = "Not permitted to save to the requested scope (shared writes require llm_shared_write)."
-            };
+            return new JObject { ["success"] = false, ["error"] = error ?? "Failed to save assistant." };
         }
         return new JObject { ["success"] = true, ["id"] = id, ["scope"] = scope ?? SettingsService.ScopePersonal };
     }
@@ -66,17 +62,14 @@ public static class AssistantEndpoints
     /// provided. Shared deletes require <see cref="LLMAssistantAPI.PermSharedWrite"/>.</summary>
     public static async Task<JObject> LLMAssistantDeleteAssistant(Session session, string assistantId, string scope = null)
     {
-        if (assistantId == AssistantConstants.DefaultId)
-        {
-            return new JObject { ["success"] = false, ["error"] = "Cannot delete the default assistant." };
-        }
-        bool deleted = AssistantService.DeleteAssistant(assistantId, session.User, scope);
+        AssistantService.DeleteResult result = AssistantService.DeleteAssistant(assistantId, session.User, scope);
         // Only include "error" on failure (a present "error" key — even null — is logged as an error).
-        if (!deleted)
+        if (result == AssistantService.DeleteResult.Failed)
         {
-            return new JObject { ["success"] = false, ["error"] = "Assistant not found or not permitted." };
+            return new JObject { ["success"] = false, ["error"] = "Assistant not found, is a shared built-in, or you lack permission." };
         }
-        return new JObject { ["success"] = true };
+        // "reverted" = a personal overlay of a shared assistant was removed; the shared version shows again.
+        return new JObject { ["success"] = true, ["reverted"] = result == AssistantService.DeleteResult.Reverted };
     }
 
     /// <summary>Sets the active assistant (personal preference, always stored in user layer).</summary>
@@ -171,14 +164,11 @@ public static class AssistantEndpoints
             }
             string fullPath = Path.Combine(avatarsDir, safeId + ext);
             await File.WriteAllBytesAsync(fullPath, bytes);
-            // Return the URL relative to the OutputPath root so the existing /Output/{*Path}
-            // route serves it (per-user auth is already enforced there).
-            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-            string relPath = Path.GetRelativePath(outputRoot, Path.GetFullPath(fullPath)).Replace('\\', '/');
+            // Served through the /View/{user}/{rest} route (per-user auth enforced there) — see OutputUrls.
             return new JObject
             {
                 ["success"] = true,
-                ["url"] = $"Output/{relPath}",
+                ["url"] = Services.OutputUrls.ForFullPath(fullPath),
                 ["bytesWritten"] = bytes.Length
             };
         }

@@ -2,7 +2,7 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Loads the bundled <c>Assets/starter-assistants.json</c> once on first use and caches
 /// the parsed array forever. The file ships with the extension and is read-only baseline data —

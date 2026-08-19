@@ -5,7 +5,7 @@ using SwarmUI.Accounts;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Endpoints supporting the floating Companion overlay (the in-page Clippy-style helper).
 /// Kept separate from <see cref="ChatEndpoints"/> so this surface stays small and easy to gate
@@ -64,18 +64,16 @@ public static class CompanionEndpoints
             }
             string src = firstImage["src"]?.ToString();
             string metadata = firstImage["metadata"]?.ToString();
-            // Build the canonical "Output/{relPath}" URL so MediaResolver can resolve it the same
-            // way it resolves URLs from LLMAssistantUploadChatImage. The user's OutputDirectory
-            // is the per-user subdir; combining with the listing's `src` gives the on-disk path,
-            // and we re-relativize against the global OutputPath to construct the URL.
+            // Build the canonical served URL so MediaResolver can resolve it the same way it
+            // resolves URLs from LLMAssistantUploadChatImage. The user's OutputDirectory is the
+            // per-user subdir; combining with the listing's `src` gives the on-disk path, which
+            // OutputUrls re-relativizes against the global OutputPath.
             string userOutAbs = Utilities.CombinePathWithAbsolute(Environment.CurrentDirectory, session.User.OutputDirectory);
             string fullDiskPath = Path.GetFullPath(Path.Combine(userOutAbs, src));
-            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
             string url;
-            if (fullDiskPath.StartsWith(outputRoot, StringComparison.OrdinalIgnoreCase))
+            if (fullDiskPath.StartsWith(Services.OutputUrls.Root, StringComparison.OrdinalIgnoreCase))
             {
-                string relPath = Path.GetRelativePath(outputRoot, fullDiskPath).Replace('\\', '/');
-                url = $"Output/{relPath}";
+                url = Services.OutputUrls.ForFullPath(fullDiskPath);
             }
             else
             {

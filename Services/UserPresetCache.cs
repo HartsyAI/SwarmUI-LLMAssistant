@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using SwarmUI.Accounts;
 using SwarmUI.Text2Image;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Tiny per-user TTL cache around <see cref="User.GetAllPresets"/>.
 /// <para>Why this exists: <c>GenerateImageTool.EnrichForUser</c> runs on every chat WS request to

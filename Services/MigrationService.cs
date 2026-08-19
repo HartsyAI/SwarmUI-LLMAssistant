@@ -2,7 +2,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>One-time migrations for the instructions-to-assistants model and built-in tool seeding.</summary>
 public static class MigrationService
@@ -17,6 +17,9 @@ public static class MigrationService
         MigrateTools();
         BackfillBuiltInTools();
         BackfillCompanionDefaults();
+        // Migrations mutate the shared settings blob directly — drop any resolution cached before
+        // (or during) them so nothing serves pre-migration state for the resolver's TTL window.
+        AssistantResolver.InvalidateAll();
     }
 
     /// <summary>Idempotent top-up for the floating Companion overlay. Adds the default

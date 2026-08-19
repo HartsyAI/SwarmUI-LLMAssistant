@@ -4,8 +4,8 @@ using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
@@ -14,7 +14,7 @@ using HartsyInference.Engine.Services;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>Thin local LLM backend: maps the extension's chat input onto HartsyInference.Engine's native
 /// <see cref="ITextService"/> contract (<see cref="TextRequest"/>/<see cref="TextChunk"/>) and lets the engine
@@ -151,7 +151,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <inheritdoc/>
-    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
+    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         string deviceKey = NormalizeDeviceKey(input.Device);
         string path = ResolvePath(input.Model);
@@ -166,7 +166,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             switch (chunk.Kind)
             {
                 case TextChunkKind.Chunk:
-                    onChunk(new JObject() { ["chunk"] = chunk.Text });
+                    await onChunk(new JObject() { ["chunk"] = chunk.Text });
                     break;
                 case TextChunkKind.StopReason:
                     // Only surface truncation/cancellation/error — a normal finish (Stop) is the common case and
@@ -174,15 +174,15 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     // format's "stopReason present" signal meaning "something other than a clean finish happened".
                     if (chunk.Stop is StopReason.Length)
                     {
-                        onChunk(new JObject() { ["stopReason"] = "length" });
+                        await onChunk(new JObject() { ["stopReason"] = "length" });
                     }
                     else if (chunk.Stop is StopReason.Cancelled)
                     {
-                        onChunk(new JObject() { ["stopReason"] = "cancelled" });
+                        await onChunk(new JObject() { ["stopReason"] = "cancelled" });
                     }
                     else if (chunk.Stop is StopReason.Error)
                     {
-                        onChunk(new JObject() { ["stopReason"] = "error" });
+                        await onChunk(new JObject() { ["stopReason"] = "error" });
                     }
                     break;
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's

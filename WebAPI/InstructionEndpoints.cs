@@ -1,8 +1,8 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
-using SwarmUI.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services;
 
-namespace SwarmUI.Extensions.LLMAssistant.WebAPI;
+namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>Instruction CRUD endpoints. User-scoped with optional <c>scope</c> field.</summary>
 public static class InstructionEndpoints
@@ -37,6 +37,8 @@ public static class InstructionEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "Shared writes require llm_shared_write permission." };
         }
+        lock (SettingsService.SettingsLock)
+        {
         JObject targetLayer = wantsShared
             ? SettingsService.GetSettings()
             : SettingsService.GetUserSettings(session.User);
@@ -80,6 +82,7 @@ public static class InstructionEndpoints
         {
             SettingsService.ReplaceUserSettings(session.User, targetLayer);
         }
+        }
         return new JObject
         {
             ["success"] = true,
@@ -95,6 +98,8 @@ public static class InstructionEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "Instruction ID is required." };
         }
+        lock (SettingsService.SettingsLock)
+        {
         JObject personal = SettingsService.GetUserSettings(session.User);
         JObject personalCustom = (personal["instructions"] as JObject)?["custom"] as JObject;
         bool inPersonal = personalCustom is not null && personalCustom.ContainsKey(id);
@@ -131,6 +136,7 @@ public static class InstructionEndpoints
             }
             personalCustom.Remove(id);
             SettingsService.ReplaceUserSettings(session.User, personal);
+        }
         }
         return new JObject { ["success"] = true };
     }

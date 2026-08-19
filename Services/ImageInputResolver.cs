@@ -4,7 +4,7 @@ using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves an image referenced by an LLM tool call (or any code path that takes a
 /// "user-supplied image input") into raw bytes + MIME. Accepts a data URI, a local
@@ -55,12 +55,11 @@ public static class ImageInputResolver
             EnsureSize(bytes.Length);
             return new ResolvedImage { Bytes = bytes, MimeType = string.IsNullOrEmpty(mime) ? "image/png" : mime };
         }
-        // Local Output URL
-        if (input.StartsWith("Output/", StringComparison.OrdinalIgnoreCase))
+        // Local output URL ("View/…", or the legacy "Output/…" still stored in older threads).
+        if (OutputUrls.IsLocal(input))
         {
-            string outputRoot = Path.GetFullPath(Program.ServerSettings.Paths.OutputPath);
-            string fullPath = Path.GetFullPath(Path.Combine(outputRoot, input["Output/".Length..]));
-            if (!fullPath.StartsWith(outputRoot, StringComparison.OrdinalIgnoreCase))
+            string fullPath = OutputUrls.ToFullPath(input);
+            if (fullPath is null)
             {
                 throw new InvalidOperationException("Image path is outside the Output directory.");
             }

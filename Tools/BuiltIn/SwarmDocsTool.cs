@@ -2,7 +2,7 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
+namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
 /// <summary>Built-in tool: read SwarmUI's bundled documentation (the markdown files under the
 /// repo's <c>docs/</c> folder), sandboxed strictly to that directory. Supports

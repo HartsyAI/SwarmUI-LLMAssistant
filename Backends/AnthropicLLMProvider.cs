@@ -4,10 +4,10 @@ using System.Text;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
-using SwarmUI.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant.Backends;
+namespace Hartsy.Extensions.LLMAssistant.Backends;
 
 /// <summary>LLM backend for the Anthropic Messages API (Claude models). Uses the calling user's
 /// per-user <c>anthropic_api</c> key (set in the User tab).</summary>
@@ -197,7 +197,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     }
 
     /// <inheritdoc/>
-    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Action<JObject> onChunk, CancellationToken ct)
+    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         string apiKey = GetApiKey(input);
         if (string.IsNullOrWhiteSpace(apiKey))
@@ -282,7 +282,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
                         string text = delta?.Value<string>("text");
                         if (!string.IsNullOrEmpty(text))
                         {
-                            onChunk(new JObject() { ["chunk"] = text });
+                            await onChunk(new JObject() { ["chunk"] = text });
                         }
                     }
                 }
@@ -304,7 +304,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
                             Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}: {ex.Message}");
                             args = new JObject();
                         }
-                        onChunk(new JObject()
+                        await onChunk(new JObject()
                         {
                             ["native_tool_call"] = new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = args }
                         });
@@ -317,7 +317,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
                     string stopReason = parsed.Value<JObject>("delta")?.Value<string>("stop_reason");
                     if (stopReason == "max_tokens")
                     {
-                        onChunk(new JObject() { ["stopReason"] = "length" });
+                        await onChunk(new JObject() { ["stopReason"] = "length" });
                     }
                 }
             }

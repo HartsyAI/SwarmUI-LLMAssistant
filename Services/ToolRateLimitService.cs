@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using SwarmUI.Accounts;
 
-namespace SwarmUI.Extensions.LLMAssistant.Services;
+namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Per-user-per-tool sliding-window rate limit, guarding against a misbehaving LLM
 /// agentic loop hammering external services or burning API quota. Storage is in-memory only
@@ -73,9 +73,6 @@ public static class ToolRateLimitService
         catch { /* fall through to defaults on any config read error */ }
         return DefaultLimits.TryGetValue(handlerId, out int dflt) ? dflt : -1;
     }
-
-    /// <summary>For tests / admin tooling. Clears the in-memory state.</summary>
-    public static void ResetAll() => Rings.Clear();
 
     /// <summary>Lock-free-ish ring of timestamps. Adding when full overwrites the oldest. Reads
     /// are advisory (no snapshot semantics) — fine because we always re-evaluate against the

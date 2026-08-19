@@ -1,25 +1,39 @@
 using System.IO;
 using SwarmUI.Core;
-using SwarmUI.Extensions.LLMAssistant.Services;
-using SwarmUI.Extensions.LLMAssistant.T2I;
-using SwarmUI.Extensions.LLMAssistant.Tools.BuiltIn;
-using SwarmUI.Extensions.LLMAssistant.WebAPI;
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.T2I;
+using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 
-namespace SwarmUI.Extensions.LLMAssistant;
+namespace Hartsy.Extensions.LLMAssistant;
 
 /// <summary>LLM Assistant extension for SwarmUI. Provides chat UI, threads, instructions, and T2I integration
 /// using SwarmUI's native LLM model registry and backends.</summary>
 public class LLMAssistantExtension : Extension
 {
-    /// <summary>Current version of the LLM Assistant extension.</summary>
-    public static new readonly string Version = "2.0.0-alpha.2";
+    /// <summary>Declared extension version, for startup logging. Deliberately NOT named `Version`:
+    /// that would shadow (`new`) the base instance field core populates from git and shows in the
+    /// Extensions tab — a static shadow made the declared version invisible everywhere but our log.</summary>
+    public const string ExtensionVersion = "2.0.0-alpha.2";
+
+    public LLMAssistantExtension()
+    {
+        // Core's PopulateMetadata only fills these from the official extension list; until this repo
+        // is listed there, set them so the Extensions tab shows real info instead of "(Unknown)".
+        ExtensionAuthor = "Hartsy";
+        Description = "Full LLM workspace: persistent chats, custom assistants, agentic tool calling, vision, model comparison, a floating companion, and <llmprompt> Generate-tab integration.";
+        License = "MIT";
+        ReadmeURL = "https://github.com/HartsyAI/SwarmUI-LLMAssistant";
+        Tags = ["tabs", "hartsy", "llm"];
+    }
 
     public override void OnPreInit()
     {
-        Logs.Info($"[LLMAssistant] Version {Version} loading...");
-        // Extension JS (CDN libs loaded dynamically by utils.js)
+        Logs.Info($"[LLMAssistant] Version {ExtensionVersion} loading...");
+        // Extension JS. The markdown/highlight/math/diagram libraries are vendored under
+        // Assets/vendor and lazy-loaded from disk by utils.js — nothing is fetched from a CDN.
         ScriptFiles.Add("Assets/utils.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
@@ -87,6 +101,10 @@ public class LLMAssistantExtension : Extension
     public override void OnInit()
     {
         RegisterLLMModelType();
+        // Core's BuildModelLists() (run on any model-path settings save, see AdminAPI) does
+        // T2IModelSets.Clear() and rebuilds only the core sets — without this hook the LLM model
+        // type silently vanished until restart whenever an admin saved path settings.
+        Program.ModelPathsChangedEvent += OnModelPathsChanged;
         // Removable backend pack — supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
         Backends.LLMBackendPack.Register();
@@ -114,6 +132,24 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());
         ToolRegistryService.RegisterHandler(new MemoryReadTool());
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
+    }
+
+    /// <summary>Re-registers the LLM model type after a model-paths settings change. The event fires
+    /// AFTER core's RefreshAllModelSets() pass (AdminAPI: BuildModelLists → RefreshAllModelSets →
+    /// event), so the re-registered set must refresh itself or its model list stays empty.</summary>
+    private static void OnModelPathsChanged()
+    {
+        RegisterLLMModelType();
+        if (Program.T2IModelSets.TryGetValue("LLM", out T2IModelHandler handler))
+        {
+            handler.Refresh();
+        }
+    }
+
+    /// <summary>Unsubscribe the model-paths hook (same pattern as SDcppExtension).</summary>
+    public override void OnShutdown()
+    {
+        Program.ModelPathsChangedEvent -= OnModelPathsChanged;
     }
 
     /// <summary>Registers the "LLM" model type in SwarmUI's model registry so LLM models
