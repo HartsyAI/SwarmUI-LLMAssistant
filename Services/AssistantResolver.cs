@@ -158,10 +158,8 @@ public static class AssistantResolver
             chain.Add(fallback);
             lineage.Add(AssistantConstants.DefaultId);
         }
-        // NOTE: the default assistant is deliberately NOT appended to every chain. Doing so silently
-        // unioned Swarmie's full tool list (and identity fields) into every assistant, which made the
-        // per-assistant tool checklist inert. Missing instruction text now falls back at read time in
-        // AssistantService.ResolveInstruction instead (settings-level instruction → built-in constant).
+        // The default assistant is NOT implicitly appended (that unioned Swarmie's tools into everything);
+        // missing instruction text falls back at read time in AssistantService.ResolveInstruction.
         // Merge parent → child (so child wins). chain[0] is the requested id (most-child).
         chain.Reverse();
         ResolvedAssistant resolved = new() { Id = assistantId, Lineage = lineage };
@@ -201,9 +199,7 @@ public static class AssistantResolver
         {
             target.ToolsEnabled = layer["toolsEnabled"].Value<bool>();
         }
-        // EnabledToolIds — replace-if-present: an explicit list (even an empty one) IS the assistant's
-        // tool set, matching what the editor checklist visually promises (checked = on, unchecked = off).
-        // An absent field inherits the parent's set — same child-wins-iff-present rule as toolsEnabled.
+        // EnabledToolIds — replace-if-present (explicit list, even empty, IS the set; absent inherits).
         if (layer["enabledToolIds"] is JArray ids)
         {
             target.EnabledToolIds.Clear();

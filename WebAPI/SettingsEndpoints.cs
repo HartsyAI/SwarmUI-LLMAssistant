@@ -64,11 +64,6 @@ public static class SettingsEndpoints
 
     public static async Task<JObject> LLMAssistantSaveSettings(Session session, JObject rawInput)
     {
-        // The `settings` field may be a JObject or a JSON string — the UI sends the latter
-        // (`JSON.stringify(LLMAState.settings)`), same as the tool/assistant endpoints. Without the
-        // string branch this fell through to `?? rawInput` and merged the raw envelope
-        // (`session_id` + the unparsed `settings` string) into the user's config instead of the
-        // actual settings, so every Save & Close from the UI was a silent no-op.
         JObject incoming = ParseSettingsPayload(rawInput);
         if (incoming is null)
         {
@@ -98,8 +93,6 @@ public static class SettingsEndpoints
                 SettingsService.ReplaceSharedSettings(sharedCurrent);
             }
             saved = sharedCurrent;
-            // Settings feed assistant resolution (parameters, instructions, activeAssistantId) — drop
-            // every user's cached resolution so the change is visible immediately, not after the TTL.
             AssistantResolver.InvalidateAll();
             AuditLogService.RecordSharedWrite("update", "settings", session.User,
                 new JObject { ["keys"] = string.Join(",", filtered.Properties().Select(p => p.Name)) });

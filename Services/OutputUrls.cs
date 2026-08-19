@@ -3,14 +3,8 @@ using SwarmUI.Core;
 
 namespace Hartsy.Extensions.LLMAssistant.Services;
 
-/// <summary>Builds and parses the browser-facing URLs for files this extension writes under SwarmUI's
-/// output root (chat image uploads, assistant avatars, <c>file_write</c> results).
-/// <para>Everything here emits paths relative to the <b>global</b> <c>Paths.OutputPath</c> — which
-/// includes the <c>{userId}</c> segment whenever <c>AppendUserNameToOutputPath</c> is on (the default).
-/// That is the <c>/View/{user}/{rest}</c> route's shape, not <c>/Output/</c>'s: the <c>/Output/</c> route
-/// re-roots the request at the caller's own user folder, so an <c>Output/local/…</c> URL resolved to
-/// <c>Output/local/local/…</c> and 404'd on every default install. <c>/View/</c> is also what SwarmUI's
-/// own image history uses; <c>/Output/</c> is documented as legacy.</para></summary>
+/// <summary>Builds/parses served URLs for files under the output root. Emits <c>/View/{user}/{rest}</c>
+/// (the <c>/Output/</c> route re-roots at the caller's user folder and 404s on default installs).</summary>
 public static class OutputUrls
 {
     /// <summary>Route prefix for URLs handed to the browser.</summary>
@@ -61,8 +55,7 @@ public static class OutputUrls
         }
         string root = Root;
         string full = Path.GetFullPath(Path.Combine(root, rel));
-        // Compare against root + separator: a bare StartsWith would also accept a sibling folder
-        // whose name merely begins with the root's (eg "Output" vs "Output-archive").
+        // root + separator, so a sibling folder like "Output-archive" can't pass.
         string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
         return full.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) ? full : null;
     }

@@ -13,15 +13,12 @@ namespace Hartsy.Extensions.LLMAssistant;
 /// using SwarmUI's native LLM model registry and backends.</summary>
 public class LLMAssistantExtension : Extension
 {
-    /// <summary>Declared extension version, for startup logging. Deliberately NOT named `Version`:
-    /// that would shadow (`new`) the base instance field core populates from git and shows in the
-    /// Extensions tab — a static shadow made the declared version invisible everywhere but our log.</summary>
+    /// <summary>For startup logging only — must not shadow the base `Version` field core populates from git.</summary>
     public const string ExtensionVersion = "2.0.0-alpha.2";
 
     public LLMAssistantExtension()
     {
-        // Core's PopulateMetadata only fills these from the official extension list; until this repo
-        // is listed there, set them so the Extensions tab shows real info instead of "(Unknown)".
+        // Shown in the Extensions tab until the repo is on the official extension list.
         ExtensionAuthor = "Hartsy";
         Description = "Full LLM workspace: persistent chats, custom assistants, agentic tool calling, vision, model comparison, a floating companion, and <llmprompt> Generate-tab integration.";
         License = "MIT";
@@ -32,8 +29,7 @@ public class LLMAssistantExtension : Extension
     public override void OnPreInit()
     {
         Logs.Info($"[LLMAssistant] Version {ExtensionVersion} loading...");
-        // Extension JS. The markdown/highlight/math/diagram libraries are vendored under
-        // Assets/vendor and lazy-loaded from disk by utils.js — nothing is fetched from a CDN.
+        // Extension JS (vendored libs under Assets/vendor are lazy-loaded by utils.js; no CDN).
         ScriptFiles.Add("Assets/utils.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
@@ -101,9 +97,7 @@ public class LLMAssistantExtension : Extension
     public override void OnInit()
     {
         RegisterLLMModelType();
-        // Core's BuildModelLists() (run on any model-path settings save, see AdminAPI) does
-        // T2IModelSets.Clear() and rebuilds only the core sets — without this hook the LLM model
-        // type silently vanished until restart whenever an admin saved path settings.
+        // Core clears T2IModelSets on any model-path settings save; re-register or the LLM type vanishes.
         Program.ModelPathsChangedEvent += OnModelPathsChanged;
         // Removable backend pack — supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
@@ -134,9 +128,7 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
     }
 
-    /// <summary>Re-registers the LLM model type after a model-paths settings change. The event fires
-    /// AFTER core's RefreshAllModelSets() pass (AdminAPI: BuildModelLists → RefreshAllModelSets →
-    /// event), so the re-registered set must refresh itself or its model list stays empty.</summary>
+    /// <summary>The event fires after core's refresh pass, so the re-registered set must Refresh() itself.</summary>
     private static void OnModelPathsChanged()
     {
         RegisterLLMModelType();
@@ -146,7 +138,6 @@ public class LLMAssistantExtension : Extension
         }
     }
 
-    /// <summary>Unsubscribe the model-paths hook (same pattern as SDcppExtension).</summary>
     public override void OnShutdown()
     {
         Program.ModelPathsChangedEvent -= OnModelPathsChanged;

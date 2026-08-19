@@ -22,11 +22,7 @@ const LLMAToolPicker = {
     el: null,
 };
 
-// Tools available to the active assistant, intersected with globally-enabled tools. Uses the
-// server-resolved `_effectiveToolIds` (inheritance applied) so the picker never disagrees with what
-// the backend actually offers the model; raw `enabledToolIds` is only a fallback for stale payloads.
-// Empty whenever tool calling itself is off (see llmaEffectiveToolsEnabled) — the picker has nothing to
-// offer in that state, same as the backend injecting no tool prompt at all.
+// Server-resolved effective tools ∩ globally-enabled; empty when tool calling is off for the chat.
 function llmaPickerTools() {
     if (!llmaEffectiveToolsEnabled()) return [];
     const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);

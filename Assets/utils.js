@@ -566,8 +566,7 @@ const LLMA_CATEGORY_ICONS = {
     custom:   '\u2B50',
 };
 
-// Callers pass `a.icon || a.category` — `category` is a legacy field nothing writes anymore (the
-// editor's Category dropdown stores into `icon`); the fallback read only exists for old saved data.
+// `category` is legacy read-only (the editor writes `icon`).
 function llmaCategoryIcon(category) {
     return LLMA_CATEGORY_ICONS[category] || '\u2726';
 }

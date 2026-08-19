@@ -77,9 +77,7 @@ public static class LLMStreamHelper
                     {
                         string text = chunkToken.ToString();
                         roundBuffer.Append(text);
-                        // Awaited directly (the seam's callback is async) — the old sync callback had to
-                        // block a provider thread per chunk with .Wait(). The chunk carrying </tool_call>
-                        // still reaches the UI before the round gets cancelled below.
+                        // Send before the cancel below so the </tool_call> chunk reaches the UI.
                         await SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock);
                         if (closeTagWatcher.Feed(text))
                         {

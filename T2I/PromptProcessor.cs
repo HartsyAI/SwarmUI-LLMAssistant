@@ -51,10 +51,7 @@ public static class PromptProcessor
             ? assistantOverride
             : (user is not null ? AssistantService.GetActiveAssistantId(user: user) : null);
         string originalPrompt = prompt;
-        // LLM Generate Wildcard Seed: pin one deterministic wildcard seed derived from the SOURCE
-        // prompt, so every image in a batch (same source prompt + cached identical LLM response)
-        // makes the same <wildcard> picks, while different prompts still vary. A user-set core
-        // Wildcard Seed (even -1 = explicit random) always wins over this convenience.
+        // Pin one prompt-derived wildcard seed for the whole batch; a user-set Wildcard Seed wins.
         if (input.TryGet(PromptTagHandler.ParamWildcardSeed, out bool wildcardSeedOn) && wildcardSeedOn
             && !input.TryGet(T2IParamTypes.WildcardSeed, out _))
         {
@@ -69,10 +66,7 @@ public static class PromptProcessor
             string effectiveInstruction = tagInstructionId ?? instructionOverride ?? InstructionIds.Prompt;
             try
             {
-                // Blocking is forced here: core's LateSpecialParameterHandlers is a synchronous
-                // Action<T2IParamInput> hook (an async handler variant upstream would be the real fix).
-                // Contained: GetAwaiter().GetResult() unwraps exceptions cleanly (no AggregateException),
-                // and a hard timeout stops a hung backend from pinning this request thread forever.
+                // Core's handler hook is sync, so blocking is forced; the timeout bounds a hung backend.
                 using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(120));
                 string response;
                 if (useCache)
@@ -109,9 +103,7 @@ public static class PromptProcessor
         input.Set(T2IParamTypes.Prompt, prompt);
     }
 
-    /// <summary>Deterministic FNV-1a hash of the source prompt, masked non-negative for use as a
-    /// wildcard seed. <c>string.GetHashCode</c> is randomized per process, so it can't produce a
-    /// value that should be stable across runs.</summary>
+    /// <summary>FNV-1a, masked non-negative (string.GetHashCode is randomized per process).</summary>
     private static long StableWildcardSeed(string prompt)
     {
         ulong hash = 14695981039346656037UL;
@@ -128,15 +120,11 @@ public static class PromptProcessor
     private static async Task<string> CallLLM(string content, string instructionId, string model, User user, string assistantId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        // Look up model facts so per-model variants can pick the right text. Tolerates unknown
-        // models (returns null; only Default/Exact/Glob matchers will then match).
         LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
         string systemPrompt = InstructionIds.All.Contains(instructionId)
             ? AssistantService.ResolveInstruction(instructionId, assistantId, user: user, modelInfo: modelInfo)
             : InstructionService.ResolveInstruction(instructionId, user: user);
         ExtendedLLMInput input = ExtendedLLMInput.Create(content, systemPrompt, model);
-        // Generate is a non-streaming accumulator with no ct parameter; bound it with WaitAsync so
-        // the 120s tag-processing timeout actually cuts a hung backend loose.
         return await LLMDispatcher.Generate(input).WaitAsync(ct);
     }
 }
