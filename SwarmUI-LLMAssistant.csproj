@@ -23,9 +23,12 @@
        extensions, ahead of the engine repo's manual publish of that version — restore will 404 until
        that push lands on nuget.org. NEVER pin a "-local" suffix here: this extension is cloned by
        end users who only have nuget.org, and a "-local" version only resolves on the dev feed at
-       /home/hartsy/.local/share/hartsy-local-nuget. -->
+       /home/hartsy/.local/share/hartsy-local-nuget.
+       2.0.0-alpha.33 = the current nuget.org release, bringing this extension back in step with
+       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. It had drifted ten versions behind while the
+       deployed output carried a hand-deployed local engine build, so the pin was not what actually ran. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.23" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.33" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
