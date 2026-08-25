@@ -7,6 +7,7 @@ using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
+using HartsyInference.Core.MemoryManagement;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
@@ -31,7 +32,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ConfigComment("Which CUDA device ordinal to use (only when Device = CUDA).")]
         public int GPUDeviceId = 0;
 
-        [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.")]
+        [ConfigComment("How hard the engine should work to fit models in VRAM.\n\n'Auto' (default) reads the card's size for a starting posture, then measures free VRAM. Right for almost everyone.\n\n'Performance' keeps the model loaded and never auto-evicts — fastest for repeated chats, but leaves the card occupied.\n\n'Balanced' and 'Aggressive' progressively free more between requests, for sharing a card with image generation.\n\n'Maximum' also turns on quantized compute (the same lever as the separate setting below) and frees the model after every request.")]
+        [ManualSettingsOptions(Impl = null, Vals = ["Auto", "Performance", "Balanced", "Aggressive", "Maximum"],
+            ManualNames = ["Auto (recommended)", "Performance (stay loaded)", "Balanced", "Aggressive", "Maximum (free after every request)"])]
+        public string VramMode = "Auto";
+
+        [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.\n\nNOT the same thing as VRAM Mode above, despite both being about VRAM: this changes HOW a quantized weight is multiplied (compressed with a transient dequant per call, vs. one cached F16 copy), while VRAM Mode decides what stays loaded and when. They compose — 'Maximum' turns this on for you.\nOnly does anything for a quantized (GGUF) checkpoint; on an unquantized one it is inert, and the lever that helps there is splitting layers across GPUs.")]
         public bool LowVramQuant = false;
 
         [ConfigComment("Repetition penalty on already-generated tokens (1.0 = off).\nSmall models (eg 0.5B) loop/repeat without this — ~1.1 is a good default. Ignored at temperature 0 (greedy).")]
@@ -74,9 +80,29 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     protected override Task OnProviderInit()
     {
-        Engine = new InferenceEngine(string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda");
+        // The policy reaches the text slots because TextService applies the engine's policy to the backends it
+        // builds per device key — without that it would only govern this shell engine's own unused backend.
+        Engine = new InferenceEngine(
+            string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda",
+            new EngineOptions { VramPolicy = ParseVramMode(Settings.VramMode) });
         Status = BackendStatus.RUNNING; // Lazy: load on first request.
         return Task.CompletedTask;
+    }
+
+    /// <summary>Maps the VRAM Mode setting to an engine policy; null (Auto or an unrecognized value) leaves the engine on its own default.</summary>
+    private static VramPolicy ParseVramMode(string mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode) || mode.Trim().Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        if (!Enum.TryParse(mode.Trim(), ignoreCase: true, out VramTier tier))
+        {
+            Logs.Warning($"[LLMAssistant] VRAM mode '{mode}' is not recognized; using Auto. "
+                + "Valid: Auto, Performance, Balanced, Aggressive, Maximum.");
+            return null;
+        }
+        return VramPolicy.For(tier);
     }
 
     /// <inheritdoc/>

@@ -28,7 +28,7 @@
        SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. It had drifted ten versions behind while the
        deployed output carried a hand-deployed local engine build, so the pin was not what actually ran. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.33" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.36" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
@@ -46,6 +46,9 @@
          already carries its dependency closure (LLM/Core/ModelAssets/Cpu/Cuda), so those don't need
          separate entries here. -->
     <Reference Include="HartsyInference.Engine"><HintPath>$(HartsyEngineBin)/HartsyInference.Engine.dll</HintPath><Private>true</Private></Reference>
+    <!-- Core carries the VRAM policy types (VramPolicy/VramTier) this backend maps its VramMode setting onto.
+         Engine's output already ships Core at runtime; this entry is only so the compiler can see the types. -->
+    <Reference Include="HartsyInference.Core"><HintPath>$(HartsyEngineBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
