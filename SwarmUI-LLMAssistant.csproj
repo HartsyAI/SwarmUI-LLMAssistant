@@ -28,7 +28,7 @@
        SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. It had drifted ten versions behind while the
        deployed output carried a hand-deployed local engine build, so the pin was not what actually ran. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.36" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.39" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
