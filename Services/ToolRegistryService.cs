@@ -707,6 +707,87 @@ public static class ToolRegistryService
             ["updated"] = now
         };
 
+        // Voice-satellite actions. Enabled = false by default: on a browser chat these appear to work and do
+        // nothing, because the effect belongs to a device that is not there. LLMAssistantVoiceTurn is what makes
+        // them real, by returning the calls to the device that asked.
+        tools[ToolConstants.SetLedProfile] = new JObject
+        {
+            ["id"] = ToolConstants.SetLedProfile,
+            ["name"] = "Set LED Show",
+            ["description"] = "Change the LED ring animation on the voice device you are talking through. Use the show's name, e.g. 'listening_pulse_blue' or 'rainbow'. Only call this when the user asks about the lights.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["profile"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Name of the LED show to switch to, as configured on the device."
+                    }
+                },
+                ["required"] = new JArray("profile")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.SetLedProfile,
+            ["enabled"] = false,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.SetVolume] = new JObject
+        {
+            ["id"] = ToolConstants.SetVolume,
+            ["name"] = "Set Device Volume",
+            ["description"] = "Set the speaker volume of the voice device you are talking through, 0 (silent) to 100 (loudest).",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["level"] = new JObject
+                    {
+                        ["type"] = "number",
+                        ["description"] = "Volume from 0 to 100."
+                    }
+                },
+                ["required"] = new JArray("level")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.SetVolume,
+            ["enabled"] = false,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
+        tools[ToolConstants.MuteMic] = new JObject
+        {
+            ["id"] = ToolConstants.MuteMic,
+            ["name"] = "Mute Device Microphone",
+            ["description"] = "Mute or unmute the microphone on the voice device you are talking through. Muting stops it hearing anything, including its own wake word, until it is unmuted.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["muted"] = new JObject
+                    {
+                        ["type"] = "boolean",
+                        ["description"] = "True to mute the microphone, false to unmute it."
+                    }
+                },
+                ["required"] = new JArray("muted")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.MuteMic,
+            ["enabled"] = false,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
         tools[ToolConstants.ShellExec] = new JObject
         {
             ["id"] = ToolConstants.ShellExec,

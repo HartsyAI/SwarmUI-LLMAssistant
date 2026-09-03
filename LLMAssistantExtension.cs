@@ -126,6 +126,11 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());
         ToolRegistryService.RegisterHandler(new MemoryReadTool());
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
+        // One handler instance per device action; they share an implementation and differ only by id.
+        foreach (string deviceTool in DeviceActionTool.Ids)
+        {
+            ToolRegistryService.RegisterHandler(new DeviceActionTool(deviceTool));
+        }
     }
 
     /// <summary>The event fires after core's refresh pass, so the re-registered set must Refresh() itself.</summary>

@@ -105,6 +105,13 @@ public static class ToolConstants
     /// <summary>ID of the built-in SwarmUI docs lookup tool.</summary>
     public const string SwarmDocs = "swarm_docs";
 
+    /// <summary>ID of the voice-satellite LED-show tool. Executed by the device, not the server.</summary>
+    public const string SetLedProfile = "set_led_profile";
+    /// <summary>ID of the voice-satellite volume tool. Executed by the device, not the server.</summary>
+    public const string SetVolume = "set_volume";
+    /// <summary>ID of the voice-satellite microphone-mute tool. Executed by the device, not the server.</summary>
+    public const string MuteMic = "mute_mic";
+
     /// <summary>All built-in tool IDs.</summary>
-    public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs];
+    public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
 }

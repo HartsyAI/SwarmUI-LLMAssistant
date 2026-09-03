@@ -188,6 +188,125 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>One-shot conversational turn <b>with tool calling</b>, for a voice satellite: text in, spoken
+    /// reply plus any device actions out.
+    ///
+    /// <para>Exists because the two existing paths each miss half of what a device needs.
+    /// <see cref="LLMAssistantSendMessage"/> is one-shot but has no tool loop, so the assistant can talk and
+    /// nothing else. <c>LLMAssistantSendMessageWS</c> has the tool loop but is a WebSocket carrying incremental
+    /// frames and requires a stored thread — the wrong shape for a microcontroller that wants one request and
+    /// one answer.</para>
+    ///
+    /// <para>Device actions (<c>set_led_profile</c>, <c>set_volume</c>, <c>mute_mic</c>) execute as no-ops
+    /// server-side and come back in <c>toolCalls</c> for the caller to run against its own hardware; see
+    /// <see cref="Tools.BuiltIn.DeviceActionTool"/>. Server-side tools still run normally here, so the same turn
+    /// can search the web and dim the lights.</para>
+    ///
+    /// <para>Stateless like <see cref="LLMAssistantSendMessage"/> — no thread is loaded or written. Unlike it,
+    /// nothing is cached: a voice assistant asked the same thing twice should answer twice, not replay one
+    /// canned reply.</para>
+    ///
+    /// <para>Request: <c>{ message (required), assistantId?, model?, temperature?, maxTokens? }</c>.
+    /// Response: <c>{ success, response, toolCalls: [{ name, arguments }], truncated? }</c>.</para></summary>
+    public static async Task<JObject> LLMAssistantVoiceTurn(Session session,
+        string message, string assistantId = null, string model = null,
+        double temperature = -1, int maxTokens = -1)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                return new JObject { ["success"] = false, ["error"] = "message is required." };
+            }
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
+            ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
+            input.RequestSession = session;
+            ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens);
+
+            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
+            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId: null);
+
+            StringBuilder spoken = new();
+            JArray deviceCalls = [];
+            bool truncated = true;
+            for (int iteration = 0; iteration < ToolConstants.MaxAgenticIterations; iteration++)
+            {
+                string round = await LLMDispatcher.Generate(input);
+                List<ToolPromptService.ParsedToolCall> calls = ToolPromptService.ParseToolCalls(round, out List<string> malformed);
+                if (calls.Count == 0 && malformed.Count == 0)
+                {
+                    spoken.Append(round);
+                    truncated = false;
+                    break;
+                }
+                // The tool-call markup itself is not speech; only prose the model produced alongside it is.
+                // Without this the device reads "<tool_call>{...}</tool_call>" out loud.
+                string prose = calls.Aggregate(round, (text, call) =>
+                    string.IsNullOrEmpty(call.RawMatch) ? text : text.Replace(call.RawMatch, "")).Trim();
+                if (prose.Length > 0) spoken.Append(prose);
+                input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = round });
+                foreach (string _ in malformed)
+                {
+                    input.Messages.Add(new LLMMessage()
+                    {
+                        Role = LLMRoles.User,
+                        Content = ToolPromptService.FormatToolResult("tool_call", new JObject
+                        {
+                            ["success"] = false,
+                            ["error"] = "Could not parse this tool call — invalid or incomplete JSON. Re-emit it as a single well-formed <tool_call>{\"name\":\"...\",\"arguments\":{...}}</tool_call> block."
+                        })
+                    });
+                }
+                foreach (ToolPromptService.ParsedToolCall call in calls)
+                {
+                    JObject result;
+                    try
+                    {
+                        result = await ToolExecutorService.ExecuteTool(call.Name, call.Arguments, session, assistantId, threadId: null, input.Model);
+                    }
+                    catch (Exception ex)
+                    {
+                        Logs.Error($"[LLMAssistant] Voice turn tool '{call.Name}' failed: {ex.Message}");
+                        result = new JObject { ["success"] = false, ["error"] = ex.Message };
+                    }
+                    // Only surface calls the device is expected to act on, and only ones that validated —
+                    // handing back a rejected call would have the device act on arguments the server refused.
+                    if (Tools.BuiltIn.DeviceActionTool.IsDeviceAction(call.Name) && result["success"]?.Value<bool>() == true)
+                    {
+                        deviceCalls.Add(new JObject { ["name"] = call.Name, ["arguments"] = call.Arguments });
+                    }
+                    input.Messages.Add(new LLMMessage()
+                    {
+                        Role = LLMRoles.User,
+                        Content = ToolPromptService.FormatToolResult(call.Name, result)
+                    });
+                }
+            }
+            JObject response = new()
+            {
+                ["success"] = true,
+                ["response"] = spoken.ToString().Trim(),
+                ["toolCalls"] = deviceCalls
+            };
+            if (truncated)
+            {
+                // The device still gets whatever was said and done; it just did not reach a natural end.
+                response["truncated"] = true;
+                response["reason"] = "max_iterations";
+            }
+            return response;
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Voice turn failed: {ex.Message}");
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
     /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, instructionId? }</c>.
