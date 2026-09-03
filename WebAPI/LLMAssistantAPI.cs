@@ -108,6 +108,14 @@ public static class LLMAssistantAPI
     /// SwarmUI's bundled documentation (the markdown files under the install's <c>docs/</c>
     /// folder). Sandboxed strictly to that directory; no access to user data or arbitrary disk
     /// paths. Safe to grant broadly — docs are public reference material.</summary>
+    /// <summary>Permission for the voice-satellite action tools (<c>set_led_profile</c>, <c>set_volume</c>,
+    /// <c>mute_mic</c>). These do nothing on the server — they are returned to a calling device, which acts on
+    /// them — so the risk is bounded by what that hardware can do, not by server access.</summary>
+    public static readonly PermInfo PermToolDeviceAction = Permissions.Register(new(
+        "llm_tool_device_action", "[LLM Tool] Device Actions",
+        "Allows the LLM to control a connected voice satellite: its LED show, its speaker volume, and whether its microphone is muted. The server only relays these; the device carries them out.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     public static readonly PermInfo PermToolSwarmDocs = Permissions.Register(new(
         "llm_tool_swarm_docs", "[LLM Tool] SwarmUI Docs",
         "Allows the LLM to list and read SwarmUI's bundled documentation files (docs/*.md). Sandboxed strictly to the docs folder — cannot access user data or other files. Used by Swarmie and other helper assistants to give exact, doc-grounded how-to answers.",
@@ -126,6 +134,7 @@ public static class LLMAssistantAPI
     {
         // Chat
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantVoiceTurn, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
         // Branching: edit-into-new-branch and regenerate-as-new-branch both stream like a normal send.
         API.RegisterAPICall(ChatEndpoints.LLMAssistantEditMessageWS, true, PermChat);

@@ -31,6 +31,9 @@ public static class ToolExecutorService
         [ToolConstants.MemoryWrite] = LLMAssistantAPI.PermToolMemory,
         [ToolConstants.MemoryRead] = LLMAssistantAPI.PermToolMemory,
         [ToolConstants.SwarmDocs] = LLMAssistantAPI.PermToolSwarmDocs,
+        [ToolConstants.SetLedProfile] = LLMAssistantAPI.PermToolDeviceAction,
+        [ToolConstants.SetVolume] = LLMAssistantAPI.PermToolDeviceAction,
+        [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
     };
 
     /// <summary>Executes a tool by ID with the given arguments and request context.</summary>
