@@ -44,6 +44,23 @@ public static class LLMModelLookup
         return models;
     }
 
+    /// <summary>The first model any registered provider advertises, or null when none does. For callers
+    /// that cannot name a model because there is no one to pick one — a voice satellite sends an
+    /// utterance and nothing else. Uses the same cached rosters as the lookups above, so it costs
+    /// nothing on the hot path.</summary>
+    public static async Task<LLMModelInfo> GetFirstAvailableAsync()
+    {
+        foreach (ILLMProvider provider in LLMProviderRegistry.All)
+        {
+            List<LLMModelInfo> models = await GetModelsCached(provider);
+            if (models.Count > 0)
+            {
+                return models[0];
+            }
+        }
+        return null;
+    }
+
     /// <summary>Returns the <see cref="LLMModelInfo"/> for the given model id, or null if no registered
     /// provider advertises it. Tolerates a null/empty id (returns null).</summary>
     public static async Task<LLMModelInfo> GetByIdAsync(string modelId)

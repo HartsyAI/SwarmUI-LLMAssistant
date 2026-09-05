@@ -220,6 +220,24 @@ public static class ChatEndpoints
             }
             JObject settings = SettingsService.GetMergedSettings(session.User);
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            // A voice satellite sends an utterance and nothing else — there is no model picker on a device
+            // with no screen. Left unresolved, the empty id reaches the provider and comes back as
+            // "LLM model '' not found in the LLM model folder(s)", which reads like a missing file rather
+            // than a missing request field. Verified on hardware 2026-09-05: this was the whole failure.
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync();
+                if (fallback is null)
+                {
+                    return new JObject
+                    {
+                        ["success"] = false,
+                        ["error"] = "No LLM model is available. Add a backend under Server > Backends and "
+                            + "make sure it advertises at least one model."
+                    };
+                }
+                model = fallback.Id;
+            }
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
