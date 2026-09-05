@@ -208,6 +208,15 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     }
                     else if (chunk.Stop is StopReason.Error)
                     {
+                        // Log it as well as forwarding it. The wire event alone reaches the chat UI, but a
+                        // caller that only accumulates text (LLMProviderBackend.Generate, and through it the
+                        // one-shot and voice routes) sees nothing but an empty string, and nothing is written
+                        // anywhere else — an engine-side failure was indistinguishable from "the model chose
+                        // to say nothing", at any log level. Cost an hour on 2026-09-05 to a backend left on
+                        // the default Device=cuda that could not actually run.
+                        Logs.Warning($"[LLMAssistant] Local LLM '{input.Model}' stopped with an engine error on "
+                            + $"device '{deviceKey}' — no text was produced. If this device is not usable, "
+                            + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
                         await onChunk(new JObject() { ["stopReason"] = "error" });
                     }
                     break;

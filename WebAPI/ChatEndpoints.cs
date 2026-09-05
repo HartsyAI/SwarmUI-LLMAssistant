@@ -286,10 +286,26 @@ public static class ChatEndpoints
                     });
                 }
             }
+            string spokenText = spoken.ToString().Trim();
+            // A turn that produced neither speech nor a device action is a failed turn, not an empty
+            // success. The provider returns "" for an engine-side failure just as it would for a model
+            // that genuinely said nothing, and a voice device cannot tell those apart: it would speak
+            // silence and log nothing, which is the least debuggable possible outcome. Callers get a
+            // real error instead. Tool-only turns ("turn the ring blue") legitimately have no speech,
+            // so they must not trip this.
+            if (spokenText.Length == 0 && deviceCalls.Count == 0)
+            {
+                return new JObject
+                {
+                    ["success"] = false,
+                    ["error"] = "The model produced no reply. This is usually a backend that cannot run "
+                        + "on its configured device — check Server > Backends and the server log."
+                };
+            }
             JObject response = new()
             {
                 ["success"] = true,
-                ["response"] = spoken.ToString().Trim(),
+                ["response"] = spokenText,
                 ["toolCalls"] = deviceCalls
             };
             if (truncated)
