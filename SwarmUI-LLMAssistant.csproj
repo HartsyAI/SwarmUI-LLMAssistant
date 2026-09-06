@@ -26,9 +26,13 @@
        /home/hartsy/.local/share/hartsy-local-nuget.
        2.0.0-alpha.33 = the current nuget.org release, bringing this extension back in step with
        SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. It had drifted ten versions behind while the
-       deployed output carried a hand-deployed local engine build, so the pin was not what actually ran. -->
+       deployed output carried a hand-deployed local engine build, so the pin was not what actually ran.
+       2.0.0-alpha.47 = threads the CPU kernels, which the voice path needs: token decode goes through the
+       same GEMM that ran on a single core, and this extension shares a box with the TTS that dominates a
+       voice turn. Note the pin had drifted to alpha.40 again while a gitignored Directory.Build.props
+       pointed local builds at a checkout — a Release build against this pin is now verified. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.40" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.47" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
