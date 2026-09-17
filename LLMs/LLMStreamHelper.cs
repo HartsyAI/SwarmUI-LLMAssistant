@@ -132,6 +132,20 @@ public static class LLMStreamHelper
                 // Expected: the round was cancelled because a tool call completed — fall through and
                 // execute it. A real user-Stop / socket-close cancels `linked` and isn't caught here.
             }
+            catch (OperationCanceledException) when (linked.IsCancellationRequested)
+            {
+                // A real Stop landed mid-round and the provider threw instead of gracefully finishing with
+                // its own StopReason.Cancelled chunk (eg a remote provider's cancellable HTTP read). Fold in
+                // whatever streamed so far so it isn't lost, same as the other early-return sites in this loop.
+                Logs.Debug("[LLMAssistant] Stream cancelled mid-round (provider threw on Stop).");
+                fullResponse.Append(roundBuffer);
+                PersistPartialOnStop();
+                return;
+            }
+            // Any other OperationCanceledException here (neither a tool-call early-cutoff nor `linked`
+            // itself) is not a Stop: eg a provider's own independent timeout unrelated to the caller's
+            // token. Left uncaught on purpose: it propagates to the WS handler's outer catch (Exception ex),
+            // which reports it as a real error instead of it being silently mistaken for a graceful stop.
             if (SocketGone(socket))
             {
                 linked.Cancel();
@@ -273,13 +287,15 @@ public static class LLMStreamHelper
                 }
             }, linked.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
-            // Stop button (or the socket closing) cancelled generation before the engine had a chance to
-            // hand back its own StopReason.Cancelled chunk. No `when` filter here: whether this came from
-            // `linked` directly or from some inner token the engine derived from it, there's no other
-            // legitimate source of OCE in this method. Fall through and persist below instead of the old
-            // behavior of just discarding fullText: this is a real Stop, not an error.
+            // Stop button (or the socket closing) cancelled `linked` before the engine had a chance to
+            // hand back its own StopReason.Cancelled chunk. Restricted to `linked.IsCancellationRequested`
+            // on purpose: a provider can have its own independent cancellation source (eg Anthropic's
+            // per-request TimeoutSeconds token, unrelated to the caller's `ct`) that also throws OCE; that
+            // case must NOT be swallowed as "cancelled", so it's left to propagate as a real error instead.
+            // Fall through and persist below instead of the old behavior of just discarding fullText: this
+            // is a real Stop, not an error.
             stopReason ??= "cancelled";
         }
         // Persist regardless of socket state: the model already did the work (or was told to stop), so the

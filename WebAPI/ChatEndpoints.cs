@@ -349,6 +349,14 @@ public static class ChatEndpoints
     /// closes its socket.</summary>
     public static Task<JObject> LLMAssistantStopGeneration(Session session, string threadId)
     {
+        // Thread ids are otherwise-unauthenticated strings (they can even appear in output paths), so
+        // without this check any caller with PermChat could cancel another user's in-flight generation
+        // by guessing/reusing their thread id. Ownership failure and "nothing was in flight" return the
+        // identical shape on purpose: distinguishing them would turn this into a thread-id oracle.
+        if (ThreadStorageService.GetThread(session.User, threadId) is null)
+        {
+            return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = false });
+        }
         bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
         return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
     }
@@ -536,15 +544,26 @@ public static class ChatEndpoints
             : [];
         await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
         CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+        bool stopped;
         try
         {
             await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
         }
         finally
         {
+            // Captured before End() disposes the source: a Stop makes StreamToWebSocket return normally
+            // (it persists the partial reply itself), so this is the only signal left afterward that the
+            // user actually asked to stop, as opposed to a normal finish.
+            stopped = cts.IsCancellationRequested;
             GenerationCancellationRegistry.End(threadId, cts);
         }
-        await MaybeGenerateTitleAsync(socket, session, threadId, model);
+        if (!stopped)
+        {
+            // Skip auto-titling after a stopped reply: MaybeGenerateTitleAsync starts a new, uncancellable
+            // generation (LLMDispatcher.Generate, no token), and running it right after Stop would silently
+            // start more model work the instant the user asked for it to stop.
+            await MaybeGenerateTitleAsync(socket, session, threadId, model);
+        }
     }
 
     /// <summary>Claude/ChatGPT-style auto-titling: right after a chat's first exchange, asks the model
