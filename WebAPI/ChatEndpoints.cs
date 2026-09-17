@@ -528,25 +528,35 @@ public static class ChatEndpoints
         {
             assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
         }
-        // Resolve model facts once so per-model instruction variants can pick the right text.
-        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
-        string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
-        // Build LLM input from the active branch (truncated to maxContextMessages).
-        List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
-        input.RequestSession = session;
-        JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-        ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
-        // Load tools enabled for this assistant and inject their descriptions into the system prompt —
-        // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
-        List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
-            ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-            : [];
-        await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+        // Registered before the setup below (not just before streaming): a model-cache-miss lookup or a
+        // slow tool resolution can each take a while, and a Stop clicked during that window needs
+        // somewhere to land. Setup itself isn't interruptible mid-call, but registering early means Stop
+        // is at least observed, and the check right before streaming turns that into a fast, clean bail
+        // instead of ignoring the Stop and running the full generation anyway.
         CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
         bool stopped;
         try
         {
+            // Resolve model facts once so per-model instruction variants can pick the right text.
+            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+            // Build LLM input from the active branch (truncated to maxContextMessages).
+            List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
+            ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
+            input.RequestSession = session;
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+            // Load tools enabled for this assistant and inject their descriptions into the system prompt —
+            // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
+            List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
+            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+            if (cts.IsCancellationRequested)
+            {
+                // Stopped during setup, before a single token was ever requested: nothing to persist.
+                return;
+            }
             await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
         }
         finally
@@ -768,9 +778,10 @@ public static class ChatEndpoints
             (string Model, string Device, int BackendId, string AssistantMessageId) L = lanes[lane];
             try
             {
-                // Note: a Stop click during this setup (model lookup, tool resolution) doesn't take effect
-                // until StreamToWebSocket below starts honoring cts.Token: a narrow window, and these calls
-                // are normally fast, so it's not worth threading the token through them for this fix.
+                // cts is registered (Begin, above) before this task ever starts, so a Stop that lands
+                // during this lane's own setup (model lookup, tool resolution) is observed here instead
+                // of being silently ignored: the check right before StreamToWebSocket turns it into a
+                // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
@@ -779,6 +790,10 @@ public static class ChatEndpoints
                 input.Device = L.Device;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
                 await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
                     clientAssistantMessageId: L.AssistantMessageId,
                     lane: lane, sendLock: sendLock, parentMessageId: parentUserId,

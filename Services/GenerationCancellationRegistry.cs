@@ -16,29 +16,40 @@ public static class GenerationCancellationRegistry
     /// in-flight read of <c>linked.Token</c> and throw <see cref="ObjectDisposedException"/> deep inside
     /// that turn's own cleanup. The stale turn's own <see cref="End"/> call disposes it once it's actually
     /// done. Call <see cref="End"/> from a <c>finally</c> block once the generation this token guards has
-    /// fully finished.</summary>
+    /// fully finished.
+    ///
+    /// Uses <see cref="ConcurrentDictionary{TKey,TValue}.AddOrUpdate"/> rather than a separate
+    /// remove-then-write so two concurrent <see cref="Begin"/> calls for the same thread (two tabs, a
+    /// retried request) can't both read "nothing here yet" and each write their own entry: whichever
+    /// call loses the race gets its stale value handed to it via the update factory and cancelled there,
+    /// so no in-flight source is ever orphaned uncancelled. The factory can run more than once under
+    /// contention and its result can be discarded if another thread's write wins; never dispose the
+    /// stale source here; only <see cref="End"/> disposes.</summary>
     public static CancellationTokenSource Begin(string threadId)
     {
         CancellationTokenSource cts = new();
-        if (Active.TryRemove(threadId, out CancellationTokenSource stale))
+        Active.AddOrUpdate(threadId, cts, (_, stale) =>
         {
             stale.Cancel();
-        }
-        Active[threadId] = cts;
+            return cts;
+        });
         return cts;
     }
 
     /// <summary>Unregisters a thread's entry once its generation has finished (success, error, or
     /// cancellation), and disposes the source. Only removes the entry if it's still the exact source
     /// this call was given: a newer <see cref="Begin"/> for the same thread (the user sent another
-    /// message immediately, or cancelled and replaced it) must keep its own entry intact. Disposal is
+    /// message immediately, or cancelled and replaced it) must keep its own entry intact.
+    ///
+    /// The check-and-remove is done as one atomic operation via the dictionary's
+    /// <see cref="ICollection{T}"/> view: a plain <c>TryGetValue</c> followed by a separate
+    /// <c>TryRemove</c> has a window where a concurrent <see cref="Begin"/> can replace the entry between
+    /// the two calls, and the unconditional <c>TryRemove</c> would then delete the NEW turn's source
+    /// instead of this stale one, leaving that new turn unfindable and unstoppable. Disposal is
     /// idempotent since <see cref="Cancel"/> may have already removed this same entry from <see cref="Active"/>.</summary>
     public static void End(string threadId, CancellationTokenSource cts)
     {
-        if (Active.TryGetValue(threadId, out CancellationTokenSource current) && ReferenceEquals(current, cts))
-        {
-            Active.TryRemove(threadId, out _);
-        }
+        ((ICollection<KeyValuePair<string, CancellationTokenSource>>)Active).Remove(new(threadId, cts));
         try
         {
             cts.Dispose();
