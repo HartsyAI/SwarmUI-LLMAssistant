@@ -48,7 +48,13 @@ public sealed class SwarmNativeLLMProvider : ILLMProvider
     }
 
     /// <inheritdoc/>
-    public Task<string> Generate(ExtendedLLMInput input) => FirstRunning().Generate(ToCore(input));
+    public Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
+    {
+        // Skeleton Generate has no CancellationToken either; honor ct best-effort before dispatching,
+        // same as GenerateLive below.
+        ct.ThrowIfCancellationRequested();
+        return FirstRunning().Generate(ToCore(input));
+    }
 
     /// <inheritdoc/>
     public Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)

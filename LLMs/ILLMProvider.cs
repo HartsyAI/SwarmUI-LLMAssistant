@@ -23,8 +23,9 @@ public interface ILLMProvider
     /// (eg the model dropdown) instead of waiting out the full connection timeout.</summary>
     Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default);
 
-    /// <summary>Generates a full (non-streamed) response.</summary>
-    Task<string> Generate(ExtendedLLMInput input);
+    /// <summary>Generates a full (non-streamed) response. Implementations must honor <paramref name="ct"/>
+    /// the same way <see cref="GenerateLive"/> does.</summary>
+    Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default);
 
     /// <summary>Generates with live chunks. Implementations must <c>await onChunk(...)</c> (consumer
     /// backpressure) and honor <paramref name="ct"/> (the chat UI's Stop button).</summary>

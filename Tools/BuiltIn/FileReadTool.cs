@@ -6,8 +6,9 @@ using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: read a text file from the SwarmUI Data directory (sandboxed via
-/// <see cref="WebServer.CheckFilePath"/>).</summary>
+/// <summary>Built-in tool: read a text file from the SwarmUI Data directory, falling back to the
+/// calling user's <see cref="FileWriteTool"/> output sandbox so a file_write'd file can be read back
+/// (sandboxed via <see cref="WebServer.CheckFilePath"/>).</summary>
 public class FileReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FileRead;
@@ -31,14 +32,30 @@ public class FileReadTool : ToolHandler
             string dataRoot = Path.GetFullPath("Data");
             // SwarmUI's canonical sandbox check (handles traversal, symlinks, normalization).
             (string fullPath, string consoleError, string userError) = WebServer.CheckFilePath(dataRoot, path);
+            if (fullPath is not null && !File.Exists(fullPath))
+            {
+                // Not under Data/ (or not written there): fall back to the per-user output sandbox
+                // file_write actually writes into, so a file_write'd file can be read back at all.
+                fullPath = null;
+            }
+            if (fullPath is null && ctx.Session?.User is not null)
+            {
+                string sandboxRoot = FileWriteTool.GetSandboxRoot(ctx.Session.User);
+                (string fallbackPath, string fbConsoleError, string fbUserError) = WebServer.CheckFilePath(sandboxRoot, path);
+                if (fallbackPath is not null && File.Exists(fallbackPath))
+                {
+                    fullPath = fallbackPath;
+                }
+                else
+                {
+                    consoleError ??= fbConsoleError;
+                    userError ??= fbUserError;
+                }
+            }
             if (fullPath is null)
             {
                 if (consoleError is not null) Logs.Warning($"[LLMAssistant] file_read rejected path: {consoleError}");
-                return new JObject { ["success"] = false, ["error"] = userError ?? "Invalid path." };
-            }
-            if (!File.Exists(fullPath))
-            {
-                return new JObject { ["success"] = false, ["error"] = $"File not found: {path}" };
+                return new JObject { ["success"] = false, ["error"] = userError ?? $"File not found: {path}" };
             }
             FileInfo info = new(fullPath);
             int bytesToRead = (int)Math.Min(maxBytes, info.Length);

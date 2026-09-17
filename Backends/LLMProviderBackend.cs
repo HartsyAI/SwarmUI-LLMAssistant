@@ -40,7 +40,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public async Task<bool> Unload() => await FreeMemory(true);
 
     /// <inheritdoc/>
-    public async Task<string> Generate(ExtendedLLMInput input)
+    public async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
     {
         StringBuilder output = new();
         await GenerateLive(input, "0", j =>
@@ -54,7 +54,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
                 output.Append($"{result}");
             }
             return Task.CompletedTask;
-        }, CancellationToken.None);
+        }, ct);
         return output.ToString();
     }
 

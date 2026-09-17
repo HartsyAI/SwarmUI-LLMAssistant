@@ -341,6 +341,26 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Stop button: cancels whatever generation is currently in flight for a thread (a single
+    /// reply or every lane of a compare turn), so the model actually stops producing tokens server-side
+    /// instead of just having the client stop listening. Plain HTTP, not WebSocket: the chat WS
+    /// endpoints read exactly one incoming frame and never listen again, so a second in-band message on
+    /// that same socket isn't a viable signal path; this is a separate call the client fires before it
+    /// closes its socket.</summary>
+    public static Task<JObject> LLMAssistantStopGeneration(Session session, string threadId)
+    {
+        // Thread ids are otherwise-unauthenticated strings (they can even appear in output paths), so
+        // without this check any caller with PermChat could cancel another user's in-flight generation
+        // by guessing/reusing their thread id. Ownership failure and "nothing was in flight" return the
+        // identical shape on purpose: distinguishing them would turn this into a thread-id oracle.
+        if (ThreadStorageService.GetThread(session.User, threadId) is null)
+        {
+            return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = false });
+        }
+        bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
+        return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
+    }
+
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
     /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, instructionId? }</c>.
@@ -508,23 +528,52 @@ public static class ChatEndpoints
         {
             assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
         }
-        // Resolve model facts once so per-model instruction variants can pick the right text.
-        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
-        string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
-        // Build LLM input from the active branch (truncated to maxContextMessages).
-        List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
-        input.RequestSession = session;
-        JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-        ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
-        // Load tools enabled for this assistant and inject their descriptions into the system prompt —
-        // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
-        List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
-            ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-            : [];
-        await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
-        await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
-        await MaybeGenerateTitleAsync(socket, session, threadId, model);
+        // Registered before the setup below (not just before streaming): a model-cache-miss lookup or a
+        // slow tool resolution can each take a while, and a Stop clicked during that window needs
+        // somewhere to land. Setup itself isn't interruptible mid-call, but registering early means Stop
+        // is at least observed, and the check right before streaming turns that into a fast, clean bail
+        // instead of ignoring the Stop and running the full generation anyway.
+        CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+        bool stopped;
+        try
+        {
+            // Resolve model facts once so per-model instruction variants can pick the right text.
+            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+            // Build LLM input from the active branch (truncated to maxContextMessages).
+            List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
+            ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
+            input.RequestSession = session;
+            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+            // Load tools enabled for this assistant and inject their descriptions into the system prompt —
+            // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
+            List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
+            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+            if (cts.IsCancellationRequested)
+            {
+                // Stopped during setup, before a single token was ever requested: nothing to persist.
+                return;
+            }
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
+        }
+        finally
+        {
+            // Captured before End() disposes the source: a Stop makes StreamToWebSocket return normally
+            // (it persists the partial reply itself), so this is the only signal left afterward that the
+            // user actually asked to stop, as opposed to a normal finish.
+            stopped = cts.IsCancellationRequested;
+            GenerationCancellationRegistry.End(threadId, cts);
+        }
+        if (!stopped)
+        {
+            // Skip auto-titling after a stopped reply: MaybeGenerateTitleAsync starts a new, uncancellable
+            // generation (LLMDispatcher.Generate, no token), and running it right after Stop would silently
+            // start more model work the instant the user asked for it to stop.
+            await MaybeGenerateTitleAsync(socket, session, threadId, model);
+        }
     }
 
     /// <summary>Claude/ChatGPT-style auto-titling: right after a chat's first exchange, asks the model
@@ -721,11 +770,18 @@ public static class ChatEndpoints
             return;
         }
 
+        // One shared source for the whole turn: Stop should kill every lane at once, not just one.
+        CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+
         async Task RunLane(int lane)
         {
             (string Model, string Device, int BackendId, string AssistantMessageId) L = lanes[lane];
             try
             {
+                // cts is registered (Begin, above) before this task ever starts, so a Stop that lands
+                // during this lane's own setup (model lookup, tool resolution) is observed here instead
+                // of being silently ignored: the check right before StreamToWebSocket turns it into a
+                // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
@@ -734,10 +790,19 @@ public static class ChatEndpoints
                 input.Device = L.Device;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
                 await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+                if (cts.IsCancellationRequested)
+                {
+                    return;
+                }
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
                     clientAssistantMessageId: L.AssistantMessageId,
                     lane: lane, sendLock: sendLock, parentMessageId: parentUserId,
-                    compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0);
+                    compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0,
+                    ct: cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                // Stopped, not failed: no lane-tagged error frame for this one.
             }
             catch (Exception ex)
             {
@@ -747,7 +812,14 @@ public static class ChatEndpoints
             }
         }
 
-        await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
+        try
+        {
+            await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
+        }
+        finally
+        {
+            GenerationCancellationRegistry.End(threadId, cts);
+        }
     }
 
     /// <summary>Sends a single lane-tagged frame (used for lane-scoped errors raised outside the stream helper).</summary>
