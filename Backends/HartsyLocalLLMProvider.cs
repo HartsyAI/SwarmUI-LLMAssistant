@@ -52,6 +52,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ConfigComment("If enabled, the model is unloaded immediately after each generation completes.\nIf false, it stays resident for faster subsequent requests.")]
         public bool AlwaysFreeMemory = false;
 
+        [ConfigComment("Free host RAM, in GB, below which loading a new local model first unloads the currently resident one.\n\nUnlike AudioLab's equivalent setting, this is enforced entirely by the extension itself: the LLM engine has no built-in host-RAM eviction of its own to delegate to. 0 disables the check (default), matching today's behavior where a resident model stays loaded regardless of free RAM.")]
+        public int EvictBelowGb = 0;
+
         [ConfigComment("Use CUDA-graph decode when eligible (plain dense Llama/Qwen/Mistral-shape models, CUDA backend only).\nRemoves per-token kernel-launch overhead for faster decode, but only kicks in when the request ends up greedy\n(Temperature = 0) — normal temperature sampling on the chat UI still uses the regular decode path for now.")]
         public bool GraphDecode = false;
 
@@ -185,6 +188,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         {
             throw new SwarmReadableErrorException($"LLM model '{input.Model}' not found in the LLM model folder(s). Drop a .gguf file into Models/llm.");
         }
+        await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
         TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
         await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct))
@@ -388,7 +392,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     continue;
                 }
                 long size = -1;
-                try { size = new FileInfo(file).Length; }
+                try { size = (new FileInfo(file).ResolveLinkTarget(true) as FileInfo)?.Length ?? new FileInfo(file).Length; }
                 catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] Could not stat '{file}': {ex.Message}"); }
                 LLMModelInfo info = new()
                 {
@@ -416,4 +420,28 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     public override Task<bool> FreeMemory(bool systemRam) => Task.FromResult(Engine?.Text.Unload() ?? false);
+
+    /// <summary>Unloads the resident model before a new load if free host RAM is below <see cref="HartsyLocalLLMProviderSettings.EvictBelowGb"/>.
+    /// The engine has no host-RAM-aware eviction of its own for text models (unlike AudioLab's audio models), so this
+    /// extension enforces it directly using the same host memory reader SwarmUI's own admin status page uses
+    /// (<see cref="SystemStatusMonitor.HardwareInfo"/>). A no-op while the setting is left at its default (0).</summary>
+    private async Task MaybeEvictForLowMemory()
+    {
+        int evictBelowGb = Settings.EvictBelowGb;
+        if (evictBelowGb <= 0)
+        {
+            return;
+        }
+        ulong? availableBytes = SystemStatusMonitor.HardwareInfo?.MemoryStatus?.AvailablePhysical;
+        if (availableBytes is null)
+        {
+            return;
+        }
+        ulong thresholdBytes = (ulong)evictBelowGb * 1024 * 1024 * 1024;
+        if (availableBytes.Value < thresholdBytes)
+        {
+            Logs.Info($"[LLMAssistant] Free host RAM ({availableBytes.Value / 1024 / 1024 / 1024}GB) is below EvictBelowGb ({evictBelowGb}GB), unloading the resident local LLM before loading a new one.");
+            await FreeMemory(true);
+        }
+    }
 }

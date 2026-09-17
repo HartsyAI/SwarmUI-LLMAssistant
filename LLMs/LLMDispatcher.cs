@@ -28,11 +28,12 @@ public static class LLMDispatcher
         return owner ?? providers[0];
     }
 
-    /// <summary>Sends a message and returns the full response.</summary>
+    /// <summary>Sends a message and returns the full response. <paramref name="ct"/> is forwarded to
+    /// the provider the same way <see cref="GenerateStreaming"/> forwards it.</summary>
     public static async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
     {
         ILLMProvider provider = await GetProvider(input);
-        return await provider.Generate(input);
+        return await provider.Generate(input, ct);
     }
 
     /// <summary>Sends a message with streaming chunks via callback. <paramref name="ct"/> is

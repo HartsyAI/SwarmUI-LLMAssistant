@@ -308,6 +308,12 @@
 
     /** Abort an in-flight stream, persisting whatever text arrived so far. */
     function llmaStopGeneration() {
+        // Tell the server to actually cancel generation — closing the socket below only detaches this
+        // client from it; the model would otherwise keep running to completion in the background.
+        // Fire-and-forget: the local UI reset happens immediately regardless of whether this round-trips.
+        if (LLMAState.activeThreadId) {
+            llmaRequest('LLMAssistantStopGeneration', { threadId: LLMAState.activeThreadId }).catch(() => {});
+        }
         if (LLMAState._activeSocket) {
             try { LLMAState._activeSocket.close(); } catch (_) {}
             LLMAState._activeSocket = null;

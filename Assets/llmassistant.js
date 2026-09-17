@@ -1234,8 +1234,9 @@ function llmaSetupSettingsModal() {
             llmaReadSettingsFromModal();
             await llmaSaveSettings();
             llmaApplySettingsToState();
-            llmaCloseSettings();
-            llmaShowToast('Settings saved', 'success');
+            if (llmaCloseSettings()) {
+                llmaShowToast('Settings saved', 'success');
+            }
         });
     }
 
@@ -1344,11 +1345,33 @@ function llmaOpenSettings() {
     setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);
 }
 
+// True only while the sub-editor is actually visible on screen — its own inline `display` can stay
+// non-'none' while an ancestor tab panel is hidden (switching tabs doesn't touch it), so a raw
+// style.display check would false-positive there. offsetParent is the reliable "is it on screen" test
+// (same idiom the focus trap above already uses).
+function llmaAsstEditorIsOpen() {
+    const editor = document.getElementById('llma-asst-editor');
+    return !!editor && editor.offsetParent !== null;
+}
+
+function llmaToolEditorIsOpen() {
+    const editor = document.getElementById('llma-tool-editor');
+    return !!editor && editor.offsetParent !== null;
+}
+
+// Every way to leave Settings (the × button, clicking the backdrop, "Save & Close", Escape) funnels
+// through here — a single choke point, so the discard guard below covers all of them at once.
+// Returns false if the user backed out of discarding (callers should skip any "saved"/"closed" toast).
 function llmaCloseSettings() {
+    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm('Discard unsaved changes?')) {
+        return false;
+    }
     const overlay = document.getElementById('llma-settings-overlay');
     if (overlay) overlay.style.display = 'none';
     llmaRemoveFocusTrap(overlay);
     document.getElementById('llma-asst-editor').style.display = 'none';
+    document.getElementById('llma-tool-editor').style.display = 'none';
+    return true;
 }
 
 // -- Focus trap --

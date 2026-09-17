@@ -17,7 +17,7 @@ public partial class WebSearchTool : ToolHandler
         Timeout = TimeSpan.FromSeconds(15)
     };
 
-    [GeneratedRegex(@"<a rel=""nofollow"" class=""result__a"" href=""([^""]+)"">([^<]+)</a>.*?<a class=""result__snippet""[^>]*>([^<]*)</a>", RegexOptions.Singleline)]
+    [GeneratedRegex(@"<a rel=""nofollow"" class=""result__a"" href=""([^""]+)"">([^<]+)</a>.*?<a class=""result__snippet""[^>]*>(.*?)</a>", RegexOptions.Singleline)]
     private static partial Regex ResultRegex();
 
     public override async Task<JObject> Execute(ToolExecutionContext ctx)

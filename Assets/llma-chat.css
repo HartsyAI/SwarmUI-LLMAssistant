@@ -294,6 +294,7 @@
     border: none;
     padding: 10px 18px;
     max-width: 85%;
+    white-space: pre-wrap;
 }
 
 /* Message actions (hover) */

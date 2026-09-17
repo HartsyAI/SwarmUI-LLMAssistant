@@ -41,12 +41,23 @@ public static class LLMStreamHelper
         // Agentic loop
         StringBuilder fullResponse = new();
         JArray toolEvents = [];
+        // A Stop can land between rounds, mid-round, or mid-tool-call: every early-return below used to
+        // just discard fullResponse. Persist whatever was actually produced instead, same as a normal
+        // finish, so the work isn't silently thrown away.
+        void PersistPartialOnStop()
+        {
+            if (fullResponse.Length > 0 || toolEvents.Count > 0)
+            {
+                PersistAssistantMessage(session, threadId, fullResponse.ToString(), toolEvents, input.Model, startTime, stopReason: "cancelled", clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
+            }
+        }
         for (int iteration = 0; iteration < ToolConstants.MaxAgenticIterations; iteration++)
         {
             if (SocketGone(socket) || linked.IsCancellationRequested)
             {
                 linked.Cancel();
                 Logs.Debug("[LLMAssistant] Stream cancelled (socket closed or token cancelled).");
+                PersistPartialOnStop();
                 return;
             }
             if (iteration > 0)
@@ -124,6 +135,10 @@ public static class LLMStreamHelper
             if (SocketGone(socket))
             {
                 linked.Cancel();
+                // roundText below isn't computed yet, so fold this round's buffer in first, so a stop that
+                // lands right here doesn't lose the round that just finished generating.
+                fullResponse.Append(roundBuffer);
+                PersistPartialOnStop();
                 return;
             }
             string roundText = roundBuffer.ToString();
@@ -163,6 +178,7 @@ public static class LLMStreamHelper
                 if (SocketGone(socket) || linked.IsCancellationRequested)
                 {
                     linked.Cancel();
+                    PersistPartialOnStop();
                     return;
                 }
                 await SendJson(socket, new JObject
@@ -182,6 +198,7 @@ public static class LLMStreamHelper
                 catch (OperationCanceledException)
                 {
                     Logs.Debug($"[LLMAssistant] Tool {call.Name} cancelled.");
+                    PersistPartialOnStop();
                     return;
                 }
                 catch (Exception ex)
@@ -226,38 +243,56 @@ public static class LLMStreamHelper
     {
         StringBuilder fullText = new();
         string stopReason = null;
-        await LLMDispatcher.GenerateStreaming(input, async chunk =>
+        try
         {
-            if (SocketGone(socket))
+            await LLMDispatcher.GenerateStreaming(input, async chunk =>
             {
-                return;
-            }
-            if (chunk.TryGetValue("chunk", out JToken chunkToken))
-            {
-                string text = chunkToken.ToString();
-                fullText.Append(text);
-                await SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock);
-            }
-            else if (chunk.TryGetValue("result", out JToken resultToken))
-            {
-                fullText.Clear();
-                fullText.Append(resultToken.ToString());
-            }
-            else if (chunk.TryGetValue("status", out JToken _))
-            {
-                // Backend status events (eg model load progress) — forward verbatim to the UI.
-                await SendJson(socket, chunk, lane, sendLock);
-            }
-            else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
-            {
-                stopReason = stopReasonToken.ToString();
-            }
-        }, linked.Token);
+                if (SocketGone(socket))
+                {
+                    return;
+                }
+                if (chunk.TryGetValue("chunk", out JToken chunkToken))
+                {
+                    string text = chunkToken.ToString();
+                    fullText.Append(text);
+                    await SendJson(socket, new JObject { ["chunk"] = text }, lane, sendLock);
+                }
+                else if (chunk.TryGetValue("result", out JToken resultToken))
+                {
+                    fullText.Clear();
+                    fullText.Append(resultToken.ToString());
+                }
+                else if (chunk.TryGetValue("status", out JToken _))
+                {
+                    // Backend status events (eg model load progress) — forward verbatim to the UI.
+                    await SendJson(socket, chunk, lane, sendLock);
+                }
+                else if (chunk.TryGetValue("stopReason", out JToken stopReasonToken))
+                {
+                    stopReason = stopReasonToken.ToString();
+                }
+            }, linked.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stop button (or the socket closing) cancelled generation before the engine had a chance to
+            // hand back its own StopReason.Cancelled chunk. No `when` filter here: whether this came from
+            // `linked` directly or from some inner token the engine derived from it, there's no other
+            // legitimate source of OCE in this method. Fall through and persist below instead of the old
+            // behavior of just discarding fullText: this is a real Stop, not an error.
+            stopReason ??= "cancelled";
+        }
+        // Persist regardless of socket state: the model already did the work (or was told to stop), so the
+        // result should never be silently thrown away just because nobody's still listening. Skip only for
+        // a truly empty result (Stop clicked before any content arrived): nothing worth saving there.
+        if (fullText.Length > 0)
+        {
+            PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, stopReason: stopReason, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
+        }
         if (SocketGone(socket))
         {
             return;
         }
-        PersistAssistantMessage(session, threadId, fullText.ToString(), [], input.Model, startTime, stopReason: stopReason, clientMessageId: clientAssistantMessageId, parentMessageId: parentMessageId, compareGroupId: compareGroupId, lane: lane, deviceLabel: deviceLabel, setActiveLeaf: setActiveLeaf);
         await SendJson(socket, new JObject
         {
             ["done"] = true,

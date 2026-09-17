@@ -341,6 +341,18 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Stop button: cancels whatever generation is currently in flight for a thread (a single
+    /// reply or every lane of a compare turn), so the model actually stops producing tokens server-side
+    /// instead of just having the client stop listening. Plain HTTP, not WebSocket: the chat WS
+    /// endpoints read exactly one incoming frame and never listen again, so a second in-band message on
+    /// that same socket isn't a viable signal path; this is a separate call the client fires before it
+    /// closes its socket.</summary>
+    public static Task<JObject> LLMAssistantStopGeneration(Session session, string threadId)
+    {
+        bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
+        return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
+    }
+
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
     /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, instructionId? }</c>.
@@ -523,7 +535,15 @@ public static class ChatEndpoints
             ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
             : [];
         await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
-        await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, clientAssistantMessageId: assistantMessageId);
+        CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+        try
+        {
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
+        }
+        finally
+        {
+            GenerationCancellationRegistry.End(threadId, cts);
+        }
         await MaybeGenerateTitleAsync(socket, session, threadId, model);
     }
 
@@ -721,11 +741,17 @@ public static class ChatEndpoints
             return;
         }
 
+        // One shared source for the whole turn: Stop should kill every lane at once, not just one.
+        CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+
         async Task RunLane(int lane)
         {
             (string Model, string Device, int BackendId, string AssistantMessageId) L = lanes[lane];
             try
             {
+                // Note: a Stop click during this setup (model lookup, tool resolution) doesn't take effect
+                // until StreamToWebSocket below starts honoring cts.Token: a narrow window, and these calls
+                // are normally fast, so it's not worth threading the token through them for this fix.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
@@ -737,7 +763,12 @@ public static class ChatEndpoints
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
                     clientAssistantMessageId: L.AssistantMessageId,
                     lane: lane, sendLock: sendLock, parentMessageId: parentUserId,
-                    compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0);
+                    compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0,
+                    ct: cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                // Stopped, not failed: no lane-tagged error frame for this one.
             }
             catch (Exception ex)
             {
@@ -747,7 +778,14 @@ public static class ChatEndpoints
             }
         }
 
-        await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
+        try
+        {
+            await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
+        }
+        finally
+        {
+            GenerationCancellationRegistry.End(threadId, cts);
+        }
     }
 
     /// <summary>Sends a single lane-tagged frame (used for lane-scoped errors raised outside the stream helper).</summary>

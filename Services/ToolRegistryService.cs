@@ -542,7 +542,7 @@ public static class ToolRegistryService
         {
             ["id"] = ToolConstants.FileRead,
             ["name"] = "Read File",
-            ["description"] = "Read a text file from the user's SwarmUI data directory. Sandboxed - cannot access files outside the SwarmUI Data folder.",
+            ["description"] = "Read a text file from the user's SwarmUI data directory, or from the file_write sandbox (so a file you wrote with file_write can be read back). Sandboxed - cannot access files outside those two locations.",
             ["parameters"] = new JObject
             {
                 ["type"] = "object",

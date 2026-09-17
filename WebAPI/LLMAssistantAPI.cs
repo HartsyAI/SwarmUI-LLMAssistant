@@ -71,10 +71,10 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the built-in web_search tool (DuckDuckGo scrape) to fetch results from the internet.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.UNTESTED));
 
-    /// <summary>Permission to use the <c>file_read</c> built-in tool (sandboxed to SwarmUI/Data).</summary>
+    /// <summary>Permission to use the <c>file_read</c> built-in tool (sandboxed to SwarmUI/Data and the file_write output sandbox).</summary>
     public static readonly PermInfo PermToolFileRead = Permissions.Register(new(
         "llm_tool_file_read", "[LLM Tool] Read File",
-        "Allows the LLM to call the built-in file_read tool. Sandboxed to SwarmUI's Data directory, but still lets the LLM read arbitrary files within it.",
+        "Allows the LLM to call the built-in file_read tool. Sandboxed to SwarmUI's Data directory and the calling user's file_write output sandbox, but still lets the LLM read arbitrary files within those.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup, PermSafetyLevel.RISKY));
 
     /// <summary>Permission to use the <c>file_write</c> built-in tool (sandboxed to SwarmUI/Output).</summary>
@@ -139,6 +139,7 @@ public static class LLMAssistantAPI
         // Branching: edit-into-new-branch and regenerate-as-new-branch both stream like a normal send.
         API.RegisterAPICall(ChatEndpoints.LLMAssistantEditMessageWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantRegenerateWS, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantStopGeneration, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);
