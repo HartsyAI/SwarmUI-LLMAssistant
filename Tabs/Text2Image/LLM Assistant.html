@@ -440,7 +440,7 @@
                                 <span class="translate">Shared (visible to all users)</span>
                             </label>
                             <button class="basic-button translate" id="llma-asst-save">Save</button>
-                            <button class="basic-button translate" id="llma-asst-delete" style="display:none;">Delete</button>
+                            <button class="basic-button" id="llma-asst-delete" style="display:none;">Delete</button>
                             <button class="basic-button translate" id="llma-asst-cancel">Cancel</button>
                         </div>
                     </div>
@@ -506,7 +506,7 @@
                             </div>
                             <div class="llma-tool-config-block" id="llma-tool-config-ratelimit" style="display:none;">
                                 <label for="llma-config-rate-limit" class="translate">Rate limit (calls per hour)</label>
-                                <input type="number" id="llma-config-rate-limit" min="0" step="1" placeholder="Default" class="translate">
+                                <input type="number" id="llma-config-rate-limit" min="0" step="1" placeholder="Default">
                                 <div class="llma-config-help translate">Caps how many times an LLM can call this tool per hour, to stop a runaway agentic loop from hammering it. Leave blank to use the default shown above. <code>0</code> means no limit.</div>
                             </div>
                         </div>
