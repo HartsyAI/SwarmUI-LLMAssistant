@@ -348,7 +348,7 @@ function llmaRenderMarkdown(text) {
     }
 
     // Add copy buttons to code blocks
-    result = result.replace(/<pre>/g, '<pre><button class="llma-copy-code-btn" type="button">Copy</button>');
+    result = result.replace(/<pre>/g, `<pre><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
 
     return result;
 }
@@ -374,7 +374,7 @@ function llmaCopyCode(btn) {
     if (!code) return;
     navigator.clipboard.writeText(code.textContent || '').then(() => {
         const prev = btn.textContent;
-        btn.textContent = 'Copied!';
+        btn.textContent = translate('Copied!');
         setTimeout(() => { btn.textContent = prev; }, 1500);
     });
 }
@@ -439,7 +439,12 @@ function llmaShortError(err) {
 function llmaHumanizeError(raw) {
     const text = (llmaShortError(raw) || '').toString().trim();
     const low  = text.toLowerCase();
-    const make = (title, hint) => ({ title, hint, detail: text });
+    // Every call below passes static copy, so translate() it here. The one exception (the final
+    // "unknown error" fallback, which can pass the raw dynamic error text as the title) calls
+    // make() with its own already-decided title and skips this — see `makeRaw` below.
+    const make = (title, hint) => ({ title: translate(title), hint: hint ? translate(hint) : hint, detail: text });
+    // Same shape, but does NOT translate title — for the one case where title may be raw dynamic text.
+    const makeRaw = (title, hint) => ({ title, hint: hint ? translate(hint) : hint, detail: text });
 
     // Empty / generic transport failures — the most common opaque case.
     if (!text || low === 'websocket error' || low.includes('generic progressevent') || low.includes('did the server crash') || low.includes('failed to send request')) {
@@ -478,8 +483,8 @@ function llmaHumanizeError(raw) {
         return make('Couldn’t connect to the backend',
             'The model server isn’t reachable. Check the backend’s address/status under Server > Backends.');
     }
-    // Unknown — surface the raw text as the title, no invented hint.
-    return make(text || 'Something went wrong', null);
+    // Unknown — surface the raw text as the title (never translate a dynamic value), no invented hint.
+    return makeRaw(text || translate('Something went wrong'), null);
 }
 
 // -- User-action wrapper --
@@ -510,7 +515,12 @@ function llmaShowToast(message, type = 'info') {
     if (llmaToastTimer) clearTimeout(llmaToastTimer);
     const toast = document.createElement('div');
     toast.className = `llma-toast ${type}`;
-    toast.textContent = message;
+    // Matches core's doNoticePopover pattern (ui_improvements.js): translate() internally so every
+    // call site gets automatic translation for free. NOTE: a few call sites across the extension already
+    // concatenate dynamic content (an error detail, a count, an id) into `message` before calling us —
+    // translate() self-registers that combined string as a harmless no-op key rather than crashing, but
+    // it does mean those specific messages aren't usefully translatable. See the i18n audit notes.
+    toast.textContent = translate(message);
     container.appendChild(toast);
     llmaToastTimer = setTimeout(() => toast.remove(), LLMA_CONSTANTS.TOAST_DURATION_MS);
 }
@@ -520,9 +530,11 @@ function llmaRelativeTime(isoString) {
     const now  = Date.now();
     const date = new Date(isoString).getTime();
     const diff = Math.floor((now - date) / 1000);
-    if (diff < 60)    return 'just now';
-    if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    // Reassigned repeatedly as time passes — translate() the static fragment directly at each call
+    // (never class="translate", which would cache a stale pretranslated value on the first sweep).
+    if (diff < 60)    return translate('just now');
+    if (diff < 3600)  return `${Math.floor(diff / 60)}${translate('m ago')}`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}${translate('h ago')}`;
     return new Date(isoString).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 

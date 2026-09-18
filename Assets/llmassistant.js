@@ -126,7 +126,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     if (msgList) msgList.innerHTML = '';
 
     const titleEl = document.getElementById('llma-thread-title');
-    if (titleEl) titleEl.textContent = `Chat with ${assistant.name}`;
+    if (titleEl) titleEl.textContent = `${translate('Chat with')} ${assistant.name}`;
 
     llmaShowChatPanel();
     llmaUpdateContextBar();
@@ -171,7 +171,7 @@ async function llmaLoadAssistants() {
         LLMAState.loadErrors.assistants = null;
     } catch (e) {
         LLMAState.assistants = [];
-        LLMAState.loadErrors.assistants = llmaShortError(e) || 'Failed to load assistants';
+        LLMAState.loadErrors.assistants = llmaShortError(e) || translate('Failed to load assistants');
     }
 }
 
@@ -192,7 +192,7 @@ async function llmaLoadModels(opts = {}) {
         const modelWarnings = Array.isArray(result?.warnings) ? result.warnings : [];
         LLMAState.loadErrors.modelWarnings = modelWarnings;
         if (modelWarnings.length > 0 && typeof llmaShowToast === 'function') {
-            llmaShowToast(`Some LLM backends did not respond: ${modelWarnings.join('; ')}`, 'warning');
+            llmaShowToast(`${translate('Some LLM backends did not respond:')} ${modelWarnings.join('; ')}`, 'warning');
         }
 
         const sel = document.getElementById('llma-model-select');
@@ -223,7 +223,7 @@ async function llmaLoadModels(opts = {}) {
                     ).join('');
                 }
             } else {
-                sel.innerHTML = '<option value="" disabled>No models found</option>';
+                sel.innerHTML = `<option value="" disabled>${translate('No models found')}</option>`;
             }
         }
 
@@ -239,7 +239,7 @@ async function llmaLoadModels(opts = {}) {
         }
     } catch (e) {
         llmaSetModelSelectError(true);
-        LLMAState.loadErrors.models = llmaShortError(e) || 'Failed to load models';
+        LLMAState.loadErrors.models = llmaShortError(e) || translate('Failed to load models');
         LLMAState.noBackendsRunning = false;
         if (!opts.noRetry) llmaScheduleModelRetry();
     }
@@ -423,7 +423,7 @@ function llmaSetupModelSelect() {
             try {
                 const res = await llmaRequest('LLMAssistantUnloadModels', {});
                 const freed = res?.freed || 0;
-                llmaShowToast(freed > 0 ? 'LLM model unloaded — VRAM freed.' : 'No LLM model was loaded.', 'info');
+                llmaShowToast(freed > 0 ? translate('LLM model unloaded — VRAM freed.') : translate('No LLM model was loaded.'), 'info');
             } catch (e) {
                 llmaShowToast(llmaShortError(e) || 'Unload failed', 'error');
             } finally {
@@ -466,11 +466,11 @@ function llmaUpdateAttachAvailability() {
     if (cap === false) {
         label.classList.add('llma-attach-disabled');
         label.setAttribute('aria-disabled', 'true');
-        label.title = "The current model doesn't support image input. Pick a vision model to attach images.";
+        label.title = translate("The current model doesn't support image input. Pick a vision model to attach images.");
     } else {
         label.classList.remove('llma-attach-disabled');
         label.removeAttribute('aria-disabled');
-        label.title = 'Attach image';
+        label.title = translate('Attach image');
     }
 }
 
@@ -804,34 +804,35 @@ function llmaRenderAssistantPanel(assistantId) {
             <div class="llma-panel-name">${llmaEscapeHtml(assistant.name)}</div>
             <div class="llma-panel-desc">${llmaEscapeHtml(assistant.description || '')}</div>
             <div class="llma-panel-actions">
-                <button class="llma-panel-action-btn" type="button" data-action="edit">Edit</button>
-                <button class="llma-panel-action-btn" type="button" data-action="switch">Switch</button>
+                <button class="llma-panel-action-btn translate" type="button" data-action="edit">Edit</button>
+                <button class="llma-panel-action-btn translate" type="button" data-action="switch">Switch</button>
             </div>
         </div>
         <div class="llma-panel-stats">
-            <div class="llma-stat-box"><div class="llma-stat-num">${msgCount}</div><div class="llma-stat-lbl">Messages</div></div>
-            <div class="llma-stat-box"><div class="llma-stat-num">~${tokens}</div><div class="llma-stat-lbl">Tokens</div></div>
+            <div class="llma-stat-box"><div class="llma-stat-num">${msgCount}</div><div class="llma-stat-lbl translate">Messages</div></div>
+            <div class="llma-stat-box"><div class="llma-stat-num">~${tokens}</div><div class="llma-stat-lbl translate">Tokens</div></div>
         </div>
         <div class="llma-panel-memories">
             <div class="llma-mem-header">
-                <span>Capabilities</span>
+                <span class="translate">Capabilities</span>
             </div>
             <div class="llma-memory-chips">
-                ${assistant.instructions?.chat ? '<span class="llma-mem-chip">Chat</span>' : ''}
-                ${assistant.instructions?.vision ? '<span class="llma-mem-chip">Vision</span>' : ''}
-                ${assistant.instructions?.caption ? '<span class="llma-mem-chip">Caption</span>' : ''}
-                ${assistant.instructions?.prompt ? '<span class="llma-mem-chip">Prompt</span>' : ''}
-                ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip">Random</span>' : ''}
-                ${assistant.instructions?.companion ? '<span class="llma-mem-chip">Companion</span>' : ''}
+                ${assistant.instructions?.chat ? '<span class="llma-mem-chip translate">Chat</span>' : ''}
+                ${assistant.instructions?.vision ? '<span class="llma-mem-chip translate">Vision</span>' : ''}
+                ${assistant.instructions?.caption ? '<span class="llma-mem-chip translate">Caption</span>' : ''}
+                ${assistant.instructions?.prompt ? '<span class="llma-mem-chip translate">Prompt</span>' : ''}
+                ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip translate">Random</span>' : ''}
+                ${assistant.instructions?.companion ? '<span class="llma-mem-chip translate">Companion</span>' : ''}
             </div>
         </div>
         <div class="llma-panel-assets">
             <div class="llma-panel-assets-header">
-                <span>Assets</span>
+                <span class="translate">Assets</span>
                 <span class="llma-asset-count" id="llma-asset-count">0</span>
             </div>
             <div class="llma-asset-list" id="llma-asset-list"></div>
         </div>`;
+    if (typeof applyTranslations === 'function') applyTranslations(inner);
 
     // Wire the panel actions (no inline handlers — CSP-clean).
     inner.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
@@ -848,7 +849,7 @@ function llmaRenderAssistantPanel(assistantId) {
 
 function llmaRenderAssistantPanelEmpty() {
     const inner = document.getElementById('llma-panel-inner');
-    if (inner) inner.innerHTML = '<div class="llma-panel-empty">Select an assistant to see details.</div>';
+    if (inner) inner.innerHTML = `<div class="llma-panel-empty">${translate('Select an assistant to see details.')}</div>`;
 }
 
 // Lightweight in-place update for the Messages/Tokens stat boxes.
@@ -936,7 +937,7 @@ function llmaRenderPersonalizedWelcome() {
     const profile     = LLMAState.userProfile || {};
     const userName    = (profile.preferredName || '').trim();
     const currentWork = (profile.currentWork || '').trim();
-    const asstName    = assistant.name || 'Assistant';
+    const asstName    = assistant.name || translate('Assistant');
 
     // Greeting strategy:
     //  - Have name + currentWork → familiar "still working on X?" line
@@ -953,14 +954,14 @@ function llmaRenderPersonalizedWelcome() {
         sub     = `I'm ${llmaEscapeHtml(asstName)}. What are we working on today?`;
     } else if (LLMAState.userProfile === null || (!profile.preferredName && !profile.bio && !(profile.facts || []).length)) {
         heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
-        sub     = `Tell me what to call you and what you're working on — I'll remember it for next time.`;
+        sub     = translate(`Tell me what to call you and what you're working on — I'll remember it for next time.`);
     } else {
         heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
-        sub     = `How can I help you today?`;
+        sub     = translate(`How can I help you today?`);
     }
 
     // Pick a fresh tip on every render.
-    const tip = LLMA_WELCOME_TIPS[Math.floor(Math.random() * LLMA_WELCOME_TIPS.length)];
+    const tip = translate(LLMA_WELCOME_TIPS[Math.floor(Math.random() * LLMA_WELCOME_TIPS.length)]);
 
     // Avatar: real image if assigned, otherwise gradient + category icon.
     const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
@@ -1011,7 +1012,7 @@ function llmaRenderEmptyChatGreeting() {
     const profile     = LLMAState.userProfile || {};
     const userName    = (profile.preferredName || '').trim();
     const currentWork = (profile.currentWork || '').trim();
-    const asstName    = assistant.name || 'Assistant';
+    const asstName    = assistant.name || translate('Assistant');
 
     // Greeting strategy mirrors the welcome hero so the assistant feels
     // consistent across both surfaces. Description fallback gives the
@@ -1031,7 +1032,7 @@ function llmaRenderEmptyChatGreeting() {
         heading = `Hi, I'm <span class="llma-greeting-accent">${llmaEscapeHtml(asstName)}</span>. How can I help?`;
         sub     = assistant.description
             ? llmaEscapeHtml(assistant.description)
-            : `Tell me what to call you and what you're working on — I'll remember it next time.`;
+            : translate(`Tell me what to call you and what you're working on — I'll remember it next time.`);
     }
 
     const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
@@ -1060,8 +1061,8 @@ function llmaRenderWelcomeSkeleton() {
             <div class="llma-asst-card skeleton" aria-hidden="true">
                 <div class="llma-card-visual"></div>
                 <div class="llma-card-body">
-                    <div class="llma-card-name">loading</div>
-                    <div class="llma-card-desc">loading description</div>
+                    <div class="llma-card-name">${translate('loading')}</div>
+                    <div class="llma-card-desc">${translate('loading description')}</div>
                 </div>
             </div>`;
     }
@@ -1085,8 +1086,8 @@ function llmaRenderWelcomeBanner() {
         banner.className = 'llma-welcome-banner error';
         banner.innerHTML = `
             <span class="llma-banner-icon" aria-hidden="true">⚠</span>
-            <span class="llma-banner-text">Couldn't load ${which}: <em>${llmaEscapeHtml(hardError)}</em></span>
-            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+            <span class="llma-banner-text">${translate("Couldn't load")} ${which}: <em>${llmaEscapeHtml(hardError)}</em></span>
+            <button class="basic-button llma-banner-retry" type="button">${translate('Retry')}</button>`;
         banner.style.display = '';
         banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
         return;
@@ -1095,8 +1096,8 @@ function llmaRenderWelcomeBanner() {
         banner.className = 'llma-welcome-banner info';
         banner.innerHTML = `
             <span class="llma-banner-icon" aria-hidden="true">💡</span>
-            <span class="llma-banner-text">No LLM backends are running. Add one in <strong>Server &rsaquo; Backends</strong> to start chatting.</span>
-            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+            <span class="llma-banner-text">${translate('No LLM backends are running. Add one in <strong>Server &rsaquo; Backends</strong> to start chatting.')}</span>
+            <button class="basic-button llma-banner-retry" type="button">${translate('Retry')}</button>`;
         banner.style.display = '';
         banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
         return;
@@ -1112,7 +1113,7 @@ async function llmaRetryWelcomeLoads() {
     if (banner) {
         banner.classList.add('loading');
         const btn = banner.querySelector('.llma-banner-retry');
-        if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+        if (btn) { btn.disabled = true; btn.textContent = translate('Retrying…'); }
     }
     await Promise.all([
         llmaLoadAssistants(),
@@ -1150,9 +1151,9 @@ function llmaRenderWelcomeAssistants() {
         grid.innerHTML = `
             <div class="llma-asst-empty">
                 <div class="llma-asst-empty-icon" aria-hidden="true">✨</div>
-                <h3 class="llma-asst-empty-title">No assistants yet</h3>
-                <p class="llma-asst-empty-desc">Create your first assistant to start chatting. You can give it a name, a system prompt, and a set of tools.</p>
-                <button class="basic-button llma-asst-empty-cta" type="button">Create your first assistant</button>
+                <h3 class="llma-asst-empty-title">${translate('No assistants yet')}</h3>
+                <p class="llma-asst-empty-desc">${translate('Create your first assistant to start chatting. You can give it a name, a system prompt, and a set of tools.')}</p>
+                <button class="basic-button llma-asst-empty-cta" type="button">${translate('Create your first assistant')}</button>
             </div>`;
         grid.querySelector('.llma-asst-empty-cta')?.addEventListener('click', () => {
             llmaOpenSettings();
@@ -1186,11 +1187,11 @@ function llmaRenderWelcomeAssistants() {
 
     // Create new card
     html += `
-        <div class="llma-asst-card create-card" tabindex="0" role="button" aria-label="Create new assistant">
+        <div class="llma-asst-card create-card" tabindex="0" role="button" aria-label="${translate('Create new assistant')}">
             <div class="llma-card-visual"><span class="llma-create-plus">+</span></div>
             <div class="llma-card-body">
-                <div class="llma-card-name">Create New</div>
-                <div class="llma-card-desc">Build a custom assistant</div>
+                <div class="llma-card-name">${translate('Create New')}</div>
+                <div class="llma-card-desc">${translate('Build a custom assistant')}</div>
             </div>
         </div>`;
 
@@ -1248,8 +1249,8 @@ function llmaSetupSettingsModal() {
             // alone is not enough — the assistants dict lives server-side.
             const sharedReset = !!LLMAState.canWriteShared;
             const msg = sharedReset
-                ? 'Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.'
-                : 'Reset your personal LLM Assistant settings to defaults?';
+                ? translate('Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.')
+                : translate('Reset your personal LLM Assistant settings to defaults?');
             if (!confirm(msg)) return;
             try {
                 await llmaRequest('LLMAssistantResetSettings', sharedReset ? { scope: 'shared' } : {});
@@ -1264,7 +1265,7 @@ function llmaSetupSettingsModal() {
                 llmaRenderWelcomeAssistants?.();
                 llmaShowToast('Settings reset to defaults', 'success');
             } catch (e) {
-                llmaShowToast('Reset failed: ' + (e?.message || 'unknown error'), 'error');
+                llmaShowToast(`${translate('Reset failed:')} ${e?.message || 'unknown error'}`, 'error');
             }
         });
     }
@@ -1363,7 +1364,7 @@ function llmaToolEditorIsOpen() {
 // through here — a single choke point, so the discard guard below covers all of them at once.
 // Returns false if the user backed out of discarding (callers should skip any "saved"/"closed" toast).
 function llmaCloseSettings() {
-    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm('Discard unsaved changes?')) {
+    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm(translate('Discard unsaved changes?'))) {
         return false;
     }
     const overlay = document.getElementById('llma-settings-overlay');
@@ -1502,7 +1503,7 @@ function llmaWriteSettingsToModal() {
 function llmaPopulateCompanionPersonaSelect(selectedId) {
     const sel = document.getElementById('llma-s-companion-persona');
     if (!sel) return;
-    const opts = ['<option value="">(Use my active assistant)</option>'];
+    const opts = [`<option value="">${translate('(Use my active assistant)')}</option>`];
     for (const a of (LLMAState.assistants || [])) {
         const id = llmaEscapeHtml(a.id);
         const name = llmaEscapeHtml(a.name || a.id);
@@ -1532,7 +1533,7 @@ function llmaRenderAssistantList() {
     if (!container) return;
 
     if (LLMAState.assistants.length === 0) {
-        container.innerHTML = '<div class="llma-empty-state">No assistants found.</div>';
+        container.innerHTML = `<div class="llma-empty-state">${translate('No assistants found.')}</div>`;
         return;
     }
 
@@ -1540,18 +1541,18 @@ function llmaRenderAssistantList() {
     for (const a of LLMAState.assistants) {
         const icon  = llmaCategoryIcon(a.icon || a.category || 'chat');
         const scopeBadge = a._scope === 'shared'
-            ? ' <span class="llma-scope-badge llma-scope-shared" title="Shared — visible to all users on this instance">shared</span>'
-            : (a._scope === 'personal' ? ' <span class="llma-scope-badge llma-scope-personal" title="Personal — only visible to you">personal</span>' : '');
+            ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('Shared — visible to all users on this instance')}">${translate('shared')}</span>`
+            : (a._scope === 'personal' ? ` <span class="llma-scope-badge llma-scope-personal" title="${translate('Personal — only visible to you')}">${translate('personal')}</span>` : '');
         html += `
             <div class="llma-asst-list-item" data-asst-id="${llmaEscapeHtml(a.id)}">
                 <div class="llma-list-avatar" style="background:${llmaGradientBg(a.color)};">
                     ${a.avatar ? `<img src="${llmaEscapeHtml(a.avatar)}">` : icon}
                 </div>
                 <div class="llma-list-info">
-                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : ''}${scopeBadge}</div>
+                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ` <span class="llma-builtin-badge">(${translate('built-in')})</span>` : ''}${scopeBadge}</div>
                     <div class="llma-list-desc">${llmaEscapeHtml(a.description || '')}</div>
                 </div>
-                <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">Edit</button>
+                <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">${translate('Edit')}</button>
             </div>`;
     }
     container.innerHTML = html;
@@ -1582,7 +1583,7 @@ async function llmaPopulateTemplatesDropdown() {
             _llmaTemplateCache = Array.isArray(result?.templates) ? result.templates : [];
         }
         // Replace options (preserving the placeholder).
-        sel.innerHTML = '<option value="">Clone from template…</option>';
+        sel.innerHTML = `<option value="">${translate('Clone from template…')}</option>`;
         for (const tmpl of _llmaTemplateCache) {
             const opt = document.createElement('option');
             opt.value = tmpl.id;
@@ -1616,7 +1617,7 @@ function llmaShowAssistantEditor(assistant) {
     llmaEditingAsstId = assistant ? assistant.id : ('assistant-' + llmaGenerateId());
 
     const title = document.getElementById('llma-editor-title');
-    if (title) title.textContent = assistant ? `Edit: ${assistant.name}` : 'New Assistant';
+    if (title) title.textContent = assistant ? `${translate('Edit:')} ${assistant.name}` : translate('New Assistant');
 
     // Overlay of a shared id => "Revert to default"; pure shared built-in => no delete button.
     const deleteBtn = document.getElementById('llma-asst-delete');
@@ -1627,7 +1628,7 @@ function llmaShowAssistantEditor(assistant) {
         }
         else {
             deleteBtn.style.display = '';
-            deleteBtn.textContent = isOverlay ? 'Revert to default' : (assistant._scope === 'shared' ? 'Delete (shared)' : 'Delete');
+            deleteBtn.textContent = isOverlay ? translate('Revert to default') : (assistant._scope === 'shared' ? translate('Delete (shared)') : translate('Delete'));
         }
     }
 
@@ -1738,7 +1739,7 @@ function llmaPopulateExtendsDropdown(assistant) {
     const sel = document.getElementById('llma-asst-extends');
     if (!sel) return;
     const current = assistant?.extends || '';
-    sel.innerHTML = '<option value="">(no parent — standalone)</option>';
+    sel.innerHTML = `<option value="">${translate('(no parent — standalone)')}</option>`;
     for (const a of LLMAState.assistants) {
         if (assistant && a.id === assistant.id) continue;
         const opt = document.createElement('option');
@@ -1822,8 +1823,8 @@ async function llmaDeleteAssistant(id) {
     const scope = assistant?._scope || undefined;
     const isRevert = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
     const confirmText = isRevert
-        ? 'Revert this assistant to the shared default? Your personal customizations will be removed.'
-        : 'Delete this assistant?';
+        ? translate('Revert this assistant to the shared default? Your personal customizations will be removed.')
+        : translate('Delete this assistant?');
     if (!confirm(confirmText)) return;
     try {
         const result = await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id, scope });
@@ -1835,7 +1836,7 @@ async function llmaDeleteAssistant(id) {
         await llmaLoadAssistants();
         llmaRenderAssistantList();
         llmaRenderWelcomeAssistants();
-        llmaShowToast(result?.reverted ? 'Reverted to the shared version' : 'Assistant deleted', 'info');
+        llmaShowToast(result?.reverted ? translate('Reverted to the shared version') : translate('Assistant deleted'), 'info');
     } catch {
         llmaShowToast('Failed to delete assistant', 'error');
     }
@@ -1935,7 +1936,7 @@ async function llmaRunInstructionTest() {
     const sampleInput = (sample.value || '').trim();
     if (!instructionText) { llmaShowToast('Default instruction is empty', 'info'); return; }
     if (!sampleInput) { llmaShowToast('Enter a sample message first', 'info'); return; }
-    result.textContent = 'Running…';
+    result.textContent = translate('Running…');
     try {
         const res = await llmaRequest('LLMAssistantTestInstruction', {
             instructionText,
@@ -1944,12 +1945,12 @@ async function llmaRunInstructionTest() {
             assistantName: document.getElementById('llma-asst-name')?.value || ''
         });
         if (res?.success) {
-            result.textContent = res.response || '(empty response)';
+            result.textContent = res.response || translate('(empty response)');
         } else {
-            result.textContent = 'Error: ' + (res?.error || 'unknown');
+            result.textContent = `${translate('Error:')} ${res?.error || translate('unknown')}`;
         }
     } catch (ex) {
-        result.textContent = 'Error: ' + (ex?.message || String(ex));
+        result.textContent = `${translate('Error:')} ${ex?.message || String(ex)}`;
     }
 }
 
@@ -2002,18 +2003,19 @@ function llmaRenderInstructionVariants(mode) {
         row.className = 'llma-variant-row';
         row.innerHTML = `
             <div class="llma-variant-row-head">
-                <select class="llma-variant-kind" title="How to interpret the pattern">
-                    <option value="exact">Exact</option>
-                    <option value="family">Family</option>
-                    <option value="provider">Provider</option>
-                    <option value="tag">Tag</option>
-                    <option value="glob">Glob</option>
+                <select class="llma-variant-kind translate" title="How to interpret the pattern">
+                    <option value="exact" class="translate">Exact</option>
+                    <option value="family" class="translate">Family</option>
+                    <option value="provider" class="translate">Provider</option>
+                    <option value="tag" class="translate">Tag</option>
+                    <option value="glob" class="translate">Glob</option>
                 </select>
                 <input type="text" class="llma-variant-pattern" placeholder="claude-* | family:llama | provider:anthropic" autocomplete="off">
-                <button type="button" class="llma-variant-remove" title="Remove variant">&times;</button>
+                <button type="button" class="llma-variant-remove translate" title="Remove variant">&times;</button>
             </div>
-            <textarea class="llma-variant-text" rows="3" placeholder="System prompt used for this matcher (overrides Default when matched)..."></textarea>
+            <textarea class="llma-variant-text translate" rows="3" placeholder="System prompt used for this matcher (overrides Default when matched)..."></textarea>
         `;
+        if (typeof applyTranslations === 'function') applyTranslations(row);
         row.querySelector('.llma-variant-kind').value = variant.matchKind || 'glob';
         row.querySelector('.llma-variant-pattern').value = variant.match || '';
         row.querySelector('.llma-variant-text').value = variant.text || '';
@@ -2174,31 +2176,31 @@ function llmaSetupPromptButtons() {
     const enhanceBtn = document.createElement('button');
     enhanceBtn.id = 'llma-enhance-prompt-btn';
     enhanceBtn.className = 'basic-button';
-    enhanceBtn.textContent = 'Enhance Prompt';
+    enhanceBtn.textContent = translate('Enhance Prompt');
     enhanceBtn.addEventListener('click', async () => {
         const current = promptBox.value?.trim();
         if (!current) return;
         enhanceBtn.disabled = true;
-        enhanceBtn.textContent = 'Enhancing...';
+        enhanceBtn.textContent = translate('Enhancing...');
         try {
             const resp = await llmaRequest('LLMAssistantSendMessage', { message: current, instructionId: 'prompt' });
             if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
         } catch { llmaShowToast('Enhance failed', 'error'); }
-        finally { enhanceBtn.disabled = false; enhanceBtn.textContent = 'Enhance Prompt'; }
+        finally { enhanceBtn.disabled = false; enhanceBtn.textContent = translate('Enhance Prompt'); }
     });
 
     const randomBtn = document.createElement('button');
     randomBtn.id = 'llma-random-prompt-btn';
     randomBtn.className = 'basic-button';
-    randomBtn.textContent = 'Random Prompt';
+    randomBtn.textContent = translate('Random Prompt');
     randomBtn.addEventListener('click', async () => {
         randomBtn.disabled = true;
-        randomBtn.textContent = 'Generating...';
+        randomBtn.textContent = translate('Generating...');
         try {
             const resp = await llmaRequest('LLMAssistantSendMessage', { message: 'Generate a random prompt.', instructionId: 'randomprompt' });
             if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
         } catch { llmaShowToast('Random prompt failed', 'error'); }
-        finally { randomBtn.disabled = false; randomBtn.textContent = 'Random Prompt'; }
+        finally { randomBtn.disabled = false; randomBtn.textContent = translate('Random Prompt'); }
     });
 
     btnRow.appendChild(enhanceBtn);

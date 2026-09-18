@@ -104,7 +104,7 @@
         const counter = document.getElementById('llma-char-count');
         if (!counter) return;
         if (!text || text.length === 0) { counter.textContent = ''; return; }
-        counter.textContent = `~${Math.ceil(text.length / 4)} tokens`;
+        counter.textContent = `~${Math.ceil(text.length / 4)} ${translate('tokens')}`;
     }
 
     /** Copy a message's text to the clipboard. */
@@ -176,7 +176,7 @@
         btnRow.className = 'llma-msg-edit-actions';
         const saveBtn = document.createElement('button');
         saveBtn.className = 'basic-button';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = translate('Save');
         saveBtn.addEventListener('click', () => {
             const newContent = textarea.value.trim();
             if (!newContent || !LLMAState.activeThreadId || LLMAState.isGenerating) return;
@@ -208,7 +208,7 @@
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'basic-button';
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = translate('Cancel');
         cancelBtn.addEventListener('click', () => { bubble.textContent = original; });
 
         btnRow.appendChild(saveBtn);

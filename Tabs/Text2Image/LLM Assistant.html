@@ -2,34 +2,34 @@
     <!-- ── Sidebar ───────────────────────────────────────────── -->
     <aside class="llma-sidebar" id="llma-sidebar">
         <div class="llma-sidebar-header">
-            <span class="llma-sidebar-label">Chats</span>
-            <button class="llma-select-toggle" id="llma-thread-select-toggle" type="button" title="Select multiple chats" aria-label="Select multiple chats" aria-pressed="false">&#9744;</button>
+            <span class="llma-sidebar-label translate">Chats</span>
+            <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select multiple chats" aria-label="Select multiple chats" aria-pressed="false">&#9744;</button>
         </div>
         <div class="llma-search-wrap">
-            <input class="llma-search" id="llma-thread-search" type="text" placeholder="Search chats..." aria-label="Search chats" autocomplete="off">
+            <input class="llma-search translate" id="llma-thread-search" type="text" placeholder="Search chats..." aria-label="Search chats" autocomplete="off">
             <!-- Compact new-chat affordance (the empty state carries the primary CTA when there are no chats). -->
-            <button class="llma-icon-btn llma-new-chat-btn" id="llma-new-thread-btn" type="button" title="New chat" aria-label="New chat">
+            <button class="llma-icon-btn llma-new-chat-btn translate" id="llma-new-thread-btn" type="button" title="New chat" aria-label="New chat">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
         </div>
         <!-- Bulk action bar — shown only while select mode is on and at least one chat is checked. -->
         <div class="llma-bulk-bar" id="llma-bulk-bar" style="display:none;" aria-live="polite">
             <span class="llma-bulk-count" id="llma-bulk-count">0 selected</span>
-            <button class="basic-button llma-bulk-delete" id="llma-bulk-delete" type="button">Delete</button>
+            <button class="basic-button llma-bulk-delete translate" id="llma-bulk-delete" type="button">Delete</button>
             <button class="llma-bulk-cancel" id="llma-bulk-cancel" type="button" aria-label="Cancel selection">&times;</button>
         </div>
         <div class="llma-thread-list" id="llma-thread-list"></div>
     </aside>
 
     <!-- ── Splitter (sidebar / main) ─────────────────────────── -->
-    <div class="llma-splitbar splitter-bar" id="llma-split-left" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton" id="llma-split-left-btn" title="Toggle sidebar">&#x21DA;</div></div>
+    <div class="llma-splitbar splitter-bar translate" id="llma-split-left" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-left-btn" title="Toggle sidebar">&#x21DA;</div></div>
 
     <!-- ── Main ──────────────────────────────────────────────── -->
     <main class="llma-main">
         <!-- Top Bar -->
         <header class="llma-topbar">
             <div class="llma-topbar-left">
-                <button class="llma-icon-btn" id="llma-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
+                <button class="llma-icon-btn translate" id="llma-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                 </button>
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
@@ -39,13 +39,13 @@
                      see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
                 <div class="llma-popover-anchor llma-model-anchor" id="llma-model-anchor">
                     <!-- Compact trigger: shown only when the bar is too narrow for the inline selects. -->
-                    <button class="llma-icon-btn llma-model-menu-btn" id="llma-model-menu-btn" type="button" title="Model selection" aria-label="Model selection" aria-haspopup="true">
+                    <button class="llma-icon-btn llma-model-menu-btn translate" id="llma-model-menu-btn" type="button" title="Model selection" aria-label="Model selection" aria-haspopup="true">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/></svg>
                     </button>
                     <div class="llma-model-select-wrap" id="llma-model-select-wrap">
                         <!-- Compare/VS toggle: splits into a second model pill and fans each prompt out to both
                              models side-by-side. Positioned to the left of the model dropdown. -->
-                        <button class="llma-icon-btn llma-compare-toggle" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison">
+                        <button class="llma-icon-btn llma-compare-toggle translate" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/></svg>
                         </button>
                         <select class="llma-model-select" id="llma-model-select" autocomplete="off" aria-label="Active LLM model (lane A in compare)">
@@ -57,66 +57,66 @@
                         </span>
                         <!-- Refresh re-scans Models/llm/ via core TriggerRefresh so newly-dropped GGUF
                              files show up without restarting SwarmUI. -->
-                        <button class="llma-icon-btn llma-model-refresh" id="llma-model-refresh" type="button" title="Refresh model list" aria-label="Refresh model list">
+                        <button class="llma-icon-btn llma-model-refresh translate" id="llma-model-refresh" type="button" title="Refresh model list" aria-label="Refresh model list">
                             <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M11.5 3a5 5 0 1 0 1.2 3.5M11.5 1v3h-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
                         </button>
                         <!-- Unload the resident LLM model to free VRAM (eg to load an image model). Lazily reloads on next use. -->
-                        <button class="llma-icon-btn llma-model-unload" id="llma-model-unload" type="button" title="Unload LLM model (free VRAM)" aria-label="Unload LLM model to free VRAM">
+                        <button class="llma-icon-btn llma-model-unload translate" id="llma-model-unload" type="button" title="Unload LLM model (free VRAM)" aria-label="Unload LLM model to free VRAM">
                             <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><path d="M4.5 4.4a5 5 0 1 0 7 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" fill="none"/></svg>
                         </button>
                     </div>
                 </div>
                 <!-- Params -->
                 <div class="llma-popover-anchor">
-                    <button class="llma-icon-btn" id="llma-params-btn" title="Parameters" aria-label="Parameters">
+                    <button class="llma-icon-btn translate" id="llma-params-btn" title="Parameters" aria-label="Parameters">
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1.5 3.5h3m2 0h6M1.5 7h6m2 0h3M1.5 10.5h2m2 0h7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="6" cy="3.5" r="1.2" stroke="currentColor" stroke-width="1"/><circle cx="9" cy="7" r="1.2" stroke="currentColor" stroke-width="1"/><circle cx="5" cy="10.5" r="1.2" stroke="currentColor" stroke-width="1"/></svg>
                     </button>
                     <div class="llma-params-popover" id="llma-params-popover" style="display:none;">
                         <div class="llma-params-grid">
                             <div class="llma-param-row">
-                                <label>Temperature</label>
+                                <label class="translate">Temperature</label>
                                 <input type="range" id="llma-p-temperature" min="0" max="2" step="0.1" value="0.8">
                                 <span class="llma-param-val" id="llma-p-temperature-val">0.8</span>
                             </div>
                             <div class="llma-param-row">
-                                <label>Max Tokens</label>
+                                <label class="translate">Max Tokens</label>
                                 <input type="number" id="llma-p-max-tokens" min="1" max="32768" value="4096">
                             </div>
                             <div class="llma-param-row">
-                                <label>Top P</label>
+                                <label class="translate">Top P</label>
                                 <input type="range" id="llma-p-top-p" min="0" max="1" step="0.05" value="0.9">
                                 <span class="llma-param-val" id="llma-p-top-p-val">0.9</span>
                             </div>
                             <div class="llma-param-row">
-                                <label>Context</label>
+                                <label class="translate">Context</label>
                                 <input type="number" id="llma-p-context" min="0" max="200" value="0">
-                                <span class="llma-param-hint">0 = all</span>
+                                <span class="llma-param-hint translate">0 = all</span>
                             </div>
                         </div>
                         <div class="llma-params-actions">
-                            <button class="basic-button" id="llma-params-apply">Apply</button>
-                            <button class="basic-button" id="llma-params-reset">Reset</button>
+                            <button class="basic-button translate" id="llma-params-apply">Apply</button>
+                            <button class="basic-button translate" id="llma-params-reset">Reset</button>
                         </div>
                     </div>
                 </div>
                 <!-- Export -->
                 <div class="llma-popover-anchor">
-                    <button class="llma-icon-btn" id="llma-export-btn" title="Export this chat as a file" aria-label="Export this chat">
+                    <button class="llma-icon-btn translate" id="llma-export-btn" title="Export this chat as a file" aria-label="Export this chat">
                         <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v8M3.5 6L7 9.5 10.5 6M2 11.5h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                     <div class="llma-export-menu" id="llma-export-menu" style="display:none;">
-                        <div class="llma-menu-heading">Export this chat as…</div>
+                        <div class="llma-menu-heading translate">Export this chat as…</div>
                         <button class="llma-menu-item" id="llma-export-json">JSON</button>
                         <button class="llma-menu-item" id="llma-export-md">Markdown</button>
-                        <button class="llma-menu-item" id="llma-export-txt">Plain Text</button>
+                        <button class="llma-menu-item translate" id="llma-export-txt">Plain Text</button>
                     </div>
                 </div>
                 <!-- Settings -->
-                <button class="llma-icon-btn" id="llma-settings-btn" title="Settings" aria-label="Settings">
+                <button class="llma-icon-btn translate" id="llma-settings-btn" title="Settings" aria-label="Settings">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 9a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" stroke-width="1.2"/><path d="M11.4 8.6l.9.5a.5.5 0 01.2.7l-1 1.7a.5.5 0 01-.7.2l-.9-.5a4.5 4.5 0 01-1 .6v1a.5.5 0 01-.5.5H6.6a.5.5 0 01-.5-.5v-1a4.5 4.5 0 01-1-.6l-.9.5a.5.5 0 01-.7-.2l-1-1.7a.5.5 0 01.2-.7l.9-.5a4.5 4.5 0 010-1.2l-.9-.5a.5.5 0 01-.2-.7l1-1.7a.5.5 0 01.7-.2l.9.5a4.5 4.5 0 011-.6v-1a.5.5 0 01.5-.5h1.8a.5.5 0 01.5.5v1a4.5 4.5 0 011 .6l.9-.5a.5.5 0 01.7.2l1 1.7a.5.5 0 01-.2.7l-.9.5a4.5 4.5 0 010 1.2z" stroke="currentColor" stroke-width="1"/></svg>
                 </button>
                 <!-- Assistant panel toggle (tablet/mobile) -->
-                <button class="llma-icon-btn" id="llma-asst-toggle" title="Assistant panel" aria-label="Assistant panel" style="display:none;">
+                <button class="llma-icon-btn translate" id="llma-asst-toggle" title="Assistant panel" aria-label="Assistant panel" style="display:none;">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M9 1v12" stroke="currentColor" stroke-width="1.2"/></svg>
                 </button>
             </div>
@@ -142,8 +142,8 @@
                      Hidden until the first load attempt records an error or detects zero backends. -->
                 <div class="llma-welcome-banner" id="llma-welcome-banner" style="display:none;" role="status" aria-live="polite"></div>
                 <div class="llma-gallery-header">
-                    <h2 class="llma-gallery-title">LLM Assistant</h2>
-                    <p class="llma-gallery-sub">Choose an assistant to start a conversation.</p>
+                    <h2 class="llma-gallery-title translate">LLM Assistant</h2>
+                    <p class="llma-gallery-sub translate">Choose an assistant to start a conversation.</p>
                 </div>
                 <div class="llma-assistant-grid" id="llma-assistant-grid"></div>
             </div>
@@ -153,11 +153,11 @@
                 <!-- In-thread find bar. Toggled by Ctrl/Cmd+Shift+F (Cmd+F stays browser-native).
                      Highlights matches in the messages container and lets the user navigate next/prev. -->
                 <div class="llma-find-bar" id="llma-find-bar" style="display:none;" role="search">
-                    <input type="text" id="llma-find-input" class="llma-find-input" placeholder="Find in chat..." aria-label="Find in chat" autocomplete="off">
+                    <input type="text" id="llma-find-input" class="llma-find-input translate" placeholder="Find in chat..." aria-label="Find in chat" autocomplete="off">
                     <span class="llma-find-count" id="llma-find-count" aria-live="polite">0 / 0</span>
-                    <button class="llma-find-btn" id="llma-find-prev" type="button" title="Previous match (Shift+Enter)" aria-label="Previous match">&lsaquo;</button>
-                    <button class="llma-find-btn" id="llma-find-next" type="button" title="Next match (Enter)" aria-label="Next match">&rsaquo;</button>
-                    <button class="llma-find-btn" id="llma-find-close" type="button" title="Close (Esc)" aria-label="Close find">&times;</button>
+                    <button class="llma-find-btn translate" id="llma-find-prev" type="button" title="Previous match (Shift+Enter)" aria-label="Previous match">&lsaquo;</button>
+                    <button class="llma-find-btn translate" id="llma-find-next" type="button" title="Next match (Enter)" aria-label="Next match">&rsaquo;</button>
+                    <button class="llma-find-btn translate" id="llma-find-close" type="button" title="Close (Esc)" aria-label="Close find">&times;</button>
                 </div>
                 <div class="llma-messages" id="llma-messages"></div>
                 <!-- Empty-chat greeting: rendered above the input only when the
@@ -168,14 +168,14 @@
                 <div class="llma-input-area">
                     <!-- Floats just above the composer while the user has scrolled up during generation.
                          Click jumps back to the latest message and re-enables auto-follow. -->
-                    <button class="llma-scroll-bottom-btn" id="llma-scroll-bottom-btn" type="button" title="Scroll to latest" aria-label="Scroll to latest message">
+                    <button class="llma-scroll-bottom-btn translate" id="llma-scroll-bottom-btn" type="button" title="Scroll to latest" aria-label="Scroll to latest message">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3V13M8 13L3.5 8.5M8 13L12.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </button>
                     <div class="llma-input-wrap">
-                        <textarea class="llma-input" id="llma-input" placeholder="Type a message, or / for tools…" rows="1"></textarea>
+                        <textarea class="llma-input translate" id="llma-input" placeholder="Type a message, or / for tools…" rows="1"></textarea>
                         <div class="llma-input-actions">
                             <div class="llma-input-actions-left">
-                                <button class="llma-tools-btn" id="llma-tools-btn" type="button" title="Tools (/)" aria-label="Open tools menu">
+                                <button class="llma-tools-btn translate" id="llma-tools-btn" type="button" title="Tools (/)" aria-label="Open tools menu">
                                     <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="3.5" stroke="currentColor" stroke-width="1.3"/><path d="M6.4 11.2L9.6 4.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
                                 </button>
                                 <button class="llma-tools-toggle-btn" id="llma-tools-toggle-btn" type="button" title="Tool calling is ON for this chat — click to turn off" aria-label="Toggle tool calling for this chat" aria-pressed="true">
@@ -187,17 +187,17 @@
                                 </label>
                             </div>
                             <div class="llma-input-actions-right">
-                                <button class="llma-send-btn" id="llma-send-btn" title="Send" aria-label="Send message">
+                                <button class="llma-send-btn translate" id="llma-send-btn" title="Send" aria-label="Send message">
                                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
                                 </button>
-                                <button class="llma-stop-btn" id="llma-stop-btn" style="display:none;" title="Stop" aria-label="Stop generation">
+                                <button class="llma-stop-btn translate" id="llma-stop-btn" style="display:none;" title="Stop" aria-label="Stop generation">
                                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>
                                 </button>
                             </div>
                         </div>
                     </div>
                     <div class="llma-input-footer">
-                        <span class="llma-input-hint">Enter to send &middot; Shift+Enter for newline &middot; / for tools</span>
+                        <span class="llma-input-hint translate">Enter to send &middot; Shift+Enter for newline &middot; / for tools</span>
                         <span class="llma-char-count" id="llma-char-count"></span>
                     </div>
                 </div>
@@ -206,18 +206,18 @@
     </main>
 
     <!-- ── Splitter (main / assistant panel) ─────────────────── -->
-    <div class="llma-splitbar splitter-bar" id="llma-split-right" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton" id="llma-split-right-btn" title="Toggle panel">&#x21DB;</div></div>
+    <div class="llma-splitbar splitter-bar translate" id="llma-split-right" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-right-btn" title="Toggle panel">&#x21DB;</div></div>
 
     <!-- ── Assistant Panel (right) ───────────────────────────── -->
     <aside class="llma-asst-panel" id="llma-asst-panel">
         <div class="llma-panel-header">
-            <span class="llma-panel-header-label">Assistant</span>
-            <button class="llma-icon-btn" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
+            <span class="llma-panel-header-label translate">Assistant</span>
+            <button class="llma-icon-btn translate" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M7 1.5L3.5 5.5L7 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
         </div>
         <div class="llma-panel-inner" id="llma-panel-inner">
-            <div class="llma-panel-empty">Select an assistant to see details.</div>
+            <div class="llma-panel-empty translate">Select an assistant to see details.</div>
         </div>
     </aside>
 
@@ -231,10 +231,10 @@
                     <span class="llma-asset-type-badge" id="llma-asset-modal-badge"></span>
                 </div>
                 <div class="llma-asset-actions">
-                    <button id="llma-asset-use-prompt" title="Send content to the Generate prompt box">Use as Prompt</button>
-                    <button id="llma-asset-use-init" title="Send image as init for Generate" style="display:none;">Use as Init</button>
-                    <button id="llma-asset-copy" title="Copy content to clipboard">Copy</button>
-                    <button id="llma-asset-download" title="Download as file">Download</button>
+                    <button id="llma-asset-use-prompt" class="translate" title="Send content to the Generate prompt box">Use as Prompt</button>
+                    <button id="llma-asset-use-init" class="translate" title="Send image as init for Generate" style="display:none;">Use as Init</button>
+                    <button id="llma-asset-copy" class="translate" title="Copy content to clipboard">Copy</button>
+                    <button id="llma-asset-download" class="translate" title="Download as file">Download</button>
                     <button class="llma-modal-close" id="llma-asset-close" aria-label="Close asset viewer">&times;</button>
                 </div>
             </div>
@@ -246,78 +246,78 @@
     <div class="llma-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="llma-modal llma-settings-modal">
             <div class="llma-modal-header">
-                <h3>Settings</h3>
+                <h3 class="translate">Settings</h3>
                 <button class="llma-modal-close" id="llma-settings-close" aria-label="Close settings">&times;</button>
             </div>
             <div class="llma-modal-tabs" role="tablist">
-                <button class="llma-modal-tab active" data-tab="general" role="tab" aria-selected="true">General</button>
-                <button class="llma-modal-tab" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
-                <button class="llma-modal-tab" data-tab="tools" role="tab" aria-selected="false">Tools</button>
-                <button class="llma-modal-tab" data-tab="companion" role="tab" aria-selected="false">Companion</button>
+                <button class="llma-modal-tab active translate" data-tab="general" role="tab" aria-selected="true">General</button>
+                <button class="llma-modal-tab translate" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
+                <button class="llma-modal-tab translate" data-tab="tools" role="tab" aria-selected="false">Tools</button>
+                <button class="llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
                 <!-- General Settings -->
                 <div class="llma-modal-panel" id="llma-settings-general">
                     <div class="llma-setting-section">
-                        <h4>Generation</h4>
+                        <h4 class="translate">Generation</h4>
                         <div class="llma-setting-row">
-                            <label for="llma-s-temperature">Temperature</label>
+                            <label for="llma-s-temperature" class="translate">Temperature</label>
                             <div class="llma-range-wrap">
                                 <input type="range" id="llma-s-temperature" min="0" max="2" step="0.05" value="0.8">
                                 <span class="llma-range-val" id="llma-s-temperature-val">0.8</span>
                             </div>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-max-tokens">Max Tokens</label>
+                            <label for="llma-s-max-tokens" class="translate">Max Tokens</label>
                             <input type="number" id="llma-s-max-tokens" min="1" max="32768" value="4096">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-top-p">Top P</label>
+                            <label for="llma-s-top-p" class="translate">Top P</label>
                             <div class="llma-range-wrap">
                                 <input type="range" id="llma-s-top-p" min="0" max="1" step="0.05" value="0.9">
                                 <span class="llma-range-val" id="llma-s-top-p-val">0.9</span>
                             </div>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-seed">Seed</label>
+                            <label for="llma-s-seed" class="translate">Seed</label>
                             <input type="number" id="llma-s-seed" value="-1">
-                            <span class="llma-setting-hint">-1 = random</span>
+                            <span class="llma-setting-hint translate">-1 = random</span>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-context">Context Messages</label>
+                            <label for="llma-s-context" class="translate">Context Messages</label>
                             <input type="number" id="llma-s-context" min="0" max="200" value="0">
-                            <span class="llma-setting-hint">0 = all</span>
+                            <span class="llma-setting-hint translate">0 = all</span>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-stream">Stream</label>
+                            <label for="llma-s-stream" class="translate">Stream</label>
                             <input type="checkbox" id="llma-s-stream" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-image-max">Vision Image Max Size</label>
+                            <label for="llma-s-image-max" class="translate">Vision Image Max Size</label>
                             <div class="llma-range-wrap">
                                 <input type="range" id="llma-s-image-max" min="256" max="2048" step="128" value="1536">
                                 <span class="llma-range-val" id="llma-s-image-max-val">1536px</span>
                             </div>
-                            <span class="llma-setting-hint">Lower = fewer vision tokens</span>
+                            <span class="llma-setting-hint translate">Lower = fewer vision tokens</span>
                         </div>
                     </div>
                     <div class="llma-setting-section">
-                        <h4>Interface</h4>
+                        <h4 class="translate">Interface</h4>
                         <div class="llma-setting-row">
-                            <label for="llma-s-markdown">Markdown Rendering</label>
+                            <label for="llma-s-markdown" class="translate">Markdown Rendering</label>
                             <input type="checkbox" id="llma-s-markdown" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-enter-send">Enter to Send</label>
+                            <label for="llma-s-enter-send" class="translate">Enter to Send</label>
                             <input type="checkbox" id="llma-s-enter-send" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-show-tokens">Show Token Count</label>
+                            <label for="llma-s-show-tokens" class="translate">Show Token Count</label>
                             <input type="checkbox" id="llma-s-show-tokens" checked>
                         </div>
                     </div>
                     <div class="llma-settings-note">
-                        Place LLM model files in <strong>Models/llm/</strong>. Configure an LLM backend in <strong>Server &gt; Backends</strong>.
+                        <span class="translate">Place LLM model files in</span> <strong>Models/llm/</strong><span class="translate">. Configure an LLM backend in</span> <strong>Server &gt; Backends</strong><span class="translate">.</span>
                     </div>
                 </div>
 
@@ -325,9 +325,9 @@
                 <div class="llma-modal-panel" id="llma-settings-assistants" style="display:none;">
                     <div class="llma-asst-list-wrap" id="llma-assistant-list"></div>
                     <div class="llma-asst-create-row">
-                        <button class="basic-button" id="llma-create-asst-btn">+ Create Assistant</button>
-                        <select id="llma-template-select" class="llma-template-select" title="Clone from a starter template">
-                            <option value="">Clone from template…</option>
+                        <button class="basic-button translate" id="llma-create-asst-btn">+ Create Assistant</button>
+                        <select id="llma-template-select" class="llma-template-select translate" title="Clone from a starter template">
+                            <option value="" class="translate">Clone from template…</option>
                         </select>
                     </div>
 
@@ -335,113 +335,113 @@
                     <div class="llma-asst-editor" id="llma-asst-editor" style="display:none;">
                         <div class="llma-editor-header">
                             <h4 id="llma-editor-title">New Assistant</h4>
-                            <button class="llma-icon-btn" id="llma-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
+                            <button class="llma-icon-btn translate" id="llma-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
                         </div>
                         <div class="llma-editor-avatar-row">
                             <div class="llma-avatar-preview" id="llma-avatar-preview">?</div>
                             <div class="llma-avatar-controls">
-                                <button class="basic-button" id="llma-avatar-upload-btn">Upload</button>
+                                <button class="basic-button translate" id="llma-avatar-upload-btn">Upload</button>
                                 <input type="file" id="llma-avatar-file" accept="image/*" style="display:none;">
                                 <input type="color" id="llma-asst-color" value="#7c8aff">
                             </div>
                         </div>
                         <div class="llma-editor-grid">
                             <div class="llma-editor-field">
-                                <label for="llma-asst-name">Name</label>
-                                <input type="text" id="llma-asst-name" placeholder="Assistant name">
+                                <label for="llma-asst-name" class="translate">Name</label>
+                                <input type="text" id="llma-asst-name" placeholder="Assistant name" class="translate">
                             </div>
                             <div class="llma-editor-field">
-                                <label for="llma-asst-category">Category</label>
+                                <label for="llma-asst-category" class="translate">Category</label>
                                 <select id="llma-asst-category">
-                                    <option value="chat">Chat</option>
-                                    <option value="vision">Vision</option>
-                                    <option value="prompt">Prompt</option>
-                                    <option value="code">Code</option>
-                                    <option value="creative">Creative</option>
-                                    <option value="analyze">Analyze</option>
-                                    <option value="custom">Custom</option>
+                                    <option value="chat" class="translate">Chat</option>
+                                    <option value="vision" class="translate">Vision</option>
+                                    <option value="prompt" class="translate">Prompt</option>
+                                    <option value="code" class="translate">Code</option>
+                                    <option value="creative" class="translate">Creative</option>
+                                    <option value="analyze" class="translate">Analyze</option>
+                                    <option value="custom" class="translate">Custom</option>
                                 </select>
                             </div>
                             <div class="llma-editor-field llma-editor-field-full">
-                                <label for="llma-asst-desc">Description</label>
-                                <input type="text" id="llma-asst-desc" placeholder="Short description shown on welcome screen">
+                                <label for="llma-asst-desc" class="translate">Description</label>
+                                <input type="text" id="llma-asst-desc" placeholder="Short description shown on welcome screen" class="translate">
                             </div>
                             <div class="llma-editor-field llma-editor-field-full">
-                                <label for="llma-asst-extends" title="Inherit instructions, parameters, and tools from another assistant. Child assistants can override or add per-model variants without re-typing the parent's defaults.">Extends</label>
+                                <label for="llma-asst-extends" class="translate" title="Inherit instructions, parameters, and tools from another assistant. Child assistants can override or add per-model variants without re-typing the parent's defaults.">Extends</label>
                                 <select id="llma-asst-extends">
-                                    <option value="">(no parent — standalone)</option>
+                                    <option value="" class="translate">(no parent — standalone)</option>
                                 </select>
                             </div>
                         </div>
                         <div class="llma-instr-section">
-                            <h5>Instructions</h5>
+                            <h5 class="translate">Instructions</h5>
                             <div class="llma-instr-tabs" id="llma-instr-tabs">
-                                <button class="llma-instr-tab active" data-mode="chat">Chat</button>
-                                <button class="llma-instr-tab" data-mode="vision">Vision</button>
-                                <button class="llma-instr-tab" data-mode="caption">Caption</button>
-                                <button class="llma-instr-tab" data-mode="prompt">Prompt</button>
-                                <button class="llma-instr-tab" data-mode="randomprompt">Random</button>
-                                <button class="llma-instr-tab" data-mode="instructiongen">Instruct</button>
-                                <button class="llma-instr-tab" data-mode="companion" title="Short, glanceable replies for the floating Companion overlay">Companion</button>
+                                <button class="llma-instr-tab active translate" data-mode="chat">Chat</button>
+                                <button class="llma-instr-tab translate" data-mode="vision">Vision</button>
+                                <button class="llma-instr-tab translate" data-mode="caption">Caption</button>
+                                <button class="llma-instr-tab translate" data-mode="prompt">Prompt</button>
+                                <button class="llma-instr-tab translate" data-mode="randomprompt">Random</button>
+                                <button class="llma-instr-tab translate" data-mode="instructiongen">Instruct</button>
+                                <button class="llma-instr-tab translate" data-mode="companion" title="Short, glanceable replies for the floating Companion overlay">Companion</button>
                             </div>
                             <div class="llma-instr-default-wrap">
-                                <label class="llma-instr-sublabel" for="llma-instr-area">Default <small>(used when no variant matches)</small></label>
-                                <textarea class="llma-instr-area" id="llma-instr-area" rows="4" placeholder="System prompt for this mode..."></textarea>
+                                <label class="llma-instr-sublabel translate" for="llma-instr-area">Default <small class="translate">(used when no variant matches)</small></label>
+                                <textarea class="llma-instr-area translate" id="llma-instr-area" rows="4" placeholder="System prompt for this mode..."></textarea>
                                 <div class="llma-instr-test-wrap">
-                                    <button type="button" class="basic-button llma-instr-test-btn" id="llma-instr-test-btn">Test</button>
+                                    <button type="button" class="basic-button llma-instr-test-btn translate" id="llma-instr-test-btn">Test</button>
                                     <div class="llma-instr-test-panel" id="llma-instr-test-panel" style="display:none;">
-                                        <input type="text" class="llma-instr-test-input" id="llma-instr-test-input" placeholder="Sample user message..." autocomplete="off">
-                                        <button type="button" class="basic-button llma-instr-test-run" id="llma-instr-test-run">Run</button>
+                                        <input type="text" class="llma-instr-test-input translate" id="llma-instr-test-input" placeholder="Sample user message..." autocomplete="off">
+                                        <button type="button" class="basic-button llma-instr-test-run translate" id="llma-instr-test-run">Run</button>
                                         <pre class="llma-instr-test-result" id="llma-instr-test-result"></pre>
                                     </div>
                                 </div>
                             </div>
                             <div class="llma-instr-variants-wrap">
                                 <div class="llma-instr-variants-header">
-                                    <span>Per-model variants</span>
-                                    <button type="button" class="basic-button llma-add-variant-btn" id="llma-add-variant">+ Add variant</button>
+                                    <span class="translate">Per-model variants</span>
+                                    <button type="button" class="basic-button llma-add-variant-btn translate" id="llma-add-variant">+ Add variant</button>
                                 </div>
                                 <div class="llma-instr-variants" id="llma-instr-variants"></div>
-                                <div class="llma-instr-variants-help">Variants override the default for matching models. Specificity order: Exact &gt; Family &gt; Provider &gt; Tag &gt; Glob.</div>
+                                <div class="llma-instr-variants-help translate">Variants override the default for matching models. Specificity order: Exact &gt; Family &gt; Provider &gt; Tag &gt; Glob.</div>
                             </div>
                         </div>
                         <div class="llma-params-section">
-                            <h5>Parameter Defaults <small>(leave blank for global)</small></h5>
+                            <h5 class="translate">Parameter Defaults <small class="translate">(leave blank for global)</small></h5>
                             <div class="llma-editor-grid">
                                 <div class="llma-editor-field">
-                                    <label for="llma-asst-temperature">Temperature</label>
-                                    <input type="number" id="llma-asst-temperature" min="0" max="2" step="0.1" placeholder="Global">
+                                    <label for="llma-asst-temperature" class="translate">Temperature</label>
+                                    <input type="number" id="llma-asst-temperature" min="0" max="2" step="0.1" placeholder="Global" class="translate">
                                 </div>
                                 <div class="llma-editor-field">
-                                    <label for="llma-asst-max-tokens">Max Tokens</label>
-                                    <input type="number" id="llma-asst-max-tokens" min="1" max="32768" placeholder="Global">
+                                    <label for="llma-asst-max-tokens" class="translate">Max Tokens</label>
+                                    <input type="number" id="llma-asst-max-tokens" min="1" max="32768" placeholder="Global" class="translate">
                                 </div>
                                 <div class="llma-editor-field">
-                                    <label for="llma-asst-top-p">Top P</label>
-                                    <input type="number" id="llma-asst-top-p" min="0" max="1" step="0.05" placeholder="Global">
+                                    <label for="llma-asst-top-p" class="translate">Top P</label>
+                                    <input type="number" id="llma-asst-top-p" min="0" max="1" step="0.05" placeholder="Global" class="translate">
                                 </div>
                             </div>
                         </div>
                         <div class="llma-assist-tools-section">
-                            <h5>Enabled Tools</h5>
-                            <label class="llma-tools-master-toggle" title="Master switch for this assistant. Off means no tool descriptions are added to the system prompt at all — small local models reliably get confused by them regardless of which individual tools are checked below.">
+                            <h5 class="translate">Enabled Tools</h5>
+                            <label class="llma-tools-master-toggle translate" title="Master switch for this assistant. Off means no tool descriptions are added to the system prompt at all — small local models reliably get confused by them regardless of which individual tools are checked below.">
                                 <input type="checkbox" id="llma-asst-tools-enabled" checked>
-                                <span>Enable tool calling for this assistant</span>
+                                <span class="translate">Enable tool calling for this assistant</span>
                             </label>
                             <div id="llma-assist-tools"></div>
                         </div>
                         <div class="llma-assist-tool-config-section">
-                            <h5>Tool Config <span class="llma-config-hint">(this assistant only — overrides your account defaults)</span></h5>
+                            <h5 class="translate">Tool Config <span class="llma-config-hint translate">(this assistant only — overrides your account defaults)</span></h5>
                             <div id="llma-asst-tool-config"></div>
                         </div>
                         <div class="llma-editor-actions">
-                            <label class="llma-scope-toggle" id="llma-asst-scope-toggle" style="display:none;" title="Save this assistant to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
+                            <label class="llma-scope-toggle translate" id="llma-asst-scope-toggle" style="display:none;" title="Save this assistant to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
                                 <input type="checkbox" id="llma-asst-scope-shared">
-                                <span>Shared (visible to all users)</span>
+                                <span class="translate">Shared (visible to all users)</span>
                             </label>
-                            <button class="basic-button" id="llma-asst-save">Save</button>
+                            <button class="basic-button translate" id="llma-asst-save">Save</button>
                             <button class="basic-button" id="llma-asst-delete" style="display:none;">Delete</button>
-                            <button class="basic-button" id="llma-asst-cancel">Cancel</button>
+                            <button class="basic-button translate" id="llma-asst-cancel">Cancel</button>
                         </div>
                     </div>
                 </div>
@@ -449,81 +449,81 @@
                 <!-- Tools -->
                 <div class="llma-modal-panel" id="llma-settings-tools" style="display:none;">
                     <div class="llma-tool-list-wrap" id="llma-tool-list"></div>
-                    <button class="basic-button" id="llma-create-tool-btn">+ Create Tool</button>
+                    <button class="basic-button translate" id="llma-create-tool-btn">+ Create Tool</button>
 
                     <!-- Tool Editor -->
                     <div class="llma-tool-editor" id="llma-tool-editor" style="display:none;">
                         <div class="llma-editor-header">
                             <h4 id="llma-tool-editor-title">New Tool</h4>
-                            <button class="llma-icon-btn" id="llma-tool-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
+                            <button class="llma-icon-btn translate" id="llma-tool-editor-close" title="Close editor" aria-label="Close editor">&times;</button>
                         </div>
                         <div class="llma-tool-editor-note" id="llma-tool-editor-note" style="display:none;"></div>
                         <div class="llma-editor-grid">
                             <div class="llma-editor-field">
-                                <label for="llma-tool-id">ID</label>
+                                <label for="llma-tool-id" class="translate">ID</label>
                                 <input type="text" id="llma-tool-id" placeholder="unique_tool_id">
                             </div>
                             <div class="llma-editor-field">
-                                <label for="llma-tool-name">Name</label>
-                                <input type="text" id="llma-tool-name" placeholder="Human-readable name">
+                                <label for="llma-tool-name" class="translate">Name</label>
+                                <input type="text" id="llma-tool-name" placeholder="Human-readable name" class="translate">
                             </div>
                             <div class="llma-editor-field llma-editor-field-full">
-                                <label for="llma-tool-description">Description</label>
-                                <input type="text" id="llma-tool-description" placeholder="What this tool does (shown to the LLM)">
+                                <label for="llma-tool-description" class="translate">Description</label>
+                                <input type="text" id="llma-tool-description" placeholder="What this tool does (shown to the LLM)" class="translate">
                             </div>
                             <div class="llma-editor-field">
-                                <label for="llma-tool-handler-type">Handler Type</label>
+                                <label for="llma-tool-handler-type" class="translate">Handler Type</label>
                                 <select id="llma-tool-handler-type">
-                                    <option value="builtin">Built-In</option>
+                                    <option value="builtin" class="translate">Built-In</option>
                                 </select>
                             </div>
                             <div class="llma-editor-field">
-                                <label for="llma-tool-handler-id">Handler ID</label>
-                                <input type="text" id="llma-tool-handler-id" placeholder="handler identifier">
+                                <label for="llma-tool-handler-id" class="translate">Handler ID</label>
+                                <input type="text" id="llma-tool-handler-id" placeholder="handler identifier" class="translate">
                             </div>
                             <div class="llma-editor-field">
-                                <label for="llma-tool-enabled">Enabled</label>
+                                <label for="llma-tool-enabled" class="translate">Enabled</label>
                                 <input type="checkbox" id="llma-tool-enabled" checked>
                             </div>
                         </div>
                         <div class="llma-tool-schema-section">
-                            <h5>Parameters Schema (JSON)</h5>
+                            <h5 class="translate">Parameters Schema (JSON)</h5>
                             <textarea class="llma-tool-schema" id="llma-tool-schema" rows="8" spellcheck="false"></textarea>
                         </div>
                         <!-- Per-user tool config. Shown only for built-in tools that support it; the JS swaps
                              which inner block is visible based on the tool being edited. -->
                         <div class="llma-tool-config-section" id="llma-tool-config-section" style="display:none;">
-                            <h5>Tool Config <span class="llma-config-hint">(applies to your account only)</span></h5>
+                            <h5 class="translate">Tool Config <span class="llma-config-hint translate">(applies to your account only)</span></h5>
                             <div class="llma-tool-config-block" id="llma-tool-config-generate_image" style="display:none;">
-                                <label for="llma-config-default-preset">Default image preset</label>
+                                <label for="llma-config-default-preset" class="translate">Default image preset</label>
                                 <select id="llma-config-default-preset"></select>
-                                <div class="llma-config-help">The LLM will use this preset when it generates an image without specifying one. Picked from the presets you've saved on the Generate tab.</div>
+                                <div class="llma-config-help translate">The LLM will use this preset when it generates an image without specifying one. Picked from the presets you've saved on the Generate tab.</div>
                             </div>
                             <div class="llma-tool-config-block" id="llma-tool-config-file_write" style="display:none;">
-                                <label for="llma-config-extra-extensions">Extra allowed extensions</label>
+                                <label for="llma-config-extra-extensions" class="translate">Extra allowed extensions</label>
                                 <input type="text" id="llma-config-extra-extensions" placeholder="py, html, css">
-                                <div class="llma-config-help">Comma-separated. Always-allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition. Only add extensions you trust the LLM to write — combined with shell_exec these can become a foot-gun.</div>
+                                <div class="llma-config-help translate">Comma-separated. Always-allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition. Only add extensions you trust the LLM to write — combined with shell_exec these can become a foot-gun.</div>
                             </div>
                             <div class="llma-tool-config-block" id="llma-tool-config-ratelimit" style="display:none;">
-                                <label for="llma-config-rate-limit">Rate limit (calls per hour)</label>
+                                <label for="llma-config-rate-limit" class="translate">Rate limit (calls per hour)</label>
                                 <input type="number" id="llma-config-rate-limit" min="0" step="1" placeholder="Default">
-                                <div class="llma-config-help">Caps how many times an LLM can call this tool per hour, to stop a runaway agentic loop from hammering it. Leave blank to use the default shown above. <code>0</code> means no limit.</div>
+                                <div class="llma-config-help translate">Caps how many times an LLM can call this tool per hour, to stop a runaway agentic loop from hammering it. Leave blank to use the default shown above. <code>0</code> means no limit.</div>
                             </div>
                         </div>
                         <div class="llma-tool-test-section">
-                            <h5>Test Execution</h5>
-                            <label for="llma-tool-test-args">Arguments (JSON)</label>
+                            <h5 class="translate">Test Execution</h5>
+                            <label for="llma-tool-test-args" class="translate">Arguments (JSON)</label>
                             <textarea class="llma-tool-test-args" id="llma-tool-test-args" rows="3" spellcheck="false">{}</textarea>
-                            <button class="basic-button" id="llma-tool-test-run">Run Test</button>
+                            <button class="basic-button translate" id="llma-tool-test-run">Run Test</button>
                             <pre class="llma-tool-test-result" id="llma-tool-test-result"></pre>
                         </div>
                         <div class="llma-editor-actions">
-                            <button class="basic-button" id="llma-tool-save">Save</button>
-                            <button class="basic-button" id="llma-tool-delete" style="display:none;">Delete</button>
-                            <button class="basic-button" id="llma-tool-cancel">Cancel</button>
-                            <label class="llma-scope-toggle" id="llma-tool-scope-toggle" style="display:none;" title="Save this tool to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
+                            <button class="basic-button translate" id="llma-tool-save">Save</button>
+                            <button class="basic-button translate" id="llma-tool-delete" style="display:none;">Delete</button>
+                            <button class="basic-button translate" id="llma-tool-cancel">Cancel</button>
+                            <label class="llma-scope-toggle translate" id="llma-tool-scope-toggle" style="display:none;" title="Save this tool to the shared layer so every user on this instance can see it. Requires the llm_shared_write permission.">
                                 <input type="checkbox" id="llma-tool-scope-shared">
-                                <span>Shared (visible to all users)</span>
+                                <span class="translate">Shared (visible to all users)</span>
                             </label>
                         </div>
                     </div>
@@ -532,33 +532,33 @@
                 <!-- Companion -->
                 <div class="llma-modal-panel" id="llma-settings-companion" style="display:none;">
                     <div class="llma-setting-section">
-                        <h4>Floating Companion</h4>
-                        <div class="llma-settings-note">
+                        <h4 class="translate">Floating Companion</h4>
+                        <div class="llma-settings-note translate">
                             A small in-page helper that floats over the SwarmUI UI. Click the persona's
                             avatar to ask a quick question, send your last image for a critique, or get
                             prompt suggestions — all powered by the assistant you pick below.
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-enabled">Enable Companion</label>
+                            <label for="llma-s-companion-enabled" class="translate">Enable Companion</label>
                             <input type="checkbox" id="llma-s-companion-enabled">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-persona">Persona</label>
+                            <label for="llma-s-companion-persona" class="translate">Persona</label>
                             <select id="llma-s-companion-persona">
-                                <option value="">(Use my active assistant)</option>
+                                <option value="" class="translate">(Use my active assistant)</option>
                             </select>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-corner">Snap Corner</label>
+                            <label for="llma-s-companion-corner" class="translate">Snap Corner</label>
                             <select id="llma-s-companion-corner">
-                                <option value="bottom-right">Bottom-right</option>
-                                <option value="bottom-left">Bottom-left</option>
-                                <option value="top-right">Top-right</option>
-                                <option value="top-left">Top-left</option>
+                                <option value="bottom-right" class="translate">Bottom-right</option>
+                                <option value="bottom-left" class="translate">Bottom-left</option>
+                                <option value="top-right" class="translate">Top-right</option>
+                                <option value="top-left" class="translate">Top-left</option>
                             </select>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-opacity">Opacity</label>
+                            <label for="llma-s-companion-opacity" class="translate">Opacity</label>
                             <div class="llma-range-wrap">
                                 <input type="range" id="llma-s-companion-opacity" min="0.4" max="1" step="0.05" value="0.95">
                                 <span class="llma-range-val" id="llma-s-companion-opacity-val">0.95</span>
@@ -566,74 +566,74 @@
                         </div>
                     </div>
                     <div class="llma-setting-section">
-                        <h4>Quick Actions</h4>
+                        <h4 class="translate">Quick Actions</h4>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-ask">Ask anything</label>
+                            <label for="llma-s-companion-btn-ask" class="translate">Ask anything</label>
                             <input type="checkbox" id="llma-s-companion-btn-ask" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-critique">Critique my last image</label>
+                            <label for="llma-s-companion-btn-critique" class="translate">Critique my last image</label>
                             <input type="checkbox" id="llma-s-companion-btn-critique" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-prompt">Help with my prompt</label>
+                            <label for="llma-s-companion-btn-prompt" class="translate">Help with my prompt</label>
                             <input type="checkbox" id="llma-s-companion-btn-prompt" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-preset" title="Suggest one of your saved Generate-tab presets that matches what you're trying to make">Suggest a preset</label>
+                            <label for="llma-s-companion-btn-preset" class="translate" title="Suggest one of your saved Generate-tab presets that matches what you're trying to make">Suggest a preset</label>
                             <input type="checkbox" id="llma-s-companion-btn-preset" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-explain" title="Open an inline question; the companion will look up the answer in SwarmUI's bundled docs">Explain a feature</label>
+                            <label for="llma-s-companion-btn-explain" class="translate" title="Open an inline question; the companion will look up the answer in SwarmUI's bundled docs">Explain a feature</label>
                             <input type="checkbox" id="llma-s-companion-btn-explain" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-btn-tip" title="Surface one quick, useful SwarmUI tip">Daily tip</label>
+                            <label for="llma-s-companion-btn-tip" class="translate" title="Surface one quick, useful SwarmUI tip">Daily tip</label>
                             <input type="checkbox" id="llma-s-companion-btn-tip" checked>
                         </div>
                     </div>
                     <div class="llma-setting-section">
-                        <h4>Ambient Chatter</h4>
-                        <div class="llma-settings-note">
+                        <h4 class="translate">Ambient Chatter</h4>
+                        <div class="llma-settings-note translate">
                             Lets the companion speak up on its own. Each trigger has its own toggle —
-                            keep what you like, turn off what you don't. <strong>Quiet Mode</strong>
+                            keep what you like, turn off what you don't. <strong class="translate">Quiet Mode</strong>
                             is a master mute that overrides every trigger below.
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-quiet" title="Master mute — keeps the overlay visible but suppresses every unsolicited message">Quiet Mode (master mute)</label>
+                            <label for="llma-s-companion-chat-quiet" class="translate" title="Master mute — keeps the overlay visible but suppresses every unsolicited message">Quiet Mode (master mute)</label>
                             <input type="checkbox" id="llma-s-companion-chat-quiet">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-greeting" title="Say hi once per browser session when you first load SwarmUI">Greet on session start</label>
+                            <label for="llma-s-companion-chat-greeting" class="translate" title="Say hi once per browser session when you first load SwarmUI">Greet on session start</label>
                             <input type="checkbox" id="llma-s-companion-chat-greeting" checked>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-reactions" title="One-line comment after a Generate-tab image finishes (throttled and capped)">React to generations</label>
+                            <label for="llma-s-companion-chat-reactions" class="translate" title="One-line comment after a Generate-tab image finishes (throttled and capped)">React to generations</label>
                             <input type="checkbox" id="llma-s-companion-chat-reactions">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-idle" title="Pipe up after you've been idle for the configured number of minutes">Idle nudges</label>
+                            <label for="llma-s-companion-chat-idle" class="translate" title="Pipe up after you've been idle for the configured number of minutes">Idle nudges</label>
                             <input type="checkbox" id="llma-s-companion-chat-idle">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-idle-min">Idle threshold (minutes)</label>
+                            <label for="llma-s-companion-chat-idle-min" class="translate">Idle threshold (minutes)</label>
                             <input type="number" id="llma-s-companion-chat-idle-min" min="2" max="120" value="8">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-cap" title="Hard cap on how many unsolicited messages the companion sends per browser session, across all triggers">Max chatter per session</label>
+                            <label for="llma-s-companion-chat-cap" class="translate" title="Hard cap on how many unsolicited messages the companion sends per browser session, across all triggers">Max chatter per session</label>
                             <input type="number" id="llma-s-companion-chat-cap" min="0" max="50" value="5">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-qh" title="Suppress all chatter between the hours below (24h clock). Useful if you leave SwarmUI open overnight.">Use quiet hours</label>
+                            <label for="llma-s-companion-chat-qh" class="translate" title="Suppress all chatter between the hours below (24h clock). Useful if you leave SwarmUI open overnight.">Use quiet hours</label>
                             <input type="checkbox" id="llma-s-companion-chat-qh">
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-qh-start">Quiet hours start</label>
+                            <label for="llma-s-companion-chat-qh-start" class="translate">Quiet hours start</label>
                             <input type="number" id="llma-s-companion-chat-qh-start" min="0" max="23" value="22">
                             <span class="llma-setting-hint">0–23</span>
                         </div>
                         <div class="llma-setting-row">
-                            <label for="llma-s-companion-chat-qh-end">Quiet hours end</label>
+                            <label for="llma-s-companion-chat-qh-end" class="translate">Quiet hours end</label>
                             <input type="number" id="llma-s-companion-chat-qh-end" min="0" max="23" value="8">
                             <span class="llma-setting-hint">0–23</span>
                         </div>
@@ -641,8 +641,8 @@
                 </div>
             </div>
             <div class="llma-modal-footer">
-                <button class="basic-button" id="llma-settings-save">Save &amp; Close</button>
-                <button class="basic-button" id="llma-settings-reset">Reset Defaults</button>
+                <button class="basic-button translate" id="llma-settings-save">Save &amp; Close</button>
+                <button class="basic-button translate" id="llma-settings-reset">Reset Defaults</button>
             </div>
         </div>
     </div>

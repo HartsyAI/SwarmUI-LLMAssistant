@@ -79,7 +79,7 @@
         const opts = llmaModelDeviceOptions(model);
         // A single option (or lane index unknown) → read-only badge; nothing to switch between.
         if (opts.length < 2 || typeof lane !== 'number') {
-            return `${nameEl}<span class="llma-compare-device" title="Runs on ${llmaEscapeHtml(dev)}">${llmaEscapeHtml(dev)}</span>`;
+            return `${nameEl}<span class="llma-compare-device" title="${llmaEscapeHtml(translate('Runs on'))} ${llmaEscapeHtml(dev)}">${llmaEscapeHtml(dev)}</span>`;
         }
         // Preselect: the lane's saved override if valid, else the device this column used.
         const pref = LLMAState.laneBackends ? LLMAState.laneBackends[lane] : null;
@@ -92,7 +92,7 @@
             return `<option value="${llmaEscapeHtml(val)}"${isSel ? ' selected' : ''}>${llmaEscapeHtml(o.device)}</option>`;
         }).join('');
         return `${nameEl}` +
-            `<select class="llma-compare-device-sel" data-lane="${lane}" title="Run this lane on a specific GPU / device (applies to the next message). Put the two lanes on different devices to generate at the same time.">${optHtml}</select>`;
+            `<select class="llma-compare-device-sel" data-lane="${lane}" title="${llmaEscapeHtml(translate('Run this lane on a specific GPU / device (applies to the next message). Put the two lanes on different devices to generate at the same time.'))}">${optHtml}</select>`;
     }
 
     /** Bind the column-header device selectors once (delegated on the message list). Changing one pins that
@@ -124,7 +124,7 @@
         const b = llmaLaneDeviceInfo(1, LLMAState.compareModelB);
         if (a && b && a.device === b.device && a.device !== 'cloud' && a.backendId === b.backendId) {
             if (typeof llmaShowToast === 'function') {
-                llmaShowToast(`Both lanes are on ${a.device} — they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.`, 'info');
+                llmaShowToast(`${translate('Both lanes are on')} ${a.device} — ${translate("they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.")}`, 'info');
             }
         }
     }
@@ -397,7 +397,7 @@
                 const metaEl = L.col && L.col.querySelector('.llma-msg-meta');
                 if (metaEl) {
                     const devLabel = (L.device && L.device !== 'cloud') ? `${L.device} · ` : '';
-                    metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · truncated' : ''}${data.stopReason === 'length' ? ' · cut off (max tokens)' : ''}`;
+                    metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · ' + translate('truncated') : ''}${data.stopReason === 'length' ? ' · ' + translate('cut off (max tokens)') : ''}`;
                     metaEl.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                 }
             },
@@ -464,13 +464,13 @@
     function llmaBuildCompareActions(msgId) {
         const actions = document.createElement('div');
         actions.className = 'llma-msg-actions';
-        actions.appendChild(llmaCreateActionBtn('Copy', () => { if (typeof llmaCopyMessage === 'function') llmaCopyMessage(msgId); }));
-        actions.appendChild(llmaCreateActionBtn('Use as Prompt', () => {
+        actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => { if (typeof llmaCopyMessage === 'function') llmaCopyMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => {
             const m = (LLMAState.allNodes || []).find(x => x.id === msgId);
             if (m && typeof llmaSendToPromptBox === 'function') llmaSendToPromptBox(m.content);
         }));
-        actions.appendChild(llmaCreateActionBtn('Keep this one', () => llmaKeepLane(msgId)));
-        actions.appendChild(llmaCreateActionBtn('Del', () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Keep this one'), () => llmaKeepLane(msgId)));
+        actions.appendChild(llmaCreateActionBtn(translate('Del'), () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
         return actions;
     }
 
@@ -493,7 +493,8 @@
             }
             llmaSetSessionState({ currentModel: model });
         }
-        llmaShowToast(`Kept ${model ? llmaModelName(model) : 'this reply'} — continuing single-model.`, 'info');
+        const keptLabel = model ? llmaModelName(model) : translate('this reply');
+        llmaShowToast(`${translate('Kept')} ${keptLabel} — ${translate('continuing single-model.')}`, 'info');
     }
 
     // ---- DOM: history (thread load / branch switch / converge re-render) ---------
@@ -540,7 +541,7 @@
             const metaEl = col.querySelector('.llma-msg-meta');
             if (metaEl) {
                 const cutOff = node.meta && node.meta.stopReason === 'length';
-                metaEl.textContent = `${label}${node.meta && node.meta.genTime ? ` · ${node.meta.genTime}s` : ''}${cutOff ? ' · cut off (max tokens)' : ''}`;
+                metaEl.textContent = `${label}${node.meta && node.meta.genTime ? ` · ${node.meta.genTime}s` : ''}${cutOff ? ' · ' + translate('cut off (max tokens)') : ''}`;
                 metaEl.classList.toggle('llma-msg-meta-truncated', !!cutOff);
             }
             col.querySelector('.llma-msg-body').appendChild(llmaBuildCompareActions(node.id));

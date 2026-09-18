@@ -46,17 +46,17 @@ function llmaRenderToolList() {
     if (!container) return;
 
     if (!LLMAState.tools.length) {
-        container.innerHTML = '<div class="llma-empty-state">No tools available.</div>';
+        container.innerHTML = `<div class="llma-empty-state">${translate('No tools available.')}</div>`;
         return;
     }
 
     let html = '';
     for (const tool of LLMAState.tools) {
         const disabled = tool.enabled === false;
-        const builtInBadge = tool.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : '';
+        const builtInBadge = tool.isBuiltIn ? ` <span class="llma-builtin-badge">(${translate('built-in')})</span>` : '';
         const scopeBadge = tool._scope === 'shared'
-            ? ' <span class="llma-scope-badge llma-scope-shared" title="Shared — visible to all users on this instance">shared</span>'
-            : (tool._scope === 'personal' ? ' <span class="llma-scope-badge llma-scope-personal" title="Personal — only visible to you">personal</span>' : '');
+            ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('Shared — visible to all users on this instance')}">${translate('shared')}</span>`
+            : (tool._scope === 'personal' ? ` <span class="llma-scope-badge llma-scope-personal" title="${translate('Personal — only visible to you')}">${translate('personal')}</span>` : '');
         html += `
             <div class="llma-tool-list-item${disabled ? ' disabled' : ''}" data-tool-id="${llmaEscapeHtml(tool.id)}">
                 <div class="llma-tool-list-info">
@@ -68,12 +68,12 @@ function llmaRenderToolList() {
                     </div>
                 </div>
                 <div class="llma-tool-list-actions">
-                    <label class="llma-tool-toggle" title="${disabled ? 'Disabled' : 'Enabled'}">
+                    <label class="llma-tool-toggle" title="${translate(disabled ? 'Disabled' : 'Enabled')}">
                         <input type="checkbox" class="llma-tool-enable" data-tool-id="${llmaEscapeHtml(tool.id)}" ${disabled ? '' : 'checked'}>
-                        <span>${disabled ? 'Off' : 'On'}</span>
+                        <span>${translate(disabled ? 'Off' : 'On')}</span>
                     </label>
-                    <button class="basic-button llma-tool-edit" data-tool-id="${llmaEscapeHtml(tool.id)}">Edit</button>
-                    ${tool.isBuiltIn ? '' : `<button class="basic-button llma-tool-delete" data-tool-id="${llmaEscapeHtml(tool.id)}">Delete</button>`}
+                    <button class="basic-button llma-tool-edit" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Edit')}</button>
+                    ${tool.isBuiltIn ? '' : `<button class="basic-button llma-tool-delete" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Delete')}</button>`}
                 </div>
             </div>`;
     }
@@ -114,7 +114,9 @@ function llmaShowToolEditor(tool) {
     llmaEditingToolId = tool ? tool.id : null;
 
     const title = document.getElementById('llma-tool-editor-title');
-    if (title) title.textContent = tool ? `Edit: ${tool.name || tool.id}` : 'New Tool';
+    // Reassigned every time the editor opens — translate() directly, never class="translate".
+    // "Edit:" is static chrome; the tool name/id after it is user data and is never translated.
+    if (title) title.textContent = tool ? `${translate('Edit:')} ${tool.name || tool.id}` : translate('New Tool');
 
     const deleteBtn = document.getElementById('llma-tool-delete');
     if (deleteBtn) deleteBtn.style.display = (tool && !tool.isBuiltIn) ? '' : 'none';
@@ -162,7 +164,7 @@ function llmaShowToolEditor(tool) {
     const noteEl = document.getElementById('llma-tool-editor-note');
     if (noteEl) {
         noteEl.textContent = tool?.isBuiltIn
-            ? 'This is a built-in tool. Only description and enabled state can be edited.'
+            ? translate('This is a built-in tool. Only description and enabled state can be edited.')
             : '';
         noteEl.style.display = tool?.isBuiltIn ? '' : 'none';
     }
@@ -215,7 +217,7 @@ function llmaSetupToolConfigPanel(tool) {
 async function llmaPopulateImagePresetConfig() {
     const sel = document.getElementById('llma-config-default-preset');
     if (!sel) return;
-    sel.innerHTML = '<option value="">Loading…</option>';
+    sel.innerHTML = `<option value="">${translate('Loading…')}</option>`;
     try {
         const [presetsRes, configRes] = await Promise.all([
             llmaRequest('LLMAssistantGetImagePresets', {}),
@@ -226,17 +228,20 @@ async function llmaPopulateImagePresetConfig() {
         sel.innerHTML = '';
         const noneOpt = document.createElement('option');
         noneOpt.value = '';
-        noneOpt.textContent = presets.length ? '(none — let the LLM pick or error if it doesn\'t)' : '(no presets saved — create one on the Generate tab first)';
+        noneOpt.textContent = presets.length
+            ? translate('(none — let the LLM pick or error if it doesn\'t)')
+            : translate('(no presets saved — create one on the Generate tab first)');
         sel.appendChild(noneOpt);
         for (const p of presets) {
             const opt = document.createElement('option');
             opt.value = p.title;
+            // p.title / p.description are user-created preset data — never translated.
             opt.textContent = p.description ? `${p.title} — ${p.description}` : p.title;
             if (p.title === current) opt.selected = true;
             sel.appendChild(opt);
         }
     } catch {
-        sel.innerHTML = '<option value="">(failed to load presets)</option>';
+        sel.innerHTML = `<option value="">${translate('(failed to load presets)')}</option>`;
     }
 }
 
@@ -257,7 +262,8 @@ async function llmaPopulateRateLimitConfig(toolId) {
     const input = document.getElementById('llma-config-rate-limit');
     if (!input) return;
     input.value = '';
-    input.placeholder = `Default: ${LLMA_TOOL_DEFAULT_RATE_LIMITS[toolId] ?? '?'}/hour`;
+    // Static "Default:"/"/hour" fragments translated separately from the dynamic number between them.
+    input.placeholder = `${translate('Default:')} ${LLMA_TOOL_DEFAULT_RATE_LIMITS[toolId] ?? '?'}${translate('/hour')}`;
     try {
         const res = await llmaRequest('LLMAssistantGetToolConfig', { toolId });
         const val = res?.config?.rateLimitPerHour;
@@ -388,12 +394,15 @@ async function llmaTestTool() {
         return;
     }
     const resultEl = document.getElementById('llma-tool-test-result');
-    if (resultEl) resultEl.textContent = 'Running...';
+    // Reassigned repeatedly (running -> result/error) — translate() directly, never class="translate".
+    if (resultEl) resultEl.textContent = translate('Running...');
     try {
         const result = await llmaRequest('LLMAssistantExecuteTool', { toolId: id, arguments: JSON.stringify(args) });
+        // Raw JSON tool output — data, never translated.
         if (resultEl) resultEl.textContent = JSON.stringify(result?.result || result, null, 2);
     } catch (ex) {
-        if (resultEl) resultEl.textContent = 'Error: ' + (ex?.message || String(ex));
+        // "Error:" is static chrome; the exception message is dynamic and never translated.
+        if (resultEl) resultEl.textContent = `${translate('Error:')} ${ex?.message || String(ex)}`;
     }
 }
 
@@ -418,7 +427,7 @@ function llmaRenderAssistantToolsChecklist(enabledToolIds) {
 
     const ids = Array.isArray(enabledToolIds) ? enabledToolIds : [];
     if (!LLMAState.tools.length) {
-        container.innerHTML = '<div class="llma-tool-checklist-empty">No tools available. Create tools in the Tools tab first.</div>';
+        container.innerHTML = `<div class="llma-tool-checklist-empty">${translate('No tools available. Create tools in the Tools tab first.')}</div>`;
         return;
     }
 
@@ -427,10 +436,10 @@ function llmaRenderAssistantToolsChecklist(enabledToolIds) {
         const checked = ids.includes(tool.id);
         const disabled = tool.enabled === false;
         html += `
-            <label class="llma-tool-check${disabled ? ' global-disabled' : ''}" title="${disabled ? 'Tool is globally disabled' : llmaEscapeHtml(tool.description || '')}">
+            <label class="llma-tool-check${disabled ? ' global-disabled' : ''}" title="${disabled ? translate('Tool is globally disabled') : llmaEscapeHtml(tool.description || '')}">
                 <input type="checkbox" class="llma-assist-tool-check" data-tool-id="${llmaEscapeHtml(tool.id)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
                 <span class="llma-tool-check-name">${llmaEscapeHtml(tool.name || tool.id)}</span>
-                ${tool.isBuiltIn ? '<span class="llma-builtin-badge">built-in</span>' : ''}
+                ${tool.isBuiltIn ? `<span class="llma-builtin-badge">${translate('built-in')}</span>` : ''}
             </label>`;
     }
     html += '</div>';
@@ -490,7 +499,7 @@ function llmaRenderAssistantToolConfig(assistant) {
         renderedCount++;
     }
     if (renderedCount === 0) {
-        container.innerHTML = '<div class="llma-asst-tool-config-empty">No configurable tools enabled. Enable Generate Image or Write File above to set this assistant\'s defaults.</div>';
+        container.innerHTML = `<div class="llma-asst-tool-config-empty">${translate('No configurable tools enabled. Enable Generate Image or Write File above to set this assistant\'s defaults.')}</div>`;
     }
 }
 
@@ -498,9 +507,9 @@ function llmaBuildAssistantToolConfigInner(toolId, config) {
     if (toolId === 'generate_image') {
         const wrap = document.createElement('div');
         wrap.innerHTML = `
-            <label>Default image preset</label>
+            <label>${translate('Default image preset')}</label>
             <select class="llma-asst-cfg-input" data-key="defaultPreset"></select>
-            <div class="llma-asst-tool-config-help">When this assistant generates an image without picking a preset, it uses this one. Leave blank to fall back to your account default.</div>
+            <div class="llma-asst-tool-config-help">${translate('When this assistant generates an image without picking a preset, it uses this one. Leave blank to fall back to your account default.')}</div>
         `;
         const sel = wrap.querySelector('select');
         llmaPopulateAssistantPresetSelect(sel, config.defaultPreset || '');
@@ -509,9 +518,9 @@ function llmaBuildAssistantToolConfigInner(toolId, config) {
     if (toolId === 'file_write') {
         const wrap = document.createElement('div');
         wrap.innerHTML = `
-            <label>Extra allowed extensions</label>
+            <label>${translate('Extra allowed extensions')}</label>
             <input type="text" class="llma-asst-cfg-input" data-key="extraExtensions" placeholder="py, html, css">
-            <div class="llma-asst-tool-config-help">Comma-separated. Always allowed: <code>md, json, txt, yaml, yml, csv, log</code>. Anything you add here is in addition (only for this assistant).</div>
+            <div class="llma-asst-tool-config-help">${translate('Comma-separated. Always allowed:')} <code>md, json, txt, yaml, yml, csv, log</code>. ${translate('Anything you add here is in addition (only for this assistant).')}</div>
         `;
         const input = wrap.querySelector('input');
         if (Array.isArray(config.extraExtensions)) {
@@ -523,7 +532,7 @@ function llmaBuildAssistantToolConfigInner(toolId, config) {
 }
 
 async function llmaPopulateAssistantPresetSelect(sel, currentValue) {
-    sel.innerHTML = '<option value="">(use account default)</option>';
+    sel.innerHTML = `<option value="">${translate('(use account default)')}</option>`;
     try {
         const res = await llmaRequest('LLMAssistantGetImagePresets', {});
         const presets = Array.isArray(res?.presets) ? res.presets : [];

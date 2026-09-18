@@ -168,8 +168,8 @@ function llmaComputeLeaves(allNodes) {
 
 function llmaLeafPreviewLabel(leaf) {
     const raw = (leaf.content || '').replace(/\s+/g, ' ').trim();
-    const text = raw ? (raw.length > 46 ? raw.slice(0, 46) + '…' : raw) : '(empty)';
-    return `${leaf.role === 'user' ? 'You' : 'Reply'}: ${text}`;
+    const text = raw ? (raw.length > 46 ? raw.slice(0, 46) + '…' : raw) : translate('(empty)');
+    return `${leaf.role === 'user' ? translate('You') : translate('Reply')}: ${text}`;
 }
 
 async function llmaToggleBranchExpand(threadId) {
@@ -207,7 +207,7 @@ function llmaRenderThreadBranchesHtml(thread) {
     if (!llmaExpandedBranchThreads.has(thread.id)) return '';
     const allNodes = thread.id === LLMAState.activeThreadId ? (LLMAState.allNodes || []) : llmaBranchDataCache.get(thread.id);
     if (!allNodes) {
-        return `<div class="llma-thread-branches"><div class="llma-thread-branch-loading">Loading branches…</div></div>`;
+        return `<div class="llma-thread-branches"><div class="llma-thread-branch-loading">${translate('Loading branches…')}</div></div>`;
     }
     const leaves = llmaComputeLeaves(allNodes).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
     if (leaves.length < 2) return '';
@@ -235,8 +235,8 @@ function llmaRenderThreadList(threads) {
     if (!hasChats) {
         list.innerHTML = `
             <div class="llma-threads-empty">
-                <button class="basic-button llma-empty-new-btn" type="button">+ New Chat</button>
-                <div class="llma-threads-empty-sub">Pick an assistant to start a conversation.</div>
+                <button class="basic-button llma-empty-new-btn" type="button">+ ${translate('New Chat')}</button>
+                <div class="llma-threads-empty-sub">${translate('Pick an assistant to start a conversation.')}</div>
             </div>`;
         // Reuse the existing new-chat handler bound to #llma-new-thread-btn (hidden while empty).
         list.querySelector('.llma-empty-new-btn')?.addEventListener('click',
@@ -249,35 +249,36 @@ function llmaRenderThreadList(threads) {
 
     for (const [label, group] of Object.entries(groups)) {
         if (group.length === 0) continue;
-        html += `<div class="llma-thread-group-label">${llmaEscapeHtml(label)}</div>`;
+        html += `<div class="llma-thread-group-label">${llmaEscapeHtml(translate(label))}</div>`;
         for (const thread of group) {
             const isActive  = thread.id === LLMAState.activeThreadId;
             const checked = llmaSelectedThreadIds.has(thread.id) ? 'checked' : '';
             const checkbox = llmaThreadSelectMode
-                ? `<input type="checkbox" class="llma-thread-checkbox" data-id="${llmaEscapeHtml(thread.id)}" ${checked} aria-label="Select chat">`
+                ? `<input type="checkbox" class="llma-thread-checkbox" data-id="${llmaEscapeHtml(thread.id)}" ${checked} aria-label="${llmaEscapeHtml(translate('Select chat'))}">`
                 : '';
             const assistant = LLMAState.assistants.find(a => a.id === thread.assistantId);
             const badge = assistant
-                ? `<span class="llma-thread-assist-badge" style="background:${llmaEscapeHtml(assistant.color || 'var(--emphasis)')}" title="${llmaEscapeHtml(assistant.name || 'Assistant')}">${llmaCategoryIcon(assistant.icon || assistant.category || 'chat')}</span>`
+                ? `<span class="llma-thread-assist-badge" style="background:${llmaEscapeHtml(assistant.color || 'var(--emphasis)')}" title="${llmaEscapeHtml(assistant.name || translate('Assistant'))}">${llmaCategoryIcon(assistant.icon || assistant.category || 'chat')}</span>`
                 : '';
             const expanded = llmaExpandedBranchThreads.has(thread.id);
             const branchToggle = thread.hasBranches
                 ? `<button class="llma-thread-branch-toggle${expanded ? ' expanded' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
-                        title="${expanded ? 'Hide' : 'Show'} branches" aria-label="Toggle branches">&#9656;</button>`
+                        title="${expanded ? llmaEscapeHtml(translate('Hide branches')) : llmaEscapeHtml(translate('Show branches'))}" aria-label="${llmaEscapeHtml(translate('Toggle branches'))}">&#9656;</button>`
                 : '';
+            const displayTitle = thread.title || translate('Untitled');
             html += `
                 <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
-                     title="${llmaEscapeHtml(thread.title || 'Untitled')} \u2014 ${llmaRelativeTime(thread.updatedAt || thread.createdAt)}"
+                     title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}"
                      role="button" tabindex="0">
                     ${checkbox}
                     ${badge}
-                    <span class="llma-thread-name">${llmaEscapeHtml(thread.title || 'Untitled')}</span>
+                    <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
                     ${branchToggle}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
-                            title="Rename chat" aria-label="Rename chat">&#9998;</button>
+                            title="${llmaEscapeHtml(translate('Rename chat'))}" aria-label="${llmaEscapeHtml(translate('Rename chat'))}">&#9998;</button>
                     <button class="llma-thread-del" data-id="${llmaEscapeHtml(thread.id)}"
-                            title="Delete chat" aria-label="Delete chat">&times;</button>
+                            title="${llmaEscapeHtml(translate('Delete chat'))}" aria-label="${llmaEscapeHtml(translate('Delete chat'))}">&times;</button>
                 </div>
                 ${llmaRenderThreadBranchesHtml(thread)}`;
         }
@@ -374,7 +375,7 @@ function llmaToggleSelectedThread(id, selected) {
 function llmaUpdateBulkCount() {
     const count = llmaSelectedThreadIds.size;
     const label = document.getElementById('llma-bulk-count');
-    if (label) label.textContent = `${count} selected`;
+    if (label) label.textContent = `${count} ${translate('selected')}`;
     const del = document.getElementById('llma-bulk-delete');
     if (del) del.disabled = count === 0;
 }
@@ -385,7 +386,8 @@ function llmaUpdateBulkCount() {
 async function llmaBulkDeleteThreads() {
     const ids = Array.from(llmaSelectedThreadIds);
     if (ids.length === 0) return;
-    if (!confirm(`Delete ${ids.length} chat${ids.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
+    const confirmNoun = ids.length === 1 ? translate('chat') : translate('chats');
+    if (!confirm(`${translate('Delete')} ${ids.length} ${confirmNoun}? ${translate('This cannot be undone.')}`)) return;
     let ok = 0, failed = 0;
     await Promise.all(ids.map(async (id) => {
         try {
@@ -407,8 +409,8 @@ async function llmaBulkDeleteThreads() {
     }));
     llmaSelectedThreadIds.clear();
     llmaToggleThreadSelectMode(false);
-    if (failed === 0) llmaShowToast(`Deleted ${ok} chat${ok === 1 ? '' : 's'}.`, 'info');
-    else llmaShowToast(`Deleted ${ok}, failed ${failed}.`, failed === ok + failed ? 'error' : 'info');
+    if (failed === 0) llmaShowToast(`${translate('Deleted')} ${ok} ${ok === 1 ? translate('chat') : translate('chats')}.`, 'info');
+    else llmaShowToast(`${translate('Deleted')} ${ok}, ${translate('failed')} ${failed}.`, failed === ok + failed ? 'error' : 'info');
 }
 
 // One-shot wiring of the bulk-bar buttons. Idempotent — guards via dataset flag so callers
@@ -444,7 +446,7 @@ function llmaBeginRenameThread(itemEl) {
     input.type = 'text';
     input.className = 'llma-thread-rename-input';
     input.value = original;
-    input.setAttribute('aria-label', 'Rename thread');
+    input.setAttribute('aria-label', translate('Rename thread'));
     input.maxLength = 200;
     nameSpan.replaceWith(input);
     input.focus();
@@ -603,7 +605,7 @@ async function llmaSwitchThread(threadId) {
         llmaSetSessionState({ activeThreadId: thread.id });
 
         const titleEl = document.getElementById('llma-thread-title');
-        if (titleEl) titleEl.textContent = thread.title || 'Untitled';
+        if (titleEl) titleEl.textContent = thread.title || translate('Untitled');
 
         llmaShowChatPanel();
         // Restore per-thread VS mode BEFORE rendering so the wide layout + toggle are correct on first paint.
@@ -687,7 +689,7 @@ async function llmaSetSessionState(patch) {
 
 // -- Delete Thread --
 async function llmaDeleteThread(threadId) {
-    if (!confirm('Delete this chat? This cannot be undone.')) return;
+    if (!confirm(translate('Delete this chat? This cannot be undone.'))) return;
 
     try {
         await llmaRequest('LLMAssistantDeleteThread', { threadId });
@@ -798,7 +800,7 @@ function llmaExportThread(format, opts = {}) {
         llmaDownloadFile(`${safeName}_${timestamp}.txt`, lines.join('\n'), 'text/plain');
     }
 
-    llmaShowToast(`Exported as ${format.toUpperCase()}`, 'success');
+    llmaShowToast(`${translate('Exported as')} ${format.toUpperCase()}`, 'success');
 }
 
 // Compact tool-call JSON to a single line and cap at 200 chars so the Markdown bullet stays readable.
@@ -877,10 +879,10 @@ function llmaUpdateContextBar() {
     const tokCount  = useExact ? LLMAState.exactTokenCount : llmaApproxTokens(LLMAState.messages);
     const pct       = maxCtx > 0 ? Math.min(100, (count / maxCtx) * 100) : Math.min(100, (tokCount / 4096) * 100);
 
-    if (label)  label.textContent  = `${count} message${count !== 1 ? 's' : ''}`;
+    if (label)  label.textContent  = `${count} ${count !== 1 ? translate('messages') : translate('message')}`;
     if (fill)   fill.style.width   = `${pct.toFixed(0)}%`;
     if (tokens && LLMAState.showTokens) {
         const prefix = useExact && LLMAState.exactTokenCountIsExact ? '' : '~';
-        tokens.textContent = `${prefix}${tokCount.toLocaleString()} tokens`;
+        tokens.textContent = `${prefix}${tokCount.toLocaleString()} ${translate('tokens')}`;
     }
 }

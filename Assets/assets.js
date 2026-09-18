@@ -66,7 +66,7 @@ const LLMA_LANG_TO_LABEL = {
 };
 
 function llmaLangLabel(lang) {
-    if (!lang) return 'Code';
+    if (!lang) return translate('Code');
     const key = lang.toLowerCase();
     if (LLMA_LANG_TO_LABEL[key]) return LLMA_LANG_TO_LABEL[key];
     return lang.charAt(0).toUpperCase() + lang.slice(1);
@@ -337,7 +337,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
     const def = llmaAssetTypeDef(asset.type);
     const icon = def.icon || '\u{1F4C4}';
     const typeLabel = asset.type === 'code'
-        ? `Code \u00b7 ${llmaLangLabel(asset.language)}`
+        ? `${translate('Code')} \u00b7 ${llmaLangLabel(asset.language)}`
         : (def.label || asset.type.charAt(0).toUpperCase() + asset.type.slice(1));
     const sizeStr = asset.meta?.size != null ? llmaFormatBytes(asset.meta.size) : '';
     const lineStr = asset.meta?.lines ? ` \u00b7 ${asset.meta.lines} lines` : '';
@@ -356,7 +356,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
             <div class="llma-asset-card-title">${llmaEscapeHtml(asset.title)}</div>
             <div class="llma-asset-card-sub">${llmaEscapeHtml(subtitle)}</div>
         </div>
-        <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}" title="Open">Open</button>
+        <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}" title="${llmaEscapeHtml(translate('Open'))}">${llmaEscapeHtml(translate('Open'))}</button>
     </div>`;
 }
 
@@ -369,7 +369,7 @@ function llmaRenderAssetSidebar() {
     if (countEl) countEl.textContent = String(assets.length);
 
     if (assets.length === 0) {
-        list.innerHTML = '<div class="llma-asset-empty">No assets yet.<br>Assets created in this chat will appear here.</div>';
+        list.innerHTML = `<div class="llma-asset-empty">${translate('No assets yet.')}<br>${translate('Assets created in this chat will appear here.')}</div>`;
         return;
     }
     // Newest first
@@ -406,7 +406,7 @@ function llmaOpenAsset(id) {
             const viewEl = def.renderViewer ? def.renderViewer(asset) : llmaRenderViewerText(asset);
             if (viewEl) bodyEl.appendChild(viewEl);
         } catch (ex) {
-            bodyEl.innerHTML = `<div class="llma-asset-error">Failed to render: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
+            bodyEl.innerHTML = `<div class="llma-asset-error">${translate('Failed to render')}: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
         }
     };
 
@@ -415,7 +415,7 @@ function llmaOpenAsset(id) {
         const loading = document.createElement('div');
         loading.className = 'llma-asset-error';
         loading.style.color = 'var(--text-soft)';
-        loading.textContent = 'Loading…';
+        loading.textContent = translate('Loading…');
         bodyEl.appendChild(loading);
         fetch(asset.meta.url, { method: 'GET' })
             .then(r => r.text())
@@ -427,7 +427,7 @@ function llmaOpenAsset(id) {
                 llmaRenderAssetSidebar();
             })
             .catch(err => {
-                bodyEl.innerHTML = `<div class="llma-asset-error">Failed to load asset from URL: ${llmaEscapeHtml(err?.message || String(err))}</div>`;
+                bodyEl.innerHTML = `<div class="llma-asset-error">${translate('Failed to load asset from URL')}: ${llmaEscapeHtml(err?.message || String(err))}</div>`;
             });
     } else {
         renderNow();
@@ -562,7 +562,7 @@ function llmaSetupAssets() {
 llmaRegisterAssetType({
     type: 'code',
     icon: '\u{1F4BB}',
-    label: 'Code',
+    label: translate('Code'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-code';
@@ -598,7 +598,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'markdown',
     icon: '\u{1F4DD}',
-    label: 'Markdown',
+    label: translate('Markdown'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-markdown';
@@ -617,7 +617,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'html',
     icon: '\u{1F310}',
-    label: 'HTML',
+    label: translate('HTML'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-html';
@@ -627,14 +627,14 @@ llmaRegisterAssetType({
         tabs.className = 'llma-asset-view-tabs';
         const previewTab = document.createElement('button');
         previewTab.className = 'llma-asset-view-tab active';
-        previewTab.textContent = 'Preview';
+        previewTab.textContent = translate('Preview');
         const sourceTab = document.createElement('button');
         sourceTab.className = 'llma-asset-view-tab';
-        sourceTab.textContent = 'Source';
+        sourceTab.textContent = translate('Source');
         const scriptsBtn = document.createElement('button');
         scriptsBtn.className = 'llma-asset-view-tab llma-asset-scripts-btn';
-        scriptsBtn.textContent = 'Enable scripts';
-        scriptsBtn.title = 'Scripts are sandboxed; click to opt in (still sandboxed from the host)';
+        scriptsBtn.textContent = translate('Enable scripts');
+        scriptsBtn.title = translate('Scripts are sandboxed; click to opt in (still sandboxed from the host)');
         tabs.appendChild(previewTab);
         tabs.appendChild(sourceTab);
         tabs.appendChild(scriptsBtn);
@@ -683,11 +683,11 @@ llmaRegisterAssetType({
             const enabled = iframe.sandbox.contains('allow-scripts');
             if (enabled) {
                 iframe.sandbox = 'allow-same-origin';
-                scriptsBtn.textContent = 'Enable scripts';
+                scriptsBtn.textContent = translate('Enable scripts');
                 scriptsBtn.classList.remove('active');
             } else {
                 iframe.sandbox = 'allow-scripts';
-                scriptsBtn.textContent = 'Disable scripts';
+                scriptsBtn.textContent = translate('Disable scripts');
                 scriptsBtn.classList.add('active');
             }
             // Force reload of srcdoc to apply new sandbox
@@ -709,7 +709,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'svg',
     icon: '\u{1F5BC}',
-    label: 'SVG',
+    label: translate('SVG'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-svg';
@@ -731,7 +731,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'mermaid',
     icon: '\u{1F4CA}',
-    label: 'Diagram',
+    label: translate('Diagram'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-mermaid';
@@ -755,14 +755,14 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'json',
     icon: '\u{1F4E6}',
-    label: 'JSON',
+    label: translate('JSON'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-json';
         let obj;
         try { obj = JSON.parse(asset.content || 'null'); }
         catch (ex) {
-            wrap.innerHTML = `<div class="llma-asset-error">Invalid JSON: ${llmaEscapeHtml(ex.message)}</div>
+            wrap.innerHTML = `<div class="llma-asset-error">${translate('Invalid JSON')}: ${llmaEscapeHtml(ex.message)}</div>
                 <pre>${llmaEscapeHtml(asset.content || '')}</pre>`;
             return wrap;
         }
@@ -791,7 +791,7 @@ function llmaRenderJsonTree(value, key) {
     } else if (Array.isArray(value)) {
         const head = document.createElement('div');
         head.className = 'llma-json-head';
-        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">[</span> <span class="llma-json-count">${value.length} items</span>`;
+        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">[</span> <span class="llma-json-count">${value.length} ${llmaEscapeHtml(translate('items'))}</span>`;
         node.appendChild(head);
         const body = document.createElement('div');
         body.className = 'llma-json-body';
@@ -803,7 +803,7 @@ function llmaRenderJsonTree(value, key) {
         node.appendChild(tail);
         const toggleBtn = head.querySelector('.llma-json-toggle');
         toggleBtn.setAttribute('aria-expanded', 'true');
-        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.setAttribute('aria-label', translate('Toggle node'));
         toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const collapsed = node.classList.toggle('collapsed');
@@ -813,7 +813,7 @@ function llmaRenderJsonTree(value, key) {
         const keys = Object.keys(value);
         const head = document.createElement('div');
         head.className = 'llma-json-head';
-        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">{</span> <span class="llma-json-count">${keys.length} keys</span>`;
+        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">{</span> <span class="llma-json-count">${keys.length} ${llmaEscapeHtml(translate('keys'))}</span>`;
         node.appendChild(head);
         const body = document.createElement('div');
         body.className = 'llma-json-body';
@@ -825,7 +825,7 @@ function llmaRenderJsonTree(value, key) {
         node.appendChild(tail);
         const toggleBtn = head.querySelector('.llma-json-toggle');
         toggleBtn.setAttribute('aria-expanded', 'true');
-        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.setAttribute('aria-label', translate('Toggle node'));
         toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const collapsed = node.classList.toggle('collapsed');
@@ -839,7 +839,7 @@ function llmaRenderJsonTree(value, key) {
 llmaRegisterAssetType({
     type: 'image',
     icon: '\u{1F5BC}',
-    label: 'Image',
+    label: translate('Image'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-image';
@@ -862,7 +862,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'table',
     icon: '\u{1F4CB}',
-    label: 'Table',
+    label: translate('Table'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-table';
@@ -880,7 +880,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'text',
     icon: '\u{1F4C4}',
-    label: 'Text',
+    label: translate('Text'),
     renderViewer: (asset) => llmaRenderViewerText(asset),
     download: (asset) => ({
         filename: asset.title,

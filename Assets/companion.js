@@ -61,22 +61,23 @@ function llmaCompanionRender() {
     root.className = 'llma-companion';
     root.style.display = 'none';
     root.innerHTML = `
-        <div class="llma-companion-portrait-wrap" id="llma-companion-portrait-wrap" title="Click to expand / collapse">
+        <div class="llma-companion-portrait-wrap translate" id="llma-companion-portrait-wrap" title="Click to expand / collapse">
             <img class="llma-companion-portrait" id="llma-companion-portrait" alt="">
-            <button class="llma-companion-close" id="llma-companion-close" title="Hide for this session" aria-label="Hide companion">&times;</button>
+            <button class="llma-companion-close translate" id="llma-companion-close" title="Hide for this session" aria-label="Hide companion">&times;</button>
         </div>
         <div class="llma-companion-bubble" id="llma-companion-bubble" aria-live="polite"></div>
         <div class="llma-companion-actions" id="llma-companion-actions"></div>
         <div class="llma-companion-input-wrap" id="llma-companion-input-wrap" style="display:none;">
             <input type="text" id="llma-companion-input" class="llma-companion-input"
-                   placeholder="Ask anything..." aria-label="Ask the companion" autocomplete="off" maxlength="500">
-            <button class="llma-companion-send" id="llma-companion-send" title="Send" aria-label="Send">
+                   placeholder="${llmaEscapeHtml(translate('Ask anything...'))}" aria-label="${llmaEscapeHtml(translate('Ask the companion'))}" autocomplete="off" maxlength="500">
+            <button class="llma-companion-send translate" id="llma-companion-send" title="Send" aria-label="Send">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
             </button>
         </div>`;
     document.body.appendChild(root);
+    if (typeof applyTranslations === 'function') applyTranslations(root);
 
     // Click portrait → toggle expanded; close button → hide for session.
     document.getElementById('llma-companion-portrait-wrap')?.addEventListener('click', (e) => {
@@ -236,7 +237,7 @@ function llmaCompanionApplyPortrait() {
     if (!img || !wrap) return;
     const fallback = '/ExtensionFile/LLMAssistantExtension/Assets/swarmui-logo.jpg';
     img.src = persona?.avatar || fallback;
-    img.alt = persona?.name ? `${persona.name} avatar` : 'Companion';
+    img.alt = persona?.name ? `${persona.name} ${translate('avatar')}` : translate('Companion');
     wrap.style.borderColor = persona?.color || '#7c8aff';
 }
 
@@ -249,22 +250,22 @@ function llmaCompanionRenderActions() {
     const btns = cfg.buttons || {};
     const items = [];
     if (btns.ask !== false) {
-        items.push({ id: 'ask', label: 'Ask', title: 'Ask the companion anything', handler: llmaCompanionExpandAndFocus });
+        items.push({ id: 'ask', label: translate('Ask'), title: translate('Ask the companion anything'), handler: llmaCompanionExpandAndFocus });
     }
     if (btns.critique_last_image !== false) {
-        items.push({ id: 'critique', label: 'Critique', title: 'Critique my last image', handler: llmaCompanionRunCritique });
+        items.push({ id: 'critique', label: translate('Critique'), title: translate('Critique my last image'), handler: llmaCompanionRunCritique });
     }
     if (btns.help_with_prompt !== false) {
-        items.push({ id: 'prompt', label: 'Prompt', title: 'Suggest fixes for my current Generate-tab prompt', handler: llmaCompanionRunPromptHelp });
+        items.push({ id: 'prompt', label: translate('Prompt'), title: translate('Suggest fixes for my current Generate-tab prompt'), handler: llmaCompanionRunPromptHelp });
     }
     if (btns.suggest_preset !== false) {
-        items.push({ id: 'preset', label: 'Preset', title: 'Suggest a saved preset that matches what you\'re making', handler: llmaCompanionRunPresetSuggest });
+        items.push({ id: 'preset', label: translate('Preset'), title: translate('Suggest a saved preset that matches what you\'re making'), handler: llmaCompanionRunPresetSuggest });
     }
     if (btns.explain_feature !== false) {
-        items.push({ id: 'explain', label: 'Explain', title: 'Ask about a SwarmUI feature (uses the docs)', handler: llmaCompanionRunExplain });
+        items.push({ id: 'explain', label: translate('Explain'), title: translate('Ask about a SwarmUI feature (uses the docs)'), handler: llmaCompanionRunExplain });
     }
     if (btns.daily_tip !== false) {
-        items.push({ id: 'tip', label: 'Tip', title: 'Get one quick SwarmUI tip', handler: llmaCompanionRunDailyTip });
+        items.push({ id: 'tip', label: translate('Tip'), title: translate('Get one quick SwarmUI tip'), handler: llmaCompanionRunDailyTip });
     }
     host.innerHTML = items.map(it =>
         `<button class="llma-companion-action" data-act="${it.id}" title="${llmaEscapeHtml(it.title)}">${llmaEscapeHtml(it.label)}</button>`
@@ -304,7 +305,7 @@ function llmaCompanionSetPendingAction(actionId) {
     const wrap = document.getElementById('llma-companion-input-wrap');
     if (!input) return;
     const def = actionId ? LLMA_COMPANION_PENDING_ACTIONS[actionId] : null;
-    input.placeholder = def?.placeholder || 'Ask anything...';
+    input.placeholder = def?.placeholder ? translate(def.placeholder) : translate('Ask anything...');
     if (wrap) wrap.classList.toggle('llma-companion-pending', !!actionId);
 }
 
@@ -366,12 +367,12 @@ async function llmaCompanionAsk(message, mediaPayload = null, contextPrefix = nu
     }
     const persona = llmaCompanionResolvePersona();
     if (!persona) {
-        llmaCompanionSetBubbleText('No assistants are configured yet — open the LLM Assistant tab to set one up.');
+        llmaCompanionSetBubbleText(translate('No assistants are configured yet — open the LLM Assistant tab to set one up.'));
         return;
     }
     const threadId = await llmaCompanionGetOrCreateThread(persona.id);
     if (!threadId) {
-        llmaCompanionSetBubbleText('Could not start a companion chat. Check that you have LLM Chat permission.');
+        llmaCompanionSetBubbleText(translate('Could not start a companion chat. Check that you have LLM Chat permission.'));
         return;
     }
     // Make sure the bubble is visible (auto-expand on first send).
@@ -396,7 +397,7 @@ async function llmaCompanionAsk(message, mediaPayload = null, contextPrefix = nu
         s.socket = makeWSRequest('LLMAssistantSendMessageWS', payload, (data) => {
             if (!data) return;
             if (data.error) {
-                llmaCompanionSetBubbleText(`Error: ${data.error}`);
+                llmaCompanionSetBubbleText(`${translate('Error')}: ${data.error}`);
                 s.isStreaming = false;
                 return;
             }
@@ -405,22 +406,22 @@ async function llmaCompanionAsk(message, mediaPayload = null, contextPrefix = nu
                 llmaCompanionRenderBubbleStream(streamingText);
             }
             if (data.tool_call) {
-                llmaCompanionAppendToolPill(`Calling ${data.tool_call.name}...`);
+                llmaCompanionAppendToolPill(`${translate('Calling')} ${data.tool_call.name}...`);
             }
             if (data.tool_result) {
                 llmaCompanionAppendToolPill(`✓ ${data.tool_result.name}`);
             }
             if (data.done) {
-                const finalText = (data.full_text ?? streamingText) || '(no reply)';
-                llmaCompanionSetBubbleText(llmaCompanionStripToolTags(finalText) || '(no reply)');
+                const finalText = (data.full_text ?? streamingText) || translate('(no reply)');
+                llmaCompanionSetBubbleText(llmaCompanionStripToolTags(finalText) || translate('(no reply)'));
                 s.isStreaming = false;
             }
         }, 0, (err) => {
-            llmaCompanionSetBubbleText(`Connection error: ${err?.message || 'unknown'}`);
+            llmaCompanionSetBubbleText(`${translate('Connection error')}: ${err?.message || translate('unknown')}`);
             s.isStreaming = false;
         });
     } catch (e) {
-        llmaCompanionSetBubbleText(`Failed to start: ${e?.message || e}`);
+        llmaCompanionSetBubbleText(`${translate('Failed to start')}: ${e?.message || e}`);
         s.isStreaming = false;
     }
 }
@@ -470,20 +471,20 @@ function llmaCompanionStripToolTags(text) {
 
 async function llmaCompanionRunCritique() {
     if (llmaCompanionState().isStreaming) return;
-    llmaCompanionSetBubbleText('Looking at your last image...');
+    llmaCompanionSetBubbleText(translate('Looking at your last image...'));
     let ctx;
     try {
         ctx = await llmaRequest('LLMAssistantGetCompanionContext', {});
     } catch {
-        llmaCompanionSetBubbleText("Couldn't fetch your image history.");
+        llmaCompanionSetBubbleText(translate("Couldn't fetch your image history."));
         return;
     }
     if (!ctx?.success) {
-        llmaCompanionSetBubbleText(ctx?.error || "Couldn't fetch your image history.");
+        llmaCompanionSetBubbleText(ctx?.error || translate("Couldn't fetch your image history."));
         return;
     }
     if (!ctx.lastImage) {
-        llmaCompanionSetBubbleText("You haven't generated any images yet — try the Generate tab first.");
+        llmaCompanionSetBubbleText(translate("You haven't generated any images yet — try the Generate tab first."));
         return;
     }
     const img = ctx.lastImage;
@@ -533,15 +534,15 @@ async function llmaCompanionRunPromptHelp() {
     // current parameter snapshot. Available globally on any page that has the
     // Generate UI loaded — return early with a toast otherwise.
     if (typeof getGenInput !== 'function') {
-        llmaCompanionSetBubbleText("Open the Generate tab once first so I can read your current prompt.");
+        llmaCompanionSetBubbleText(translate("Open the Generate tab once first so I can read your current prompt."));
         return;
     }
     let snap;
     try { snap = getGenInput(); }
-    catch { llmaCompanionSetBubbleText("Couldn't read the Generate tab parameters."); return; }
+    catch { llmaCompanionSetBubbleText(translate("Couldn't read the Generate tab parameters.")); return; }
     const prompt = snap?.prompt;
     if (!prompt || !String(prompt).trim()) {
-        llmaCompanionSetBubbleText("Your Generate-tab prompt is empty — type something there first.");
+        llmaCompanionSetBubbleText(translate("Your Generate-tab prompt is empty — type something there first."));
         return;
     }
     const interesting = ['model', 'cfgscale', 'steps', 'sampler', 'width', 'height', 'aspectratio'];
@@ -562,12 +563,12 @@ async function llmaCompanionRunPresetSuggest() {
     try {
         presetResult = await llmaRequest('LLMAssistantGetImagePresets', {});
     } catch {
-        llmaCompanionSetBubbleText("Couldn't read your preset list.");
+        llmaCompanionSetBubbleText(translate("Couldn't read your preset list."));
         return;
     }
     const presets = Array.isArray(presetResult?.presets) ? presetResult.presets : [];
     if (presets.length === 0) {
-        llmaCompanionSetBubbleText("You don't have any saved presets yet. Save one on the Generate tab first.");
+        llmaCompanionSetBubbleText(translate("You don't have any saved presets yet. Save one on the Generate tab first."));
         return;
     }
     // Read the user's current Generate-tab snapshot so the recommendation can match
@@ -609,7 +610,7 @@ function llmaCompanionRunExplain() {
     llmaCompanionExpandAndFocus();
     // Hint in the bubble so it's obvious *why* the input changed; users can also
     // press Escape to cancel the queued action.
-    llmaCompanionSetBubbleText("What feature should I explain? Type below and press Enter (Esc to cancel).");
+    llmaCompanionSetBubbleText(translate("What feature should I explain? Type below and press Enter (Esc to cancel)."));
 }
 
 // -- Action: Daily tip ------------------------------------------

@@ -43,7 +43,7 @@
 
         const title = document.createElement('span');
         title.className = 'llma-tool-call-title';
-        title.textContent = `Calling ${llmaFormatToolName(call.name)}`;
+        title.textContent = `${translate('Calling')} ${llmaFormatToolName(call.name)}`;
         header.appendChild(title);
 
         const status = document.createElement('span');
@@ -51,15 +51,15 @@
         // Spinner stays in the DOM next to the status text while the call is pending.
         // The tool-result handler swaps the bubble class from .pending to .success/.error,
         // which hides the spinner via a CSS rule keyed on the parent .pending state.
-        status.innerHTML = '<span class="llma-spinner" aria-hidden="true"></span><span>running…</span>';
+        status.innerHTML = `<span class="llma-spinner" aria-hidden="true"></span><span>${translate('running…')}</span>`;
         header.appendChild(status);
 
         const toggle = document.createElement('button');
         toggle.className = 'llma-tool-call-toggle';
         toggle.textContent = '▾'; // down-arrow
-        toggle.title = 'Toggle details';
+        toggle.title = translate('Toggle details');
         toggle.setAttribute('aria-expanded', 'true');
-        toggle.setAttribute('aria-label', 'Toggle tool call details');
+        toggle.setAttribute('aria-label', translate('Toggle tool call details'));
         header.appendChild(toggle);
 
         const body = document.createElement('div');
@@ -67,7 +67,7 @@
 
         const argsLabel = document.createElement('div');
         argsLabel.className = 'llma-tool-call-label';
-        argsLabel.textContent = 'Arguments';
+        argsLabel.textContent = translate('Arguments');
         body.appendChild(argsLabel);
 
         const argsPre = document.createElement('pre');
@@ -106,7 +106,7 @@
             callBubble.classList.remove('pending');
             callBubble.classList.add(success ? 'success' : 'error');
             const status = callBubble.querySelector('.llma-tool-call-status');
-            if (status) status.textContent = success ? 'done' : 'error';
+            if (status) status.textContent = success ? translate('done') : translate('error');
         }
 
         const slot = callBubble
@@ -124,7 +124,7 @@
 
         const resultLabel = document.createElement('div');
         resultLabel.className = 'llma-tool-call-label';
-        resultLabel.textContent = success ? 'Result' : 'Error';
+        resultLabel.textContent = success ? translate('Result') : translate('Error');
         resultWrap.appendChild(resultLabel);
 
         // Tool-specific previews
@@ -152,7 +152,7 @@
                 a.href = item.url || '#';
                 a.target = '_blank';
                 a.rel = 'noopener noreferrer';
-                a.textContent = item.title || item.url || '(untitled)';
+                a.textContent = item.title || item.url || translate('(untitled)');
                 li.appendChild(a);
                 if (item.snippet) {
                     const sn = document.createElement('div');
@@ -166,7 +166,7 @@
         } else if (success && name === 'file_read' && typeof result.content === 'string') {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
-            info.textContent = `${result.path || ''} (${result.bytesRead ?? result.size ?? '?'} bytes${result.truncated ? ', truncated' : ''})`;
+            info.textContent = `${result.path || ''} (${result.bytesRead ?? result.size ?? '?'} ${translate('bytes')}${result.truncated ? ', ' + translate('truncated') : ''})`;
             resultWrap.appendChild(info);
             const pre = document.createElement('pre');
             pre.className = 'llma-tool-result-filecontent';
@@ -175,7 +175,7 @@
         } else if (success && name === 'file_write') {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
-            info.textContent = `${result.path || ''} (${result.bytesWritten ?? '?'} bytes)`;
+            info.textContent = `${result.path || ''} (${result.bytesWritten ?? '?'} ${translate('bytes')})`;
             resultWrap.appendChild(info);
 
             if (result.url) {
@@ -210,7 +210,7 @@
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
             const statusClass = result.ok ? 'ok' : 'err';
-            info.innerHTML = `<span class="llma-http-status ${statusClass}">${result.status} ${llmaEscapeHtml(result.statusText || '')}</span> <span class="llma-http-method">${llmaEscapeHtml(result.method || '')}</span> ${llmaEscapeHtml(result.url || '')}${result.truncated ? ' (truncated)' : ''}`;
+            info.innerHTML = `<span class="llma-http-status ${statusClass}">${result.status} ${llmaEscapeHtml(result.statusText || '')}</span> <span class="llma-http-method">${llmaEscapeHtml(result.method || '')}</span> ${llmaEscapeHtml(result.url || '')}${result.truncated ? ' (' + translate('truncated') + ')' : ''}`;
             resultWrap.appendChild(info);
             if (typeof result.body === 'string' && result.body.length) {
                 const pre = document.createElement('pre');
@@ -221,8 +221,8 @@
         } else if (name === 'shell_exec') {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
-            const exitTxt = result.killed ? `killed (timeout)` : `exit ${result.exitCode}`;
-            info.textContent = `$ ${result.command || ''}  [${exitTxt}${result.truncated ? ', truncated' : ''}]`;
+            const exitTxt = result.killed ? translate('killed (timeout)') : `${translate('exit')} ${result.exitCode}`;
+            info.textContent = `$ ${result.command || ''}  [${exitTxt}${result.truncated ? ', ' + translate('truncated') : ''}]`;
             resultWrap.appendChild(info);
             if (typeof result.stdout === 'string' && result.stdout.length) {
                 const pre = document.createElement('pre');
@@ -233,7 +233,7 @@
             if (typeof result.stderr === 'string' && result.stderr.length) {
                 const label = document.createElement('div');
                 label.className = 'llma-tool-call-label';
-                label.textContent = 'stderr';
+                label.textContent = translate('stderr');
                 resultWrap.appendChild(label);
                 const pre = document.createElement('pre');
                 pre.className = 'llma-tool-result-filecontent';
@@ -260,8 +260,8 @@
             const retryBtn = document.createElement('button');
             retryBtn.className = 'basic-button llma-tool-retry-btn';
             retryBtn.type = 'button';
-            retryBtn.textContent = 'Retry';
-            retryBtn.title = 'Re-run this tool with the same arguments. Does not affect the chat history.';
+            retryBtn.textContent = translate('Retry');
+            retryBtn.title = translate('Re-run this tool with the same arguments. Does not affect the chat history.');
             retryBtn.addEventListener('click', () => llmaRetryToolCall(callBubble, retryBtn));
             resultWrap.appendChild(retryBtn);
         }
@@ -279,21 +279,21 @@
         let args = {};
         try { args = JSON.parse(callBubble.getAttribute('data-tool-args') || '{}'); }
         catch { /* leave empty — server will error and we'll display that */ }
-        if (button) { button.disabled = true; button.textContent = 'Retrying…'; }
+        if (button) { button.disabled = true; button.textContent = translate('Retrying…'); }
         const result = await llmaUserAction(
             () => llmaRequest('LLMAssistantExecuteTool', { toolId: toolName, arguments: JSON.stringify(args) }),
-            'Retry failed'
+            translate('Retry failed')
         );
-        if (button) { button.disabled = false; button.textContent = 'Retry'; }
+        if (button) { button.disabled = false; button.textContent = translate('Retry'); }
         if (!result) return;
         // Surface success/failure as a toast — the original error bubble stays put (it's part of
         // the persisted transcript) but the user gets confirmation of the new attempt's outcome.
         const innerResult = result.result || result;
         const ok = innerResult?.success !== false && !innerResult?.error;
         if (ok) {
-            llmaShowToast(`${toolName} succeeded on retry.`, 'info');
+            llmaShowToast(`${toolName} ${translate('succeeded on retry.')}`, 'info');
         } else {
-            llmaShowToast(`${toolName} still failing: ${innerResult?.error || 'unknown error'}`, 'error');
+            llmaShowToast(`${toolName} ${translate('still failing:')} ${innerResult?.error || 'unknown error'}`, 'error');
         }
     }
 
