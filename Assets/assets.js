@@ -598,7 +598,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'markdown',
     icon: '\u{1F4DD}',
-    label: 'Markdown',
+    label: translate('Markdown'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-markdown';
@@ -617,7 +617,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'html',
     icon: '\u{1F310}',
-    label: 'HTML',
+    label: translate('HTML'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-html';
@@ -709,7 +709,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'svg',
     icon: '\u{1F5BC}',
-    label: 'SVG',
+    label: translate('SVG'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-svg';
@@ -731,7 +731,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'mermaid',
     icon: '\u{1F4CA}',
-    label: 'Diagram',
+    label: translate('Diagram'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-mermaid';
@@ -755,7 +755,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'json',
     icon: '\u{1F4E6}',
-    label: 'JSON',
+    label: translate('JSON'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-json';
@@ -839,7 +839,7 @@ function llmaRenderJsonTree(value, key) {
 llmaRegisterAssetType({
     type: 'image',
     icon: '\u{1F5BC}',
-    label: 'Image',
+    label: translate('Image'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-image';
@@ -862,7 +862,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'table',
     icon: '\u{1F4CB}',
-    label: 'Table',
+    label: translate('Table'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-table';
@@ -880,7 +880,7 @@ llmaRegisterAssetType({
 llmaRegisterAssetType({
     type: 'text',
     icon: '\u{1F4C4}',
-    label: 'Text',
+    label: translate('Text'),
     renderViewer: (asset) => llmaRenderViewerText(asset),
     download: (asset) => ({
         filename: asset.title,
