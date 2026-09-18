@@ -66,7 +66,7 @@ const LLMA_LANG_TO_LABEL = {
 };
 
 function llmaLangLabel(lang) {
-    if (!lang) return 'Code';
+    if (!lang) return translate('Code');
     const key = lang.toLowerCase();
     if (LLMA_LANG_TO_LABEL[key]) return LLMA_LANG_TO_LABEL[key];
     return lang.charAt(0).toUpperCase() + lang.slice(1);
@@ -337,7 +337,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
     const def = llmaAssetTypeDef(asset.type);
     const icon = def.icon || '\u{1F4C4}';
     const typeLabel = asset.type === 'code'
-        ? `Code \u00b7 ${llmaLangLabel(asset.language)}`
+        ? `${translate('Code')} \u00b7 ${llmaLangLabel(asset.language)}`
         : (def.label || asset.type.charAt(0).toUpperCase() + asset.type.slice(1));
     const sizeStr = asset.meta?.size != null ? llmaFormatBytes(asset.meta.size) : '';
     const lineStr = asset.meta?.lines ? ` \u00b7 ${asset.meta.lines} lines` : '';
@@ -356,7 +356,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
             <div class="llma-asset-card-title">${llmaEscapeHtml(asset.title)}</div>
             <div class="llma-asset-card-sub">${llmaEscapeHtml(subtitle)}</div>
         </div>
-        <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}" title="Open">Open</button>
+        <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}" title="${llmaEscapeHtml(translate('Open'))}">${llmaEscapeHtml(translate('Open'))}</button>
     </div>`;
 }
 
@@ -369,7 +369,7 @@ function llmaRenderAssetSidebar() {
     if (countEl) countEl.textContent = String(assets.length);
 
     if (assets.length === 0) {
-        list.innerHTML = '<div class="llma-asset-empty">No assets yet.<br>Assets created in this chat will appear here.</div>';
+        list.innerHTML = `<div class="llma-asset-empty">${translate('No assets yet.')}<br>${translate('Assets created in this chat will appear here.')}</div>`;
         return;
     }
     // Newest first
@@ -406,7 +406,7 @@ function llmaOpenAsset(id) {
             const viewEl = def.renderViewer ? def.renderViewer(asset) : llmaRenderViewerText(asset);
             if (viewEl) bodyEl.appendChild(viewEl);
         } catch (ex) {
-            bodyEl.innerHTML = `<div class="llma-asset-error">Failed to render: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
+            bodyEl.innerHTML = `<div class="llma-asset-error">${translate('Failed to render')}: ${llmaEscapeHtml(ex.message || String(ex))}</div>`;
         }
     };
 
@@ -415,7 +415,7 @@ function llmaOpenAsset(id) {
         const loading = document.createElement('div');
         loading.className = 'llma-asset-error';
         loading.style.color = 'var(--text-soft)';
-        loading.textContent = 'Loading…';
+        loading.textContent = translate('Loading…');
         bodyEl.appendChild(loading);
         fetch(asset.meta.url, { method: 'GET' })
             .then(r => r.text())
@@ -427,7 +427,7 @@ function llmaOpenAsset(id) {
                 llmaRenderAssetSidebar();
             })
             .catch(err => {
-                bodyEl.innerHTML = `<div class="llma-asset-error">Failed to load asset from URL: ${llmaEscapeHtml(err?.message || String(err))}</div>`;
+                bodyEl.innerHTML = `<div class="llma-asset-error">${translate('Failed to load asset from URL')}: ${llmaEscapeHtml(err?.message || String(err))}</div>`;
             });
     } else {
         renderNow();
@@ -475,8 +475,8 @@ function llmaAssetCopy(asset) {
     const payload = def.copyPayload ? def.copyPayload(asset) : asset.content;
     if (payload == null) return;
     navigator.clipboard.writeText(String(payload))
-        .then(() => llmaShowToast('Copied!', 'success'))
-        .catch(() => llmaShowToast('Copy failed', 'error'));
+        .then(() => llmaShowToast(translate('Copied!'), 'success'))
+        .catch(() => llmaShowToast(translate('Copy failed'), 'error'));
 }
 
 function llmaAssetDownload(asset) {
@@ -535,14 +535,14 @@ function llmaSetupAssets() {
         const a = llmaCurrentAsset();
         if (a && typeof llmaSendToPromptBox === 'function') {
             llmaSendToPromptBox(a.content || '');
-            llmaShowToast('Sent to prompt', 'success');
+            llmaShowToast(translate('Sent to prompt'), 'success');
         }
     });
     document.getElementById('llma-asset-use-init')?.addEventListener('click', () => {
         const a = llmaCurrentAsset();
         if (a && a.type === 'image' && typeof setCurrentImage === 'function') {
             setCurrentImage(a.content);
-            llmaShowToast('Sent as init image', 'success');
+            llmaShowToast(translate('Sent as init image'), 'success');
         }
     });
     // Click outside closes
@@ -562,7 +562,7 @@ function llmaSetupAssets() {
 llmaRegisterAssetType({
     type: 'code',
     icon: '\u{1F4BB}',
-    label: 'Code',
+    label: translate('Code'),
     renderViewer: (asset) => {
         const wrap = document.createElement('div');
         wrap.className = 'llma-asset-view-code';

@@ -48,9 +48,10 @@ function llmaUpdateToolsToggleBtn() {
     const enabled = llmaEffectiveToolsEnabled();
     btn.classList.toggle('off', !enabled);
     btn.setAttribute('aria-pressed', String(enabled));
+    // title is reassigned every time this runs — translate() directly, never class="translate".
     btn.title = enabled
-        ? 'Tool calling is ON for this chat — click to turn off'
-        : 'Tool calling is OFF for this chat — no tool prompt is sent. Click to turn on.';
+        ? translate('Tool calling is ON for this chat — click to turn off')
+        : translate('Tool calling is OFF for this chat — no tool prompt is sent. Click to turn on.');
 }
 
 // Flips the per-thread override and persists it server-side. A brand-new (not-yet-created) thread has
@@ -107,7 +108,7 @@ function llmaPickerEnsureEl() {
     el.id = 'llma-tool-popup';
     el.style.display = 'none';
     el.setAttribute('role', 'listbox');
-    el.setAttribute('aria-label', 'Tools');
+    el.setAttribute('aria-label', translate('Tools'));
     wrap.appendChild(el);
     LLMAToolPicker.el = el;
     return el;
@@ -171,10 +172,12 @@ function llmaPickerOnInput(input) {
         ? tools.filter(t => `${t.id} ${t.name || ''}`.toLowerCase().includes(tok.query))
         : tools;
     // Keep the popup open with an explanatory empty state — silently closing looked broken.
+    // Reassigned on every keystroke — translate() directly (never class="translate").
+    // The "No tools match" case appends the user's own typed search text, which is never translated.
     LLMAToolPicker.emptyMessage = items.length === 0
         ? (tools.length === 0
-            ? (llmaEffectiveToolsEnabled() ? 'No tools are enabled for this assistant.' : 'Tool calling is off for this chat.')
-            : `No tools match "/${tok.query}".`)
+            ? (llmaEffectiveToolsEnabled() ? translate('No tools are enabled for this assistant.') : translate('Tool calling is off for this chat.'))
+            : `${translate('No tools match')} "/${tok.query}".`)
         : null;
     LLMAToolPicker.items = items;
     LLMAToolPicker.tokenStart = tok.start;
@@ -187,7 +190,7 @@ function llmaPickerRender() {
     const el = llmaPickerEnsureEl();
     if (!el) return;
     if (LLMAToolPicker.items.length === 0) {
-        el.innerHTML = `<div class="llma-tool-popup-empty">${llmaEscapeHtml(LLMAToolPicker.emptyMessage || 'No tools available.')}</div>`;
+        el.innerHTML = `<div class="llma-tool-popup-empty">${llmaEscapeHtml(LLMAToolPicker.emptyMessage || translate('No tools available.'))}</div>`;
         el.style.display = '';
         return;
     }
@@ -197,7 +200,7 @@ function llmaPickerRender() {
                 <div class="llma-tool-popup-name">/${llmaEscapeHtml(t.id)}</div>
                 <div class="llma-tool-popup-desc">${llmaEscapeHtml(t.description || t.name || '')}</div>
             </div>`).join('') +
-        `<div class="llma-tool-popup-foot">↑↓ / Tab navigate · Ctrl+Enter or click to run · Enter to send</div>`;
+        `<div class="llma-tool-popup-foot">${translate('↑↓ / Tab navigate · Ctrl+Enter or click to run · Enter to send')}</div>`;
     el.style.display = '';
     const input = document.getElementById('llma-input');
     if (input) {
@@ -264,20 +267,21 @@ function llmaToolFormOpen(tool) {
     for (const [key, def] of Object.entries(props)) {
         fields += llmaToolFormField(key, def || {}, required.includes(key));
     }
-    if (!fields) fields = '<div class="llma-tool-form-empty">This tool takes no parameters.</div>';
+    if (!fields) fields = `<div class="llma-tool-form-empty">${translate('This tool takes no parameters.')}</div>`;
 
     const form = document.createElement('div');
     form.className = 'llma-tool-form';
     form.id = 'llma-tool-form';
+    // "Run" is static chrome; the tool id after it is user/tool data and is never translated.
     form.innerHTML = `
         <div class="llma-tool-form-head">
-            <span class="llma-tool-form-title">Run <code>/${llmaEscapeHtml(tool.id)}</code></span>
-            <button type="button" class="llma-icon-btn llma-tool-form-close" aria-label="Cancel">&times;</button>
+            <span class="llma-tool-form-title">${translate('Run')} <code>/${llmaEscapeHtml(tool.id)}</code></span>
+            <button type="button" class="llma-icon-btn llma-tool-form-close" aria-label="${translate('Cancel')}">&times;</button>
         </div>
         <div class="llma-tool-form-body">${fields}</div>
         <div class="llma-tool-form-actions">
-            <button type="button" class="basic-button llma-tool-form-run">Run tool</button>
-            <button type="button" class="llma-tool-form-cancel">Cancel</button>
+            <button type="button" class="basic-button llma-tool-form-run">${translate('Run tool')}</button>
+            <button type="button" class="llma-tool-form-cancel">${translate('Cancel')}</button>
         </div>`;
     area.insertBefore(form, area.firstChild);
     form.querySelector('.llma-tool-form-close')?.addEventListener('click', llmaToolFormClose);
