@@ -157,7 +157,7 @@ async function llmaSaveSettings() {
     try {
         await llmaRequest('LLMAssistantSaveSettings', { settings: JSON.stringify(LLMAState.settings) });
     } catch {
-        llmaShowToast('Failed to save settings', 'error');
+        llmaShowToast(translate('Failed to save settings'), 'error');
     }
 }
 
@@ -171,7 +171,7 @@ async function llmaLoadAssistants() {
         LLMAState.loadErrors.assistants = null;
     } catch (e) {
         LLMAState.assistants = [];
-        LLMAState.loadErrors.assistants = llmaShortError(e) || 'Failed to load assistants';
+        LLMAState.loadErrors.assistants = llmaShortError(e) || translate('Failed to load assistants');
     }
 }
 
@@ -1061,8 +1061,8 @@ function llmaRenderWelcomeSkeleton() {
             <div class="llma-asst-card skeleton" aria-hidden="true">
                 <div class="llma-card-visual"></div>
                 <div class="llma-card-body">
-                    <div class="llma-card-name">loading</div>
-                    <div class="llma-card-desc">loading description</div>
+                    <div class="llma-card-name">${translate('loading')}</div>
+                    <div class="llma-card-desc">${translate('loading description')}</div>
                 </div>
             </div>`;
     }
@@ -1086,8 +1086,8 @@ function llmaRenderWelcomeBanner() {
         banner.className = 'llma-welcome-banner error';
         banner.innerHTML = `
             <span class="llma-banner-icon" aria-hidden="true">⚠</span>
-            <span class="llma-banner-text">Couldn't load ${which}: <em>${llmaEscapeHtml(hardError)}</em></span>
-            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+            <span class="llma-banner-text">${translate("Couldn't load")} ${which}: <em>${llmaEscapeHtml(hardError)}</em></span>
+            <button class="basic-button llma-banner-retry" type="button">${translate('Retry')}</button>`;
         banner.style.display = '';
         banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
         return;
@@ -1096,8 +1096,8 @@ function llmaRenderWelcomeBanner() {
         banner.className = 'llma-welcome-banner info';
         banner.innerHTML = `
             <span class="llma-banner-icon" aria-hidden="true">💡</span>
-            <span class="llma-banner-text">No LLM backends are running. Add one in <strong>Server &rsaquo; Backends</strong> to start chatting.</span>
-            <button class="basic-button llma-banner-retry" type="button">Retry</button>`;
+            <span class="llma-banner-text">${translate('No LLM backends are running. Add one in <strong>Server &rsaquo; Backends</strong> to start chatting.')}</span>
+            <button class="basic-button llma-banner-retry" type="button">${translate('Retry')}</button>`;
         banner.style.display = '';
         banner.querySelector('.llma-banner-retry')?.addEventListener('click', llmaRetryWelcomeLoads);
         return;
@@ -1113,7 +1113,7 @@ async function llmaRetryWelcomeLoads() {
     if (banner) {
         banner.classList.add('loading');
         const btn = banner.querySelector('.llma-banner-retry');
-        if (btn) { btn.disabled = true; btn.textContent = 'Retrying…'; }
+        if (btn) { btn.disabled = true; btn.textContent = translate('Retrying…'); }
     }
     await Promise.all([
         llmaLoadAssistants(),
@@ -1123,11 +1123,11 @@ async function llmaRetryWelcomeLoads() {
     llmaRenderWelcomeAssistants();
     const stillError = LLMAState.loadErrors.assistants || LLMAState.loadErrors.models || LLMAState.loadErrors.tools;
     if (stillError) {
-        llmaShowToast('Still failing — check that the server is running.', 'error');
+        llmaShowToast(translate('Still failing — check that the server is running.'), 'error');
     } else if (LLMAState.noBackendsRunning) {
-        llmaShowToast('No backends found. Add one in Server > Backends.', 'info');
+        llmaShowToast(translate('No backends found. Add one in Server > Backends.'), 'info');
     } else {
-        llmaShowToast('Reloaded.', 'info');
+        llmaShowToast(translate('Reloaded.'), 'info');
     }
 }
 
@@ -1151,9 +1151,9 @@ function llmaRenderWelcomeAssistants() {
         grid.innerHTML = `
             <div class="llma-asst-empty">
                 <div class="llma-asst-empty-icon" aria-hidden="true">✨</div>
-                <h3 class="llma-asst-empty-title">No assistants yet</h3>
-                <p class="llma-asst-empty-desc">Create your first assistant to start chatting. You can give it a name, a system prompt, and a set of tools.</p>
-                <button class="basic-button llma-asst-empty-cta" type="button">Create your first assistant</button>
+                <h3 class="llma-asst-empty-title">${translate('No assistants yet')}</h3>
+                <p class="llma-asst-empty-desc">${translate('Create your first assistant to start chatting. You can give it a name, a system prompt, and a set of tools.')}</p>
+                <button class="basic-button llma-asst-empty-cta" type="button">${translate('Create your first assistant')}</button>
             </div>`;
         grid.querySelector('.llma-asst-empty-cta')?.addEventListener('click', () => {
             llmaOpenSettings();
@@ -1187,11 +1187,11 @@ function llmaRenderWelcomeAssistants() {
 
     // Create new card
     html += `
-        <div class="llma-asst-card create-card" tabindex="0" role="button" aria-label="Create new assistant">
+        <div class="llma-asst-card create-card" tabindex="0" role="button" aria-label="${translate('Create new assistant')}">
             <div class="llma-card-visual"><span class="llma-create-plus">+</span></div>
             <div class="llma-card-body">
-                <div class="llma-card-name">Create New</div>
-                <div class="llma-card-desc">Build a custom assistant</div>
+                <div class="llma-card-name">${translate('Create New')}</div>
+                <div class="llma-card-desc">${translate('Build a custom assistant')}</div>
             </div>
         </div>`;
 
