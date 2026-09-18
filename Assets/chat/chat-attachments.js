@@ -175,7 +175,7 @@
         const actions = document.createElement('div');
         actions.className = 'llma-quick-caption-actions';
         const copyBtn = llmaCreateActionBtn(translate('Copy'), () => {
-            navigator.clipboard.writeText(caption).then(() => llmaShowToast(translate('Copied'), 'success'));
+            navigator.clipboard.writeText(caption).then(() => llmaShowToast('Copied', 'success'));
         }, 'basic-button');
         const chatBtn = llmaCreateActionBtn(translate('Send to chat'), () => {
             const input = document.getElementById('llma-input');
@@ -201,7 +201,7 @@
     async function llmaUploadAttachedImage(messageId) {
         if (!LLMAState.attachedImage) return null;
         if (!LLMAState.activeThreadId) {
-            llmaShowToast(translate('Cannot upload image without an active chat'), 'error');
+            llmaShowToast('Cannot upload image without an active chat', 'error');
             return null;
         }
         try {
@@ -213,9 +213,9 @@
             if (result?.success && result.url) {
                 return { url: result.url, mediaType: result.mediaType || LLMAState.attachedImage.mediaType };
             }
-            llmaShowToast(result?.error || translate('Image upload failed'), 'error');
+            llmaShowToast(result?.error || 'Image upload failed', 'error');
         } catch {
-            llmaShowToast(translate('Image upload failed'), 'error');
+            llmaShowToast('Image upload failed', 'error');
         }
         return null;
     }

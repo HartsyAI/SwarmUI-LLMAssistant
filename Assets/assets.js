@@ -475,8 +475,8 @@ function llmaAssetCopy(asset) {
     const payload = def.copyPayload ? def.copyPayload(asset) : asset.content;
     if (payload == null) return;
     navigator.clipboard.writeText(String(payload))
-        .then(() => llmaShowToast(translate('Copied!'), 'success'))
-        .catch(() => llmaShowToast(translate('Copy failed'), 'error'));
+        .then(() => llmaShowToast('Copied!', 'success'))
+        .catch(() => llmaShowToast('Copy failed', 'error'));
 }
 
 function llmaAssetDownload(asset) {
@@ -535,14 +535,14 @@ function llmaSetupAssets() {
         const a = llmaCurrentAsset();
         if (a && typeof llmaSendToPromptBox === 'function') {
             llmaSendToPromptBox(a.content || '');
-            llmaShowToast(translate('Sent to prompt'), 'success');
+            llmaShowToast('Sent to prompt', 'success');
         }
     });
     document.getElementById('llma-asset-use-init')?.addEventListener('click', () => {
         const a = llmaCurrentAsset();
         if (a && a.type === 'image' && typeof setCurrentImage === 'function') {
             setCurrentImage(a.content);
-            llmaShowToast(translate('Sent as init image'), 'success');
+            llmaShowToast('Sent as init image', 'success');
         }
     });
     // Click outside closes
@@ -627,14 +627,14 @@ llmaRegisterAssetType({
         tabs.className = 'llma-asset-view-tabs';
         const previewTab = document.createElement('button');
         previewTab.className = 'llma-asset-view-tab active';
-        previewTab.textContent = 'Preview';
+        previewTab.textContent = translate('Preview');
         const sourceTab = document.createElement('button');
         sourceTab.className = 'llma-asset-view-tab';
-        sourceTab.textContent = 'Source';
+        sourceTab.textContent = translate('Source');
         const scriptsBtn = document.createElement('button');
         scriptsBtn.className = 'llma-asset-view-tab llma-asset-scripts-btn';
-        scriptsBtn.textContent = 'Enable scripts';
-        scriptsBtn.title = 'Scripts are sandboxed; click to opt in (still sandboxed from the host)';
+        scriptsBtn.textContent = translate('Enable scripts');
+        scriptsBtn.title = translate('Scripts are sandboxed; click to opt in (still sandboxed from the host)');
         tabs.appendChild(previewTab);
         tabs.appendChild(sourceTab);
         tabs.appendChild(scriptsBtn);
@@ -683,11 +683,11 @@ llmaRegisterAssetType({
             const enabled = iframe.sandbox.contains('allow-scripts');
             if (enabled) {
                 iframe.sandbox = 'allow-same-origin';
-                scriptsBtn.textContent = 'Enable scripts';
+                scriptsBtn.textContent = translate('Enable scripts');
                 scriptsBtn.classList.remove('active');
             } else {
                 iframe.sandbox = 'allow-scripts';
-                scriptsBtn.textContent = 'Disable scripts';
+                scriptsBtn.textContent = translate('Disable scripts');
                 scriptsBtn.classList.add('active');
             }
             // Force reload of srcdoc to apply new sandbox
@@ -762,7 +762,7 @@ llmaRegisterAssetType({
         let obj;
         try { obj = JSON.parse(asset.content || 'null'); }
         catch (ex) {
-            wrap.innerHTML = `<div class="llma-asset-error">Invalid JSON: ${llmaEscapeHtml(ex.message)}</div>
+            wrap.innerHTML = `<div class="llma-asset-error">${translate('Invalid JSON')}: ${llmaEscapeHtml(ex.message)}</div>
                 <pre>${llmaEscapeHtml(asset.content || '')}</pre>`;
             return wrap;
         }
@@ -791,7 +791,7 @@ function llmaRenderJsonTree(value, key) {
     } else if (Array.isArray(value)) {
         const head = document.createElement('div');
         head.className = 'llma-json-head';
-        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">[</span> <span class="llma-json-count">${value.length} items</span>`;
+        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">[</span> <span class="llma-json-count">${value.length} ${llmaEscapeHtml(translate('items'))}</span>`;
         node.appendChild(head);
         const body = document.createElement('div');
         body.className = 'llma-json-body';
@@ -803,7 +803,7 @@ function llmaRenderJsonTree(value, key) {
         node.appendChild(tail);
         const toggleBtn = head.querySelector('.llma-json-toggle');
         toggleBtn.setAttribute('aria-expanded', 'true');
-        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.setAttribute('aria-label', translate('Toggle node'));
         toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const collapsed = node.classList.toggle('collapsed');
@@ -813,7 +813,7 @@ function llmaRenderJsonTree(value, key) {
         const keys = Object.keys(value);
         const head = document.createElement('div');
         head.className = 'llma-json-head';
-        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">{</span> <span class="llma-json-count">${keys.length} keys</span>`;
+        head.innerHTML = `<button class="llma-json-toggle">\u25be</button>${keyHtml}<span class="llma-json-bracket">{</span> <span class="llma-json-count">${keys.length} ${llmaEscapeHtml(translate('keys'))}</span>`;
         node.appendChild(head);
         const body = document.createElement('div');
         body.className = 'llma-json-body';
@@ -825,7 +825,7 @@ function llmaRenderJsonTree(value, key) {
         node.appendChild(tail);
         const toggleBtn = head.querySelector('.llma-json-toggle');
         toggleBtn.setAttribute('aria-expanded', 'true');
-        toggleBtn.setAttribute('aria-label', 'Toggle node');
+        toggleBtn.setAttribute('aria-label', translate('Toggle node'));
         toggleBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             const collapsed = node.classList.toggle('collapsed');

@@ -293,7 +293,7 @@
         if (ok) {
             llmaShowToast(`${toolName} ${translate('succeeded on retry.')}`, 'info');
         } else {
-            llmaShowToast(`${toolName} ${translate('still failing:')} ${innerResult?.error || translate('unknown error')}`, 'error');
+            llmaShowToast(`${toolName} ${translate('still failing:')} ${innerResult?.error || 'unknown error'}`, 'error');
         }
     }
 

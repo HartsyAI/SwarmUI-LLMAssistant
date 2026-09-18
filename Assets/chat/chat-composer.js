@@ -62,7 +62,7 @@
             attachLabel.addEventListener('click', (e) => {
                 if (attachLabel.getAttribute('aria-disabled') === 'true') {
                     e.preventDefault();
-                    llmaShowToast(translate("This model doesn't support image input. Pick a vision model first."), 'info');
+                    llmaShowToast("This model doesn't support image input. Pick a vision model first.", 'info');
                 }
             });
         }
@@ -87,7 +87,7 @@
                     for (const f of files) {
                         if (f.type.startsWith('image/')) {
                             if (attachLabel?.getAttribute('aria-disabled') === 'true') {
-                                llmaShowToast(translate("This model doesn't support image input."), 'info');
+                                llmaShowToast("This model doesn't support image input.", 'info');
                                 return;
                             }
                             llmaHandleAttach(f);
@@ -111,7 +111,7 @@
     function llmaCopyMessage(msgId) {
         const msg = LLMAState.messages.find(m => m.id === msgId);
         if (msg) {
-            navigator.clipboard.writeText(msg.content).then(() => llmaShowToast(translate('Copied!'), 'success'));
+            navigator.clipboard.writeText(msg.content).then(() => llmaShowToast('Copied!', 'success'));
         }
     }
 
@@ -129,7 +129,7 @@
         try {
             const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: LLMAState.activeThreadId, messageId: msgId });
             if (!res?.success) {
-                llmaShowToast(res?.error || translate('Failed to delete message'), 'error');
+                llmaShowToast(res?.error || 'Failed to delete message', 'error');
                 await llmaReloadActiveThread();
                 return;
             }
@@ -144,7 +144,7 @@
                 if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
             }
         } catch {
-            llmaShowToast(translate('Failed to delete message'), 'error');
+            llmaShowToast('Failed to delete message', 'error');
             await llmaReloadActiveThread();
             return;
         }
@@ -225,7 +225,7 @@
         const node = (LLMAState.allNodes || []).find(m => m.id === msgId);
         if (!node) return;
         const parentId = node.parentId ?? null;
-        if (!parentId) { llmaShowToast(translate('Nothing to regenerate from'), 'info'); return; }
+        if (!parentId) { llmaShowToast('Nothing to regenerate from', 'info'); return; }
         // Drop back to the preceding turn locally; the streamed reply becomes a sibling of this one.
         LLMAState.activeLeafId = parentId;
         LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, parentId);

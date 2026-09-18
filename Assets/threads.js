@@ -89,11 +89,11 @@ async function llmaSetActiveLeaf(leafId, opts = {}) {
             const t = typeof res.thread === 'string' ? JSON.parse(res.thread) : res.thread;
             llmaIngestThread(t);
         } else if (res && res.success === false) {
-            llmaShowToast(res.error || translate('Failed to switch branch'), 'error');
+            llmaShowToast(res.error || 'Failed to switch branch', 'error');
             await llmaReloadActiveThread();
         }
     } catch {
-        llmaShowToast(translate('Failed to switch branch'), 'error');
+        llmaShowToast('Failed to switch branch', 'error');
         await llmaReloadActiveThread();
         return;
     }
@@ -105,7 +105,7 @@ async function llmaSetActiveLeaf(leafId, opts = {}) {
 // Switch the active branch at a divergence point: pick the prev/next sibling of `node`, descend to its
 // leaf, and make that the active path.
 async function llmaSwitchBranch(nodeId, dir) {
-    if (LLMAState.isGenerating) { llmaShowToast(translate('Stop generation before switching branches'), 'info'); return; }
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
     const node = (LLMAState.allNodes || []).find(n => n.id === nodeId);
     if (!node) return;
     const sibs = llmaSiblingsOf(node);
@@ -118,16 +118,16 @@ async function llmaSwitchBranch(nodeId, dir) {
 
 // Jump directly to a specific sibling branch (from the branch-picker dropdown).
 async function llmaSwitchToBranch(targetNodeId) {
-    if (LLMAState.isGenerating) { llmaShowToast(translate('Stop generation before switching branches'), 'info'); return; }
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
     if (!targetNodeId) return;
     await llmaSetActiveLeaf(llmaDescendToLeaf(targetNodeId));
 }
 
 // Fork: make this message the tip of the active branch; the next message sent branches from here.
 async function llmaForkFromMessage(msgId) {
-    if (LLMAState.isGenerating) { llmaShowToast(translate('Stop generation before forking'), 'info'); return; }
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before forking', 'info'); return; }
     await llmaSetActiveLeaf(msgId, { focusInput: true });
-    llmaShowToast(translate('Forked — your next message starts a new branch'), 'info');
+    llmaShowToast('Forked — your next message starts a new branch', 'info');
 }
 
 // -- Load / Fetch --
@@ -471,7 +471,7 @@ function llmaBeginRenameThread(itemEl) {
         try {
             const res = await llmaRequest('LLMAssistantRenameThread', { threadId, title: next });
             if (res?.success === false) {
-                llmaShowToast(res.error || translate('Rename failed'), 'error');
+                llmaShowToast(res.error || 'Rename failed', 'error');
                 restore(original);
                 return;
             }
@@ -483,9 +483,9 @@ function llmaBeginRenameThread(itemEl) {
             restore(next);
             const titleEl = document.getElementById('llma-thread-title');
             if (LLMAState.activeThreadId === threadId && titleEl) titleEl.textContent = next;
-            llmaShowToast(translate('Renamed'), 'info');
+            llmaShowToast('Renamed', 'info');
         } catch (e) {
-            llmaShowToast(llmaShortError(e) || translate('Rename failed'), 'error');
+            llmaShowToast(llmaShortError(e) || 'Rename failed', 'error');
             restore(original);
         }
     };
@@ -507,12 +507,12 @@ async function llmaCreateThread(assistantId) {
     try {
         const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle });
         if (!result?.success || !result.thread) {
-            llmaShowToast(result?.error || translate('Failed to create chat'), 'error');
+            llmaShowToast(result?.error || 'Failed to create chat', 'error');
             return;
         }
         thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
     } catch {
-        llmaShowToast(translate('Failed to create chat'), 'error');
+        llmaShowToast('Failed to create chat', 'error');
         return;
     }
 
@@ -565,7 +565,7 @@ async function llmaCreateThread(assistantId) {
 // -- Switch Thread --
 async function llmaSwitchThread(threadId) {
     if (LLMAState.isGenerating) {
-        llmaShowToast(translate('Stop generation before switching chats'), 'info');
+        llmaShowToast('Stop generation before switching chats', 'info');
         return;
     }
 
@@ -574,7 +574,7 @@ async function llmaSwitchThread(threadId) {
         const thread = result?.thread
             ? (typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread)
             : null;
-        if (!thread) { llmaShowToast(translate('Chat not found'), 'error'); return; }
+        if (!thread) { llmaShowToast('Chat not found', 'error'); return; }
 
         LLMAState.activeThreadId    = thread.id;
         llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
@@ -628,7 +628,7 @@ async function llmaSwitchThread(threadId) {
             document.getElementById('llma-sidebar')?.classList.remove('sidebar-open');
         }
     } catch {
-        llmaShowToast(translate('Failed to load chat'), 'error');
+        llmaShowToast('Failed to load chat', 'error');
     }
 }
 
@@ -694,7 +694,7 @@ async function llmaDeleteThread(threadId) {
     try {
         await llmaRequest('LLMAssistantDeleteThread', { threadId });
     } catch {
-        llmaShowToast(translate('Failed to delete chat'), 'error');
+        llmaShowToast('Failed to delete chat', 'error');
         return;
     }
 
@@ -709,7 +709,7 @@ async function llmaDeleteThread(threadId) {
     }
 
     llmaRenderThreadList(LLMAState.threads);
-    llmaShowToast(translate('Chat deleted'), 'info');
+    llmaShowToast('Chat deleted', 'info');
 }
 
 // -- Save Thread (sidebar metadata refresh) --
@@ -747,7 +747,7 @@ async function llmaSaveActiveThread() {
 // txt deliberately stays clean — text export is for sharing with non-technical readers.
 function llmaExportThread(format, opts = {}) {
     if (!LLMAState.messages.length) {
-        llmaShowToast(translate('No messages to export'), 'info');
+        llmaShowToast('No messages to export', 'info');
         return;
     }
 

@@ -277,7 +277,7 @@
                         metaDiv.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                     }
                     if (data.stopReason === 'length') {
-                        llmaShowToast(translate('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.'), 'info');
+                        llmaShowToast('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
                     LLMAState._activeSocket = null;

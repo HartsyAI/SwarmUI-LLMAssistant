@@ -804,34 +804,35 @@ function llmaRenderAssistantPanel(assistantId) {
             <div class="llma-panel-name">${llmaEscapeHtml(assistant.name)}</div>
             <div class="llma-panel-desc">${llmaEscapeHtml(assistant.description || '')}</div>
             <div class="llma-panel-actions">
-                <button class="llma-panel-action-btn" type="button" data-action="edit">Edit</button>
-                <button class="llma-panel-action-btn" type="button" data-action="switch">Switch</button>
+                <button class="llma-panel-action-btn translate" type="button" data-action="edit">Edit</button>
+                <button class="llma-panel-action-btn translate" type="button" data-action="switch">Switch</button>
             </div>
         </div>
         <div class="llma-panel-stats">
-            <div class="llma-stat-box"><div class="llma-stat-num">${msgCount}</div><div class="llma-stat-lbl">Messages</div></div>
-            <div class="llma-stat-box"><div class="llma-stat-num">~${tokens}</div><div class="llma-stat-lbl">Tokens</div></div>
+            <div class="llma-stat-box"><div class="llma-stat-num">${msgCount}</div><div class="llma-stat-lbl translate">Messages</div></div>
+            <div class="llma-stat-box"><div class="llma-stat-num">~${tokens}</div><div class="llma-stat-lbl translate">Tokens</div></div>
         </div>
         <div class="llma-panel-memories">
             <div class="llma-mem-header">
-                <span>Capabilities</span>
+                <span class="translate">Capabilities</span>
             </div>
             <div class="llma-memory-chips">
-                ${assistant.instructions?.chat ? '<span class="llma-mem-chip">Chat</span>' : ''}
-                ${assistant.instructions?.vision ? '<span class="llma-mem-chip">Vision</span>' : ''}
-                ${assistant.instructions?.caption ? '<span class="llma-mem-chip">Caption</span>' : ''}
-                ${assistant.instructions?.prompt ? '<span class="llma-mem-chip">Prompt</span>' : ''}
-                ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip">Random</span>' : ''}
-                ${assistant.instructions?.companion ? '<span class="llma-mem-chip">Companion</span>' : ''}
+                ${assistant.instructions?.chat ? '<span class="llma-mem-chip translate">Chat</span>' : ''}
+                ${assistant.instructions?.vision ? '<span class="llma-mem-chip translate">Vision</span>' : ''}
+                ${assistant.instructions?.caption ? '<span class="llma-mem-chip translate">Caption</span>' : ''}
+                ${assistant.instructions?.prompt ? '<span class="llma-mem-chip translate">Prompt</span>' : ''}
+                ${assistant.instructions?.randomprompt ? '<span class="llma-mem-chip translate">Random</span>' : ''}
+                ${assistant.instructions?.companion ? '<span class="llma-mem-chip translate">Companion</span>' : ''}
             </div>
         </div>
         <div class="llma-panel-assets">
             <div class="llma-panel-assets-header">
-                <span>Assets</span>
+                <span class="translate">Assets</span>
                 <span class="llma-asset-count" id="llma-asset-count">0</span>
             </div>
             <div class="llma-asset-list" id="llma-asset-list"></div>
         </div>`;
+    if (typeof applyTranslations === 'function') applyTranslations(inner);
 
     // Wire the panel actions (no inline handlers — CSP-clean).
     inner.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
@@ -848,7 +849,7 @@ function llmaRenderAssistantPanel(assistantId) {
 
 function llmaRenderAssistantPanelEmpty() {
     const inner = document.getElementById('llma-panel-inner');
-    if (inner) inner.innerHTML = '<div class="llma-panel-empty">Select an assistant to see details.</div>';
+    if (inner) inner.innerHTML = `<div class="llma-panel-empty">${translate('Select an assistant to see details.')}</div>`;
 }
 
 // Lightweight in-place update for the Messages/Tokens stat boxes.
@@ -953,14 +954,14 @@ function llmaRenderPersonalizedWelcome() {
         sub     = `I'm ${llmaEscapeHtml(asstName)}. What are we working on today?`;
     } else if (LLMAState.userProfile === null || (!profile.preferredName && !profile.bio && !(profile.facts || []).length)) {
         heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
-        sub     = `Tell me what to call you and what you're working on — I'll remember it for next time.`;
+        sub     = translate(`Tell me what to call you and what you're working on — I'll remember it for next time.`);
     } else {
         heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
-        sub     = `How can I help you today?`;
+        sub     = translate(`How can I help you today?`);
     }
 
     // Pick a fresh tip on every render.
-    const tip = LLMA_WELCOME_TIPS[Math.floor(Math.random() * LLMA_WELCOME_TIPS.length)];
+    const tip = translate(LLMA_WELCOME_TIPS[Math.floor(Math.random() * LLMA_WELCOME_TIPS.length)]);
 
     // Avatar: real image if assigned, otherwise gradient + category icon.
     const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
@@ -1031,7 +1032,7 @@ function llmaRenderEmptyChatGreeting() {
         heading = `Hi, I'm <span class="llma-greeting-accent">${llmaEscapeHtml(asstName)}</span>. How can I help?`;
         sub     = assistant.description
             ? llmaEscapeHtml(assistant.description)
-            : `Tell me what to call you and what you're working on — I'll remember it next time.`;
+            : translate(`Tell me what to call you and what you're working on — I'll remember it next time.`);
     }
 
     const icon = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
