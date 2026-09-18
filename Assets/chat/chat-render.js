@@ -73,21 +73,21 @@
         prev.className = 'llma-branch-nav';
         prev.type = 'button';
         prev.textContent = '‹';
-        prev.title = 'Previous branch';
+        prev.title = translate('Previous branch');
         prev.disabled = idx <= 0;
         prev.addEventListener('click', (e) => { e.stopPropagation(); llmaSwitchBranch(nodeId, -1); });
 
         const label = document.createElement('button');
         label.className = 'llma-branch-label';
         label.type = 'button';
-        label.title = 'Show all branches';
-        label.innerHTML = `Branch ${idx + 1} <span class="llma-branch-sep">/</span> ${sibs.length} <span class="llma-branch-caret">▾</span>`;
+        label.title = translate('Show all branches');
+        label.innerHTML = `${translate('Branch')} ${idx + 1} <span class="llma-branch-sep">/</span> ${sibs.length} <span class="llma-branch-caret">▾</span>`;
 
         const next = document.createElement('button');
         next.className = 'llma-branch-nav';
         next.type = 'button';
         next.textContent = '›';
-        next.title = 'Next branch';
+        next.title = translate('Next branch');
         next.disabled = idx >= sibs.length - 1;
         next.addEventListener('click', (e) => { e.stopPropagation(); llmaSwitchBranch(nodeId, +1); });
 
@@ -124,7 +124,7 @@
             const text = document.createElement('span');
             text.className = 'llma-branch-menu-text';
             const raw = (sib.content || '').replace(/\s+/g, ' ').trim();
-            text.textContent = raw ? (raw.length > 60 ? raw.slice(0, 60) + '…' : raw) : '(empty)';
+            text.textContent = raw ? (raw.length > 60 ? raw.slice(0, 60) + '…' : raw) : translate('(empty)');
 
             const time = document.createElement('span');
             time.className = 'llma-branch-menu-time';
@@ -192,10 +192,10 @@
 
             const actions = document.createElement('div');
             actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateActionBtn('Copy', () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateActionBtn('Fork', () => llmaForkFromMessage(id)));
-            actions.appendChild(llmaCreateActionBtn('Edit', () => llmaStartEdit(id)));
-            actions.appendChild(llmaCreateActionBtn('Del', () => llmaDeleteMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => llmaCopyMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Fork'), () => llmaForkFromMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Edit'), () => llmaStartEdit(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Del'), () => llmaDeleteMessage(id)));
 
             row.appendChild(bubble);
             row.appendChild(actions);
@@ -220,7 +220,7 @@
             }
             const sender = document.createElement('span');
             sender.className = 'llma-msg-sender';
-            sender.textContent = assistant?.name || 'Assistant';
+            sender.textContent = assistant?.name || translate('Assistant');
             header.appendChild(avatar);
             header.appendChild(sender);
 
@@ -243,7 +243,7 @@
                 if (meta.model) parts.push(meta.model);
                 parts.push(`${meta.genTime || '?'}s`);
                 if (meta.stopReason === 'length') {
-                    parts.push('cut off (max tokens)');
+                    parts.push(translate('cut off (max tokens)'));
                     metaDiv.classList.add('llma-msg-meta-truncated');
                 }
                 metaDiv.textContent = parts.join(' · ');
@@ -251,13 +251,13 @@
 
             const actions = document.createElement('div');
             actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateActionBtn('Copy', () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateActionBtn('Regen', () => llmaRegenerateMessage(id)));
-            actions.appendChild(llmaCreateActionBtn('Use as Prompt', () => {
+            actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => llmaCopyMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Regen'), () => llmaRegenerateMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => {
                 const msg = LLMAState.messages.find(m => m.id === id);
                 if (msg) llmaSendToPromptBox(msg.content);
             }));
-            actions.appendChild(llmaCreateActionBtn('Del', () => llmaDeleteMessage(id)));
+            actions.appendChild(llmaCreateActionBtn(translate('Del'), () => llmaDeleteMessage(id)));
 
             body.appendChild(bubble);
             body.appendChild(metaDiv);
@@ -335,7 +335,7 @@
         if (!bubble) return;
         const info = (typeof llmaHumanizeError === 'function')
             ? llmaHumanizeError(error)
-            : { title: (typeof llmaShortError === 'function' ? llmaShortError(error) : String(error)) || 'Something went wrong', hint: null, detail: '' };
+            : { title: (typeof llmaShortError === 'function' ? llmaShortError(error) : String(error)) || translate('Something went wrong'), hint: null, detail: '' };
         console.error('[LLMAssistant] chat error:', error);
         let body = `<div class="llma-msg-error-title">${llmaEscapeHtml(info.title)}</div>`;
         if (info.hint) body += `<div class="llma-msg-error-hint">${llmaEscapeHtml(info.hint)}</div>`;

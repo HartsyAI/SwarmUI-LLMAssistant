@@ -61,22 +61,23 @@ function llmaCompanionRender() {
     root.className = 'llma-companion';
     root.style.display = 'none';
     root.innerHTML = `
-        <div class="llma-companion-portrait-wrap" id="llma-companion-portrait-wrap" title="Click to expand / collapse">
+        <div class="llma-companion-portrait-wrap" id="llma-companion-portrait-wrap" class="translate" title="Click to expand / collapse">
             <img class="llma-companion-portrait" id="llma-companion-portrait" alt="">
-            <button class="llma-companion-close" id="llma-companion-close" title="Hide for this session" aria-label="Hide companion">&times;</button>
+            <button class="llma-companion-close translate" id="llma-companion-close" title="Hide for this session" aria-label="Hide companion">&times;</button>
         </div>
         <div class="llma-companion-bubble" id="llma-companion-bubble" aria-live="polite"></div>
         <div class="llma-companion-actions" id="llma-companion-actions"></div>
         <div class="llma-companion-input-wrap" id="llma-companion-input-wrap" style="display:none;">
             <input type="text" id="llma-companion-input" class="llma-companion-input"
-                   placeholder="Ask anything..." aria-label="Ask the companion" autocomplete="off" maxlength="500">
-            <button class="llma-companion-send" id="llma-companion-send" title="Send" aria-label="Send">
+                   placeholder="${llmaEscapeHtml(translate('Ask anything...'))}" aria-label="${llmaEscapeHtml(translate('Ask the companion'))}" autocomplete="off" maxlength="500">
+            <button class="llma-companion-send translate" id="llma-companion-send" title="Send" aria-label="Send">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
             </button>
         </div>`;
     document.body.appendChild(root);
+    if (typeof applyTranslations === 'function') applyTranslations(root);
 
     // Click portrait → toggle expanded; close button → hide for session.
     document.getElementById('llma-companion-portrait-wrap')?.addEventListener('click', (e) => {

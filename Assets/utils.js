@@ -510,7 +510,12 @@ function llmaShowToast(message, type = 'info') {
     if (llmaToastTimer) clearTimeout(llmaToastTimer);
     const toast = document.createElement('div');
     toast.className = `llma-toast ${type}`;
-    toast.textContent = message;
+    // Matches core's doNoticePopover pattern (ui_improvements.js): translate() internally so every
+    // call site gets automatic translation for free. NOTE: a few call sites across the extension already
+    // concatenate dynamic content (an error detail, a count, an id) into `message` before calling us —
+    // translate() self-registers that combined string as a harmless no-op key rather than crashing, but
+    // it does mean those specific messages aren't usefully translatable. See the i18n audit notes.
+    toast.textContent = translate(message);
     container.appendChild(toast);
     llmaToastTimer = setTimeout(() => toast.remove(), LLMA_CONSTANTS.TOAST_DURATION_MS);
 }

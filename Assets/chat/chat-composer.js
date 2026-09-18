@@ -62,7 +62,7 @@
             attachLabel.addEventListener('click', (e) => {
                 if (attachLabel.getAttribute('aria-disabled') === 'true') {
                     e.preventDefault();
-                    llmaShowToast("This model doesn't support image input. Pick a vision model first.", 'info');
+                    llmaShowToast(translate("This model doesn't support image input. Pick a vision model first."), 'info');
                 }
             });
         }
@@ -87,7 +87,7 @@
                     for (const f of files) {
                         if (f.type.startsWith('image/')) {
                             if (attachLabel?.getAttribute('aria-disabled') === 'true') {
-                                llmaShowToast("This model doesn't support image input.", 'info');
+                                llmaShowToast(translate("This model doesn't support image input."), 'info');
                                 return;
                             }
                             llmaHandleAttach(f);
@@ -104,14 +104,14 @@
         const counter = document.getElementById('llma-char-count');
         if (!counter) return;
         if (!text || text.length === 0) { counter.textContent = ''; return; }
-        counter.textContent = `~${Math.ceil(text.length / 4)} tokens`;
+        counter.textContent = `~${Math.ceil(text.length / 4)} ${translate('tokens')}`;
     }
 
     /** Copy a message's text to the clipboard. */
     function llmaCopyMessage(msgId) {
         const msg = LLMAState.messages.find(m => m.id === msgId);
         if (msg) {
-            navigator.clipboard.writeText(msg.content).then(() => llmaShowToast('Copied!', 'success'));
+            navigator.clipboard.writeText(msg.content).then(() => llmaShowToast(translate('Copied!'), 'success'));
         }
     }
 
@@ -129,7 +129,7 @@
         try {
             const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: LLMAState.activeThreadId, messageId: msgId });
             if (!res?.success) {
-                llmaShowToast(res?.error || 'Failed to delete message', 'error');
+                llmaShowToast(res?.error || translate('Failed to delete message'), 'error');
                 await llmaReloadActiveThread();
                 return;
             }
@@ -144,7 +144,7 @@
                 if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
             }
         } catch {
-            llmaShowToast('Failed to delete message', 'error');
+            llmaShowToast(translate('Failed to delete message'), 'error');
             await llmaReloadActiveThread();
             return;
         }
@@ -176,7 +176,7 @@
         btnRow.className = 'llma-msg-edit-actions';
         const saveBtn = document.createElement('button');
         saveBtn.className = 'basic-button';
-        saveBtn.textContent = 'Save';
+        saveBtn.textContent = translate('Save');
         saveBtn.addEventListener('click', () => {
             const newContent = textarea.value.trim();
             if (!newContent || !LLMAState.activeThreadId || LLMAState.isGenerating) return;
@@ -208,7 +208,7 @@
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.className = 'basic-button';
-        cancelBtn.textContent = 'Cancel';
+        cancelBtn.textContent = translate('Cancel');
         cancelBtn.addEventListener('click', () => { bubble.textContent = original; });
 
         btnRow.appendChild(saveBtn);
@@ -225,7 +225,7 @@
         const node = (LLMAState.allNodes || []).find(m => m.id === msgId);
         if (!node) return;
         const parentId = node.parentId ?? null;
-        if (!parentId) { llmaShowToast('Nothing to regenerate from', 'info'); return; }
+        if (!parentId) { llmaShowToast(translate('Nothing to regenerate from'), 'info'); return; }
         // Drop back to the preceding turn locally; the streamed reply becomes a sibling of this one.
         LLMAState.activeLeafId = parentId;
         LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, parentId);

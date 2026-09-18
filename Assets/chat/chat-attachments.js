@@ -69,11 +69,11 @@
         // execute endpoint — no chat round-trip, no thread persistence.
         const captionWrap = document.createElement('div');
         captionWrap.className = 'llma-attach-caption-wrap';
-        captionWrap.appendChild(llmaCreateActionBtn('Caption ▾', () => llmaToggleQuickCaption(captionWrap)));
+        captionWrap.appendChild(llmaCreateActionBtn(`${translate('Caption')} ▾`, () => llmaToggleQuickCaption(captionWrap)));
         preview.appendChild(captionWrap);
 
-        preview.appendChild(llmaCreateActionBtn('Use as Prompt', () => llmaCaptionAndSendToPrompt()));
-        preview.appendChild(llmaCreateActionBtn('Use as Init', () => {
+        preview.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => llmaCaptionAndSendToPrompt()));
+        preview.appendChild(llmaCreateActionBtn(translate('Use as Init'), () => {
             if (LLMAState.attachedImage && typeof setCurrentImage === 'function') {
                 setCurrentImage(LLMAState.attachedImage.dataUrl);
             }
@@ -100,16 +100,16 @@
             const warn = document.createElement('div');
             warn.className = 'llma-attach-warn';
             const msg = document.createElement('span');
-            msg.textContent = `Large image (${probe.naturalWidth}×${probe.naturalHeight}, sent at ~${effective}px). Vision models bill by resolution — lower it to save tokens.`;
+            msg.textContent = `${translate('Large image')} (${probe.naturalWidth}×${probe.naturalHeight}, ${translate('sent at ~')}${effective}px). ${translate('Vision models bill by resolution — lower it to save tokens.')}`;
             const settingsLink = document.createElement('button');
             settingsLink.type = 'button';
             settingsLink.className = 'llma-attach-warn-link';
-            settingsLink.textContent = 'Adjust in Settings';
+            settingsLink.textContent = translate('Adjust in Settings');
             settingsLink.addEventListener('click', () => { if (typeof llmaOpenSettings === 'function') llmaOpenSettings(); });
             const dismiss = document.createElement('button');
             dismiss.type = 'button';
             dismiss.className = 'llma-attach-warn-dismiss';
-            dismiss.title = 'Dismiss';
+            dismiss.title = translate('Dismiss');
             dismiss.textContent = '×';
             dismiss.addEventListener('click', () => warn.remove());
             warn.append(msg, settingsLink, dismiss);
@@ -133,9 +133,9 @@
         panel.className = 'llma-quick-caption-panel';
         panel.innerHTML = `
             <select class="llma-quick-caption-style">
-                ${LLMA_CAPTION_STYLES.map(([k, label]) => `<option value="${llmaEscapeHtml(k)}">${llmaEscapeHtml(label)}</option>`).join('')}
+                ${LLMA_CAPTION_STYLES.map(([k, label]) => `<option value="${llmaEscapeHtml(k)}">${llmaEscapeHtml(translate(label))}</option>`).join('')}
             </select>
-            <button class="basic-button llma-quick-caption-run">Run</button>
+            <button class="basic-button llma-quick-caption-run">${llmaEscapeHtml(translate('Run'))}</button>
             <div class="llma-quick-caption-result" style="display:none;"></div>
         `;
         wrap.appendChild(panel);
@@ -143,7 +143,7 @@
             const style = panel.querySelector('.llma-quick-caption-style').value;
             const result = panel.querySelector('.llma-quick-caption-result');
             result.style.display = '';
-            result.textContent = 'Captioning…';
+            result.textContent = translate('Captioning…');
             try {
                 // Pass the data URI directly — ImageInputResolver accepts it, no upload needed.
                 const res = await llmaRequest('LLMAssistantExecuteTool', {
@@ -157,10 +157,10 @@
                 if (inner?.success && inner.caption) {
                     llmaRenderQuickCaptionResult(result, inner.caption);
                 } else {
-                    result.textContent = 'Error: ' + (inner?.error || 'unknown');
+                    result.textContent = translate('Error:') + ' ' + (inner?.error || translate('unknown'));
                 }
             } catch (ex) {
-                result.textContent = 'Error: ' + (ex?.message || String(ex));
+                result.textContent = translate('Error:') + ' ' + (ex?.message || String(ex));
             }
         });
     }
@@ -174,14 +174,14 @@
         container.appendChild(text);
         const actions = document.createElement('div');
         actions.className = 'llma-quick-caption-actions';
-        const copyBtn = llmaCreateActionBtn('Copy', () => {
-            navigator.clipboard.writeText(caption).then(() => llmaShowToast('Copied', 'success'));
+        const copyBtn = llmaCreateActionBtn(translate('Copy'), () => {
+            navigator.clipboard.writeText(caption).then(() => llmaShowToast(translate('Copied'), 'success'));
         }, 'basic-button');
-        const chatBtn = llmaCreateActionBtn('Send to chat', () => {
+        const chatBtn = llmaCreateActionBtn(translate('Send to chat'), () => {
             const input = document.getElementById('llma-input');
             if (input) input.value = caption;
         }, 'basic-button');
-        const promptBtn = llmaCreateActionBtn('Send to prompt', () => llmaSendToPromptBox(caption), 'basic-button');
+        const promptBtn = llmaCreateActionBtn(translate('Send to prompt'), () => llmaSendToPromptBox(caption), 'basic-button');
         actions.append(copyBtn, chatBtn, promptBtn);
         container.appendChild(actions);
     }
@@ -201,7 +201,7 @@
     async function llmaUploadAttachedImage(messageId) {
         if (!LLMAState.attachedImage) return null;
         if (!LLMAState.activeThreadId) {
-            llmaShowToast('Cannot upload image without an active chat', 'error');
+            llmaShowToast(translate('Cannot upload image without an active chat'), 'error');
             return null;
         }
         try {
@@ -213,9 +213,9 @@
             if (result?.success && result.url) {
                 return { url: result.url, mediaType: result.mediaType || LLMAState.attachedImage.mediaType };
             }
-            llmaShowToast(result?.error || 'Image upload failed', 'error');
+            llmaShowToast(result?.error || translate('Image upload failed'), 'error');
         } catch {
-            llmaShowToast('Image upload failed', 'error');
+            llmaShowToast(translate('Image upload failed'), 'error');
         }
         return null;
     }

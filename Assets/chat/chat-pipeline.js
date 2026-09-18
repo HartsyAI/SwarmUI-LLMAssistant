@@ -21,8 +21,8 @@
         if (!LLMAState.currentModel) {
             const haveModels = (LLMAState.availableModels || []).length > 0;
             llmaShowToast(haveModels
-                ? 'Select a model from the dropdown at the top before sending.'
-                : 'No LLM backend is running. Start one under Server > Backends, then refresh the model list.', 'error');
+                ? translate('Select a model from the dropdown at the top before sending.')
+                : translate('No LLM backend is running. Start one under Server > Backends, then refresh the model list.'), 'error');
             if (typeof llmaFlashModelSelect === 'function') llmaFlashModelSelect();
             return;
         }
@@ -166,7 +166,7 @@
                 // spinner so the user knows something is happening during a multi-second model load.
                 if (data.status) {
                     if (data.status === 'loading_model') {
-                        llmaShowLoadStatusInBubble(bubble, `Loading model ${data.model || ''}…`);
+                        llmaShowLoadStatusInBubble(bubble, `${translate('Loading model')} ${data.model || ''}…`);
                     } else if (data.status === 'model_ready') {
                         llmaShowLoadStatusInBubble(bubble, null);
                     }
@@ -272,12 +272,12 @@
                         const parts = [];
                         if (modelName) parts.push(modelName);
                         parts.push(`${elapsed}s`);
-                        if (data.stopReason === 'length') parts.push('cut off (max tokens)');
+                        if (data.stopReason === 'length') parts.push(translate('cut off (max tokens)'));
                         metaDiv.textContent = parts.join(' · ');
                         metaDiv.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                     }
                     if (data.stopReason === 'length') {
-                        llmaShowToast('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
+                        llmaShowToast(translate('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.'), 'info');
                     }
 
                     LLMAState._activeSocket = null;
@@ -295,7 +295,7 @@
             }, 0, err => {
                 // err here is the string from makeWSRequest's onerror (NOT an object) — pass it straight
                 // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
-                llmaShowErrorInBubble(bubble, err || 'WebSocket error');
+                llmaShowErrorInBubble(bubble, err || translate('WebSocket error'));
                 LLMAState._activeSocket = null;
                 LLMAState._streamingMsgId = null;
                 llmaSetStreaming(false);
