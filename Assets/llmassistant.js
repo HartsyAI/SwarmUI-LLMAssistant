@@ -126,7 +126,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     if (msgList) msgList.innerHTML = '';
 
     const titleEl = document.getElementById('llma-thread-title');
-    if (titleEl) titleEl.textContent = `Chat with ${assistant.name}`;
+    if (titleEl) titleEl.textContent = `${translate('Chat with')} ${assistant.name}`;
 
     llmaShowChatPanel();
     llmaUpdateContextBar();
@@ -157,7 +157,7 @@ async function llmaSaveSettings() {
     try {
         await llmaRequest('LLMAssistantSaveSettings', { settings: JSON.stringify(LLMAState.settings) });
     } catch {
-        llmaShowToast(translate('Failed to save settings'), 'error');
+        llmaShowToast('Failed to save settings', 'error');
     }
 }
 
@@ -402,9 +402,9 @@ function llmaSetupModelSelect() {
                 llmaStopModelRetry();  // reset the give-up counter so polling can restart if still empty
                 await llmaRequest('TriggerRefresh', { strong: true });
                 await llmaLoadModels();
-                llmaShowToast(translate('Model list refreshed.'), 'info');
+                llmaShowToast('Model list refreshed.', 'info');
             } catch (e) {
-                llmaShowToast(llmaShortError(e) || translate('Refresh failed'), 'error');
+                llmaShowToast(llmaShortError(e) || 'Refresh failed', 'error');
             } finally {
                 refreshBtn.classList.remove('spinning');
                 refreshBtn.dataset.llmaBusy = '0';
@@ -425,7 +425,7 @@ function llmaSetupModelSelect() {
                 const freed = res?.freed || 0;
                 llmaShowToast(freed > 0 ? translate('LLM model unloaded — VRAM freed.') : translate('No LLM model was loaded.'), 'info');
             } catch (e) {
-                llmaShowToast(llmaShortError(e) || translate('Unload failed'), 'error');
+                llmaShowToast(llmaShortError(e) || 'Unload failed', 'error');
             } finally {
                 unloadBtn.classList.remove('spinning');
                 unloadBtn.dataset.llmaBusy = '0';
@@ -524,14 +524,14 @@ function llmaSetupParamsPopover() {
 
     if (apply) {
         apply.addEventListener('click', () => {
-            if (!LLMAState.activeThreadId) { llmaShowToast(translate('No active chat'), 'info'); return; }
+            if (!LLMAState.activeThreadId) { llmaShowToast('No active chat', 'info'); return; }
             LLMAState.threadParams[LLMAState.activeThreadId] = {
                 temperature:     parseFloat(document.getElementById('llma-p-temperature')?.value) || undefined,
                 maxTokens:       parseInt(document.getElementById('llma-p-max-tokens')?.value, 10) || undefined,
                 topP:               parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
                 maxContextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
             };
-            llmaShowToast(translate('Parameters applied to this chat'), 'success');
+            llmaShowToast('Parameters applied to this chat', 'success');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });
@@ -540,7 +540,7 @@ function llmaSetupParamsPopover() {
     if (reset) {
         reset.addEventListener('click', () => {
             if (LLMAState.activeThreadId) delete LLMAState.threadParams[LLMAState.activeThreadId];
-            llmaShowToast(translate('Chat parameters reset'), 'info');
+            llmaShowToast('Chat parameters reset', 'info');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });
@@ -937,7 +937,7 @@ function llmaRenderPersonalizedWelcome() {
     const profile     = LLMAState.userProfile || {};
     const userName    = (profile.preferredName || '').trim();
     const currentWork = (profile.currentWork || '').trim();
-    const asstName    = assistant.name || 'Assistant';
+    const asstName    = assistant.name || translate('Assistant');
 
     // Greeting strategy:
     //  - Have name + currentWork → familiar "still working on X?" line
@@ -1012,7 +1012,7 @@ function llmaRenderEmptyChatGreeting() {
     const profile     = LLMAState.userProfile || {};
     const userName    = (profile.preferredName || '').trim();
     const currentWork = (profile.currentWork || '').trim();
-    const asstName    = assistant.name || 'Assistant';
+    const asstName    = assistant.name || translate('Assistant');
 
     // Greeting strategy mirrors the welcome hero so the assistant feels
     // consistent across both surfaces. Description fallback gives the
@@ -1123,11 +1123,11 @@ async function llmaRetryWelcomeLoads() {
     llmaRenderWelcomeAssistants();
     const stillError = LLMAState.loadErrors.assistants || LLMAState.loadErrors.models || LLMAState.loadErrors.tools;
     if (stillError) {
-        llmaShowToast(translate('Still failing — check that the server is running.'), 'error');
+        llmaShowToast('Still failing — check that the server is running.', 'error');
     } else if (LLMAState.noBackendsRunning) {
-        llmaShowToast(translate('No backends found. Add one in Server > Backends.'), 'info');
+        llmaShowToast('No backends found. Add one in Server > Backends.', 'info');
     } else {
-        llmaShowToast(translate('Reloaded.'), 'info');
+        llmaShowToast('Reloaded.', 'info');
     }
 }
 
@@ -1236,7 +1236,7 @@ function llmaSetupSettingsModal() {
             await llmaSaveSettings();
             llmaApplySettingsToState();
             if (llmaCloseSettings()) {
-                llmaShowToast(translate('Settings saved'), 'success');
+                llmaShowToast('Settings saved', 'success');
             }
         });
     }
@@ -1263,9 +1263,9 @@ function llmaSetupSettingsModal() {
                     llmaRenderAssistantPanel(LLMAState.activeAssistantId);
                 }
                 llmaRenderWelcomeAssistants?.();
-                llmaShowToast(translate('Settings reset to defaults'), 'success');
+                llmaShowToast('Settings reset to defaults', 'success');
             } catch (e) {
-                llmaShowToast(`${translate('Reset failed:')} ${e?.message || translate('unknown error')}`, 'error');
+                llmaShowToast(`${translate('Reset failed:')} ${e?.message || 'unknown error'}`, 'error');
             }
         });
     }
@@ -1752,7 +1752,7 @@ function llmaPopulateExtendsDropdown(assistant) {
 
 async function llmaSaveAssistantFromEditor() {
     const name = document.getElementById('llma-asst-name')?.value?.trim();
-    if (!name) { llmaShowToast(translate('Name is required'), 'error'); return; }
+    if (!name) { llmaShowToast('Name is required', 'error'); return; }
 
     // Sync the currently-visible instruction tab into the editing state, then serialize all tabs.
     llmaSyncCurrentInstructionTabToState();
@@ -1790,7 +1790,7 @@ async function llmaSaveAssistantFromEditor() {
         // Only persist URL-shaped avatars — never inline data: URIs (those bloat the assistant
         // blob and were already uploaded to a real file by the file-pick handler).
         if (avatarData.startsWith('data:')) {
-            llmaShowToast(translate('Avatar upload didn\'t complete — saved without avatar.'), 'warning');
+            llmaShowToast('Avatar upload didn\'t complete — saved without avatar.', 'warning');
         } else {
             assistant.avatar = avatarData;
         }
@@ -1804,16 +1804,16 @@ async function llmaSaveAssistantFromEditor() {
     try {
         const result = await llmaRequest('LLMAssistantSaveAssistant', { assistant, scope });
         if (result && result.success === false) {
-            llmaShowToast(result.error || translate('Failed to save assistant'), 'error');
+            llmaShowToast(result.error || 'Failed to save assistant', 'error');
             return;
         }
         document.getElementById('llma-asst-editor').style.display = 'none';
         await llmaLoadAssistants();
         llmaRenderAssistantList();
         llmaRenderWelcomeAssistants();
-        llmaShowToast(translate('Assistant saved'), 'success');
+        llmaShowToast('Assistant saved', 'success');
     } catch (ex) {
-        llmaShowToast(translate('Failed to save assistant'), 'error');
+        llmaShowToast('Failed to save assistant', 'error');
     }
 }
 
@@ -1829,7 +1829,7 @@ async function llmaDeleteAssistant(id) {
     try {
         const result = await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id, scope });
         if (result && result.success === false) {
-            llmaShowToast(result.error || translate('Failed to delete assistant'), 'error');
+            llmaShowToast(result.error || 'Failed to delete assistant', 'error');
             return;
         }
         document.getElementById('llma-asst-editor').style.display = 'none';
@@ -1838,7 +1838,7 @@ async function llmaDeleteAssistant(id) {
         llmaRenderWelcomeAssistants();
         llmaShowToast(result?.reverted ? translate('Reverted to the shared version') : translate('Assistant deleted'), 'info');
     } catch {
-        llmaShowToast(translate('Failed to delete assistant'), 'error');
+        llmaShowToast('Failed to delete assistant', 'error');
     }
 }
 
@@ -1868,7 +1868,7 @@ function llmaSetupAvatarUpload() {
                     imageData: dataUrl
                 });
                 if (!result?.success || !result.url) {
-                    llmaShowToast(result?.error || translate('Avatar upload failed'), 'error');
+                    llmaShowToast(result?.error || 'Avatar upload failed', 'error');
                     return;
                 }
                 if (preview) {
@@ -1877,7 +1877,7 @@ function llmaSetupAvatarUpload() {
                     preview.dataset.avatarData = result.url;
                 }
             } catch (ex) {
-                llmaShowToast(translate('Avatar upload failed'), 'error');
+                llmaShowToast('Avatar upload failed', 'error');
             }
         });
     }
@@ -1934,8 +1934,8 @@ async function llmaRunInstructionTest() {
     if (!area || !sample || !result) return;
     const instructionText = area.value;
     const sampleInput = (sample.value || '').trim();
-    if (!instructionText) { llmaShowToast(translate('Default instruction is empty'), 'info'); return; }
-    if (!sampleInput) { llmaShowToast(translate('Enter a sample message first'), 'info'); return; }
+    if (!instructionText) { llmaShowToast('Default instruction is empty', 'info'); return; }
+    if (!sampleInput) { llmaShowToast('Enter a sample message first', 'info'); return; }
     result.textContent = translate('Running…');
     try {
         const res = await llmaRequest('LLMAssistantTestInstruction', {
@@ -2176,31 +2176,31 @@ function llmaSetupPromptButtons() {
     const enhanceBtn = document.createElement('button');
     enhanceBtn.id = 'llma-enhance-prompt-btn';
     enhanceBtn.className = 'basic-button';
-    enhanceBtn.textContent = 'Enhance Prompt';
+    enhanceBtn.textContent = translate('Enhance Prompt');
     enhanceBtn.addEventListener('click', async () => {
         const current = promptBox.value?.trim();
         if (!current) return;
         enhanceBtn.disabled = true;
-        enhanceBtn.textContent = 'Enhancing...';
+        enhanceBtn.textContent = translate('Enhancing...');
         try {
             const resp = await llmaRequest('LLMAssistantSendMessage', { message: current, instructionId: 'prompt' });
             if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
         } catch { llmaShowToast('Enhance failed', 'error'); }
-        finally { enhanceBtn.disabled = false; enhanceBtn.textContent = 'Enhance Prompt'; }
+        finally { enhanceBtn.disabled = false; enhanceBtn.textContent = translate('Enhance Prompt'); }
     });
 
     const randomBtn = document.createElement('button');
     randomBtn.id = 'llma-random-prompt-btn';
     randomBtn.className = 'basic-button';
-    randomBtn.textContent = 'Random Prompt';
+    randomBtn.textContent = translate('Random Prompt');
     randomBtn.addEventListener('click', async () => {
         randomBtn.disabled = true;
-        randomBtn.textContent = 'Generating...';
+        randomBtn.textContent = translate('Generating...');
         try {
             const resp = await llmaRequest('LLMAssistantSendMessage', { message: 'Generate a random prompt.', instructionId: 'randomprompt' });
             if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
         } catch { llmaShowToast('Random prompt failed', 'error'); }
-        finally { randomBtn.disabled = false; randomBtn.textContent = 'Random Prompt'; }
+        finally { randomBtn.disabled = false; randomBtn.textContent = translate('Random Prompt'); }
     });
 
     btnRow.appendChild(enhanceBtn);
