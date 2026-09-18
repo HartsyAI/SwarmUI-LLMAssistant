@@ -281,7 +281,7 @@ function llmaCompanionHideForSession() {
     llmaCompanionState()._hiddenForSession = true;
     const root = document.getElementById('llma-companion-root');
     if (root) root.style.display = 'none';
-    llmaShowToast?.(translate('Companion hidden for this session — re-enable it in Settings > Companion'), 'info');
+    llmaShowToast?.('Companion hidden for this session — re-enable it in Settings > Companion', 'info');
 }
 
 // -- Send a message ---------------------------------------------
@@ -362,7 +362,7 @@ async function llmaCompanionGetOrCreateThread(personaId) {
 async function llmaCompanionAsk(message, mediaPayload = null, contextPrefix = null) {
     const s = llmaCompanionState();
     if (s.isStreaming) {
-        llmaShowToast?.(translate('Companion is already replying...'), 'info');
+        llmaShowToast?.('Companion is already replying...', 'info');
         return;
     }
     const persona = llmaCompanionResolvePersona();

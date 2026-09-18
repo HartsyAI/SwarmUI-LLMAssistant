@@ -192,7 +192,7 @@ async function llmaLoadModels(opts = {}) {
         const modelWarnings = Array.isArray(result?.warnings) ? result.warnings : [];
         LLMAState.loadErrors.modelWarnings = modelWarnings;
         if (modelWarnings.length > 0 && typeof llmaShowToast === 'function') {
-            llmaShowToast(`Some LLM backends did not respond: ${modelWarnings.join('; ')}`, 'warning');
+            llmaShowToast(`${translate('Some LLM backends did not respond:')} ${modelWarnings.join('; ')}`, 'warning');
         }
 
         const sel = document.getElementById('llma-model-select');
@@ -223,7 +223,7 @@ async function llmaLoadModels(opts = {}) {
                     ).join('');
                 }
             } else {
-                sel.innerHTML = '<option value="" disabled>No models found</option>';
+                sel.innerHTML = `<option value="" disabled>${translate('No models found')}</option>`;
             }
         }
 
@@ -239,7 +239,7 @@ async function llmaLoadModels(opts = {}) {
         }
     } catch (e) {
         llmaSetModelSelectError(true);
-        LLMAState.loadErrors.models = llmaShortError(e) || 'Failed to load models';
+        LLMAState.loadErrors.models = llmaShortError(e) || translate('Failed to load models');
         LLMAState.noBackendsRunning = false;
         if (!opts.noRetry) llmaScheduleModelRetry();
     }
@@ -402,9 +402,9 @@ function llmaSetupModelSelect() {
                 llmaStopModelRetry();  // reset the give-up counter so polling can restart if still empty
                 await llmaRequest('TriggerRefresh', { strong: true });
                 await llmaLoadModels();
-                llmaShowToast('Model list refreshed.', 'info');
+                llmaShowToast(translate('Model list refreshed.'), 'info');
             } catch (e) {
-                llmaShowToast(llmaShortError(e) || 'Refresh failed', 'error');
+                llmaShowToast(llmaShortError(e) || translate('Refresh failed'), 'error');
             } finally {
                 refreshBtn.classList.remove('spinning');
                 refreshBtn.dataset.llmaBusy = '0';
@@ -423,9 +423,9 @@ function llmaSetupModelSelect() {
             try {
                 const res = await llmaRequest('LLMAssistantUnloadModels', {});
                 const freed = res?.freed || 0;
-                llmaShowToast(freed > 0 ? 'LLM model unloaded — VRAM freed.' : 'No LLM model was loaded.', 'info');
+                llmaShowToast(freed > 0 ? translate('LLM model unloaded — VRAM freed.') : translate('No LLM model was loaded.'), 'info');
             } catch (e) {
-                llmaShowToast(llmaShortError(e) || 'Unload failed', 'error');
+                llmaShowToast(llmaShortError(e) || translate('Unload failed'), 'error');
             } finally {
                 unloadBtn.classList.remove('spinning');
                 unloadBtn.dataset.llmaBusy = '0';
@@ -466,11 +466,11 @@ function llmaUpdateAttachAvailability() {
     if (cap === false) {
         label.classList.add('llma-attach-disabled');
         label.setAttribute('aria-disabled', 'true');
-        label.title = "The current model doesn't support image input. Pick a vision model to attach images.";
+        label.title = translate("The current model doesn't support image input. Pick a vision model to attach images.");
     } else {
         label.classList.remove('llma-attach-disabled');
         label.removeAttribute('aria-disabled');
-        label.title = 'Attach image';
+        label.title = translate('Attach image');
     }
 }
 
@@ -524,14 +524,14 @@ function llmaSetupParamsPopover() {
 
     if (apply) {
         apply.addEventListener('click', () => {
-            if (!LLMAState.activeThreadId) { llmaShowToast('No active chat', 'info'); return; }
+            if (!LLMAState.activeThreadId) { llmaShowToast(translate('No active chat'), 'info'); return; }
             LLMAState.threadParams[LLMAState.activeThreadId] = {
                 temperature:     parseFloat(document.getElementById('llma-p-temperature')?.value) || undefined,
                 maxTokens:       parseInt(document.getElementById('llma-p-max-tokens')?.value, 10) || undefined,
                 topP:               parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
                 maxContextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
             };
-            llmaShowToast('Parameters applied to this chat', 'success');
+            llmaShowToast(translate('Parameters applied to this chat'), 'success');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });
@@ -540,7 +540,7 @@ function llmaSetupParamsPopover() {
     if (reset) {
         reset.addEventListener('click', () => {
             if (LLMAState.activeThreadId) delete LLMAState.threadParams[LLMAState.activeThreadId];
-            llmaShowToast('Chat parameters reset', 'info');
+            llmaShowToast(translate('Chat parameters reset'), 'info');
             popover.style.display = 'none';
             btn.classList.remove('active');
         });
@@ -1236,7 +1236,7 @@ function llmaSetupSettingsModal() {
             await llmaSaveSettings();
             llmaApplySettingsToState();
             if (llmaCloseSettings()) {
-                llmaShowToast('Settings saved', 'success');
+                llmaShowToast(translate('Settings saved'), 'success');
             }
         });
     }
@@ -1249,8 +1249,8 @@ function llmaSetupSettingsModal() {
             // alone is not enough — the assistants dict lives server-side.
             const sharedReset = !!LLMAState.canWriteShared;
             const msg = sharedReset
-                ? 'Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.'
-                : 'Reset your personal LLM Assistant settings to defaults?';
+                ? translate('Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.')
+                : translate('Reset your personal LLM Assistant settings to defaults?');
             if (!confirm(msg)) return;
             try {
                 await llmaRequest('LLMAssistantResetSettings', sharedReset ? { scope: 'shared' } : {});
@@ -1263,9 +1263,9 @@ function llmaSetupSettingsModal() {
                     llmaRenderAssistantPanel(LLMAState.activeAssistantId);
                 }
                 llmaRenderWelcomeAssistants?.();
-                llmaShowToast('Settings reset to defaults', 'success');
+                llmaShowToast(translate('Settings reset to defaults'), 'success');
             } catch (e) {
-                llmaShowToast('Reset failed: ' + (e?.message || 'unknown error'), 'error');
+                llmaShowToast(`${translate('Reset failed:')} ${e?.message || translate('unknown error')}`, 'error');
             }
         });
     }
@@ -1364,7 +1364,7 @@ function llmaToolEditorIsOpen() {
 // through here — a single choke point, so the discard guard below covers all of them at once.
 // Returns false if the user backed out of discarding (callers should skip any "saved"/"closed" toast).
 function llmaCloseSettings() {
-    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm('Discard unsaved changes?')) {
+    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm(translate('Discard unsaved changes?'))) {
         return false;
     }
     const overlay = document.getElementById('llma-settings-overlay');
@@ -1503,7 +1503,7 @@ function llmaWriteSettingsToModal() {
 function llmaPopulateCompanionPersonaSelect(selectedId) {
     const sel = document.getElementById('llma-s-companion-persona');
     if (!sel) return;
-    const opts = ['<option value="">(Use my active assistant)</option>'];
+    const opts = [`<option value="">${translate('(Use my active assistant)')}</option>`];
     for (const a of (LLMAState.assistants || [])) {
         const id = llmaEscapeHtml(a.id);
         const name = llmaEscapeHtml(a.name || a.id);
@@ -1533,7 +1533,7 @@ function llmaRenderAssistantList() {
     if (!container) return;
 
     if (LLMAState.assistants.length === 0) {
-        container.innerHTML = '<div class="llma-empty-state">No assistants found.</div>';
+        container.innerHTML = `<div class="llma-empty-state">${translate('No assistants found.')}</div>`;
         return;
     }
 
@@ -1541,18 +1541,18 @@ function llmaRenderAssistantList() {
     for (const a of LLMAState.assistants) {
         const icon  = llmaCategoryIcon(a.icon || a.category || 'chat');
         const scopeBadge = a._scope === 'shared'
-            ? ' <span class="llma-scope-badge llma-scope-shared" title="Shared — visible to all users on this instance">shared</span>'
-            : (a._scope === 'personal' ? ' <span class="llma-scope-badge llma-scope-personal" title="Personal — only visible to you">personal</span>' : '');
+            ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('Shared — visible to all users on this instance')}">${translate('shared')}</span>`
+            : (a._scope === 'personal' ? ` <span class="llma-scope-badge llma-scope-personal" title="${translate('Personal — only visible to you')}">${translate('personal')}</span>` : '');
         html += `
             <div class="llma-asst-list-item" data-asst-id="${llmaEscapeHtml(a.id)}">
                 <div class="llma-list-avatar" style="background:${llmaGradientBg(a.color)};">
                     ${a.avatar ? `<img src="${llmaEscapeHtml(a.avatar)}">` : icon}
                 </div>
                 <div class="llma-list-info">
-                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ' <span class="llma-builtin-badge">(built-in)</span>' : ''}${scopeBadge}</div>
+                    <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ` <span class="llma-builtin-badge">(${translate('built-in')})</span>` : ''}${scopeBadge}</div>
                     <div class="llma-list-desc">${llmaEscapeHtml(a.description || '')}</div>
                 </div>
-                <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">Edit</button>
+                <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">${translate('Edit')}</button>
             </div>`;
     }
     container.innerHTML = html;
@@ -1583,7 +1583,7 @@ async function llmaPopulateTemplatesDropdown() {
             _llmaTemplateCache = Array.isArray(result?.templates) ? result.templates : [];
         }
         // Replace options (preserving the placeholder).
-        sel.innerHTML = '<option value="">Clone from template…</option>';
+        sel.innerHTML = `<option value="">${translate('Clone from template…')}</option>`;
         for (const tmpl of _llmaTemplateCache) {
             const opt = document.createElement('option');
             opt.value = tmpl.id;
@@ -1617,7 +1617,7 @@ function llmaShowAssistantEditor(assistant) {
     llmaEditingAsstId = assistant ? assistant.id : ('assistant-' + llmaGenerateId());
 
     const title = document.getElementById('llma-editor-title');
-    if (title) title.textContent = assistant ? `Edit: ${assistant.name}` : 'New Assistant';
+    if (title) title.textContent = assistant ? `${translate('Edit:')} ${assistant.name}` : translate('New Assistant');
 
     // Overlay of a shared id => "Revert to default"; pure shared built-in => no delete button.
     const deleteBtn = document.getElementById('llma-asst-delete');
@@ -1628,7 +1628,7 @@ function llmaShowAssistantEditor(assistant) {
         }
         else {
             deleteBtn.style.display = '';
-            deleteBtn.textContent = isOverlay ? 'Revert to default' : (assistant._scope === 'shared' ? 'Delete (shared)' : 'Delete');
+            deleteBtn.textContent = isOverlay ? translate('Revert to default') : (assistant._scope === 'shared' ? translate('Delete (shared)') : translate('Delete'));
         }
     }
 
@@ -1739,7 +1739,7 @@ function llmaPopulateExtendsDropdown(assistant) {
     const sel = document.getElementById('llma-asst-extends');
     if (!sel) return;
     const current = assistant?.extends || '';
-    sel.innerHTML = '<option value="">(no parent — standalone)</option>';
+    sel.innerHTML = `<option value="">${translate('(no parent — standalone)')}</option>`;
     for (const a of LLMAState.assistants) {
         if (assistant && a.id === assistant.id) continue;
         const opt = document.createElement('option');
@@ -1752,7 +1752,7 @@ function llmaPopulateExtendsDropdown(assistant) {
 
 async function llmaSaveAssistantFromEditor() {
     const name = document.getElementById('llma-asst-name')?.value?.trim();
-    if (!name) { llmaShowToast('Name is required', 'error'); return; }
+    if (!name) { llmaShowToast(translate('Name is required'), 'error'); return; }
 
     // Sync the currently-visible instruction tab into the editing state, then serialize all tabs.
     llmaSyncCurrentInstructionTabToState();
@@ -1790,7 +1790,7 @@ async function llmaSaveAssistantFromEditor() {
         // Only persist URL-shaped avatars — never inline data: URIs (those bloat the assistant
         // blob and were already uploaded to a real file by the file-pick handler).
         if (avatarData.startsWith('data:')) {
-            llmaShowToast('Avatar upload didn\'t complete — saved without avatar.', 'warning');
+            llmaShowToast(translate('Avatar upload didn\'t complete — saved without avatar.'), 'warning');
         } else {
             assistant.avatar = avatarData;
         }
@@ -1804,16 +1804,16 @@ async function llmaSaveAssistantFromEditor() {
     try {
         const result = await llmaRequest('LLMAssistantSaveAssistant', { assistant, scope });
         if (result && result.success === false) {
-            llmaShowToast(result.error || 'Failed to save assistant', 'error');
+            llmaShowToast(result.error || translate('Failed to save assistant'), 'error');
             return;
         }
         document.getElementById('llma-asst-editor').style.display = 'none';
         await llmaLoadAssistants();
         llmaRenderAssistantList();
         llmaRenderWelcomeAssistants();
-        llmaShowToast('Assistant saved', 'success');
+        llmaShowToast(translate('Assistant saved'), 'success');
     } catch (ex) {
-        llmaShowToast('Failed to save assistant', 'error');
+        llmaShowToast(translate('Failed to save assistant'), 'error');
     }
 }
 
@@ -1823,22 +1823,22 @@ async function llmaDeleteAssistant(id) {
     const scope = assistant?._scope || undefined;
     const isRevert = assistant?._scope === 'personal' && assistant?._hasSharedCounterpart;
     const confirmText = isRevert
-        ? 'Revert this assistant to the shared default? Your personal customizations will be removed.'
-        : 'Delete this assistant?';
+        ? translate('Revert this assistant to the shared default? Your personal customizations will be removed.')
+        : translate('Delete this assistant?');
     if (!confirm(confirmText)) return;
     try {
         const result = await llmaRequest('LLMAssistantDeleteAssistant', { assistantId: id, scope });
         if (result && result.success === false) {
-            llmaShowToast(result.error || 'Failed to delete assistant', 'error');
+            llmaShowToast(result.error || translate('Failed to delete assistant'), 'error');
             return;
         }
         document.getElementById('llma-asst-editor').style.display = 'none';
         await llmaLoadAssistants();
         llmaRenderAssistantList();
         llmaRenderWelcomeAssistants();
-        llmaShowToast(result?.reverted ? 'Reverted to the shared version' : 'Assistant deleted', 'info');
+        llmaShowToast(result?.reverted ? translate('Reverted to the shared version') : translate('Assistant deleted'), 'info');
     } catch {
-        llmaShowToast('Failed to delete assistant', 'error');
+        llmaShowToast(translate('Failed to delete assistant'), 'error');
     }
 }
 
@@ -1868,7 +1868,7 @@ function llmaSetupAvatarUpload() {
                     imageData: dataUrl
                 });
                 if (!result?.success || !result.url) {
-                    llmaShowToast(result?.error || 'Avatar upload failed', 'error');
+                    llmaShowToast(result?.error || translate('Avatar upload failed'), 'error');
                     return;
                 }
                 if (preview) {
@@ -1877,7 +1877,7 @@ function llmaSetupAvatarUpload() {
                     preview.dataset.avatarData = result.url;
                 }
             } catch (ex) {
-                llmaShowToast('Avatar upload failed', 'error');
+                llmaShowToast(translate('Avatar upload failed'), 'error');
             }
         });
     }
@@ -1934,9 +1934,9 @@ async function llmaRunInstructionTest() {
     if (!area || !sample || !result) return;
     const instructionText = area.value;
     const sampleInput = (sample.value || '').trim();
-    if (!instructionText) { llmaShowToast('Default instruction is empty', 'info'); return; }
-    if (!sampleInput) { llmaShowToast('Enter a sample message first', 'info'); return; }
-    result.textContent = 'Running…';
+    if (!instructionText) { llmaShowToast(translate('Default instruction is empty'), 'info'); return; }
+    if (!sampleInput) { llmaShowToast(translate('Enter a sample message first'), 'info'); return; }
+    result.textContent = translate('Running…');
     try {
         const res = await llmaRequest('LLMAssistantTestInstruction', {
             instructionText,
@@ -1945,12 +1945,12 @@ async function llmaRunInstructionTest() {
             assistantName: document.getElementById('llma-asst-name')?.value || ''
         });
         if (res?.success) {
-            result.textContent = res.response || '(empty response)';
+            result.textContent = res.response || translate('(empty response)');
         } else {
-            result.textContent = 'Error: ' + (res?.error || 'unknown');
+            result.textContent = `${translate('Error:')} ${res?.error || translate('unknown')}`;
         }
     } catch (ex) {
-        result.textContent = 'Error: ' + (ex?.message || String(ex));
+        result.textContent = `${translate('Error:')} ${ex?.message || String(ex)}`;
     }
 }
 
@@ -2003,18 +2003,19 @@ function llmaRenderInstructionVariants(mode) {
         row.className = 'llma-variant-row';
         row.innerHTML = `
             <div class="llma-variant-row-head">
-                <select class="llma-variant-kind" title="How to interpret the pattern">
-                    <option value="exact">Exact</option>
-                    <option value="family">Family</option>
-                    <option value="provider">Provider</option>
-                    <option value="tag">Tag</option>
-                    <option value="glob">Glob</option>
+                <select class="llma-variant-kind translate" title="How to interpret the pattern">
+                    <option value="exact" class="translate">Exact</option>
+                    <option value="family" class="translate">Family</option>
+                    <option value="provider" class="translate">Provider</option>
+                    <option value="tag" class="translate">Tag</option>
+                    <option value="glob" class="translate">Glob</option>
                 </select>
                 <input type="text" class="llma-variant-pattern" placeholder="claude-* | family:llama | provider:anthropic" autocomplete="off">
-                <button type="button" class="llma-variant-remove" title="Remove variant">&times;</button>
+                <button type="button" class="llma-variant-remove translate" title="Remove variant">&times;</button>
             </div>
-            <textarea class="llma-variant-text" rows="3" placeholder="System prompt used for this matcher (overrides Default when matched)..."></textarea>
+            <textarea class="llma-variant-text translate" rows="3" placeholder="System prompt used for this matcher (overrides Default when matched)..."></textarea>
         `;
+        if (typeof applyTranslations === 'function') applyTranslations(row);
         row.querySelector('.llma-variant-kind').value = variant.matchKind || 'glob';
         row.querySelector('.llma-variant-pattern').value = variant.match || '';
         row.querySelector('.llma-variant-text').value = variant.text || '';
