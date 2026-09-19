@@ -30,9 +30,13 @@
        2.0.0-alpha.47 = threads the CPU kernels, which the voice path needs: token decode goes through the
        same GEMM that ran on a single core, and this extension shares a box with the TTS that dominates a
        voice turn. Note the pin had drifted to alpha.40 again while a gitignored Directory.Build.props
-       pointed local builds at a checkout — a Release build against this pin is now verified. -->
+       pointed local builds at a checkout — a Release build against this pin is now verified.
+       2.0.0-alpha.130 = catch-up bump, 2026-09-19 (alpha.47 -> alpha.130, 83 versions). Confirmed via a full
+       Release build against this pin that nothing in this extension needed to change: compiled clean, no
+       source edits, despite the size of the gap. Keeps this extension in lockstep with
+       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.47" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.130" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
