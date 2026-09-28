@@ -19,7 +19,7 @@ public static class SessionStateService
         {
             return [];
         }
-        string raw = user.GetGenericData(DataName, StateKey);
+        string raw = GenericDataCache.Get(user, DataName, StateKey);
         if (string.IsNullOrEmpty(raw))
         {
             return [];
@@ -42,7 +42,7 @@ public static class SessionStateService
             return;
         }
         state ??= [];
-        user.SaveGenericData(DataName, StateKey, state.ToString(Formatting.None));
+        GenericDataCache.Save(user, DataName, StateKey, state.ToString(Formatting.None));
     }
 
     /// <summary>Merges the given patch into the user's current session state, then persists.

@@ -26,7 +26,7 @@ public static class UserProfileService
         {
             return EmptyProfile();
         }
-        string raw = user.GetGenericData(DataName, ProfileKey);
+        string raw = GenericDataCache.Get(user, DataName, ProfileKey);
         if (string.IsNullOrEmpty(raw))
         {
             return EmptyProfile();
@@ -59,13 +59,16 @@ public static class UserProfileService
             return;
         }
         profile["updated"] = DateTime.UtcNow.ToString("o");
-        user.SaveGenericData(DataName, ProfileKey, profile.ToString(Formatting.None));
+        GenericDataCache.Save(user, DataName, ProfileKey, profile.ToString(Formatting.None));
     }
 
     /// <summary>Clears a user's entire profile (privacy reset). Irreversible.</summary>
     public static void ClearProfile(User user)
     {
-        user?.DeleteGenericData(DataName, ProfileKey);
+        if (user is not null)
+        {
+            GenericDataCache.Delete(user, DataName, ProfileKey);
+        }
     }
 
     /// <summary>Writes a single piece of memory for the calling user. <paramref name="category"/>

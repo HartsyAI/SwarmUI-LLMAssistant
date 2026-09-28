@@ -24,7 +24,7 @@ public static class ThreadStorageService
     /// <summary>Gets the thread index for a user.</summary>
     public static JArray GetThreadIndex(User user)
     {
-        string raw = user.GetGenericData(DataName, IndexKey);
+        string raw = GenericDataCache.Get(user, DataName, IndexKey);
         if (string.IsNullOrEmpty(raw))
         {
             return [];
@@ -572,7 +572,7 @@ public static class ThreadStorageService
         };
         // Insert at beginning (most recent first)
         index.Insert(0, summary);
-        user.SaveGenericData(DataName, IndexKey, index.ToString(Formatting.None));
+        GenericDataCache.Save(user, DataName, IndexKey, index.ToString(Formatting.None));
     }
 
     /// <summary>Removes a thread's entry from the index, if present. Returns whether anything was removed.</summary>
@@ -589,7 +589,7 @@ public static class ThreadStorageService
         {
             index.Remove(m);
         }
-        user.SaveGenericData(DataName, IndexKey, index.ToString(Formatting.None));
+        GenericDataCache.Save(user, DataName, IndexKey, index.ToString(Formatting.None));
         return true;
     }
 }

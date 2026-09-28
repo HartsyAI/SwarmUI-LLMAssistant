@@ -76,7 +76,7 @@ public static class MigrationService
     {
         try
         {
-            string migrated = Program.Sessions.GenericSharedUser.GetGenericData(SettingsService.DataName, MigratedToolsKey);
+            string migrated = GenericDataCache.Get(Program.Sessions.GenericSharedUser, SettingsService.DataName, MigratedToolsKey);
             if (!string.IsNullOrEmpty(migrated))
             {
                 return;
@@ -110,7 +110,7 @@ public static class MigrationService
                 }
             }
             SettingsService.SaveSettings(settings);
-            Program.Sessions.GenericSharedUser.SaveGenericData(SettingsService.DataName, MigratedToolsKey, "true");
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, SettingsService.DataName, MigratedToolsKey, "true");
             Logs.Info("[LLMAssistant] Seeded built-in tools and tool assignments.");
         }
         catch (Exception ex)
@@ -157,7 +157,7 @@ public static class MigrationService
     {
         try
         {
-            string migrated = Program.Sessions.GenericSharedUser.GetGenericData(SettingsService.DataName, MigratedAssistantsKey);
+            string migrated = GenericDataCache.Get(Program.Sessions.GenericSharedUser, SettingsService.DataName, MigratedAssistantsKey);
             if (!string.IsNullOrEmpty(migrated))
             {
                 return;
@@ -166,7 +166,7 @@ public static class MigrationService
             // If assistants already have more than just the default, skip
             if (settings["assistants"] is JObject existing && existing.Count > 0)
             {
-                Program.Sessions.GenericSharedUser.SaveGenericData(SettingsService.DataName, MigratedAssistantsKey, "true");
+                GenericDataCache.Save(Program.Sessions.GenericSharedUser, SettingsService.DataName, MigratedAssistantsKey, "true");
                 return;
             }
             // Build default assistant from existing instruction overrides
@@ -216,7 +216,7 @@ public static class MigrationService
             settings["assistants"] = assistants;
             settings["activeAssistantId"] = AssistantConstants.DefaultId;
             SettingsService.SaveSettings(settings);
-            Program.Sessions.GenericSharedUser.SaveGenericData(SettingsService.DataName, MigratedAssistantsKey, "true");
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, SettingsService.DataName, MigratedAssistantsKey, "true");
             Logs.Info("[LLMAssistant] Migrated instructions to assistants model.");
         }
         catch (Exception ex)
