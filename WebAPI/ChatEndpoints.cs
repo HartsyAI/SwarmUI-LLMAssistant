@@ -383,11 +383,6 @@ public static class ChatEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "message is required." };
             }
-            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (thread is null)
-            {
-                return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
-            }
             // Append the user message to the thread BEFORE generation so it persists even if generation
             // fails or the client disconnects mid-stream. In the branch model this hangs off the current
             // active leaf. Image attachments are persisted as URLs (uploaded earlier), never base64.
@@ -400,7 +395,10 @@ public static class ChatEndpoints
             {
                 userMsg["media"] = mediaArr.DeepClone();
             }
-            ThreadStorageService.AppendMessage(session.User, threadId, userMsg);
+            if (ThreadStorageService.AppendMessage(session.User, threadId, userMsg) is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+            }
             // AppendMessage fills in the id when the client didn't supply one; capture it as the explicit
             // parent for compare lanes (so both replies become siblings of this exact user turn).
             string parentUserId = userMsg["id"]?.ToString();
