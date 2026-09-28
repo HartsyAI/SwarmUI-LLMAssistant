@@ -50,7 +50,7 @@ public static class AuditLogService
             // ServerSettings is an AutoConfiguration; we don't add a strongly-typed field for an
             // optional admin-only feature, so we read the underlying FDS data when present.
             // If the key isn't set, the audit log stays off.
-            string raw = Program.Sessions?.GenericSharedUser?.GetGenericData("llmassistant_audit", "enabled");
+            string raw = GenericDataCache.Get(Program.Sessions.GenericSharedUser, "llmassistant_audit", "enabled");
             if (string.IsNullOrEmpty(raw)) { return false; }
             return raw.Equals("true", StringComparison.OrdinalIgnoreCase) || raw == "1";
         }
@@ -65,7 +65,7 @@ public static class AuditLogService
     {
         try
         {
-            Program.Sessions?.GenericSharedUser?.SaveGenericData("llmassistant_audit", "enabled", enabled ? "true" : "false");
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, "llmassistant_audit", "enabled", enabled ? "true" : "false");
         }
         catch (Exception ex)
         {

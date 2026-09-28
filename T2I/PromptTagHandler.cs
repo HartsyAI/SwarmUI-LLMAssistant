@@ -82,14 +82,22 @@ public static class PromptTagHandler
             GetValues: session =>
             {
                 List<string> values = [.. InstructionIds.All];
-                JArray instructions = InstructionService.GetInstructionList(user: session?.User);
-                foreach (JToken instr in instructions)
+                // Never let a settings read failure break core's param listing (TriggerRefresh) for every param.
+                try
                 {
-                    string id = instr["id"]?.ToString();
-                    if (!string.IsNullOrEmpty(id) && !values.Contains(id))
+                    JArray instructions = InstructionService.GetInstructionList(user: session?.User);
+                    foreach (JToken instr in instructions)
                     {
-                        values.Add(id);
+                        string id = instr["id"]?.ToString();
+                        if (!string.IsNullOrEmpty(id) && !values.Contains(id))
+                        {
+                            values.Add(id);
+                        }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Logs.Debug($"[LLMAssistant] Could not list instructions for the param dropdown: {ex.Message}");
                 }
                 return values;
             }
@@ -111,14 +119,21 @@ public static class PromptTagHandler
                 List<string> values = ["default"];
                 if (session?.User is not null)
                 {
-                    JArray list = AssistantService.GetAssistantList(user: session.User);
-                    foreach (JToken a in list)
+                    try
                     {
-                        string id = a["id"]?.ToString();
-                        if (!string.IsNullOrEmpty(id))
+                        JArray list = AssistantService.GetAssistantList(user: session.User);
+                        foreach (JToken a in list)
                         {
-                            values.Add(id);
+                            string id = a["id"]?.ToString();
+                            if (!string.IsNullOrEmpty(id))
+                            {
+                                values.Add(id);
+                            }
                         }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logs.Debug($"[LLMAssistant] Could not list assistants for the param dropdown: {ex.Message}");
                     }
                 }
                 return values;

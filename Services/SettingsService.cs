@@ -161,7 +161,7 @@ public static class SettingsService
     /// <summary>Gets the current settings, merged with defaults for any missing keys.</summary>
     public static JObject GetSettings()
     {
-        string raw = Program.Sessions.GenericSharedUser.GetGenericData(DataName, ConfigKey);
+        string raw = GenericDataCache.Get(Program.Sessions.GenericSharedUser, DataName, ConfigKey);
         JObject settings = string.IsNullOrEmpty(raw) ? new JObject() : JObject.Parse(raw);
         JObject result = DefaultSettings; // already a fresh clone per call
         result.Merge(settings, MergeSettings);
@@ -176,7 +176,7 @@ public static class SettingsService
         {
             JObject current = GetSettings();
             current.Merge(incoming, MergeSettings);
-            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, current.ToString(Formatting.None));
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, DataName, ConfigKey, current.ToString(Formatting.None));
             return current;
         }
     }
@@ -189,7 +189,7 @@ public static class SettingsService
         lock (SettingsLock)
         {
             replacement ??= [];
-            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, replacement.ToString(Formatting.None));
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, DataName, ConfigKey, replacement.ToString(Formatting.None));
             return replacement;
         }
     }
@@ -200,7 +200,7 @@ public static class SettingsService
         lock (SettingsLock)
         {
             JObject defaults = DefaultSettings;
-            Program.Sessions.GenericSharedUser.SaveGenericData(DataName, ConfigKey, defaults.ToString(Formatting.None));
+            GenericDataCache.Save(Program.Sessions.GenericSharedUser, DataName, ConfigKey, defaults.ToString(Formatting.None));
             return defaults;
         }
     }
@@ -212,7 +212,7 @@ public static class SettingsService
         {
             return [];
         }
-        string raw = user.GetGenericData(DataName, UserConfigKey);
+        string raw = GenericDataCache.Get(user, DataName, UserConfigKey);
         if (string.IsNullOrEmpty(raw))
         {
             return [];
@@ -237,7 +237,7 @@ public static class SettingsService
         lock (SettingsLock)
         {
             userSettings ??= [];
-            user.SaveGenericData(DataName, UserConfigKey, userSettings.ToString(Formatting.None));
+            GenericDataCache.Save(user, DataName, UserConfigKey, userSettings.ToString(Formatting.None));
         }
     }
 
@@ -269,7 +269,10 @@ public static class SettingsService
     {
         lock (SettingsLock)
         {
-            user?.DeleteGenericData(DataName, UserConfigKey);
+            if (user is not null)
+            {
+                GenericDataCache.Delete(user, DataName, UserConfigKey);
+            }
         }
     }
 
