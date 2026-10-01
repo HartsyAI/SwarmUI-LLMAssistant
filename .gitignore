@@ -41,6 +41,9 @@
 *.dwo
 /obj
 /bin
+# Tests/ is a separate project one level down (its own obj/bin), not covered by the root-anchored rules above.
+Tests/obj
+Tests/bin
 /.vs
 Directory.Build.props
 NuGet.config

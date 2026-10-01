@@ -11,6 +11,13 @@ public static class LLMRoles
     public const string System = "system";
     public const string User = "user";
     public const string Assistant = "assistant";
+    /// <summary>A tool-call result turn. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently maps this
+    /// onto a real wire role (<c>TextRole.Tool</c>, carrying <see cref="LLMMessage.ToolCallId"/>/<see cref="LLMMessage.Name"/>);
+    /// nothing in this extension constructs one yet — the general chat loop still feeds tool results back as
+    /// <see cref="User"/> turns formatted by <c>ToolPromptService.FormatToolResult</c>, which works for every
+    /// provider including ones that only understand the text-based <c>&lt;tool_call&gt;</c> convention. This
+    /// exists so a native-tool-calling caller (eg a <c>ToolLoop</c>-driven turn) has a correct role to ask for.</summary>
+    public const string Tool = "tool";
 }
 
 /// <summary>A single inline media attachment on a chat message (eg an image for a vision model).</summary>
@@ -33,6 +40,12 @@ public class LLMMessage
     public string Content;
     /// <summary>Optional inline media (images, etc.) for multimodal providers.</summary>
     public List<LLMMediaAttachment> Media;
+    /// <summary>The id of the native tool call this message answers. Only meaningful when <see cref="Role"/> is
+    /// <see cref="LLMRoles.Tool"/>; null otherwise.</summary>
+    public string ToolCallId;
+    /// <summary>The tool name this message answers. Only meaningful when <see cref="Role"/> is
+    /// <see cref="LLMRoles.Tool"/>; null otherwise.</summary>
+    public string Name;
 }
 
 /// <summary>Describes one model advertised by a provider. Providers populate as much metadata as

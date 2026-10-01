@@ -263,12 +263,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     content = StripImageAnnotations(content);
                 }
             }
-            messages.Add(new TextMessage
-            {
-                Role = RoleFor(m.Role),
-                Content = content,
-                Images = images is { Count: > 0 } ? images : null
-            });
+            messages.Add(ToTextMessage(m, content, images));
         }
         List<ToolDefinition> tools = null;
         if (Settings.StructuredToolCalling && input.Tools is { Count: > 0 })
@@ -317,12 +312,38 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return list;
     }
 
-    private static TextRole RoleFor(string role) => role switch
+    /// <summary>Maps the extension's role string onto the engine's native <see cref="TextRole"/>. A Tool-role
+    /// message used to fall through to <see cref="TextRole.User"/> like any other unrecognized string — harmless
+    /// while nothing ever constructed one, but wrong the moment something does (eg a native-tool-calling turn
+    /// replaying history that already contains a <see cref="LLMRoles.Tool"/> message): the engine's chat
+    /// templates render a <c>tool</c> turn differently (Qwen's <c>&lt;tool_response&gt;</c>, the Jinja
+    /// OpenAI-shaped <c>tool_call_id</c>/<c>name</c> fields), and a model expecting that shape sees a plain user
+    /// turn instead.</summary>
+    internal static TextRole RoleFor(string role) => role switch
     {
         LLMRoles.System => TextRole.System,
         LLMRoles.Assistant => TextRole.Assistant,
+        LLMRoles.Tool => TextRole.Tool,
         _ => TextRole.User
     };
+
+    /// <summary>Builds one engine <see cref="TextMessage"/> from an extension <see cref="LLMMessage"/>, including
+    /// the id/name a <see cref="LLMRoles.Tool"/> turn carries. Pulled out of <see cref="BuildRequestAsync"/> so the
+    /// role/id mapping is unit-testable without constructing a provider (which needs a live <c>SettingsRaw</c>).</summary>
+    internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images)
+    {
+        bool isTool = m.Role == LLMRoles.Tool;
+        // TextMessage's ToolCallId/Name are init-only, so they're set in the same initializer rather than
+        // assigned after construction.
+        return new TextMessage
+        {
+            Role = RoleFor(m.Role),
+            Content = content,
+            Images = images is { Count: > 0 } ? images : null,
+            ToolCallId = isTool ? m.ToolCallId : null,
+            Name = isTool ? m.Name : null
+        };
+    }
 
     /// <summary>Resolves each attachment (URL/base64/data-URI) to bytes and decodes to interleaved RGB — the
     /// engine's native <see cref="ImageData"/> shape, so it owns resizing/normalization per vision encoder.</summary>

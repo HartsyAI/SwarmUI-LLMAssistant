@@ -16,6 +16,12 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
+  <!-- Tests/ is its own project (own xunit/Test.Sdk references this Web SDK project doesn't carry) — without
+       this, the SDK's default **/*.cs glob would also compile its sources into this assembly and fail. -->
+  <ItemGroup>
+    <Compile Remove="Tests/**" />
+  </ItemGroup>
+
   <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference
        Pinned ahead of nuget.org's alpha.3 (its latest published version as of this writing): alpha.3
        predates the 2026-07-25 commit that made TextService.FindMmproj public, which this extension's
@@ -34,9 +40,20 @@
        2.0.0-alpha.130 = catch-up bump, 2026-09-19 (alpha.47 -> alpha.130, 83 versions). Confirmed via a full
        Release build against this pin that nothing in this extension needed to change: compiled clean, no
        source edits, despite the size of the gap. Keeps this extension in lockstep with
-       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. -->
+       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab.
+       2.0.0-alpha.235 = catch-up bump for the phone-call voice agent work, 2026-10-01 (alpha.130 -> alpha.235,
+       105 versions). Nothing in that span changes a signature this extension calls — TextChunkKind/TextChunk
+       and ChatMessage only gained new, additive members (Reasoning/ToolCallDelta/ToolCallAbort/Usage,
+       ToolCallIndex/Status/Usage) — so this stays a clean build against the nuget.org package
+       (UseLocalHartsy=false). Two source changes ride along in this same PR because they are tiny and
+       directly enabled by this range: HartsyLocalLLMProvider.RoleFor now maps a Tool-role message onto
+       TextRole.Tool with its id/name (alpha.220 added TextMessage.ToolCalls/ToolCallId/Name; nothing emitted
+       a Tool-role LLMMessage before this, so this is a latent-bug fix, not a behavior change) and
+       TextService.StreamAsync's lifetime fix (alpha.220, #193) is what LLMStreamHelper's mid-round
+       roundCts.Cancel() (LLMStreamHelper.cs:96,110) already relied on being prompt — verified by the engine's
+       own cancel-before-start / abandonment unit tests (<=100ms), not re-measured live here. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.130" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.235" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
