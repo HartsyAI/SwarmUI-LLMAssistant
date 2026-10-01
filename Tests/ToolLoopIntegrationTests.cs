@@ -140,4 +140,32 @@ public class ToolLoopIntegrationTests
         Assert.Contains(emitted, c => c.Kind == TextChunkKind.StopReason && c.Stop == StopReason.Stop);
         Assert.DoesNotContain(emitted, c => c.Kind == TextChunkKind.NativeToolCall);
     }
+
+    [Fact]
+    public async Task RunAsync_EmptyRegistryAndNoToolsOnTheRequest_StillStreamsPlainTextAsOneRound()
+    {
+        // LLMAssistantVoiceTurnWS's common case: an assistant with no tools enabled at all.
+        // ChatEndpoints.BuildToolRegistry(enabledTools: []) hands this an empty ToolRegistry, and
+        // ApplyToolsToInput never sets ExtendedLLMInput.Tools, so BuildRequestAsync never sets
+        // TextRequest.Tools either -- both of ToolLoop's tool sources (request.Tools, registry.Definitions)
+        // are empty at once. This must behave like an ordinary streaming turn, not throw or hang.
+        ScriptedTextService fake = new(
+            [
+                new TextChunk { Kind = TextChunkKind.Chunk, Text = "Sure, here's the answer." },
+                new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Stop }
+            ]);
+        ToolRegistry emptyRegistry = new();
+        Assert.Equal(0, emptyRegistry.Count);
+
+        List<TextChunk> emitted = [];
+        await foreach (TextChunk chunk in ToolLoop.RunAsync(fake, Spec(), Request(), emptyRegistry))
+        {
+            emitted.Add(chunk);
+        }
+
+        Assert.Single(fake.SeenRequests);
+        Assert.Contains(emitted, c => c.Kind == TextChunkKind.Chunk && c.Text == "Sure, here's the answer.");
+        Assert.Contains(emitted, c => c.Kind == TextChunkKind.Result && c.Text == "Sure, here's the answer.");
+        Assert.Contains(emitted, c => c.Kind == TextChunkKind.StopReason && c.Stop == StopReason.Stop);
+    }
 }
