@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- net10.0, not the host's net8.0: this project is never loaded into SwarmUI's extension
+         AssemblyLoadContext (SwarmUI.extension.props forces net8.0 for that reason alone), it just runs
+         standalone under `dotnet test`, and this box has only the net10.0 shared runtime installed. A net10.0
+         test host referencing a net8.0 library/SwarmUI.dll is a normal backward-compatible TFM consumption. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>disable</Nullable>
+    <AssemblyName>Hartsy.Extensions.LLMAssistant.Tests</AssemblyName>
+    <RootNamespace>Hartsy.Extensions.LLMAssistant.Tests</RootNamespace>
+    <!-- Pure-logic tests only (see README in this folder): no SwarmUI host, no Program.ServerSettings, no
+         live backend. That keeps this project's own build independent of a running Swarm instance. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="xunit" Version="2.5.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../SwarmUI-LLMAssistant.csproj" />
+    <!-- The extension references SwarmUI.dll with Private=false (the live host already has it loaded, so the
+         extension never bundles its own copy) — that keeps it out of this project's transitive closure too, but
+         HartsyLocalLLMProvider's base type chain (LLMProviderBackend : AbstractLLMBackend) is still SwarmUI.dll
+         metadata the compiler needs to resolve, and the CLR needs the same assembly loadable to run a single
+         static method on a type whose base lives there. Unlike the extension, this test project has no host
+         process providing it, so it copies locally (default Private=true) instead of overriding it. -->
+    <Reference Include="SwarmUI">
+      <HintPath>../../../bin/live_release/SwarmUI.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
