@@ -145,9 +145,20 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// falling back. Callers check <see cref="SupportsNativeToolCallingFor"/> first; calling this when it
     /// returned true just describes the <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/>-off
     /// case, which is misleading but harmless (nothing calls it in that order today).</summary>
-    public string DescribeNativeToolCallingUnavailability(string modelId) => !Settings.StructuredToolCalling
-        ? "Structured Tool Calling is turned off (Server > Backends)"
-        : $"'{modelId}'s chat template doesn't instruct Hermes/Qwen-style JSON tool calls";
+    public string DescribeNativeToolCallingUnavailability(string modelId)
+    {
+        if (!Settings.StructuredToolCalling)
+        {
+            return "Structured Tool Calling is turned off (Server > Backends)";
+        }
+        // Distinct from the "wrong template" case below: a model id that doesn't resolve to a file at all
+        // would otherwise get the misleading "chat template doesn't instruct..." reason here, immediately
+        // followed by ResolveSpecAndRequestAsync's own "model not found" error frame once the turn actually
+        // tries to run — two different reasons for the same turn, only one of them true.
+        return ResolvePath(modelId) is null
+            ? $"'{modelId}' could not be resolved to a model file"
+            : $"'{modelId}'s chat template doesn't instruct Hermes/Qwen-style JSON tool calls";
+    }
 
     /// <summary>Per-(path, length, last-write-time) cache of <see cref="InstructsHermesJsonToolCallsFromFile"/>'s
     /// verdict, so a hot provider doesn't re-mmap and re-scan the same GGUF header on every request. The key

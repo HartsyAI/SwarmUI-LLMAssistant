@@ -26,7 +26,7 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once" — the original bug was intermittent,
 /// so one passing iteration proves nothing); (b) an ungraceful client abort mid-turn cancels the turn's own
 /// cancellation token promptly; (c) the same abort, while something is actively awaiting that exact token
-/// (standing in for a long-running tool handler — <c>ChatEndpoints.cs:464</c> hands <c>turnCancel.Token</c>
+/// (standing in for a long-running tool handler — <c>ChatEndpoints.cs:514</c> hands <c>turnCancel.Token</c>
 /// straight into <c>StreamToolLoopAsync</c>, which forwards it hop by hop into every dispatched tool call; see
 /// that test's own comment for the full chain), also observes cancellation. All three run in well under the
 /// 10-second budget — see each test's own timing notes.</para></summary>
@@ -186,7 +186,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     [Fact]
     public async Task ClientAbortsWhileToolHandlerRuns_CancelsTheHandlersOwnToken()
     {
-        // (c) ChatEndpoints.cs:464 hands turnCancel.Token to StreamToolLoopAsync; HartsyLocalLLMProvider.cs's
+        // (c) ChatEndpoints.cs:514 hands turnCancel.Token to StreamToolLoopAsync; HartsyLocalLLMProvider.cs's
         // StreamToolLoopAsync forwards that exact token, unchanged, into ToolLoop.RunAsync (HartsyInference.Tools'
         // ToolLoop.cs:30-31, forwarded again at :97 into registry.InvokeAsync), through to the per-tool lambda
         // registered at ChatEndpoints.cs:628 -- confirmed hop by hop, not assumed. One hop past that lambda,
@@ -228,6 +228,35 @@ public class VoiceTurnWsDisconnectTests : IDisposable
                 $"the tool handler's own token was not cancelled in time (elapsed {elapsed.ElapsedMilliseconds}ms).");
             Assert.True(handlerToken.IsCancellationRequested);
             await handlerTask;
+        }
+        finally
+        {
+            client.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task CancellingThePendingReceive_AbortsTheSocketSoCloseAsyncThrows_TheOriginalBug()
+    {
+        // The original bug this whole fix removes, reproduced directly rather than only cited: the earlier
+        // version of WatchForDisconnectAsync's receive took a token tied to the turn's own lifetime and
+        // cancelled it once the turn finished, intending to "clean up" the dangling receive. This is that
+        // exact sequence, isolated -- no WatchForDisconnectAsync involved, just the two WebSocket calls it
+        // used to make in the wrong order.
+        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        try
+        {
+            using CancellationTokenSource receiveCancel = new();
+            byte[] buffer = new byte[16];
+            Task<WebSocketReceiveResult> pendingReceive = server.ReceiveAsync(new ArraySegment<byte>(buffer), receiveCancel.Token);
+
+            receiveCancel.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pendingReceive);
+            Assert.Equal(WebSocketState.Aborted, server.State);
+
+            Exception thrown = await Record.ExceptionAsync(
+                () => server.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None));
+            Assert.NotNull(thrown); // CloseAsync does not accept an Aborted socket -- this is what the 41% was
         }
         finally
         {

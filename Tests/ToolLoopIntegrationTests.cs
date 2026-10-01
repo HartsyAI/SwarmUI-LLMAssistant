@@ -172,9 +172,11 @@ public class ToolLoopIntegrationTests
     // ChatEndpoints.LLMAssistantVoiceTurnWS passes a token tied to the WebSocket's own lifetime (a background
     // ReceiveAsync cancels it on disconnect) into StreamToolLoopAsync, which hands it straight to
     // ToolLoop.RunAsync as `cancel` -- the same parameter these two tests drive directly. They can't reach
-    // StreamToolLoopAsync itself (it needs a live Engine; see StreamToolLoopAsyncReachabilityTests for why),
-    // but they do pin the mechanism it relies on: a cancelled token actually stops the loop, both before and
-    // mid-stream, rather than running to completion regardless.
+    // StreamToolLoopAsync itself, or BuildRequestAsync, or any other instance method on HartsyLocalLLMProvider
+    // that needs Settings/a live Engine (see HartsyLocalLLMProviderTests' own class doc, and its nested
+    // BuildRequestCoreTests for the one pure tail that's reachable instead), but they do pin the mechanism
+    // StreamToolLoopAsync relies on: a cancelled token actually stops the loop, both before and mid-stream,
+    // rather than running to completion regardless.
 
     [Fact]
     public async Task RunAsync_PreCancelledToken_NeverYieldsAnything()
