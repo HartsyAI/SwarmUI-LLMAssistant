@@ -1,4 +1,6 @@
+using System.IO;
 using System.Text;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.LLMs;
@@ -74,7 +76,22 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     /// <para>A request with no tools enabled never reaches this branch regardless of the provider (nothing
     /// streams a native_tool_call event for a request with no <c>Tools</c> offered), so this changes nothing
     /// for <see cref="WebAPI.ChatEndpoints.LLMAssistantSendMessage"/> or <c>LLMAssistantTestInstruction</c>,
-    /// neither of which sets tools.</para></summary>
+    /// neither of which sets tools.</para>
+    ///
+    /// <para><b>Tag-splitting defense.</b> The synthesized JSON is written with every <c>&lt;</c>/<c>&gt;</c>
+    /// (and a few more HTML-sensitive characters) as a <c>\uXXXX</c> escape, never a literal angle bracket —
+    /// see <see cref="SerializeEscapingAngleBrackets"/>. Without that, a tool name or argument value
+    /// containing the literal substring <c>&lt;/tool_call&gt;</c> (plausible for anything free-form: a search
+    /// query, a value a tool result echoed back from a web page the model then quotes into its next call)
+    /// would close the tag early and split one call into two fragments at <see cref="ToolPromptService"/>'s
+    /// plain-text regex, which has no JSON-string awareness. A fragment that still happens to repair into
+    /// valid JSON risks dispatching on attacker-shaped text; one that does not lands in
+    /// <c>ParseToolCalls</c>'s malformed list and used to leak its raw, unstripped tag text into
+    /// spoken/displayed output (see <see cref="WebAPI.ChatEndpoints.LLMAssistantVoiceTurn"/>'s malformed-match
+    /// stripping, added alongside this). Escaping removes the vulnerability rather than mitigating it: no
+    /// substring of the escaped JSON can ever equal <c>&lt;tool_call&gt;</c> or <c>&lt;/tool_call&gt;</c>, and
+    /// <c><</c>/<c>></c> decode back to the exact original characters once
+    /// <c>JObject.Parse</c> reads the call out of the tag, so no argument value is altered.</para></summary>
     internal static void AppendGenerateChunk(StringBuilder output, JObject chunk)
     {
         if (chunk.TryGetValue("chunk", out JToken text))
@@ -92,8 +109,26 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
                 ["name"] = native["name"],
                 ["arguments"] = native["arguments"] as JObject ?? new JObject()
             };
-            output.Append($"<tool_call>{tagBody.ToString(Newtonsoft.Json.Formatting.None)}</tool_call>");
+            output.Append($"<tool_call>{SerializeEscapingAngleBrackets(tagBody)}</tool_call>");
         }
+    }
+
+    /// <summary>Serializes <paramref name="obj"/> with <see cref="StringEscapeHandling.EscapeHtml"/>, which
+    /// (unlike the default <c>JObject.ToString()</c>) escapes <c>&lt;</c>/<c>&gt;</c> (and <c>&amp;</c>) as
+    /// <c>\uXXXX</c> rather than passing them through literally — the result is still exactly equivalent JSON
+    /// (any compliant parser, <see cref="JObject.Parse(string)"/> included, decodes a <c>\uXXXX</c> escape
+    /// back to that one character), it just cannot contain a literal angle bracket anywhere, at any nesting
+    /// depth, so it cannot be mistaken for — or split by a regex looking for — an HTML/XML-style tag.</summary>
+    private static string SerializeEscapingAngleBrackets(JObject obj)
+    {
+        using StringWriter stringWriter = new();
+        using JsonTextWriter jsonWriter = new(stringWriter)
+        {
+            Formatting = Formatting.None,
+            StringEscapeHandling = StringEscapeHandling.EscapeHtml
+        };
+        obj.WriteTo(jsonWriter);
+        return stringWriter.ToString();
     }
 
     /// <summary>Per-backend startup (set <see cref="AbstractBackend.Status"/>, validate config, etc.).</summary>

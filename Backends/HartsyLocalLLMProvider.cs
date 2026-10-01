@@ -82,25 +82,48 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "local_llm"];
 
-    /// <summary>True exactly when <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on.
-    ///
-    /// <para>The honest signal this interface member asks for — whether the model's own chat template renders
-    /// tools — has no public engine API to query per <see cref="ModelSpec"/> without actually loading the
-    /// checkpoint (<c>GgufLanguageModel.BuildTemplate</c>, which decides this, is internal to
-    /// <c>HartsyInference.LLM</c>). <c>StructuredToolCalling</c> is the closest proxy already in this codebase:
-    /// its own doc comment already says it is "off by default until verified against real models", ie the
-    /// operator is the one asserting the template renders tools correctly for whatever model they picked, the
-    /// same assertion this property now reuses. <c>Qwen3ToolCallEndToEndTests</c> (Tools package) is where that
-    /// assertion is actually gated for Qwen3's template specifically.</para>
-    ///
-    /// <para>Turning this on changes two things at once, by design: <c>BuildRequestAsync</c> starts offering
-    /// <see cref="TextRequest.Tools"/> (true since this setting was added), and now <see cref="GenerateLive"/>
-    /// also emits a real <c>native_tool_call</c> event instead of leaving a <c>&lt;tool_call&gt;</c> tag in the
-    /// text stream for <c>ToolPromptService.ParseToolCalls</c> to find. <c>ChatEndpoints.ApplyToolsToInput</c>
-    /// already stops injecting the tag-based tool system prompt whenever this is true (the same branch
-    /// Anthropic's provider has used since it shipped), so both halves move together. The default stays false,
-    /// so no existing installation's behavior changes.</para></summary>
+    /// <summary>True exactly when <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on —
+    /// provider-wide, not aware of which model a particular request names. <b>Do not use this alone to decide
+    /// whether to skip the tag-based tool prompt for a request</b>: this backend serves whatever GGUF
+    /// <c>ExtendedLLMInput.Model</c> names per call, <see cref="OnProviderInit"/> installs exactly one format
+    /// (Hermes/Qwen) for the whole engine instance, and the engine exposes no per-<see cref="ModelSpec"/> way
+    /// to ask whether a checkpoint's own chat template renders tools in that format without loading it
+    /// (<c>GgufLanguageModel.BuildTemplate</c> is internal to <c>HartsyInference.LLM</c>). Callers that need a
+    /// correct per-request answer use <see cref="SupportsNativeToolCallingFor"/> instead — this property only
+    /// exists to satisfy <see cref="ILLMProvider.SupportsNativeToolCalling"/> for a caller with no request to
+    /// check against. The default stays false, so no existing installation's behavior changes.</summary>
     public bool SupportsNativeToolCalling => Settings.StructuredToolCalling;
+
+    /// <summary>Whether native tool calling actually works for a request naming <paramref name="modelId"/>
+    /// right now: <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on, <b>and</b> the
+    /// model looks like one of the Hermes-family checkpoints (Qwen, GLM, DeepSeek, Hermes fine-tunes) whose
+    /// native convention is the <c>&lt;tool_call&gt;</c> tag the engine's installed filter actually parses
+    /// (<see cref="OnProviderInit"/> installs only that one format, for the whole engine instance, not
+    /// per-model — there is currently no per-request hook to vary it: <c>EngineOptions.TextStreamFilterFactory</c>
+    /// is a <c>Func&lt;TextRequest,…&gt;</c>, and <c>TextRequest</c> carries no model id, only the separate
+    /// <see cref="ModelSpec"/> argument alongside it). For every other family (Llama-3.2, Mistral, Gemma, or
+    /// anything unrecognized), this returns false so the caller falls back to the tag-prompt convention that
+    /// worked before <c>StructuredToolCalling</c> existed — the model's own template would otherwise render
+    /// tools in ITS native, non-Hermes convention (via <see cref="BuildRequestAsync"/>'s
+    /// <see cref="TextRequest.Tools"/>), which the installed Hermes-only filter cannot parse, silently losing
+    /// every call. <see cref="BuildRequestAsync"/>, <see cref="WebAPI.ChatEndpoints.ApplyToolsToInput"/> and
+    /// <see cref="WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/> all gate on this, not the provider-wide
+    /// property above.</summary>
+    public bool SupportsNativeToolCallingFor(string modelId) => Settings.StructuredToolCalling && IsHermesFamilyModel(modelId);
+
+    /// <summary>Conservative, filename/model-id-only family guess: true only for a positive match on a known
+    /// Hermes-family name (Qwen, GLM, DeepSeek, Hermes fine-tunes — the families
+    /// <c>docs/Research/TOOL_CALLING.md</c> lists as emitting the <c>&lt;tool_call&gt;</c> convention
+    /// natively). Deliberately <b>not</b> <c>HartsyInference.Tools.Parsing.ToolCallFormats.Detect</c>, whose
+    /// job is different and opposite here: it is the parser's own fallback heuristic, so it defaults
+    /// <i>unrecognized</i> names to Hermes too (there has to be some answer when nothing else is known). Used
+    /// as a yes/no gate instead, that default would be a false positive for an unrecognized model — the safe
+    /// default for "is it safe to claim native support" is the opposite of the safe default for "which parser
+    /// do I run anyway", so this checks the same positive markers without that fallback.</summary>
+    internal static bool IsHermesFamilyModel(string modelId) =>
+        !string.IsNullOrWhiteSpace(modelId) && HermesFamilyNames.Any(name => modelId.Contains(name, StringComparison.OrdinalIgnoreCase));
+
+    private static readonly string[] HermesFamilyNames = ["qwen", "hermes", "glm", "deepseek"];
 
     /// <inheritdoc/>
     protected override Task OnProviderInit()
@@ -109,9 +132,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         // Installs the Tools package's stream filter: it only ever does anything for a request that sets
         // TextRequest.Tools (ToolCalling.CreateFilter returns null otherwise), so this is safe to install
         // unconditionally — every existing request without Tools set keeps its exact current code path.
-        // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention, right for the plan's
-        // target model (Qwen3) and GGUF chat models generally; a host serving a non-Hermes family would pass
-        // a format here instead.
+        // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention. It is the ONLY format
+        // installed for this whole engine instance (see SupportsNativeToolCallingFor for why a non-Hermes
+        // model never reaches this filter with Tools set at all, rather than reaching it and failing to parse).
         ToolCalling.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key — without that it would only govern this shell engine's own unused backend.
@@ -364,7 +387,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             messages.Add(ToTextMessage(m, content, images));
         }
         List<ToolDefinition> tools = null;
-        if (Settings.StructuredToolCalling && input.Tools is { Count: > 0 })
+        // Gated on SupportsNativeToolCallingFor, not just the StructuredToolCalling setting: for a non-Hermes
+        // model this must stay null even with the setting on, or the model's own Jinja template renders tools
+        // in ITS native (non-Hermes) convention and the engine's Hermes-only installed filter (OnProviderInit)
+        // activates on this request (it keys only on Tools being set) but can never parse what streams out —
+        // every call silently lost, with no tag-prompt fallback either (ApplyToolsToInput skips that too once
+        // it sees Tools already on the request). Gating here keeps that filter inert for this request instead.
+        if (SupportsNativeToolCallingFor(input.Model) && input.Tools is { Count: > 0 })
         {
             tools = [.. input.Tools.Select(t => new ToolDefinition
             {

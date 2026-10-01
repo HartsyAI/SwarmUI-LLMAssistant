@@ -265,9 +265,13 @@ public static class ChatEndpoints
                     break;
                 }
                 // The tool-call markup itself is not speech; only prose the model produced alongside it is.
-                // Without this the device reads "<tool_call>{...}</tool_call>" out loud.
-                string prose = calls.Aggregate(round, (text, call) =>
-                    string.IsNullOrEmpty(call.RawMatch) ? text : text.Replace(call.RawMatch, "")).Trim();
+                // Without this the device reads "<tool_call>{...}</tool_call>" out loud. Strips malformed
+                // matches too (defense in depth, not just parsed calls' RawMatch): a native tool call that
+                // failed to round-trip through AppendGenerateChunk's synthesized tag — or any model emitting
+                // the tag convention natively and getting it wrong — would otherwise leak its raw, unparsed
+                // <tool_call>…</tool_call> text straight into spoken/displayed output.
+                string prose = calls.Select(call => call.RawMatch).Concat(malformed)
+                    .Aggregate(round, (text, rawMatch) => string.IsNullOrEmpty(rawMatch) ? text : text.Replace(rawMatch, "")).Trim();
                 if (prose.Length > 0) spoken.Append(prose);
                 input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = round });
                 foreach (string _ in malformed)
@@ -380,6 +384,30 @@ public static class ChatEndpoints
                 await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
             }
         }
+        // Tied to the socket's own lifetime, not just process shutdown: this route forwards every frame as
+        // it streams, including through an in-flight ToolLoop round and whatever tool handler is running
+        // (shell/http tools have no timeout of their own) -- a disconnect must cancel that, not just stop
+        // this method from sending into a dead socket. There is nothing in this protocol for the client to
+        // send, so one ReceiveAsync either completes on disconnect/close/an error, or (if the client sends
+        // something anyway) is itself treated as "stop" -- either way it cancels `turnCancel`.
+        using CancellationTokenSource turnCancel = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                byte[] buffer = new byte[16];
+                await socket.ReceiveAsync(new ArraySegment<byte>(buffer), turnCancel.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Disconnect, close frame, cancellation (the turn finished normally and the finally below
+                // already cancelled this), or a transport error -- all mean the same thing here: stop.
+            }
+            finally
+            {
+                turnCancel.Cancel();
+            }
+        });
         try
         {
             string message = rawInput["message"]?.ToString();
@@ -422,14 +450,18 @@ public static class ChatEndpoints
             // ApplyToolsToInput already resolved the provider once to decide whether to inject the tag-based
             // tool system prompt; resolving it again here (rather than threading it back) keeps this route's
             // "is this Hartsy-local" check independent of that method ever changing what it returns.
+            // SupportsNativeToolCallingFor(model), not the plain SupportsNativeToolCalling property: this
+            // backend serves whatever model `model` names, and the installed Hermes filter only matches that
+            // one family — see the method doc for why a per-request check is required here.
             ILLMProvider provider = await LLMDispatcher.GetProvider(input);
-            if (provider is not HartsyLocalLLMProvider hartsyProvider || !hartsyProvider.SupportsNativeToolCalling)
+            if (provider is not HartsyLocalLLMProvider hartsyProvider || !hartsyProvider.SupportsNativeToolCallingFor(model))
             {
                 await SendAsync(new JObject
                 {
                     ["error"] = "LLMAssistantVoiceTurnWS only runs on the Hartsy-local provider with "
-                        + "Structured Tool Calling turned on (Server > Backends). Use LLMAssistantVoiceTurn "
-                        + "or LLMAssistantSendMessageWS for other providers/configurations."
+                        + "Structured Tool Calling turned on, for a Hermes/Qwen-family model (Server > "
+                        + "Backends). Use LLMAssistantVoiceTurn or LLMAssistantSendMessageWS for other "
+                        + "providers/models."
                 });
                 return null;
             }
@@ -438,7 +470,7 @@ public static class ChatEndpoints
             StringBuilder spoken = new();
             JArray deviceCalls = [];
             StopReason? finalStop = null;
-            await foreach (TextChunk chunk in hartsyProvider.StreamToolLoopAsync(input, registry, ToolLoop.DefaultMaxRounds, Program.GlobalProgramCancel))
+            await foreach (TextChunk chunk in hartsyProvider.StreamToolLoopAsync(input, registry, ToolLoop.DefaultMaxRounds, turnCancel.Token))
             {
                 if (socket.State != WebSocketState.Open)
                 {
@@ -512,11 +544,25 @@ public static class ChatEndpoints
             });
             return null;
         }
+        catch (OperationCanceledException) when (turnCancel.IsCancellationRequested)
+        {
+            // The receive-loop task above detected a disconnect (or the turn finished and its own finally
+            // cancelled this token) -- an ordinary end, not a failure worth logging as one. SendAsync no-ops
+            // once the socket is no longer open, so this is safe to call unconditionally.
+            await SendAsync(new JObject { ["error"] = "cancelled" });
+            return null;
+        }
         catch (Exception ex)
         {
             Logs.Error($"[LLMAssistant] Voice turn (streaming) failed: {ex.Message}");
             await SendAsync(new JObject { ["error"] = ex.Message });
             return null;
+        }
+        finally
+        {
+            // Unblocks the background ReceiveAsync above as soon as this turn is over for any reason, so it
+            // doesn't sit waiting on a socket the framework may not close immediately after this returns.
+            turnCancel.Cancel();
         }
     }
 
@@ -916,7 +962,16 @@ public static class ChatEndpoints
             input.ForceToolId = forceToolId;
         }
         ILLMProvider provider = await LLMDispatcher.GetProvider(input);
-        if (provider?.SupportsNativeToolCalling == true)
+        // HartsyLocalLLMProvider needs the per-request, per-model check (SupportsNativeToolCallingFor):
+        // it serves whatever GGUF input.Model names, and the plain SupportsNativeToolCalling property can't
+        // see that model at all (it's a provider-wide yes/no, not a per-request one — see that property's
+        // own doc comment). Skipping the tag prompt for a non-Hermes model here would leave it with no way
+        // to learn about tools at all: its own Jinja template would render them in its native, non-Hermes
+        // convention, which the engine's installed Hermes-only filter cannot parse.
+        bool nativeSupported = provider is HartsyLocalLLMProvider hartsyProvider
+            ? hartsyProvider.SupportsNativeToolCallingFor(input.Model)
+            : provider?.SupportsNativeToolCalling == true;
+        if (nativeSupported)
         {
             return;
         }

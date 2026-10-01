@@ -168,4 +168,68 @@ public class ToolLoopIntegrationTests
         Assert.Contains(emitted, c => c.Kind == TextChunkKind.Result && c.Text == "Sure, here's the answer.");
         Assert.Contains(emitted, c => c.Kind == TextChunkKind.StopReason && c.Stop == StopReason.Stop);
     }
+
+    // ChatEndpoints.LLMAssistantVoiceTurnWS passes a token tied to the WebSocket's own lifetime (a background
+    // ReceiveAsync cancels it on disconnect) into StreamToolLoopAsync, which hands it straight to
+    // ToolLoop.RunAsync as `cancel` -- the same parameter these two tests drive directly. They can't reach
+    // StreamToolLoopAsync itself (it needs a live Engine; see StreamToolLoopAsyncReachabilityTests for why),
+    // but they do pin the mechanism it relies on: a cancelled token actually stops the loop, both before and
+    // mid-stream, rather than running to completion regardless.
+
+    [Fact]
+    public async Task RunAsync_PreCancelledToken_NeverYieldsAnything()
+    {
+        ScriptedTextService fake = new([new TextChunk { Kind = TextChunkKind.Chunk, Text = "should never be read" }]);
+        ToolRegistry registry = new();
+        using CancellationTokenSource cts = new();
+        cts.Cancel();
+
+        List<TextChunk> emitted = [];
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (TextChunk chunk in ToolLoop.RunAsync(fake, Spec(), Request(), registry, cancel: cts.Token))
+            {
+                emitted.Add(chunk);
+            }
+        });
+        Assert.Empty(emitted);
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledMidStream_NeverDispatchesTheToolOrStartsRound2()
+    {
+        // One round, three chunks: prose, then a tool call, then the round's stop reason -- all from a
+        // single ScriptedTextService.StreamAsync call, so cancelling after the consumer sees the first chunk
+        // lands exactly between that chunk and the next one, the same place a mid-tool-call disconnect would.
+        using CancellationTokenSource cts = new();
+        ScriptedTextService fake = new(
+            [
+                new TextChunk { Kind = TextChunkKind.Chunk, Text = "Let me check. " },
+                new TextChunk { Kind = TextChunkKind.NativeToolCall, ToolCall = new NativeToolCall { Id = "c1", Name = "get_time", Arguments = "{}" } },
+                new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+            ]);
+        bool invoked = false;
+        ToolRegistry registry = new ToolRegistry().Add("get_time", "Gets the current time", "{}", (_, _) =>
+        {
+            invoked = true;
+            return Task.FromResult("{}");
+        });
+
+        List<TextChunk> emitted = [];
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (TextChunk chunk in ToolLoop.RunAsync(fake, Spec(), Request(), registry, cancel: cts.Token))
+            {
+                emitted.Add(chunk);
+                if (chunk.Kind == TextChunkKind.Chunk)
+                {
+                    cts.Cancel();
+                }
+            }
+        });
+
+        Assert.Single(emitted); // only the prose chunk made it out before cancellation was observed
+        Assert.False(invoked, "the tool must never run once the token was cancelled before its call chunk was reached");
+        Assert.Single(fake.SeenRequests); // never asked for round 2 either
+    }
 }
