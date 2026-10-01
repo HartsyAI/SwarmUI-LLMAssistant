@@ -42,4 +42,11 @@
          project has no host, so it copies locally (default Private=true) instead. -->
     <PackageReference Include="FreneticLLC.FreneticUtilities" Version="1.1.4" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
+         for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a
+         path relative to the running assembly, not the source tree. -->
+    <None Include="Fixtures/chat_templates/*.jinja" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

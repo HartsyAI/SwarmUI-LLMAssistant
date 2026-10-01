@@ -59,6 +59,13 @@ public class ExtendedLLMInput
     /// this to a forced <c>tool_choice</c>; a legacy provider gets an extra system-prompt directive.</summary>
     public string ForceToolId;
 
+    /// <summary>Sets the model's chat-template <c>enable_thinking</c> variable (Qwen3-family reasoning-block
+    /// toggle), mirroring <see cref="HartsyInference.Engine.Requests.TextRequest.EnableThinking"/> exactly:
+    /// null leaves it undefined so the template falls back to its own default — today's behavior for every
+    /// existing caller, none of which set this. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently
+    /// honors it; ignored by a provider/template without a thinking slot.</summary>
+    public bool? EnableThinking;
+
     /// <summary>Creates an ExtendedLLMInput from a user message and optional system prompt.</summary>
     public static ExtendedLLMInput Create(string userMessage, string systemPrompt = null, string model = null)
     {
@@ -109,6 +116,37 @@ public class ExtendedLLMInput
             input.UserMessage = messages[^1].Content;
         }
         return input;
+    }
+
+    /// <summary>Creates an ExtendedLLMInput from an already-parsed conversation (eg
+    /// <see cref="Hartsy.Extensions.LLMAssistant.WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s optional
+    /// <c>messages</c> request field, oldest first). Prepends <paramref name="systemPrompt"/> as a new leading
+    /// system message unless <paramref name="messages"/> already opens with one — the same rule
+    /// <c>HartsyInference.LLM.Generation.PromptBuilder.WithSystemPrompt</c> applies at the engine's own
+    /// prompt-build layer, kept here too so this type's own invariant (see <see cref="SystemPrompt"/>'s doc:
+    /// mirrored into <see cref="Messages"/>[0]) never ends up carrying two system turns into
+    /// <see cref="Backends.HartsyLocalLLMProvider.BuildRequestAsync"/>, which trusts that invariant completely
+    /// (it never sets <c>TextRequest.SystemPrompt</c>, on purpose — see that method's own comment). When
+    /// <paramref name="messages"/> already opens with a system turn, <em>that turn's own content</em> — not
+    /// <paramref name="systemPrompt"/> — is what gets mirrored into <see cref="SystemPrompt"/>, since the
+    /// caller's own system message is what will actually reach the model.</summary>
+    public static ExtendedLLMInput CreateFromMessages(List<LLMMessage> messages, string systemPrompt = null, string model = null)
+    {
+        List<LLMMessage> effective = messages is { Count: > 0 } ? [.. messages] : [];
+        bool opensWithSystem = effective.Count > 0 && effective[0].Role == LLMRoles.System;
+        if (!opensWithSystem && !string.IsNullOrEmpty(systemPrompt))
+        {
+            effective.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = systemPrompt });
+        }
+        return new ExtendedLLMInput()
+        {
+            Model = model,
+            SystemPrompt = opensWithSystem ? effective[0].Content : systemPrompt,
+            Messages = effective,
+            // The last USER turn, not messages[^1] -- the conversation's own last entry may be a tool result or
+            // an assistant turn (eg a client replaying history right after an earlier native tool call).
+            UserMessage = effective.LastOrDefault(m => m.Role == LLMRoles.User)?.Content
+        };
     }
 }
 

@@ -46,6 +46,16 @@ public class LLMMessage
     /// <summary>The tool name this message answers. Only meaningful when <see cref="Role"/> is
     /// <see cref="LLMRoles.Tool"/>; null otherwise.</summary>
     public string Name;
+    /// <summary>Tool calls this turn made, each in the same <c>{id, name, arguments}</c> shape a
+    /// <c>native_tool_call</c> wire frame carries (<c>arguments</c> a parsed object, not a JSON string). Only
+    /// meaningful when <see cref="Role"/> is <see cref="LLMRoles.Assistant"/>; null/empty otherwise. Deliberately
+    /// <see cref="JObject"/>, not an engine <c>NativeToolCall</c> — this type stays provider-agnostic (see this
+    /// file's own doc comment) and maps onto the engine shape only inside
+    /// <see cref="Backends.HartsyLocalLLMProvider.ToTextMessage"/>. Lets a caller replay a conversation that
+    /// already contains a native tool call/result pair as history (eg
+    /// <see cref="Hartsy.Extensions.LLMAssistant.LLMs.ExtendedLLMInput.CreateFromMessages"/>) without re-deriving
+    /// it from text.</summary>
+    public List<JObject> ToolCalls;
 }
 
 /// <summary>Describes one model advertised by a provider. Providers populate as much metadata as
