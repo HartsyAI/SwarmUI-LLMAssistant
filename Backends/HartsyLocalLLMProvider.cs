@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
@@ -12,6 +13,7 @@ using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
+using HartsyInference.Tools;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -80,14 +82,42 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "local_llm"];
 
+    /// <summary>True exactly when <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on.
+    ///
+    /// <para>The honest signal this interface member asks for — whether the model's own chat template renders
+    /// tools — has no public engine API to query per <see cref="ModelSpec"/> without actually loading the
+    /// checkpoint (<c>GgufLanguageModel.BuildTemplate</c>, which decides this, is internal to
+    /// <c>HartsyInference.LLM</c>). <c>StructuredToolCalling</c> is the closest proxy already in this codebase:
+    /// its own doc comment already says it is "off by default until verified against real models", ie the
+    /// operator is the one asserting the template renders tools correctly for whatever model they picked, the
+    /// same assertion this property now reuses. <c>Qwen3ToolCallEndToEndTests</c> (Tools package) is where that
+    /// assertion is actually gated for Qwen3's template specifically.</para>
+    ///
+    /// <para>Turning this on changes two things at once, by design: <c>BuildRequestAsync</c> starts offering
+    /// <see cref="TextRequest.Tools"/> (true since this setting was added), and now <see cref="GenerateLive"/>
+    /// also emits a real <c>native_tool_call</c> event instead of leaving a <c>&lt;tool_call&gt;</c> tag in the
+    /// text stream for <c>ToolPromptService.ParseToolCalls</c> to find. <c>ChatEndpoints.ApplyToolsToInput</c>
+    /// already stops injecting the tag-based tool system prompt whenever this is true (the same branch
+    /// Anthropic's provider has used since it shipped), so both halves move together. The default stays false,
+    /// so no existing installation's behavior changes.</para></summary>
+    public bool SupportsNativeToolCalling => Settings.StructuredToolCalling;
+
     /// <inheritdoc/>
     protected override Task OnProviderInit()
     {
+        EngineOptions options = new() { VramPolicy = ParseVramMode(Settings.VramMode) };
+        // Installs the Tools package's stream filter: it only ever does anything for a request that sets
+        // TextRequest.Tools (ToolCalling.CreateFilter returns null otherwise), so this is safe to install
+        // unconditionally — every existing request without Tools set keeps its exact current code path.
+        // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention, right for the plan's
+        // target model (Qwen3) and GGUF chat models generally; a host serving a non-Hermes family would pass
+        // a format here instead.
+        ToolCalling.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key — without that it would only govern this shell engine's own unused backend.
         Engine = new InferenceEngine(
             string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda",
-            new EngineOptions { VramPolicy = ParseVramMode(Settings.VramMode) });
+            options);
         Status = BackendStatus.RUNNING; // Lazy: load on first request.
         return Task.CompletedTask;
     }
@@ -179,8 +209,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return null;
     }
 
-    /// <inheritdoc/>
-    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+    /// <summary>Resolves the GGUF path, applies the low-memory eviction check, and builds the
+    /// <see cref="ModelSpec"/>/<see cref="TextRequest"/> pair every entry point into the engine needs
+    /// (<see cref="GenerateLive"/> and <see cref="StreamToolLoopAsync"/>). Throws
+    /// <see cref="SwarmReadableErrorException"/> when the model id doesn't resolve, same as before this was
+    /// pulled out.</summary>
+    private async Task<(ModelSpec Spec, TextRequest Request, string DeviceKey)> ResolveSpecAndRequestAsync(ExtendedLLMInput input, CancellationToken ct)
     {
         string deviceKey = NormalizeDeviceKey(input.Device);
         string path = ResolvePath(input.Model);
@@ -191,12 +225,30 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
         TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
+        return (spec, request, deviceKey);
+    }
+
+    /// <inheritdoc/>
+    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+    {
+        (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
         await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct))
         {
             switch (chunk.Kind)
             {
                 case TextChunkKind.Chunk:
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
+                    break;
+                case TextChunkKind.NativeToolCall:
+                    // Only reachable when SupportsNativeToolCalling is true (StructuredToolCalling on), which
+                    // is what makes BuildRequestAsync offer TextRequest.Tools and ToolCalling.Install's filter
+                    // active for this request in the first place. Same wire shape AnthropicLLMProvider already
+                    // emits, so LLMStreamHelper's agentic loop (ChatEndpoints' general chat path) and the Tools
+                    // package's own callers both already know how to read it.
+                    if (chunk.ToolCall is { } nativeCall)
+                    {
+                        await onChunk(new JObject() { ["native_tool_call"] = NativeToolCallJson(nativeCall) });
+                    }
                     break;
                 case TextChunkKind.StopReason:
                     // Only surface truncation/cancellation/error — a normal finish (Stop) is the common case and
@@ -226,8 +278,54 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     break;
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
-                    // double the text. NativeToolCall is never emitted by TextService today (contract-only).
+                    // double the text.
             }
+        }
+    }
+
+    /// <summary>Builds the <c>{id, name, arguments}</c> shape <see cref="GenerateLive"/>'s <c>native_tool_call</c>
+    /// event and <see cref="AnthropicLLMProvider"/>'s <c>tool_use</c> handling both emit — <c>arguments</c> is a
+    /// parsed <see cref="JObject"/>, not the raw JSON string, matching every existing consumer
+    /// (<see cref="Hartsy.Extensions.LLMAssistant.LLMs.LLMStreamHelper"/>'s <c>native_tool_call</c> branch reads
+    /// it as one). A call that (contrary to its contract) carries malformed arguments JSON fails soft into an
+    /// empty object rather than losing the whole chunk.</summary>
+    internal static JObject NativeToolCallJson(NativeToolCall call)
+    {
+        JObject args;
+        try
+        {
+            args = string.IsNullOrWhiteSpace(call.Arguments) ? new JObject() : JObject.Parse(call.Arguments);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Malformed native tool-call arguments JSON for '{call.Name}': {ex.Message}");
+            args = new JObject();
+        }
+        return new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = args };
+    }
+
+    /// <summary>Streams one user turn through the Tools package's agent loop
+    /// (<see cref="ToolLoop.RunAsync"/>): the model's own chat template renders <paramref name="registry"/>'s
+    /// tools (or <see cref="TextRequest.Tools"/> when <paramref name="input"/> already set some — see
+    /// <see cref="BuildRequestAsync"/>), a completed call dispatches through <paramref name="registry"/>, and
+    /// the model is asked again with the result appended as a <see cref="TextRole.Tool"/> message, up to
+    /// <paramref name="maxRounds"/> model invocations. Chunk kinds match <see cref="ToolLoop"/>'s own contract
+    /// exactly (<see cref="TextChunkKind.Chunk"/>, <see cref="TextChunkKind.NativeToolCall"/>,
+    /// <see cref="TextChunkKind.Status"/> tool-result/round-limit chunks, one final
+    /// <see cref="TextChunkKind.Result"/> then <see cref="TextChunkKind.StopReason"/>) — callers translate those
+    /// the same way <see cref="GenerateLive"/> translates <see cref="Engine"/>'s plain stream, they are just a
+    /// layer further from the wire than <c>GenerateLive</c>'s <c>JObject</c> shape. Requires
+    /// <see cref="SupportsNativeToolCalling"/>; callers check that first — this does not, so a caller that
+    /// skips the check gets whatever the engine does with <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/>
+    /// off (no <see cref="TextRequest.Tools"/>, so the loop ends after one round with no calls).</summary>
+    public async IAsyncEnumerable<TextChunk> StreamToolLoopAsync(ExtendedLLMInput input, ToolRegistry registry,
+        int maxRounds = ToolLoop.DefaultMaxRounds, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        (ModelSpec spec, TextRequest request, _) = await ResolveSpecAndRequestAsync(input, ct);
+        await foreach (TextChunk chunk in ToolLoop.RunAsync(Engine.Text, spec, request, registry, maxRounds, ct).ConfigureAwait(false))
+        {
+            yield return chunk;
         }
     }
 

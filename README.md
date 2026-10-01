@@ -108,7 +108,7 @@ Go to `Server > Backends` — the three LLM backend types appear directly in the
 | `AlwaysFreeMemory` | `false` | Unload the model after every generation instead of keeping it resident. |
 | `GraphDecode` | `false` | CUDA-graph decode for plain dense Llama/Qwen/Mistral shapes. Requires the request to end up greedy (temperature 0). |
 | `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
-| `StructuredToolCalling` | `false` | Grammar-mask *only* the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON. Plain chat text stays unconstrained. |
+| `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and** turn on real native tool calling for this provider (`SupportsNativeToolCalling`) instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. Also required for [`LLMAssistantVoiceTurnWS`](#streaming-frames), the only route that uses it. |
 
 ### Remote (OpenAI-compatible) settings
 
@@ -221,9 +221,12 @@ How the call is made depends on the provider:
 |---|---|
 | **Anthropic** | Native `tools` + `tool_choice`, parsed from the real `tool_use` / `input_json_delta` SSE events. A forced tool becomes a genuine `tool_choice` constraint. |
 | **OpenAI-compatible** | Native `tools` + incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"`. Enabled by the `NativeToolCalling` setting (`auto` = `api.openai.com` only). |
-| **Everything else** | A text convention: the model emits `<tool_call>{"name":"…","arguments":{…}}</tool_call>`, which the streaming layer detects with a cheap tail-window scan and executes. |
+| **Hartsy-local (GGUF)**, `StructuredToolCalling` on | Native too: the engine's own [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package parses `<tool_call>{...}</tool_call>` (Hermes/Qwen's convention) straight off the token stream and emits a real `NativeToolCall` event — same `native_tool_call` wire event Anthropic produces, not a text scan. Off by default; see the Local engine settings table. |
+| **Everything else** (including Hartsy-local with `StructuredToolCalling` off) | A text convention: the model emits `<tool_call>{"name":"…","arguments":{…}}</tool_call>`, which the streaming layer detects with a cheap tail-window scan and executes. |
 
-All three normalize to the same `tool_call` / `tool_result` events, so nothing downstream cares which path was used. Malformed JSON isn't swallowed — the model gets an error result back and can retry, and near-valid JSON is run through a repair pass first (fence unwrapping, trailing commas, unbalanced brackets from truncation), with the repair verified by actually re-parsing.
+All of these normalize to the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS` and `LLMAssistantVoiceTurn`, so nothing downstream cares which path was used. Malformed JSON isn't swallowed — the model gets an error result back and can retry, and near-valid JSON is run through a repair pass first (fence unwrapping, trailing commas, unbalanced brackets from truncation), with the repair verified by actually re-parsing.
+
+[`LLMAssistantVoiceTurnWS`](#streaming-frames) is a separate, Hartsy-local-only route with its own wire shape (`native_tool_call`/`tool_result` instead of `tool_call`/`tool_result`) — it runs the Tools package's agent loop directly against the engine instead of going through the text-tag convention, and refuses (one `error` frame) on any other provider or with `StructuredToolCalling` off. It exists for callers that need tool-call ids and native dispatch latency, such as the phone/voice-agent work; the ordinary chat UI keeps using `LLMAssistantSendMessageWS`.
 
 ### Running a tool yourself
 
@@ -462,6 +465,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?` | streaming frames (below) |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
+| `LLMAssistantVoiceTurnWS` | **WS** | `message`, `assistantId?`, `model?`, `temperature?`, `maxTokens?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only (`StructuredToolCalling` on), one `{"error": …}` frame otherwise |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}` — persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
@@ -484,6 +488,14 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
 | `{"error": "…"}` | A failure after streaming began. |
 | `{"lane": n, …}` | Compare mode — routes the frame to a column. |
+
+`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above — no `iteration`, `tool_call`, `status` or `titleUpdated` frames, since it drives the Tools package's agent loop directly instead of the tag-based one:
+
+| Frame | Meaning |
+|---|---|
+| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan). |
+| `{"tool_result": {id, name, result}}` | That tool finished — same shape as above. |
+| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_call"` means the 8-round cap was hit while the model still wanted another call. |
 
 ### Threads
 
@@ -690,7 +702,8 @@ Either the selected model isn't vision-capable or the assistant has no `vision` 
 - **The companion bubble renders plain text**, not Markdown, by design; its instruction asks the model for one short prose paragraph.
 - **Shared assistant avatars** are served from the uploading user's output folder, so another user needs SwarmUI's `View Others Outputs` permission to see them. Personal avatars are unaffected.
 - **`GraphDecode` and `SpeculativeDecode`** only engage on greedy (temperature 0) requests, so the default chat temperature does not use them yet.
-- **`StructuredToolCalling`** is off by default — it's new and not yet verified against a broad set of local models.
+- **`StructuredToolCalling`** is off by default — it's new and not yet verified against a broad set of local models. Turning it on now does two things together: grammar-masked JSON (as before) *and* real native tool calling (`SupportsNativeToolCalling`, new) through the engine's `HartsyInference.Tools` package — there's no public API to ask a checkpoint's own chat template whether it actually renders tools, so this setting is the operator's assertion that it does, the same way it already asserted the JSON would come out well-formed.
+- **`LLMAssistantVoiceTurnWS`'s native path only reaches `GenerateLive`/the streaming WS routes**, not `LLMAssistantVoiceTurn` (the one-shot HTTP route) or `LLMDispatcher.Generate`: those accumulate `GenerateLive`'s text chunks and scan the result for a `<tool_call>` tag, which a native turn never emits (the tag is intercepted and replaced by a `native_tool_call` event instead). With `StructuredToolCalling` on, prefer the streaming routes for tool-using turns on the Hartsy-local provider.
 - **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
 
 ---

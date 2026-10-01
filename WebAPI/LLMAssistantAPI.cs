@@ -135,6 +135,9 @@ public static class LLMAssistantAPI
         // Chat
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantVoiceTurn, true, PermChat);
+        // Streaming variant of the voice turn above: native tool-call ids via the Tools package's ToolLoop,
+        // Hartsy-local only (see the method doc for why there's no cross-provider fallback here).
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantVoiceTurnWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantSendMessageWS, true, PermChat);
         // Branching: edit-into-new-branch and regenerate-as-new-branch both stream like a normal send.
         API.RegisterAPICall(ChatEndpoints.LLMAssistantEditMessageWS, true, PermChat);

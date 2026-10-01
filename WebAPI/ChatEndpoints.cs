@@ -3,9 +3,12 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
+using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Tools;
+using HartsyInference.Engine.Requests;
+using HartsyInference.Tools;
 using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -338,6 +341,231 @@ public static class ChatEndpoints
         {
             Logs.Error($"[LLMAssistant] Voice turn failed: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Streaming variant of <see cref="LLMAssistantVoiceTurn"/>: forwards <c>chunk</c>/
+    /// <c>native_tool_call</c>/<c>tool_result</c>/<c>done</c> frames over the socket as they happen, instead of
+    /// returning one accumulated response. Runs <see cref="HartsyLocalLLMProvider.StreamToolLoopAsync"/> (the
+    /// Tools package's <see cref="ToolLoop"/> against the engine directly) rather than the tag-based
+    /// <c>&lt;tool_call&gt;</c> convention every other route in this file uses for tool calls, because that is
+    /// the whole reason this route exists: a caller that wants tool-call ids and native dispatch latency
+    /// instead of scanning generated text for a closing tag.
+    ///
+    /// <para><b>Hartsy-local only, by design.</b> Native tool calling through the Tools package only exists
+    /// for the engine's own <see cref="HartsyInference.Engine.Services.ITextService"/>, which only the
+    /// Hartsy-local provider exposes — there is no equivalent for a remote/cloud provider to plug into here.
+    /// If the resolved provider isn't Hartsy-local with <see cref="ILLMProvider.SupportsNativeToolCalling"/>
+    /// on (<see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings.StructuredToolCalling"/>), this
+    /// sends one <c>error</c> frame naming the gap rather than silently falling back to a different wire
+    /// contract a caller tuned for native frames wouldn't expect. Use <see cref="LLMAssistantVoiceTurn"/> or
+    /// <see cref="LLMAssistantSendMessageWS"/> for every other provider.</para>
+    ///
+    /// <para>Stateless like <see cref="LLMAssistantVoiceTurn"/>: no thread is loaded or written, and device
+    /// actions (<c>set_led_profile</c>, etc.) execute as no-ops server-side and come back in the final
+    /// <c>done</c> frame's <c>toolCalls</c> for the caller to run against its own hardware, exactly as the
+    /// one-shot route returns them.</para>
+    ///
+    /// <para>Request: <c>{ message (required), assistantId?, model?, temperature?, maxTokens? }</c>. Frames:
+    /// <c>{chunk:"..."}</c>*, <c>{native_tool_call:{id,name,arguments}}</c>, <c>{tool_result:{id,name,result}}</c>
+    /// per call, then one final <c>{done:true, full_text, toolCalls:[{name,arguments}], stopReason?}</c> — or
+    /// <c>{error:"..."}</c> at any point, which ends the stream without a <c>done</c> frame.</para></summary>
+    public static async Task<JObject> LLMAssistantVoiceTurnWS(WebSocket socket, Session session, JObject rawInput)
+    {
+        async Task SendAsync(JObject payload)
+        {
+            if (socket.State == WebSocketState.Open)
+            {
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(payload.ToString(Newtonsoft.Json.Formatting.None));
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+        }
+        try
+        {
+            string message = rawInput["message"]?.ToString();
+            if (string.IsNullOrWhiteSpace(message))
+            {
+                await SendAsync(new JObject { ["error"] = "message is required." });
+                return null;
+            }
+            string assistantId = rawInput["assistantId"]?.ToString();
+            string model = rawInput["model"]?.ToString();
+            double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
+            int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
+
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            if (string.IsNullOrWhiteSpace(model))
+            {
+                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync();
+                if (fallback is null)
+                {
+                    await SendAsync(new JObject
+                    {
+                        ["error"] = "No LLM model is available. Add a backend under Server > Backends and "
+                            + "make sure it advertises at least one model."
+                    });
+                    return null;
+                }
+                model = fallback.Id;
+            }
+            string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
+            ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
+            input.RequestSession = session;
+            ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens);
+
+            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
+            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId: null);
+
+            // ApplyToolsToInput already resolved the provider once to decide whether to inject the tag-based
+            // tool system prompt; resolving it again here (rather than threading it back) keeps this route's
+            // "is this Hartsy-local" check independent of that method ever changing what it returns.
+            ILLMProvider provider = await LLMDispatcher.GetProvider(input);
+            if (provider is not HartsyLocalLLMProvider hartsyProvider || !hartsyProvider.SupportsNativeToolCalling)
+            {
+                await SendAsync(new JObject
+                {
+                    ["error"] = "LLMAssistantVoiceTurnWS only runs on the Hartsy-local provider with "
+                        + "Structured Tool Calling turned on (Server > Backends). Use LLMAssistantVoiceTurn "
+                        + "or LLMAssistantSendMessageWS for other providers/configurations."
+                });
+                return null;
+            }
+
+            ToolRegistry registry = BuildToolRegistry(enabledTools, session, assistantId, model);
+            StringBuilder spoken = new();
+            JArray deviceCalls = [];
+            StopReason? finalStop = null;
+            await foreach (TextChunk chunk in hartsyProvider.StreamToolLoopAsync(input, registry, ToolLoop.DefaultMaxRounds, Program.GlobalProgramCancel))
+            {
+                if (socket.State != WebSocketState.Open)
+                {
+                    break;
+                }
+                switch (chunk.Kind)
+                {
+                    case TextChunkKind.Chunk:
+                        spoken.Append(chunk.Text);
+                        await SendAsync(new JObject { ["chunk"] = chunk.Text });
+                        break;
+                    case TextChunkKind.NativeToolCall:
+                        if (chunk.ToolCall is { } call)
+                        {
+                            await SendAsync(new JObject
+                            {
+                                ["native_tool_call"] = new JObject
+                                {
+                                    ["id"] = call.Id,
+                                    ["name"] = call.Name,
+                                    ["arguments"] = ParseJsonOrEmpty(call.Arguments)
+                                }
+                            });
+                        }
+                        break;
+                    case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.ToolResultPhase:
+                    {
+                        JObject result = ParseJsonOrEmpty(chunk.Text?[ToolLoop.ToolResultPrefix.Length..]);
+                        await SendAsync(new JObject
+                        {
+                            ["tool_result"] = new JObject
+                            {
+                                ["id"] = chunk.ToolCall?.Id,
+                                ["name"] = chunk.ToolCall?.Name,
+                                ["result"] = result
+                            }
+                        });
+                        // Same "only a validated device action" rule LLMAssistantVoiceTurn applies: a rejected
+                        // call would hand the device arguments the server refused to run.
+                        if (chunk.ToolCall is { } resultCall && Tools.BuiltIn.DeviceActionTool.IsDeviceAction(resultCall.Name)
+                            && result["success"]?.Value<bool>() == true)
+                        {
+                            deviceCalls.Add(new JObject { ["name"] = resultCall.Name, ["arguments"] = ParseJsonOrEmpty(resultCall.Arguments) });
+                        }
+                        break;
+                    }
+                    case TextChunkKind.StopReason:
+                        finalStop = chunk.Stop;
+                        break;
+                }
+            }
+            if (socket.State != WebSocketState.Open)
+            {
+                return null;
+            }
+            await SendAsync(new JObject
+            {
+                ["done"] = true,
+                ["full_text"] = spoken.ToString(),
+                ["toolCalls"] = deviceCalls,
+                ["stopReason"] = finalStop switch
+                {
+                    StopReason.Length => "length",
+                    StopReason.Cancelled => "cancelled",
+                    StopReason.Error => "error",
+                    // The round limit was hit while the model still wanted another call (ToolLoop never
+                    // dispatches that last one) — distinct from a normal finish, same as the others above.
+                    StopReason.ToolCall => "tool_call",
+                    _ => null
+                }
+            });
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Voice turn (streaming) failed: {ex.Message}");
+            await SendAsync(new JObject { ["error"] = ex.Message });
+            return null;
+        }
+    }
+
+    /// <summary>Adapts the assistant's enriched, per-user tool JObjects (<see cref="ToolRegistryService.GetEnabledTools"/>,
+    /// the same shape <see cref="ApplyToolsToInput"/> already put on <see cref="ExtendedLLMInput.Tools"/>) into
+    /// a <see cref="ToolRegistry"/> that dispatches through the existing <see cref="ToolExecutorService"/>.
+    /// Tool *definitions* for the model come from <see cref="TextRequest.Tools"/> (set by
+    /// <c>HartsyLocalLLMProvider.BuildRequestAsync</c> from the same list, since <see cref="ToolLoop.RunAsync"/>
+    /// prefers <c>request.Tools</c> over <paramref name="registry"/>'s own definitions when both are present) —
+    /// this registry only needs to be able to run a call once the model makes one.</summary>
+    internal static ToolRegistry BuildToolRegistry(List<JObject> enabledTools, Session session, string assistantId, string model)
+    {
+        ToolRegistry registry = new();
+        foreach (JObject tool in enabledTools)
+        {
+            string name = tool["name"]?.ToString();
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+            string description = tool["description"]?.ToString() ?? "";
+            string jsonSchema = (tool["parameters"] as JObject ?? new JObject()).ToString();
+            registry.Add(name, description, jsonSchema, async (argsJson, ct) =>
+            {
+                JObject result = await ToolExecutorService.ExecuteTool(name, ParseJsonOrEmpty(argsJson), session, assistantId, threadId: null, model, ct);
+                return result.ToString(Newtonsoft.Json.Formatting.None);
+            });
+        }
+        return registry;
+    }
+
+    /// <summary>Parses a JSON object string, or returns an empty <see cref="JObject"/> for null/blank/malformed
+    /// input rather than throwing — every caller here is reading a model's tool-call arguments or a tool's own
+    /// result text, neither of which this route controls closely enough to treat a parse failure as fatal to
+    /// the whole turn.</summary>
+    internal static JObject ParseJsonOrEmpty(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new JObject();
+        }
+        try
+        {
+            return JObject.Parse(json);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Could not parse '{json}' as a JSON object: {ex.Message}");
+            return new JObject();
         }
     }
 
