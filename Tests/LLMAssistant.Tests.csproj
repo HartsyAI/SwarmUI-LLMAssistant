@@ -6,6 +6,7 @@
          test host referencing a net8.0 library/SwarmUI.dll is a normal backward-compatible TFM consumption. -->
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
+    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AssemblyName>Hartsy.Extensions.LLMAssistant.Tests</AssemblyName>
     <RootNamespace>Hartsy.Extensions.LLMAssistant.Tests</RootNamespace>
@@ -34,5 +35,18 @@
     <Reference Include="SwarmUI">
       <HintPath>../../../bin/live_release/SwarmUI.dll</HintPath>
     </Reference>
+    <!-- A loose <Reference> (unlike a PackageReference) brings none of SwarmUI.dll's own dependencies along,
+         so anything SwarmUI.dll's statics touch has to be referenced here directly. SwarmUI.Utils.Logs'
+         static constructor needs FreneticUtilities (SwarmUI.deps.props pins 1.1.4); the main extension
+         excludes its runtime assets because the live host already provides it, but this standalone test
+         project has no host, so it copies locally (default Private=true) instead. -->
+    <PackageReference Include="FreneticLLC.FreneticUtilities" Version="1.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
+         for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a
+         path relative to the running assembly, not the source tree. -->
+    <None Include="Fixtures/chat_templates/*.jinja" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

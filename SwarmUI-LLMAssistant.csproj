@@ -51,9 +51,22 @@
        a Tool-role LLMMessage before this, so this is a latent-bug fix, not a behavior change) and
        TextService.StreamAsync's lifetime fix (alpha.220, #193) is what LLMStreamHelper's mid-round
        roundCts.Cancel() (LLMStreamHelper.cs:96,110) already relied on being prompt — verified by the engine's
-       own cancel-before-start / abandonment unit tests (<=100ms), not re-measured live here. -->
+       own cancel-before-start / abandonment unit tests (<=100ms), not re-measured live here.
+       2.0.0-alpha.237 = catch-up bump, 2026-10-01 (alpha.235 -> alpha.237, verified indexed on nuget.org for
+       both hartsyinference.engine and hartsyinference.tools before bumping). alpha.236 (#215) fixes
+       SamplerChain/TopPStep/TopKStep/MinPStep to reuse scratch buffers instead of argsorting the whole ~152K
+       vocabulary through a Comparison<int> delegate every decode step on the non-greedy path (Greedy=false,
+       this extension's default whenever Temperature > 0) — faster decode, token-identical output, no public
+       signature touched. alpha.237 adds the new, separate HartsyInference.Voice package (the phone-call voice
+       agent); this extension references neither it nor anything it depends on. Full Release build + full test
+       run against this pin: clean, no source edits required by the bump itself (the source changes in this
+       same PR are FIX 1/FIX 2/the messages-history and enableThinking additions, independent of the pin). -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.235" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.237" />
+    <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
+         NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
+         since alpha.222; pinned to the same alpha.237 as the meta package to stay in lockstep. -->
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.237" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
@@ -74,6 +87,10 @@
     <!-- Core carries the VRAM policy types (VramPolicy/VramTier) this backend maps its VramMode setting onto.
          Engine's output already ships Core at runtime; this entry is only so the compiler can see the types. -->
     <Reference Include="HartsyInference.Core"><HintPath>$(HartsyEngineBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
+    <!-- HartsyInference.Tools lives in its own project, not Engine's output closure (it depends ON Engine,
+         not the reverse), so it needs its own local-dev path: dotnet build src/HartsyInference.Tools -c
+         $(HartsyCfg) -f net8.0 -->
+    <Reference Include="HartsyInference.Tools"><HintPath>$(HartsyRepo)/src/HartsyInference.Tools/bin/$(HartsyCfg)/net8.0/HartsyInference.Tools.dll</HintPath><Private>true</Private></Reference>
     <Content Include="$(HartsyRepo)/src/HartsyInference.Cuda/Ptx/*.ptx" Link="Ptx/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

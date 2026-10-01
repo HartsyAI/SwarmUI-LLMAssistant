@@ -1,5 +1,8 @@
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
@@ -12,6 +15,8 @@ using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
+using HartsyInference.ModelAssets.Gguf;
+using HartsyInference.Tools;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -80,14 +85,188 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "local_llm"];
 
+    /// <summary>True exactly when <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on —
+    /// provider-wide, not aware of which model a particular request names. <b>Do not use this alone to decide
+    /// whether to skip the tag-based tool prompt for a request</b>: this backend serves whatever GGUF
+    /// <c>ExtendedLLMInput.Model</c> names per call, <see cref="OnProviderInit"/> installs exactly one format
+    /// (Hermes/Qwen) for the whole engine instance, and the engine exposes no per-<see cref="ModelSpec"/> way
+    /// to ask whether a checkpoint's own chat template renders tools in that format without loading it
+    /// (<c>GgufLanguageModel.BuildTemplate</c> is internal to <c>HartsyInference.LLM</c>). Callers that need a
+    /// correct per-request answer use <see cref="SupportsNativeToolCallingFor"/> instead — this property only
+    /// exists to satisfy <see cref="ILLMProvider.SupportsNativeToolCalling"/> for a caller with no request to
+    /// check against. The default stays false, so no existing installation's behavior changes.</summary>
+    public bool SupportsNativeToolCalling => Settings.StructuredToolCalling;
+
+    /// <summary>Whether native tool calling actually works for a request naming <paramref name="modelId"/>
+    /// right now: <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on, <b>and</b> the
+    /// resolved checkpoint's own <c>tokenizer.chat_template</c> actually instructs the Hermes JSON
+    /// <c>&lt;tool_call&gt;</c> convention the engine's installed filter parses (<see cref="OnProviderInit"/>
+    /// installs only that one format, for the whole engine instance, not per-model — there is currently no
+    /// per-request hook to vary it: <c>EngineOptions.TextStreamFilterFactory</c> is a
+    /// <c>Func&lt;TextRequest,…&gt;</c>, and <c>TextRequest</c> carries no model id, only the separate
+    /// <see cref="ModelSpec"/> argument alongside it).
+    ///
+    /// <para>An earlier version of this checked the model's <i>filename</i> against a family allow-list
+    /// (Qwen/Hermes/GLM/DeepSeek). Independent review found a real false positive it: DeepSeek's R1
+    /// distillations (both the Qwen- and the Llama-architecture base) overwrite the base model's chat
+    /// template with DeepSeek's own <c>&lt;｜tool▁calls▁begin｜&gt;…</c> delimiter scheme, which has no
+    /// <c>&lt;tool_call&gt;</c> tag and never references <c>tools</c> at all — "deepseek" (or "qwen", for the
+    /// Qwen-base variant) in the filename said nothing true about the template actually loaded. Reading the
+    /// template itself removes the whole class of name-vs-template mismatch, not just that one case: Qwen3.5
+    /// and Qwen3-Coder-style checkpoints keep a literal <c>&lt;tool_call&gt;</c> tag but switch the body to an
+    /// XML <c>&lt;function=…&gt;</c>/<c>&lt;parameter=…&gt;</c> form (verified against the real Qwen3.5-0.8B
+    /// GGUF below), and GLM-4.5 keeps the tag but switches to XML <c>&lt;arg_key&gt;</c>/<c>&lt;arg_value&gt;</c>
+    /// pairs (verified against its published <c>chat_template.jinja</c>) — "qwen"/"glm" in the filename would
+    /// have said yes to both, and the installed Hermes-JSON filter can parse neither.</para>
+    ///
+    /// <para>For every family whose template doesn't instruct the Hermes JSON shape (Llama-3.2, Mistral,
+    /// Gemma, DeepSeek's R1 distillations, GLM's description-only and XML-argument templates, Qwen3.5's
+    /// XML-argument template, a model GGUF with no <c>tokenizer.chat_template</c> key, or one <see cref="ResolvePath"/>
+    /// can't find on disk at all), this returns false so the caller falls back to the tag-prompt convention
+    /// that worked before <c>StructuredToolCalling</c> existed — the model's own template would otherwise
+    /// render tools in ITS native, non-Hermes convention (via <see cref="BuildRequestAsync"/>'s
+    /// <see cref="TextRequest.Tools"/>), which the installed Hermes-only filter cannot parse, silently losing
+    /// every call. <see cref="BuildRequestAsync"/>, <see cref="WebAPI.ChatEndpoints.ApplyToolsToInput"/> and
+    /// <see cref="WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/> all gate on this, not the provider-wide
+    /// property above.</para></summary>
+    public bool SupportsNativeToolCallingFor(string modelId)
+    {
+        if (!Settings.StructuredToolCalling)
+        {
+            return false;
+        }
+        string path = ResolvePath(modelId);
+        return path is not null && InstructsHermesJsonToolCallsFromFile(path);
+    }
+
+    /// <summary>A short, human-readable reason <see cref="SupportsNativeToolCallingFor"/> returned false for
+    /// <paramref name="modelId"/> — for a caller that wants to tell a user why tools got dropped from a turn
+    /// (<see cref="WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s <c>notice</c> frame) rather than silently
+    /// falling back. Callers check <see cref="SupportsNativeToolCallingFor"/> first; calling this when it
+    /// returned true just describes the <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/>-off
+    /// case, which is misleading but harmless (nothing calls it in that order today).</summary>
+    public string DescribeNativeToolCallingUnavailability(string modelId)
+    {
+        if (!Settings.StructuredToolCalling)
+        {
+            return "Structured Tool Calling is turned off (Server > Backends)";
+        }
+        // Distinct from the "wrong template" case below: a model id that doesn't resolve to a file at all
+        // would otherwise get the misleading "chat template doesn't instruct..." reason here, immediately
+        // followed by ResolveSpecAndRequestAsync's own "model not found" error frame once the turn actually
+        // tries to run — two different reasons for the same turn, only one of them true.
+        return ResolvePath(modelId) is null
+            ? $"'{modelId}' could not be resolved to a model file"
+            : $"'{modelId}'s chat template doesn't instruct Hermes/Qwen-style JSON tool calls";
+    }
+
+    /// <summary>Per-(path, length, last-write-time) cache of <see cref="InstructsHermesJsonToolCallsFromFile"/>'s
+    /// verdict, so a hot provider doesn't re-mmap and re-scan the same GGUF header on every request. The key
+    /// doubles as a cheap staleness check: replacing the file on disk (a re-download, a re-quant) changes its
+    /// length and/or write time, which misses the cache and re-reads rather than trusting a stale verdict.</summary>
+    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), bool> _hermesTemplateCache = new();
+
+    /// <summary>Reads <paramref name="ggufPath"/>'s <c>tokenizer.chat_template</c> metadata key — metadata
+    /// only; <see cref="GgufLoader.Load"/> memory-maps and parses the header/tensor directory, never tensor
+    /// data — and classifies it with <see cref="InstructsHermesJsonToolCalls(string)"/>. Any failure (file
+    /// missing, not a GGUF, no such key, a malformed header) is a safe false, logged once at Debug rather than
+    /// thrown: a provider that can't confirm native support falls back to the tag prompt, which is exactly
+    /// the behavior a model this can't even read should get.</summary>
+    internal static bool InstructsHermesJsonToolCallsFromFile(string ggufPath)
+    {
+        FileInfo info;
+        try
+        {
+            info = new FileInfo(ggufPath);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Could not stat '{ggufPath}' for the chat-template cache: {ex.Message}");
+            return false;
+        }
+        if (!info.Exists)
+        {
+            return false;
+        }
+        (string Path, long Length, DateTime LastWriteUtc) key = (ggufPath, info.Length, info.LastWriteTimeUtc);
+        if (_hermesTemplateCache.TryGetValue(key, out bool cached))
+        {
+            return cached;
+        }
+        bool verdict;
+        try
+        {
+            using GgufLoader loader = new();
+            loader.Load(ggufPath);
+            verdict = InstructsHermesJsonToolCalls(loader.Metadata.GetString("tokenizer.chat_template"));
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Could not read '{ggufPath}'s chat template: {ex.Message}");
+            verdict = false;
+        }
+        _hermesTemplateCache[key] = verdict;
+        return verdict;
+    }
+
+    /// <summary>The actual classification, over the template text directly — pulled out from
+    /// <see cref="InstructsHermesJsonToolCallsFromFile"/> so it is unit-testable against fixture strings with
+    /// no file I/O. True only when the template both (a) references the <c>tools</c> variable Jinja tool
+    /// definitions are passed in as (a bare word match, not a substring of some other identifier — eg
+    /// <c>tool_calls</c>/<c>custom_tools</c> don't count on their own unless <c>tools</c> itself also appears,
+    /// which it does for every real template seen so far that uses either), and (b) instructs the exact
+    /// Qwen2.5/Qwen3 Hermes JSON shape: a literal <c>&lt;tool_call&gt;</c> tag <i>and</i> a JSON object with
+    /// <c>"name"</c> and <c>"arguments"</c> keys — checked as three independent literal substrings rather than
+    /// one combined pattern, because Jinja interpolation splits the JSON object's literal pieces apart (eg
+    /// Qwen3's real template emits <c>'{"name": "'</c>, then the tool-call name, then <c>'", "arguments": '</c>
+    /// as separate template fragments), so no single regex matches the rendered-looking text contiguously in
+    /// the template's own source. <paramref name="chatTemplate"/> is normalized with <c>\"</c> → <c>"</c>
+    /// first, in case the metadata value reached here still carries the escaping its own GGUF/JSON storage
+    /// used — the three substrings above are checked against the literal, unescaped characters.
+    ///
+    /// <para>Verified against real templates (see <c>Tests/HermesTemplateDetectionTests.cs</c> for the
+    /// fixtures and their sources): true for Qwen3-4B and Qwen2.5-1.5B-Instruct. False for Qwen3.5-0.8B (a
+    /// literal <c>&lt;tool_call&gt;</c> tag, but <c>&lt;function=…&gt;</c>/<c>&lt;parameter=…&gt;</c> XML
+    /// arguments inside it, never <c>"name"</c>/<c>"arguments"</c> as JSON keys — Qwen3-Coder's convention, not
+    /// Qwen3's own); DeepSeek-R1-Distill-Qwen-1.5B and DeepSeek-R1-Distill-Llama-8B (DeepSeek's own
+    /// <c>&lt;｜tool▁calls▁begin｜&gt;</c> delimiters, no <c>tools</c> reference and no <c>&lt;tool_call&gt;</c>
+    /// tag at all); GLM-4-9B-0414 (references <c>tools</c>, but describes each one as raw JSON schema in prose
+    /// with no <c>&lt;tool_call&gt;</c> tag); GLM-4.5 (a literal <c>&lt;tool_call&gt;</c> tag, but
+    /// <c>&lt;arg_key&gt;</c>/<c>&lt;arg_value&gt;</c> XML pairs inside it); Llama-3.2-1B-Instruct (references
+    /// <c>tools</c>, instructs a bare <c>{"name": ..., "parameters": ...}</c> object — note <c>"parameters"</c>,
+    /// not <c>"arguments"</c> — with no tag at all); Mistral-7B-Instruct-v0.3 and Phi-3-mini (no tool-calling
+    /// instructions whatsoever); gemma-4-E2B-it (references <c>tools</c>, but its tag is
+    /// <c>&lt;|tool_call&gt;</c> — a leading pipe, which is not the literal substring <c>&lt;tool_call&gt;</c>).</para></summary>
+    internal static bool InstructsHermesJsonToolCalls(string chatTemplate)
+    {
+        if (string.IsNullOrWhiteSpace(chatTemplate))
+        {
+            return false;
+        }
+        string normalized = chatTemplate.Replace("\\\"", "\"");
+        bool referencesTools = Regex.IsMatch(normalized, @"\btools\b");
+        bool instructsHermesJson = normalized.Contains("<tool_call>", StringComparison.Ordinal)
+            && normalized.Contains("\"name\"", StringComparison.Ordinal)
+            && normalized.Contains("\"arguments\"", StringComparison.Ordinal);
+        return referencesTools && instructsHermesJson;
+    }
+
     /// <inheritdoc/>
     protected override Task OnProviderInit()
     {
+        EngineOptions options = new() { VramPolicy = ParseVramMode(Settings.VramMode) };
+        // Installs the Tools package's stream filter: it only ever does anything for a request that sets
+        // TextRequest.Tools (ToolCalling.CreateFilter returns null otherwise), so this is safe to install
+        // unconditionally — every existing request without Tools set keeps its exact current code path.
+        // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention. It is the ONLY format
+        // installed for this whole engine instance (see SupportsNativeToolCallingFor for why a non-Hermes
+        // model never reaches this filter with Tools set at all, rather than reaching it and failing to parse).
+        ToolCalling.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key — without that it would only govern this shell engine's own unused backend.
         Engine = new InferenceEngine(
             string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda",
-            new EngineOptions { VramPolicy = ParseVramMode(Settings.VramMode) });
+            options);
         Status = BackendStatus.RUNNING; // Lazy: load on first request.
         return Task.CompletedTask;
     }
@@ -179,8 +358,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return null;
     }
 
-    /// <inheritdoc/>
-    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+    /// <summary>Resolves the GGUF path, applies the low-memory eviction check, and builds the
+    /// <see cref="ModelSpec"/>/<see cref="TextRequest"/> pair every entry point into the engine needs
+    /// (<see cref="GenerateLive"/> and <see cref="StreamToolLoopAsync"/>). Throws
+    /// <see cref="SwarmReadableErrorException"/> when the model id doesn't resolve, same as before this was
+    /// pulled out.</summary>
+    private async Task<(ModelSpec Spec, TextRequest Request, string DeviceKey)> ResolveSpecAndRequestAsync(ExtendedLLMInput input, CancellationToken ct)
     {
         string deviceKey = NormalizeDeviceKey(input.Device);
         string path = ResolvePath(input.Model);
@@ -191,12 +374,30 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
         TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
+        return (spec, request, deviceKey);
+    }
+
+    /// <inheritdoc/>
+    public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+    {
+        (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
         await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct))
         {
             switch (chunk.Kind)
             {
                 case TextChunkKind.Chunk:
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
+                    break;
+                case TextChunkKind.NativeToolCall:
+                    // Only reachable when SupportsNativeToolCalling is true (StructuredToolCalling on), which
+                    // is what makes BuildRequestAsync offer TextRequest.Tools and ToolCalling.Install's filter
+                    // active for this request in the first place. Same wire shape AnthropicLLMProvider already
+                    // emits, so LLMStreamHelper's agentic loop (ChatEndpoints' general chat path) and the Tools
+                    // package's own callers both already know how to read it.
+                    if (chunk.ToolCall is { } nativeCall)
+                    {
+                        await onChunk(new JObject() { ["native_tool_call"] = NativeToolCallJson(nativeCall) });
+                    }
                     break;
                 case TextChunkKind.StopReason:
                     // Only surface truncation/cancellation/error — a normal finish (Stop) is the common case and
@@ -226,8 +427,54 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     break;
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
-                    // double the text. NativeToolCall is never emitted by TextService today (contract-only).
+                    // double the text.
             }
+        }
+    }
+
+    /// <summary>Builds the <c>{id, name, arguments}</c> shape <see cref="GenerateLive"/>'s <c>native_tool_call</c>
+    /// event and <see cref="AnthropicLLMProvider"/>'s <c>tool_use</c> handling both emit — <c>arguments</c> is a
+    /// parsed <see cref="JObject"/>, not the raw JSON string, matching every existing consumer
+    /// (<see cref="Hartsy.Extensions.LLMAssistant.LLMs.LLMStreamHelper"/>'s <c>native_tool_call</c> branch reads
+    /// it as one). A call that (contrary to its contract) carries malformed arguments JSON fails soft into an
+    /// empty object rather than losing the whole chunk.</summary>
+    internal static JObject NativeToolCallJson(NativeToolCall call)
+    {
+        JObject args;
+        try
+        {
+            args = string.IsNullOrWhiteSpace(call.Arguments) ? new JObject() : JObject.Parse(call.Arguments);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Malformed native tool-call arguments JSON for '{call.Name}': {ex.Message}");
+            args = new JObject();
+        }
+        return new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = args };
+    }
+
+    /// <summary>Streams one user turn through the Tools package's agent loop
+    /// (<see cref="ToolLoop.RunAsync"/>): the model's own chat template renders <paramref name="registry"/>'s
+    /// tools (or <see cref="TextRequest.Tools"/> when <paramref name="input"/> already set some — see
+    /// <see cref="BuildRequestAsync"/>), a completed call dispatches through <paramref name="registry"/>, and
+    /// the model is asked again with the result appended as a <see cref="TextRole.Tool"/> message, up to
+    /// <paramref name="maxRounds"/> model invocations. Chunk kinds match <see cref="ToolLoop"/>'s own contract
+    /// exactly (<see cref="TextChunkKind.Chunk"/>, <see cref="TextChunkKind.NativeToolCall"/>,
+    /// <see cref="TextChunkKind.Status"/> tool-result/round-limit chunks, one final
+    /// <see cref="TextChunkKind.Result"/> then <see cref="TextChunkKind.StopReason"/>) — callers translate those
+    /// the same way <see cref="GenerateLive"/> translates <see cref="Engine"/>'s plain stream, they are just a
+    /// layer further from the wire than <c>GenerateLive</c>'s <c>JObject</c> shape. Requires
+    /// <see cref="SupportsNativeToolCalling"/>; callers check that first — this does not, so a caller that
+    /// skips the check gets whatever the engine does with <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/>
+    /// off (no <see cref="TextRequest.Tools"/>, so the loop ends after one round with no calls).</summary>
+    public async IAsyncEnumerable<TextChunk> StreamToolLoopAsync(ExtendedLLMInput input, ToolRegistry registry,
+        int maxRounds = ToolLoop.DefaultMaxRounds, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(registry);
+        (ModelSpec spec, TextRequest request, _) = await ResolveSpecAndRequestAsync(input, ct);
+        await foreach (TextChunk chunk in ToolLoop.RunAsync(Engine.Text, spec, request, registry, maxRounds, ct).ConfigureAwait(false))
+        {
+            yield return chunk;
         }
     }
 
@@ -266,7 +513,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             messages.Add(ToTextMessage(m, content, images));
         }
         List<ToolDefinition> tools = null;
-        if (Settings.StructuredToolCalling && input.Tools is { Count: > 0 })
+        // Gated on SupportsNativeToolCallingFor, not just the StructuredToolCalling setting: for a non-Hermes
+        // model this must stay null even with the setting on, or the model's own Jinja template renders tools
+        // in ITS native (non-Hermes) convention and the engine's Hermes-only installed filter (OnProviderInit)
+        // activates on this request (it keys only on Tools being set) but can never parse what streams out —
+        // every call silently lost, with no tag-prompt fallback either (ApplyToolsToInput skips that too once
+        // it sees Tools already on the request). Gating here keeps that filter inert for this request instead.
+        if (SupportsNativeToolCallingFor(input.Model) && input.Tools is { Count: > 0 })
         {
             tools = [.. input.Tools.Select(t => new ToolDefinition
             {
@@ -275,29 +528,44 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 JsonSchema = (t["parameters"] as JObject ?? new JObject()).ToString()
             })];
         }
-        return new TextRequest
-        {
-            Messages = messages,
-            // Not SystemPrompt too: ExtendedLLMInput always folds the system prompt into Messages[0] (and
-            // keeps it in sync — see ApplyToolsToInput), so setting both here double-injects it into the
-            // chat template. Confirmed live: this produced garbage/off-topic output from real GGUF vision
-            // models under the WS chat path (verified 2026-07-25 testing against llava-v1.5-7b/Qwen2.5-VL-7B).
-            Temperature = Math.Max(0, input.Temperature),
-            TopP = input.TopP > 0 ? input.TopP : 1.0,
-            TopK = Settings.TopK > 0 ? Settings.TopK : null,
-            MinP = Settings.MinP > 0 ? Settings.MinP : null,
-            RepetitionPenalty = Settings.RepetitionPenalty > 0 ? Settings.RepetitionPenalty : null,
-            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
-            Seed = input.Seed,
-            Greedy = input.Temperature <= 0,
-            Device = deviceKey,
-            Tools = tools,
-            GraphDecode = Settings.GraphDecode ? true : null,
-            SpeculativeDecode = Settings.SpeculativeDecode ? true : null,
-            LowVramQuant = Settings.LowVramQuant ? "true" : null,
-            AlwaysFreeMemory = Settings.AlwaysFreeMemory
-        };
+        return BuildRequestCore(input, messages, tools, deviceKey, Settings);
     }
+
+    /// <summary>The pure tail of <see cref="BuildRequestAsync"/>: turns the already-resolved messages/tools
+    /// plus <paramref name="input"/>'s per-request overrides and <paramref name="settings"/>'s provider-wide
+    /// defaults into the engine's native <see cref="TextRequest"/>. Pulled out so every scalar mapping
+    /// (<see cref="TextRequest.EnableThinking"/> included) is unit-testable against a freshly constructed
+    /// <see cref="HartsyLocalLLMProviderSettings"/> — the rest of <see cref="BuildRequestAsync"/> needs a live
+    /// host (<see cref="SupportsNativeToolCallingFor"/>'s <see cref="ResolvePath"/> call reads
+    /// <c>Program.ServerSettings</c>; the image-decode loop is async I/O), this does neither.</summary>
+    internal static TextRequest BuildRequestCore(ExtendedLLMInput input, List<TextMessage> messages,
+        List<ToolDefinition> tools, string deviceKey, HartsyLocalLLMProviderSettings settings) => new()
+    {
+        Messages = messages,
+        // Not SystemPrompt too: ExtendedLLMInput always folds the system prompt into Messages[0] (and
+        // keeps it in sync — see ApplyToolsToInput and ExtendedLLMInput.CreateFromMessages), so setting both
+        // here double-injects it into the chat template. Confirmed live: this produced garbage/off-topic
+        // output from real GGUF vision models under the WS chat path (verified 2026-07-25 testing against
+        // llava-v1.5-7b/Qwen2.5-VL-7B).
+        Temperature = Math.Max(0, input.Temperature),
+        TopP = input.TopP > 0 ? input.TopP : 1.0,
+        TopK = settings.TopK > 0 ? settings.TopK : null,
+        MinP = settings.MinP > 0 ? settings.MinP : null,
+        RepetitionPenalty = settings.RepetitionPenalty > 0 ? settings.RepetitionPenalty : null,
+        MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
+        Seed = input.Seed,
+        Greedy = input.Temperature <= 0,
+        // Voice callers send false (Qwen3 thinking adds hundreds of tokens before the first spoken word); null
+        // (every caller before this field existed, and still every caller except the new messages/enableThinking
+        // WS request fields) leaves the template's own default alone -- unchanged behavior.
+        EnableThinking = input.EnableThinking,
+        Device = deviceKey,
+        Tools = tools,
+        GraphDecode = settings.GraphDecode ? true : null,
+        SpeculativeDecode = settings.SpeculativeDecode ? true : null,
+        LowVramQuant = settings.LowVramQuant ? "true" : null,
+        AlwaysFreeMemory = settings.AlwaysFreeMemory
+    };
 
     /// <summary>Builds a minimal message list from the legacy UserMessage/SystemPrompt fields, for callers that
     /// never populated <see cref="ExtendedLLMInput.Messages"/> (mirrors <see cref="ExtendedLLMInput.Create"/>).</summary>
@@ -333,17 +601,40 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images)
     {
         bool isTool = m.Role == LLMRoles.Tool;
-        // TextMessage's ToolCallId/Name are init-only, so they're set in the same initializer rather than
-        // assigned after construction.
+        // TextMessage's ToolCallId/Name/ToolCalls are init-only, so they're set in the same initializer rather
+        // than assigned after construction.
         return new TextMessage
         {
             Role = RoleFor(m.Role),
             Content = content,
             Images = images is { Count: > 0 } ? images : null,
             ToolCallId = isTool ? m.ToolCallId : null,
-            Name = isTool ? m.Name : null
+            Name = isTool ? m.Name : null,
+            ToolCalls = m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 }
+                ? [.. m.ToolCalls.Select(ToNativeToolCall)]
+                : null
         };
     }
+
+    /// <summary>Maps one <c>{id, name, arguments}</c> wire-shaped tool call — the exact shape
+    /// <see cref="NativeToolCallJson"/> emits on a <c>native_tool_call</c> frame, and so what a client replaying
+    /// conversation history is expected to echo back in a <see cref="LLMMessage.ToolCalls"/> entry — onto the
+    /// engine's <see cref="NativeToolCall"/>. <c>arguments</c> is accepted either as a parsed <see cref="JObject"/>
+    /// (what a client gets from the earlier frame, and what it should normally send back) or as an already-
+    /// serialized JSON string (since <see cref="NativeToolCall.Arguments"/> is a string either way, a client
+    /// that re-serializes it costs nothing to also accept); anything else fails soft to <c>"{}"</c>, the same
+    /// policy <see cref="NativeToolCallJson"/> uses for the inverse direction.</summary>
+    internal static NativeToolCall ToNativeToolCall(JObject call) => new()
+    {
+        Id = call["id"]?.ToString() ?? "",
+        Name = call["name"]?.ToString() ?? "",
+        Arguments = call["arguments"] switch
+        {
+            JObject obj => obj.ToString(Newtonsoft.Json.Formatting.None),
+            JValue { Type: JTokenType.String } str => str.ToString(),
+            _ => "{}"
+        }
+    };
 
     /// <summary>Resolves each attachment (URL/base64/data-URI) to bytes and decodes to interleaved RGB — the
     /// engine's native <see cref="ImageData"/> shape, so it owns resizing/normalization per vision encoder.</summary>
