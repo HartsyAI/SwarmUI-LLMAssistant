@@ -70,8 +70,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ConfigComment("When tools are enabled for a chat, grammar-mask the JSON body of a <tool_call>{...}</tool_call> block so it's\nalways syntactically valid — plain chat text stays completely unconstrained, only the JSON between the tags is\nguaranteed-valid (same technique every major chat API uses: constrain only the tool-call span, never the whole\nreply). Off by default until verified against real models — see docs.")]
         public bool StructuredToolCalling = false;
 
-        [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Replies are equivalent (byte-identical on CPU; on a GPU the reused cache can round slightly differently).\n\nOff by default for now, because of the VRAM it holds: the engine always keeps the most recent conversation's cache, whatever its size, and it grows with the thread — roughly (prompt + Max Tokens + 2048) tokens of KV, about 6 GiB for Qwen3-4B at a 16k-token thread. Its vram.prefixCacheMaxEntries / vram.prefixCacheMaxBytes settings only evict older conversations. The cache is released by Free Memory (including Swarm's idle VRAM clear), switching models, or editing this backend. Turns on by default once the engine bounds retained VRAM itself (engine alpha.242).\n\nHas no effect while 'Always Free Memory' is on, or with VRAM Mode 'Aggressive' or 'Maximum'.")]
-        public bool ReuseConversationPrefix = false;
+        [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Replies are equivalent (byte-identical on CPU; on a GPU the reused cache can round slightly differently).\n\nThe engine bounds what this holds. After each turn a conversation's cache shrinks to its length plus vram.prefixCacheHeadroomTokens (256 tokens), about 0.34 GiB for a 1,000-token Qwen3-4B chat, and grows again by an on-device copy when the next turn needs room. A conversation that would need more than vram.prefixCacheMaxBytes (1.5 GiB) is not kept, so a very long thread runs uncached. Each GPU keeps at most vram.prefixCacheMaxEntries (4) conversations within that same budget, least recently used first. Free Memory (including Swarm's idle VRAM clear), switching models or editing this backend releases them.\n\nHas no effect while 'Always Free Memory' is on, or with VRAM Mode 'Aggressive' or 'Maximum'.")]
+        public bool ReuseConversationPrefix = true;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -377,7 +377,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
-        TextRequest request = await BuildRequestAsync(input, spec, deviceKey, ct);
+        TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
         return (spec, request, deviceKey);
     }
 
@@ -486,7 +486,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// from settings plus per-request overrides, the vision attachment (decoded only for the final user turn —
     /// the engine's vision path only ever looks at the latest one), tool definitions when structured tool
     /// calling is enabled, and the conversation's prefix-cache key (see <see cref="BuildRequestCore"/>).</summary>
-    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, ModelSpec spec, string deviceKey, CancellationToken ct)
+    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, string deviceKey, CancellationToken ct)
     {
         List<LLMMessage> source = input.Messages is { Count: > 0 } ? input.Messages : SyntheticMessages(input);
         int lastUserIdx = -1;
@@ -532,23 +532,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 JsonSchema = (t["parameters"] as JObject ?? new JObject()).ToString()
             })];
         }
-        // The user comes from the server-side session, never from the request body. The token count runs only
-        // when BuildRequestCore actually sets a key, so a one-off call never pays to tokenize its prompt. It is
-        // exact once this model is loaded and its slot is idle; before the first load the engine falls back to
-        // chars/4, so a conversation whose estimate came out low can pay one extra full prefill on turn 2
-        // before the exact count takes over.
-        return BuildRequestCore(input, messages, tools, deviceKey, Settings, input.RequestSession?.User?.UserID,
-            () => Engine.Text.CountTokens(spec, PromptTextForEstimate(messages, tools)));
+        // The user comes from the server-side session, never from the request body.
+        return BuildRequestCore(input, messages, tools, deviceKey, Settings, input.RequestSession?.User?.UserID);
     }
-
-    /// <summary>Tokens of KV capacity reserved past a request's own prompt and <see cref="TextRequest.MaxTokens"/>
-    /// when the engine first allocates a conversation's retained sequence (or re-allocates one it has outgrown).
-    /// The engine reuses a retained cache only while it can hold the whole next request — prompt plus
-    /// <c>MaxTokens</c> plus one — and a conversation's prompt grows every turn, so without this margin every
-    /// turn would outgrow the previous one and nothing would ever be reused, tool-loop rounds included. 2048
-    /// covers several turns of chat growth or a typical tool result; once outgrown, that one turn pays a full
-    /// prefill (what every turn cost before this existed) and the cache is re-sized with a fresh margin.</summary>
-    internal const int PrefixCacheHeadroomTokens = 2048;
 
     /// <summary>The pure tail of <see cref="BuildRequestAsync"/>: turns the already-resolved messages/tools
     /// plus <paramref name="input"/>'s per-request overrides and <paramref name="settings"/>'s provider-wide
@@ -564,13 +550,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// between calls and prefills only the tokens past the longest prefix it already holds — equivalent to a fresh
     /// prefill, byte-identical on CPU (on CUDA the reused KV of an earlier reply came from decode steps, not one
     /// batched prefill, so it can round differently). Every round of a tool loop is built from the same input, so
-    /// it carries the same key. <see cref="TextRequest.PrefixCacheCapacityHint"/> sizes the retained cache to this
-    /// prompt (<paramref name="estimatePromptTokens"/>, invoked only when a key is set) plus <c>MaxTokens</c> plus
-    /// <see cref="PrefixCacheHeadroomTokens"/> — required, not an optimization: see that constant.
+    /// it carries the same key. No <see cref="TextRequest.PrefixCacheCapacityHint"/>: from engine alpha.242 it only
+    /// sizes a key's first allocation. The engine shrinks what a request retains to its length plus
+    /// <c>vram.prefixCacheHeadroomTokens</c> when the request ends, and grows it by an on-device copy when a later
+    /// request needs more room, so anything past this request's own prompt + <c>MaxTokens</c> would be allocated only
+    /// to be copied away. The engine's default (exactly that) is also what an uncached request allocates.
     ///
-    /// No key unless <see cref="HartsyLocalLLMProviderSettings.ReuseConversationPrefix"/> is on (off by default
-    /// until the engine bounds what it retains: today it always keeps the newest entry whatever its size). No key
-    /// either when <see cref="HartsyLocalLLMProviderSettings.AlwaysFreeMemory"/> is on, which unloads the slot (and
+    /// No key when <see cref="HartsyLocalLLMProviderSettings.ReuseConversationPrefix"/> is off, or when
+    /// <see cref="HartsyLocalLLMProviderSettings.AlwaysFreeMemory"/> is on, which unloads the slot (and
     /// the engine's prefix store with it) after every request, so a key could only make each request allocate more
     /// KV than it needs; or when <see cref="HartsyLocalLLMProviderSettings.VramMode"/> is Aggressive or Maximum
     /// (<see cref="VramModeHoldsLeastBetweenRequests"/>), which the user picked to hold the least VRAM between
@@ -579,10 +566,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <see cref="TextRequest.CacheWeightCasts"/>/<see cref="TextRequest.PreloadRedundantWeightSplits"/> stay at
     /// the backend default: nothing here measured a reason to move them.</para></summary>
     internal static TextRequest BuildRequestCore(ExtendedLLMInput input, List<TextMessage> messages,
-        List<ToolDefinition> tools, string deviceKey, HartsyLocalLLMProviderSettings settings,
-        string userId = null, Func<int> estimatePromptTokens = null)
+        List<ToolDefinition> tools, string deviceKey, HartsyLocalLLMProviderSettings settings, string userId = null)
     {
-        int maxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096;
         string prefixCacheKey = settings.ReuseConversationPrefix && !settings.AlwaysFreeMemory
             && !VramModeHoldsLeastBetweenRequests(settings.VramMode)
             ? PrefixCacheKeyFor(userId, input.ConversationId, input.Model)
@@ -600,7 +585,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             TopK = settings.TopK > 0 ? settings.TopK : null,
             MinP = settings.MinP > 0 ? settings.MinP : null,
             RepetitionPenalty = settings.RepetitionPenalty > 0 ? settings.RepetitionPenalty : null,
-            MaxTokens = maxTokens,
+            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
             Seed = input.Seed,
             Greedy = input.Temperature <= 0,
             // Voice callers send false (Qwen3 thinking adds hundreds of tokens before the first spoken word); null
@@ -613,9 +598,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             SpeculativeDecode = settings.SpeculativeDecode ? true : null,
             LowVramQuant = settings.LowVramQuant ? "true" : null,
             AlwaysFreeMemory = settings.AlwaysFreeMemory,
-            PrefixCacheKey = prefixCacheKey,
-            PrefixCacheCapacityHint = prefixCacheKey is null ? null
-                : PrefixCacheCapacityFor(estimatePromptTokens?.Invoke() ?? 0, maxTokens)
+            PrefixCacheKey = prefixCacheKey
         };
     }
 
@@ -626,12 +609,6 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     internal static bool VramModeHoldsLeastBetweenRequests(string vramMode)
         => !string.IsNullOrWhiteSpace(vramMode) && Enum.TryParse(vramMode.Trim(), ignoreCase: true, out VramTier tier)
             && tier is VramTier.Aggressive or VramTier.Maximum;
-
-    /// <summary>The retained-cache size <see cref="BuildRequestCore"/> asks the engine for: the prompt estimate
-    /// plus the reply budget plus <see cref="PrefixCacheHeadroomTokens"/>, saturating rather than overflowing for
-    /// an absurd <c>MaxTokens</c>.</summary>
-    internal static int PrefixCacheCapacityFor(int promptTokens, int maxTokens)
-        => (int)Math.Min(int.MaxValue, (long)Math.Max(0, promptTokens) + Math.Max(0, maxTokens) + PrefixCacheHeadroomTokens);
 
     /// <summary>The engine prefix-cache key for one user's conversation on one model, or null unless all three are
     /// present, so a request with no conversation (or no user) never touches the engine's store. The user id comes
@@ -650,28 +627,6 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         string material = $"{userId.Length}:{userId}|{conversationId.Length}:{conversationId}|{modelKey.Length}:{modelKey}";
         byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(material));
         return "llmassistant:" + Convert.ToHexString(digest, 0, 16).ToLowerInvariant();
-    }
-
-    /// <summary>The text the chat template renders from a request, for <see cref="BuildRequestCore"/>'s token
-    /// estimate: every message's content and any tool calls it carries, plus the native tool schemas the template
-    /// renders on top of them. Role markers and other template scaffolding are left out —
-    /// <see cref="PrefixCacheHeadroomTokens"/> absorbs them.</summary>
-    internal static string PromptTextForEstimate(IReadOnlyList<TextMessage> messages, IReadOnlyList<ToolDefinition> tools)
-    {
-        StringBuilder text = new();
-        foreach (TextMessage message in messages)
-        {
-            text.Append(message.Content).Append('\n');
-            foreach (NativeToolCall call in message.ToolCalls ?? [])
-            {
-                text.Append(call.Name).Append(' ').Append(call.Arguments).Append('\n');
-            }
-        }
-        foreach (ToolDefinition tool in tools ?? [])
-        {
-            text.Append(tool.Name).Append(' ').Append(tool.Description).Append(' ').Append(tool.JsonSchema).Append('\n');
-        }
-        return text.ToString();
     }
 
     /// <summary>Builds a minimal message list from the legacy UserMessage/SystemPrompt fields, for callers that
