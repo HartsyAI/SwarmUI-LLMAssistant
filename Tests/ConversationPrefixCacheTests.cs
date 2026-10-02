@@ -11,8 +11,8 @@ using Xunit;
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>Pins the local provider's per-conversation prefix-KV keying: which requests carry
-/// <see cref="TextRequest.PrefixCacheKey"/>, what scopes it (user, conversation, model), how
-/// <see cref="TextRequest.PrefixCacheCapacityHint"/> is sized, that every tool round keeps the turn's key, and that
+/// <see cref="TextRequest.PrefixCacheKey"/>, what scopes it (user, conversation, model), that it leaves
+/// <see cref="TextRequest.PrefixCacheCapacityHint"/> to the engine, that every tool round keeps the turn's key, and that
 /// no other provider's request ever carries the conversation scope. Everything here goes through the same pure
 /// pieces the routes use — <see cref="HartsyLocalLLMProvider.BuildRequestCore"/> and the
 /// <see cref="ChatEndpoints"/> scope helpers — since the routes themselves need a live <c>Session</c>/host (see
@@ -34,13 +34,9 @@ public class ConversationPrefixCacheTests
     private static List<TextMessage> Messages(ExtendedLLMInput input)
         => [.. input.Messages.Select(m => HartsyLocalLLMProvider.ToTextMessage(m, m.Content, images: null))];
 
-    /// <summary>Settings with reuse switched on: <see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings.ReuseConversationPrefix"/>
-    /// defaults to off until the engine bounds what it retains (see <see cref="DefaultSettings_CarryNoKey"/>).</summary>
-    private static HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings Reuse() => new() { ReuseConversationPrefix = true };
-
     private static TextRequest Build(ExtendedLLMInput input, string userId, HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings settings = null,
-        Func<int> estimatePromptTokens = null, List<ToolDefinition> tools = null)
-        => HartsyLocalLLMProvider.BuildRequestCore(input, Messages(input), tools, deviceKey: "cuda:0", settings ?? Reuse(), userId, estimatePromptTokens);
+        List<ToolDefinition> tools = null)
+        => HartsyLocalLLMProvider.BuildRequestCore(input, Messages(input), tools, deviceKey: "cuda:0", settings ?? new(), userId);
 
     private static string KeyFor(string userId, string conversationId, string model = Model)
         => Build(Turn(conversationId, model, (LLMRoles.User, "hi")), userId).PrefixCacheKey;
@@ -127,16 +123,13 @@ public class ConversationPrefixCacheTests
     }
 
     [Fact]
-    public void OneOffCall_WithNoConversation_CarriesNoKeyAndNeverPaysForAnEstimate()
+    public void OneOffCall_WithNoConversation_CarriesNoKey()
     {
         // Titles, prompt enhancement, a tool's own caption request: none sets ConversationId, so none may touch
-        // (and truncate) a conversation's retained entry, or tokenize its prompt for nothing.
-        bool estimated = false;
-        TextRequest request = Build(Turn(conversationId: null, Model, (LLMRoles.User, "Write a title for this chat.")), "alice",
-            estimatePromptTokens: () => { estimated = true; return 100; });
+        // (and truncate) a conversation's retained entry.
+        TextRequest request = Build(Turn(conversationId: null, Model, (LLMRoles.User, "Write a title for this chat.")), "alice");
         Assert.Null(request.PrefixCacheKey);
         Assert.Null(request.PrefixCacheCapacityHint);
-        Assert.False(estimated);
     }
 
     [Fact]
@@ -167,14 +160,27 @@ public class ConversationPrefixCacheTests
     }
 
     [Fact]
-    public void DefaultSettings_CarryNoKey()
+    public void DefaultSettings_CarryTheKey()
     {
-        // Off by default until the engine bounds retained VRAM (engine alpha.242): today it always keeps the newest
-        // entry whatever its size, and a long thread's entry grows to several GiB on a GPU shared with image models.
-        Assert.False(new HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings().ReuseConversationPrefix);
+        // On by default from engine alpha.242, which bounds what it retains: shrink to fit after each request, a
+        // per-entry byte cap, LRU across entries.
+        Assert.True(new HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings().ReuseConversationPrefix);
         TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice", new());
-        Assert.Null(request.PrefixCacheKey);
+        Assert.NotNull(request.PrefixCacheKey);
+    }
+
+    [Fact]
+    public void KeyedRequest_LeavesTheCapacityHintToTheEngine()
+    {
+        // From alpha.242 the hint only sizes a key's first allocation: the engine copies what a request retains down
+        // to its length + vram.prefixCacheHeadroomTokens when it ends and grows it by copy when a later request needs
+        // room, so anything past this request's own prompt + MaxTokens (the engine's default) is wasted.
+        ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi"));
+        input.MaxTokens = 0;
+        TextRequest request = Build(input, "alice");
+        Assert.NotNull(request.PrefixCacheKey);
         Assert.Null(request.PrefixCacheCapacityHint);
+        Assert.Equal(4096, request.MaxTokens);
     }
 
     [Theory]
@@ -206,64 +212,14 @@ public class ConversationPrefixCacheTests
     }
 
     [Fact]
-    public void CapacityHint_IsThePromptEstimatePlusMaxTokensPlusHeadroom()
-    {
-        TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice",
-            estimatePromptTokens: () => 700);
-        Assert.Equal(1024, request.MaxTokens);
-        Assert.Equal(700 + 1024 + HartsyLocalLLMProvider.PrefixCacheHeadroomTokens, request.PrefixCacheCapacityHint);
-    }
-
-    [Fact]
-    public void CapacityHint_UsesTheDefaultReplyBudgetWhenMaxTokensIsUnset()
-    {
-        ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi"));
-        input.MaxTokens = 0;
-        TextRequest request = Build(input, "alice", estimatePromptTokens: () => 50);
-        Assert.Equal(4096, request.MaxTokens);
-        Assert.Equal(50 + 4096 + HartsyLocalLLMProvider.PrefixCacheHeadroomTokens, request.PrefixCacheCapacityHint);
-    }
-
-    [Fact]
-    public void CapacityHint_WithNoEstimator_StillReservesTheReplyAndHeadroom()
-    {
-        TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice");
-        Assert.Equal(1024 + HartsyLocalLLMProvider.PrefixCacheHeadroomTokens, request.PrefixCacheCapacityHint);
-    }
-
-    [Theory]
-    [InlineData(-5, 100, 100 + HartsyLocalLLMProvider.PrefixCacheHeadroomTokens)]
-    [InlineData(int.MaxValue, int.MaxValue, int.MaxValue)]
-    public void PrefixCacheCapacityFor_ClampsANegativeEstimateAndSaturates(int promptTokens, int maxTokens, int expected)
-    {
-        Assert.Equal(expected, HartsyLocalLLMProvider.PrefixCacheCapacityFor(promptTokens, maxTokens));
-    }
-
-    [Fact]
-    public void PromptTextForEstimate_CoversContentToolCallsAndNativeToolSchemas()
-    {
-        List<TextMessage> messages =
-        [
-            new() { Role = TextRole.User, Content = "what time is it?" },
-            new() { Role = TextRole.Assistant, Content = "", ToolCalls = [new NativeToolCall { Id = "c1", Name = "get_time", Arguments = "{\"tz\":\"UTC\"}" }] }
-        ];
-        List<ToolDefinition> tools = [new() { Name = "get_time", Description = "Gets the current time", JsonSchema = "{\"type\":\"object\"}" }];
-        string text = HartsyLocalLLMProvider.PromptTextForEstimate(messages, tools);
-        Assert.Contains("what time is it?", text);
-        Assert.Contains("{\"tz\":\"UTC\"}", text);
-        Assert.Contains("Gets the current time", text);
-        Assert.Contains("{\"type\":\"object\"}", text);
-    }
-
-    [Fact]
-    public async Task ToolLoopRounds_AllCarryTheTurnsKeyAndHint()
+    public async Task ToolLoopRounds_AllCarryTheTurnsKey()
     {
         // LLMAssistantVoiceTurnWS: StreamToolLoopAsync builds one TextRequest per turn and ToolLoop re-issues it
         // (with the tool call and its result appended) for every round.
         ExtendedLLMInput input = Turn(ChatEndpoints.VoiceTurnWsConversationId("call-1", sessionId: null), Model,
             (LLMRoles.System, "You are a phone assistant."), (LLMRoles.User, "what time is it?"));
         List<ToolDefinition> tools = [new() { Name = "get_time", Description = "Gets the current time" }];
-        TextRequest request = Build(input, "alice", estimatePromptTokens: () => 300, tools: tools);
+        TextRequest request = Build(input, "alice", tools: tools);
         ScriptedTextService fake = new(
             [
                 new TextChunk { Kind = TextChunkKind.NativeToolCall, ToolCall = new NativeToolCall { Id = "c1", Name = "get_time", Arguments = "{}" } },
@@ -284,7 +240,7 @@ public class ConversationPrefixCacheTests
         Assert.All(fake.SeenRequests, round =>
         {
             Assert.Equal(request.PrefixCacheKey, round.PrefixCacheKey);
-            Assert.Equal(request.PrefixCacheCapacityHint, round.PrefixCacheCapacityHint);
+            Assert.Null(round.PrefixCacheCapacityHint);
         });
         Assert.True(fake.SeenRequests[1].Messages.Count > fake.SeenRequests[0].Messages.Count);
     }

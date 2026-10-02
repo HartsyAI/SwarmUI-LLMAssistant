@@ -69,13 +69,21 @@
        range is additive (TextRequest.CacheWeightCasts/PreloadRedundantWeightSplits, ITextService.TrimMemoryPool
        with a default implementation); this extension leaves those at their defaults. #227
        (ToolCallFormats.TryDetectFromTemplate) merged after alpha.241 was published, so it is NOT in this pin,
-       and SupportsNativeToolCallingFor keeps its own template check. -->
+       and SupportsNativeToolCallingFor keeps its own template check.
+       2.0.0-alpha.242 = 2026-10-02 (alpha.241 -> alpha.242; every HartsyInference package's alpha.242
+       .nupkg verified on nuget.org before bumping). Brings HartsyInference#234's bounded retained KV: what a
+       request retains under a PrefixCacheKey shrinks to its length + vram.prefixCacheHeadroomTokens (256)
+       when the request ends, grows by an on-device copy when a later request needs more room, and is not
+       kept at all past vram.prefixCacheMaxBytes (now 1.5 GiB, the per-entry cap as well as the store's).
+       That is what lets ReuseConversationPrefix default to on, and it reduces PrefixCacheCapacityHint to
+       sizing a key's first allocation, so HartsyLocalLLMProvider no longer sets one (and no longer
+       tokenizes the prompt to estimate it). -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.241" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.242" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
-         since alpha.222; pinned to the same alpha.241 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.241" />
+         since alpha.222; pinned to the same alpha.242 as the meta package to stay in lockstep. -->
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.242" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak

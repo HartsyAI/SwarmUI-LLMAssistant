@@ -109,9 +109,15 @@ Go to `Server > Backends` — the three LLM backend types appear directly in the
 | `GraphDecode` | `false` | CUDA-graph decode for plain dense Llama/Qwen/Mistral shapes. Requires the request to end up greedy (temperature 0). |
 | `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
 | `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and**, for a model whose own chat template instructs Hermes JSON tool calls specifically (checked by reading its `tokenizer.chat_template` metadata, not its name), turn on real native tool calling instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. A model whose template doesn't instruct that format (Llama, Mistral, Gemma, DeepSeek R1's distillations, GLM-4.5/Qwen3.5-style XML-argument templates, or anything with no template at all) keeps using the tag convention regardless of this setting — the engine only installs one parser (Hermes) for the whole backend. [`LLMAssistantVoiceTurnWS`](#streaming-frames) runs without it too now (a `{"notice": …}` frame then a plain stream, no hard error), but still needs it for native tool dispatch specifically. |
-| `ReuseConversationPrefix` | `false` | Keep each conversation's prompt prefix cached on the device between turns (see below). Off by default until engine alpha.242 bounds the VRAM it holds. No effect while `AlwaysFreeMemory` is on or with `VramMode` Aggressive or Maximum. |
+| `ReuseConversationPrefix` | `true` | Keep each conversation's prompt prefix cached on the device between turns (see below). No effect while `AlwaysFreeMemory` is on or with `VramMode` Aggressive or Maximum. |
 
-**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation — a chat thread, a voice session — keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. It is **off by default** for now because of what it holds. The engine always keeps the most recent conversation's cache, whatever its size. That cache grows with the thread, at roughly (prompt + Max Tokens + 2048) tokens of KV: about 1.9 GiB for Qwen3-4B at a 700-token prompt and the default 4096 Max Tokens, and about 6 GiB at 16k tokens. The engine's `vram.prefixCacheMaxEntries` (default 4) and `vram.prefixCacheMaxBytes` (default 512 MiB) settings in `~/.config/hartsyinference/settings.json` only evict older conversations, least recently used first, so they do not cap that one. It is released by Free Memory (including Swarm's idle VRAM clear), switching models, or editing the backend, which restarts the engine. The setting turns on by default once the engine bounds retained VRAM itself (engine alpha.242).
+**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation — a chat thread, a voice session — keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. The engine bounds what this holds, with settings in `~/.config/hartsyinference/settings.json`:
+
+- **Shrink to fit.** After each turn a conversation's cache shrinks to its length plus `vram.prefixCacheHeadroomTokens` (default 256), and grows again by an on-device copy when the next turn needs room. A 1,000-token Qwen3-4B chat holds about 0.34 GiB between turns.
+- **Per-conversation cap.** A conversation that would need more than `vram.prefixCacheMaxBytes` (default 1.5 GiB: about 5,200 tokens of conversation for Qwen3-4B, 24,300 for Llama-3.2-1B) is not kept at all, so a very long thread runs uncached, as every turn did before this setting existed.
+- **LRU.** Each GPU keeps at most `vram.prefixCacheMaxEntries` (default 4) conversations within that same byte budget, least recently used first.
+
+Free Memory (including Swarm's idle VRAM clear), switching models or editing the backend releases them all.
 
 ### Remote (OpenAI-compatible) settings
 
@@ -513,9 +519,9 @@ turn unless `messages` already opens with one, so replaying history never double
 own history straight back. `enableThinking?` (bool) maps directly to the engine's `enable_thinking` chat-template
 toggle (Qwen3-family reasoning-block switch) — omit it to keep the model's own default; a voice caller sends
 `false`, since thinking adds hundreds of tokens before the first spoken word. `conversationId?` (string) names
-the conversation a turn belongs to, so a local model with `ReuseConversationPrefix` on reuses its prefix from one
-turn to the next; every turn is its own socket, so without it turns are grouped by the SwarmUI session they were
-sent with.
+the conversation a turn belongs to, so a local model reuses its prefix from one turn to the next
+(`ReuseConversationPrefix`); every turn is its own socket, so without it turns are grouped by the SwarmUI session
+they were sent with.
 
 ### Threads
 
