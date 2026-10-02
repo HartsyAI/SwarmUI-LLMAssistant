@@ -60,13 +60,22 @@
        signature touched. alpha.237 adds the new, separate HartsyInference.Voice package (the phone-call voice
        agent); this extension references neither it nor anything it depends on. Full Release build + full test
        run against this pin: clean, no source edits required by the bump itself (the source changes in this
-       same PR are FIX 1/FIX 2/the messages-history and enableThinking additions, independent of the pin). -->
+       same PR are FIX 1/FIX 2/the messages-history and enableThinking additions, independent of the pin).
+       2.0.0-alpha.241 = 2026-10-02 (alpha.237 -> alpha.241, verified indexed on nuget.org for hartsyinference,
+       hartsyinference.engine and hartsyinference.tools before bumping). Brings HartsyInference#217's opt-in
+       prefix-KV reuse (TextRequest.PrefixCacheKey/PrefixCacheCapacityHint), which HartsyLocalLLMProvider now
+       sets per conversation behind ReuseConversationPrefix (off until engine alpha.242 bounds the VRAM a
+       retained entry holds), and needs: the pin IS the feature here, not a catch-up. Everything else in the
+       range is additive (TextRequest.CacheWeightCasts/PreloadRedundantWeightSplits, ITextService.TrimMemoryPool
+       with a default implementation); this extension leaves those at their defaults. #227
+       (ToolCallFormats.TryDetectFromTemplate) merged after alpha.241 was published, so it is NOT in this pin,
+       and SupportsNativeToolCallingFor keeps its own template check. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.237" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.241" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
-         since alpha.222; pinned to the same alpha.237 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.237" />
+         since alpha.222; pinned to the same alpha.241 as the meta package to stay in lockstep. -->
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.241" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak

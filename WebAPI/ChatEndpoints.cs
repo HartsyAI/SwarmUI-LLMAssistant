@@ -207,7 +207,8 @@ public static class ChatEndpoints
     ///
     /// <para>Stateless like <see cref="LLMAssistantSendMessage"/> — no thread is loaded or written. Unlike it,
     /// nothing is cached: a voice assistant asked the same thing twice should answer twice, not replay one
-    /// canned reply.</para>
+    /// canned reply. The local engine still reuses the system prompt and tool definitions across calls (see
+    /// <see cref="VoiceTurnConversationId"/>) — reused KV, never a reused reply.</para>
     ///
     /// <para>Request: <c>{ message (required), assistantId?, model?, temperature?, maxTokens? }</c>.
     /// Response: <c>{ success, response, toolCalls: [{ name, arguments }], truncated? }</c>.</para></summary>
@@ -244,6 +245,7 @@ public static class ChatEndpoints
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
+            input.ConversationId = VoiceTurnConversationId(assistantId);
             ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens);
 
             List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
@@ -378,8 +380,13 @@ public static class ChatEndpoints
     /// <c>done</c> frame's <c>toolCalls</c> for the caller to run against its own hardware, exactly as the
     /// one-shot route returns them.</para>
     ///
+    /// <para>Every turn is its own WebSocket connection (one request frame in, frames out, then closed), so the
+    /// socket cannot identify a conversation across turns. The optional <c>conversationId</c> does, when the
+    /// client sends one; otherwise the caller's SwarmUI session does — see <see cref="VoiceTurnWsConversationId"/>.
+    /// Either way it only scopes the local engine's prefix-KV reuse; nothing is stored here.</para>
+    ///
     /// <para>Request: <c>{ message?|messages?, assistantId?, model?, temperature?, maxTokens?,
-    /// enableThinking? }</c> — at least one of <c>message</c> (a single new user turn) or <c>messages</c> (the
+    /// enableThinking?, conversationId? }</c> — at least one of <c>message</c> (a single new user turn) or <c>messages</c> (the
     /// full conversation so far, oldest first, as
     /// <c>[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]</c>) is required;
     /// <c>messages</c> takes priority when both are present. The assistant's resolved system prompt is
@@ -458,6 +465,7 @@ public static class ChatEndpoints
                 : ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
             input.EnableThinking = enableThinking;
+            input.ConversationId = VoiceTurnWsConversationId(rawInput["conversationId"]?.ToString(), session.ID);
             ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens);
 
             // Resolved before touching tools at all, unlike the other routes in this file: the non-native
@@ -693,6 +701,41 @@ public static class ChatEndpoints
             list.Add(message);
         }
         return list;
+    }
+
+    /// <summary><see cref="ExtendedLLMInput.ConversationId"/> for a stored chat thread: the thread is the
+    /// conversation, and every route here loads it through <see cref="ThreadStorageService.GetThread"/> for the
+    /// calling user before building an input from it. Edits and regenerations stay on the same id — the engine
+    /// reuses the prefix up to wherever the new branch diverges — and compare-mode lanes share it, since the
+    /// provider keys each lane's model separately. Null for a blank id.</summary>
+    internal static string ThreadConversationId(string threadId)
+        => string.IsNullOrWhiteSpace(threadId) ? null : $"thread:{threadId}";
+
+    /// <summary><see cref="ExtendedLLMInput.ConversationId"/> for the stateless one-shot
+    /// <see cref="LLMAssistantVoiceTurn"/>: one scope per assistant, shared by all of the user's calls and devices
+    /// (the provider adds the user and the model). Each call sends only the assistant's system prompt, its tool
+    /// definitions and one new message, so that prefix is the only thing a later call could reuse, and it is the
+    /// same for every caller with this assistant; a per-session scope would hold one copy per device and churn
+    /// the engine's store for a client that opens a fresh session per call, for no extra reuse. Two calls at
+    /// once cannot clash either: the engine serializes requests per device and runs a second request on a key
+    /// that is in use without the cache.</summary>
+    internal static string VoiceTurnConversationId(string assistantId)
+        => $"voice-turn:{assistantId}";
+
+    /// <summary><see cref="ExtendedLLMInput.ConversationId"/> for <see cref="LLMAssistantVoiceTurnWS"/>. Each turn
+    /// arrives on a fresh WebSocket, so the connection identifies nothing past one turn. The client's own
+    /// <c>conversationId</c> wins when present (one phone call, say), else the SwarmUI session the turn was sent
+    /// with, which a voice client keeps for the whole call (AudioLab's <c>RemoteTextService</c> forwards its
+    /// browser session's id on every turn) but which is shared by every call made from that session. The two
+    /// forms have different prefixes, so a client-chosen id can never land on a session's scope, and the
+    /// provider adds the user, so it can never reach another user's. Null when neither is available.</summary>
+    internal static string VoiceTurnWsConversationId(string clientConversationId, string sessionId)
+    {
+        if (!string.IsNullOrWhiteSpace(clientConversationId))
+        {
+            return $"voice-ws:{clientConversationId.Trim()}";
+        }
+        return string.IsNullOrWhiteSpace(sessionId) ? null : $"voice-ws-session:{sessionId}";
     }
 
     /// <summary>Drains <paramref name="chunks"/> into wire frames via <paramref name="send"/>, exactly as
@@ -969,6 +1012,7 @@ public static class ChatEndpoints
             List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
             ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
             input.RequestSession = session;
+            input.ConversationId = ThreadConversationId(threadId);
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt —
@@ -1220,6 +1264,7 @@ public static class ChatEndpoints
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;
+                input.ConversationId = ThreadConversationId(threadId);
                 input.BackendId = L.BackendId;
                 input.Device = L.Device;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);

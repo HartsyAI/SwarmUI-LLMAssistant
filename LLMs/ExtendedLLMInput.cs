@@ -66,6 +66,14 @@ public class ExtendedLLMInput
     /// honors it; ignored by a provider/template without a thinking slot.</summary>
     public bool? EnableThinking;
 
+    /// <summary>Which conversation this request continues (eg <c>thread:{threadId}</c>), so a provider that keeps
+    /// per-conversation state can find it again next turn; null (the default) for one-off calls such as titles,
+    /// prompt enhancement or a tool's own caption request. Set only by the conversational routes in
+    /// <see cref="WebAPI.ChatEndpoints"/>. Only <see cref="Backends.HartsyLocalLLMProvider"/> reads it, to key the
+    /// engine's prefix-KV reuse (scoped there by the calling user and the model); every other provider ignores it
+    /// and never sends it anywhere.</summary>
+    public string ConversationId;
+
     /// <summary>Creates an ExtendedLLMInput from a user message and optional system prompt.</summary>
     public static ExtendedLLMInput Create(string userMessage, string systemPrompt = null, string model = null)
     {
