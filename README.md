@@ -109,6 +109,9 @@ Go to `Server > Backends` — the three LLM backend types appear directly in the
 | `GraphDecode` | `false` | CUDA-graph decode for plain dense Llama/Qwen/Mistral shapes. Requires the request to end up greedy (temperature 0). |
 | `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
 | `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and**, for a model whose own chat template instructs Hermes JSON tool calls specifically (checked by reading its `tokenizer.chat_template` metadata, not its name), turn on real native tool calling instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. A model whose template doesn't instruct that format (Llama, Mistral, Gemma, DeepSeek R1's distillations, GLM-4.5/Qwen3.5-style XML-argument templates, or anything with no template at all) keeps using the tag convention regardless of this setting — the engine only installs one parser (Hermes) for the whole backend. [`LLMAssistantVoiceTurnWS`](#streaming-frames) runs without it too now (a `{"notice": …}` frame then a plain stream, no hard error), but still needs it for native tool dispatch specifically. |
+| `ReuseConversationPrefix` | `true` | Keep each conversation's prompt prefix cached on the device between turns (see below). Has no effect while `AlwaysFreeMemory` is on. |
+
+**Conversation prefix reuse.** Each conversation — a chat thread, a voice session — keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are identical either way. What each GPU holds is bounded by the engine's `vram.prefixCacheMaxEntries` (default 4) and `vram.prefixCacheMaxBytes` (default 512 MiB) settings in `~/.config/hartsyinference/settings.json`, least recently used first. One conversation holds roughly (prompt + Max Tokens + 2048) tokens of KV cache — about 1.9 GiB for Qwen3-4B at the default 4096 Max Tokens — so at the defaults most models of 1B and up keep one conversation per GPU at a time; raise `vram.prefixCacheMaxBytes` to keep more.
 
 ### Remote (OpenAI-compatible) settings
 
@@ -467,7 +470,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?` | streaming frames (below) |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
-| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
+| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `conversationId?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}` — persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
@@ -509,7 +512,9 @@ turn unless `messages` already opens with one, so replaying history never double
 `{id, name, arguments}` shape a `native_tool_call` frame sent earlier in the session, so a client can echo its
 own history straight back. `enableThinking?` (bool) maps directly to the engine's `enable_thinking` chat-template
 toggle (Qwen3-family reasoning-block switch) — omit it to keep the model's own default; a voice caller sends
-`false`, since thinking adds hundreds of tokens before the first spoken word.
+`false`, since thinking adds hundreds of tokens before the first spoken word. `conversationId?` (string) names
+the conversation a turn belongs to, so a local model reuses its prefix from one turn to the next; every turn is
+its own socket, so without it turns are grouped by the SwarmUI session they were sent with.
 
 ### Threads
 

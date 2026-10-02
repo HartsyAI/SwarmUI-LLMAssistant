@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -91,34 +90,6 @@ public class ChatEndpointsVoiceTurnWsContractTests
 
     public class ForwardFramesAsyncTests
     {
-        /// <summary>Same role as <c>ToolLoopIntegrationTests.ScriptedTextService</c> (duplicated rather than
-        /// shared, matching that file's own per-file scoping): replays one scripted <see cref="TextChunk"/>
-        /// sequence per call to <see cref="StreamAsync"/>, in order.</summary>
-        private sealed class ScriptedTextService : ITextService
-        {
-            private readonly List<IReadOnlyList<TextChunk>> _rounds;
-            private int _callIndex;
-            public List<TextRequest> SeenRequests { get; } = [];
-            public ScriptedTextService(params IReadOnlyList<TextChunk>[] rounds) => _rounds = [.. rounds];
-
-            public async IAsyncEnumerable<TextChunk> StreamAsync(ModelSpec spec, TextRequest request,
-                [EnumeratorCancellation] CancellationToken cancel = default)
-            {
-                SeenRequests.Add(request);
-                Assert.True(_callIndex < _rounds.Count, "ScriptedTextService.StreamAsync called more times than scripted.");
-                foreach (TextChunk chunk in _rounds[_callIndex++])
-                {
-                    await Task.Yield();
-                    yield return chunk;
-                }
-            }
-
-            public Task<TextResult> GenerateAsync(ModelSpec spec, TextRequest request, CancellationToken cancel = default)
-                => throw new NotSupportedException("Not exercised by these tests.");
-            public int CountTokens(ModelSpec spec, string text) => 0;
-            public bool Unload(string device = null) => false;
-        }
-
         private static ModelSpec Spec() => new() { Requested = "qwen3-4b", Modality = Modality.Text };
 
         [Fact]

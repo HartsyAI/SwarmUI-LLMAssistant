@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
@@ -68,6 +69,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
         [ConfigComment("When tools are enabled for a chat, grammar-mask the JSON body of a <tool_call>{...}</tool_call> block so it's\nalways syntactically valid — plain chat text stays completely unconstrained, only the JSON between the tags is\nguaranteed-valid (same technique every major chat API uses: constrain only the tool-call span, never the whole\nreply). Off by default until verified against real models — see docs.")]
         public bool StructuredToolCalling = false;
+
+        [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Output is identical either way.\nCosts VRAM while a conversation is held: roughly (prompt + Max Tokens + 2048) tokens of KV cache. The engine bounds how many conversations it holds per GPU with its vram.prefixCacheMaxEntries / vram.prefixCacheMaxBytes settings, least recently used first.\nHas no effect while 'Always Free Memory' is on.")]
+        public bool ReuseConversationPrefix = true;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -373,7 +377,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
-        TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
+        TextRequest request = await BuildRequestAsync(input, spec, deviceKey, ct);
         return (spec, request, deviceKey);
     }
 
@@ -480,9 +484,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Builds the engine's native request from the extension's input: messages/roles, sampling knobs
     /// from settings plus per-request overrides, the vision attachment (decoded only for the final user turn —
-    /// the engine's vision path only ever looks at the latest one), and tool definitions when structured tool
-    /// calling is enabled.</summary>
-    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, string deviceKey, CancellationToken ct)
+    /// the engine's vision path only ever looks at the latest one), tool definitions when structured tool
+    /// calling is enabled, and the conversation's prefix-cache key (see <see cref="BuildRequestCore"/>).</summary>
+    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, ModelSpec spec, string deviceKey, CancellationToken ct)
     {
         List<LLMMessage> source = input.Messages is { Count: > 0 } ? input.Messages : SyntheticMessages(input);
         int lastUserIdx = -1;
@@ -528,8 +532,23 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 JsonSchema = (t["parameters"] as JObject ?? new JObject()).ToString()
             })];
         }
-        return BuildRequestCore(input, messages, tools, deviceKey, Settings);
+        // The user comes from the server-side session, never from the request body. The token count runs only
+        // when BuildRequestCore actually sets a key, so a one-off call never pays to tokenize its prompt. It is
+        // exact once this model is loaded and its slot is idle; before the first load the engine falls back to
+        // chars/4, so a conversation whose estimate came out low can pay one extra full prefill on turn 2
+        // before the exact count takes over.
+        return BuildRequestCore(input, messages, tools, deviceKey, Settings, input.RequestSession?.User?.UserID,
+            () => Engine.Text.CountTokens(spec, PromptTextForEstimate(messages, tools)));
     }
+
+    /// <summary>Tokens of KV capacity reserved past a request's own prompt and <see cref="TextRequest.MaxTokens"/>
+    /// when the engine first allocates a conversation's retained sequence (or re-allocates one it has outgrown).
+    /// The engine reuses a retained cache only while it can hold the whole next request — prompt plus
+    /// <c>MaxTokens</c> plus one — and a conversation's prompt grows every turn, so without this margin every
+    /// turn would outgrow the previous one and nothing would ever be reused, tool-loop rounds included. 2048
+    /// covers several turns of chat growth or a typical tool result; once outgrown, that one turn pays a full
+    /// prefill (what every turn cost before this existed) and the cache is re-sized with a fresh margin.</summary>
+    internal const int PrefixCacheHeadroomTokens = 2048;
 
     /// <summary>The pure tail of <see cref="BuildRequestAsync"/>: turns the already-resolved messages/tools
     /// plus <paramref name="input"/>'s per-request overrides and <paramref name="settings"/>'s provider-wide
@@ -537,35 +556,107 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// (<see cref="TextRequest.EnableThinking"/> included) is unit-testable against a freshly constructed
     /// <see cref="HartsyLocalLLMProviderSettings"/> — the rest of <see cref="BuildRequestAsync"/> needs a live
     /// host (<see cref="SupportsNativeToolCallingFor"/>'s <see cref="ResolvePath"/> call reads
-    /// <c>Program.ServerSettings</c>; the image-decode loop is async I/O), this does neither.</summary>
+    /// <c>Program.ServerSettings</c>; the image-decode loop is async I/O), this does neither.
+    ///
+    /// <para><b>Prefix-KV reuse.</b> A request continuing a conversation (<see cref="ExtendedLLMInput.ConversationId"/>
+    /// set by its route) for a known <paramref name="userId"/> carries <see cref="TextRequest.PrefixCacheKey"/>
+    /// (<see cref="PrefixCacheKeyFor(string, string, string)"/>): the engine keeps that conversation's KV cache
+    /// between calls and prefills only the tokens past the longest prefix it already holds, with output identical
+    /// to a fresh prefill. Every round of a tool loop is built from the same input, so it carries the same key.
+    /// <see cref="TextRequest.PrefixCacheCapacityHint"/> sizes the retained cache to this prompt
+    /// (<paramref name="estimatePromptTokens"/>, invoked only when a key is set) plus <c>MaxTokens</c> plus
+    /// <see cref="PrefixCacheHeadroomTokens"/> — required, not an optimization: see that constant. No key when
+    /// <see cref="HartsyLocalLLMProviderSettings.ReuseConversationPrefix"/> is off, or when
+    /// <see cref="HartsyLocalLLMProviderSettings.AlwaysFreeMemory"/> is on, which unloads the slot (and the
+    /// engine's prefix store with it) after every request, so a key could only make each request allocate more
+    /// KV than it needs. <see cref="TextRequest.CacheWeightCasts"/>/<see cref="TextRequest.PreloadRedundantWeightSplits"/>
+    /// stay at the backend default: nothing here measured a reason to move them.</para></summary>
     internal static TextRequest BuildRequestCore(ExtendedLLMInput input, List<TextMessage> messages,
-        List<ToolDefinition> tools, string deviceKey, HartsyLocalLLMProviderSettings settings) => new()
+        List<ToolDefinition> tools, string deviceKey, HartsyLocalLLMProviderSettings settings,
+        string userId = null, Func<int> estimatePromptTokens = null)
     {
-        Messages = messages,
-        // Not SystemPrompt too: ExtendedLLMInput always folds the system prompt into Messages[0] (and
-        // keeps it in sync — see ApplyToolsToInput and ExtendedLLMInput.CreateFromMessages), so setting both
-        // here double-injects it into the chat template. Confirmed live: this produced garbage/off-topic
-        // output from real GGUF vision models under the WS chat path (verified 2026-07-25 testing against
-        // llava-v1.5-7b/Qwen2.5-VL-7B).
-        Temperature = Math.Max(0, input.Temperature),
-        TopP = input.TopP > 0 ? input.TopP : 1.0,
-        TopK = settings.TopK > 0 ? settings.TopK : null,
-        MinP = settings.MinP > 0 ? settings.MinP : null,
-        RepetitionPenalty = settings.RepetitionPenalty > 0 ? settings.RepetitionPenalty : null,
-        MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
-        Seed = input.Seed,
-        Greedy = input.Temperature <= 0,
-        // Voice callers send false (Qwen3 thinking adds hundreds of tokens before the first spoken word); null
-        // (every caller before this field existed, and still every caller except the new messages/enableThinking
-        // WS request fields) leaves the template's own default alone -- unchanged behavior.
-        EnableThinking = input.EnableThinking,
-        Device = deviceKey,
-        Tools = tools,
-        GraphDecode = settings.GraphDecode ? true : null,
-        SpeculativeDecode = settings.SpeculativeDecode ? true : null,
-        LowVramQuant = settings.LowVramQuant ? "true" : null,
-        AlwaysFreeMemory = settings.AlwaysFreeMemory
-    };
+        int maxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096;
+        string prefixCacheKey = settings.ReuseConversationPrefix && !settings.AlwaysFreeMemory
+            ? PrefixCacheKeyFor(userId, input.ConversationId, input.Model)
+            : null;
+        return new()
+        {
+            Messages = messages,
+            // Not SystemPrompt too: ExtendedLLMInput always folds the system prompt into Messages[0] (and
+            // keeps it in sync — see ApplyToolsToInput and ExtendedLLMInput.CreateFromMessages), so setting both
+            // here double-injects it into the chat template. Confirmed live: this produced garbage/off-topic
+            // output from real GGUF vision models under the WS chat path (verified 2026-07-25 testing against
+            // llava-v1.5-7b/Qwen2.5-VL-7B).
+            Temperature = Math.Max(0, input.Temperature),
+            TopP = input.TopP > 0 ? input.TopP : 1.0,
+            TopK = settings.TopK > 0 ? settings.TopK : null,
+            MinP = settings.MinP > 0 ? settings.MinP : null,
+            RepetitionPenalty = settings.RepetitionPenalty > 0 ? settings.RepetitionPenalty : null,
+            MaxTokens = maxTokens,
+            Seed = input.Seed,
+            Greedy = input.Temperature <= 0,
+            // Voice callers send false (Qwen3 thinking adds hundreds of tokens before the first spoken word); null
+            // (every caller before this field existed, and still every caller except the new messages/enableThinking
+            // WS request fields) leaves the template's own default alone -- unchanged behavior.
+            EnableThinking = input.EnableThinking,
+            Device = deviceKey,
+            Tools = tools,
+            GraphDecode = settings.GraphDecode ? true : null,
+            SpeculativeDecode = settings.SpeculativeDecode ? true : null,
+            LowVramQuant = settings.LowVramQuant ? "true" : null,
+            AlwaysFreeMemory = settings.AlwaysFreeMemory,
+            PrefixCacheKey = prefixCacheKey,
+            PrefixCacheCapacityHint = prefixCacheKey is null ? null
+                : PrefixCacheCapacityFor(estimatePromptTokens?.Invoke() ?? 0, maxTokens)
+        };
+    }
+
+    /// <summary>The retained-cache size <see cref="BuildRequestCore"/> asks the engine for: the prompt estimate
+    /// plus the reply budget plus <see cref="PrefixCacheHeadroomTokens"/>, saturating rather than overflowing for
+    /// an absurd <c>MaxTokens</c>.</summary>
+    internal static int PrefixCacheCapacityFor(int promptTokens, int maxTokens)
+        => (int)Math.Min(int.MaxValue, (long)Math.Max(0, promptTokens) + Math.Max(0, maxTokens) + PrefixCacheHeadroomTokens);
+
+    /// <summary>The engine prefix-cache key for one user's conversation on one model, or null unless all three are
+    /// present, so a request with no conversation (or no user) never touches the engine's store. The user id comes
+    /// from the server-side session, so a client choosing its own conversation id can only ever reach its own
+    /// user's entries. Hashed (SHA-256, first 128 bits) rather than concatenated, so no raw id — on the voice
+    /// routes that includes a SwarmUI session id, which is a credential — sits in the engine's key store or in
+    /// anything that logs it; each part is length-prefixed first, so no choice of ids makes two different triples
+    /// hash the same input. The model id is case-folded, matching <see cref="ResolvePath"/>'s own comparison.</summary>
+    internal static string PrefixCacheKeyFor(string userId, string conversationId, string model)
+    {
+        if (string.IsNullOrWhiteSpace(userId) || string.IsNullOrWhiteSpace(conversationId) || string.IsNullOrWhiteSpace(model))
+        {
+            return null;
+        }
+        string modelKey = model.Trim().ToLowerInvariant();
+        string material = $"{userId.Length}:{userId}|{conversationId.Length}:{conversationId}|{modelKey.Length}:{modelKey}";
+        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(material));
+        return "llmassistant:" + Convert.ToHexString(digest, 0, 16).ToLowerInvariant();
+    }
+
+    /// <summary>The text the chat template renders from a request, for <see cref="BuildRequestCore"/>'s token
+    /// estimate: every message's content and any tool calls it carries, plus the native tool schemas the template
+    /// renders on top of them. Role markers and other template scaffolding are left out —
+    /// <see cref="PrefixCacheHeadroomTokens"/> absorbs them.</summary>
+    internal static string PromptTextForEstimate(IReadOnlyList<TextMessage> messages, IReadOnlyList<ToolDefinition> tools)
+    {
+        StringBuilder text = new();
+        foreach (TextMessage message in messages)
+        {
+            text.Append(message.Content).Append('\n');
+            foreach (NativeToolCall call in message.ToolCalls ?? [])
+            {
+                text.Append(call.Name).Append(' ').Append(call.Arguments).Append('\n');
+            }
+        }
+        foreach (ToolDefinition tool in tools ?? [])
+        {
+            text.Append(tool.Name).Append(' ').Append(tool.Description).Append(' ').Append(tool.JsonSchema).Append('\n');
+        }
+        return text.ToString();
+    }
 
     /// <summary>Builds a minimal message list from the legacy UserMessage/SystemPrompt fields, for callers that
     /// never populated <see cref="ExtendedLLMInput.Messages"/> (mirrors <see cref="ExtendedLLMInput.Create"/>).</summary>

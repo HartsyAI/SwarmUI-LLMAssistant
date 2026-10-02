@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
@@ -16,38 +15,6 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// what <c>ChatEndpoints.LLMAssistantVoiceTurnWS</c> depends on when it forwards chunks over the socket.</summary>
 public class ToolLoopIntegrationTests
 {
-    /// <summary>Replays one scripted <see cref="TextChunk"/> sequence per call to <see cref="StreamAsync"/>,
-    /// in order; a call past the scripted rounds is a test bug, not a silent empty stream.</summary>
-    private sealed class ScriptedTextService : ITextService
-    {
-        private readonly List<IReadOnlyList<TextChunk>> _rounds;
-        private int _callIndex;
-
-        public List<TextRequest> SeenRequests { get; } = [];
-
-        public ScriptedTextService(params IReadOnlyList<TextChunk>[] rounds) => _rounds = [.. rounds];
-
-        public async IAsyncEnumerable<TextChunk> StreamAsync(ModelSpec spec, TextRequest request,
-            [EnumeratorCancellation] CancellationToken cancel = default)
-        {
-            SeenRequests.Add(request);
-            Assert.True(_callIndex < _rounds.Count, "ScriptedTextService.StreamAsync called more times than scripted.");
-            foreach (TextChunk chunk in _rounds[_callIndex++])
-            {
-                await Task.Yield();
-                cancel.ThrowIfCancellationRequested();
-                yield return chunk;
-            }
-        }
-
-        public Task<TextResult> GenerateAsync(ModelSpec spec, TextRequest request, CancellationToken cancel = default)
-            => throw new NotSupportedException("ToolLoop only calls StreamAsync.");
-
-        public int CountTokens(ModelSpec spec, string text) => (text?.Length ?? 0) / 4;
-
-        public bool Unload(string device = null) => false;
-    }
-
     private static ModelSpec Spec() => new() { Requested = "fake-model", Modality = Modality.Text };
 
     private static TextRequest Request() => new() { Messages = [new TextMessage { Role = TextRole.User, Content = "what time is it?" }] };
