@@ -34,9 +34,13 @@ public class ConversationPrefixCacheTests
     private static List<TextMessage> Messages(ExtendedLLMInput input)
         => [.. input.Messages.Select(m => HartsyLocalLLMProvider.ToTextMessage(m, m.Content, images: null))];
 
+    /// <summary>Settings with reuse switched on: <see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings.ReuseConversationPrefix"/>
+    /// defaults to off until the engine bounds what it retains (see <see cref="DefaultSettings_CarryNoKey"/>).</summary>
+    private static HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings Reuse() => new() { ReuseConversationPrefix = true };
+
     private static TextRequest Build(ExtendedLLMInput input, string userId, HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings settings = null,
         Func<int> estimatePromptTokens = null, List<ToolDefinition> tools = null)
-        => HartsyLocalLLMProvider.BuildRequestCore(input, Messages(input), tools, deviceKey: "cuda:0", settings ?? new(), userId, estimatePromptTokens);
+        => HartsyLocalLLMProvider.BuildRequestCore(input, Messages(input), tools, deviceKey: "cuda:0", settings ?? Reuse(), userId, estimatePromptTokens);
 
     private static string KeyFor(string userId, string conversationId, string model = Model)
         => Build(Turn(conversationId, model, (LLMRoles.User, "hi")), userId).PrefixCacheKey;
@@ -156,10 +160,49 @@ public class ConversationPrefixCacheTests
         // The slot (and the engine's prefix store with it) is unloaded after every request, so nothing could be
         // reused; a key would only make each request allocate a bigger KV cache than it needs.
         TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice",
-            new() { AlwaysFreeMemory = true });
+            new() { ReuseConversationPrefix = true, AlwaysFreeMemory = true });
         Assert.Null(request.PrefixCacheKey);
         Assert.Null(request.PrefixCacheCapacityHint);
         Assert.True(request.AlwaysFreeMemory);
+    }
+
+    [Fact]
+    public void DefaultSettings_CarryNoKey()
+    {
+        // Off by default until the engine bounds retained VRAM (engine alpha.242): today it always keeps the newest
+        // entry whatever its size, and a long thread's entry grows to several GiB on a GPU shared with image models.
+        Assert.False(new HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings().ReuseConversationPrefix);
+        TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice", new());
+        Assert.Null(request.PrefixCacheKey);
+        Assert.Null(request.PrefixCacheCapacityHint);
+    }
+
+    [Theory]
+    [InlineData("Aggressive")]
+    [InlineData("Maximum")]
+    [InlineData(" maximum ")]
+    public void AggressiveOrMaximumVramMode_CarriesNoKey(string vramMode)
+    {
+        // The user picked these to hold the least VRAM between requests; a retained entry is live memory a pool
+        // trim or a same-process OOM recovery cannot reclaim, unlike a finished request's KV.
+        TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice",
+            new() { ReuseConversationPrefix = true, VramMode = vramMode });
+        Assert.Null(request.PrefixCacheKey);
+        Assert.Null(request.PrefixCacheCapacityHint);
+    }
+
+    [Theory]
+    [InlineData("Auto")]
+    [InlineData("Performance")]
+    [InlineData("Balanced")]
+    [InlineData("")]
+    [InlineData("not-a-mode")]
+    public void OtherVramModes_KeepTheKey(string vramMode)
+    {
+        // Blank and unrecognized values mean Auto, exactly as ParseVramMode reads them.
+        TextRequest request = Build(Turn(ChatEndpoints.ThreadConversationId("t1"), Model, (LLMRoles.User, "hi")), "alice",
+            new() { ReuseConversationPrefix = true, VramMode = vramMode });
+        Assert.NotNull(request.PrefixCacheKey);
     }
 
     [Fact]

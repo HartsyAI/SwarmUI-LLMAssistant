@@ -64,7 +64,8 @@
        2.0.0-alpha.241 = 2026-10-02 (alpha.237 -> alpha.241, verified indexed on nuget.org for hartsyinference,
        hartsyinference.engine and hartsyinference.tools before bumping). Brings HartsyInference#217's opt-in
        prefix-KV reuse (TextRequest.PrefixCacheKey/PrefixCacheCapacityHint), which HartsyLocalLLMProvider now
-       sets per conversation, and needs: the pin IS the feature here, not a catch-up. Everything else in the
+       sets per conversation behind ReuseConversationPrefix (off until engine alpha.242 bounds the VRAM a
+       retained entry holds), and needs: the pin IS the feature here, not a catch-up. Everything else in the
        range is additive (TextRequest.CacheWeightCasts/PreloadRedundantWeightSplits, ITextService.TrimMemoryPool
        with a default implementation); this extension leaves those at their defaults. #227
        (ToolCallFormats.TryDetectFromTemplate) merged after alpha.241 was published, so it is NOT in this pin,
