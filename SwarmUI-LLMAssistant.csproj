@@ -77,13 +77,22 @@
        kept at all past vram.prefixCacheMaxBytes (now 1.5 GiB, the per-entry cap as well as the store's).
        That is what lets ReuseConversationPrefix default to on, and it reduces PrefixCacheCapacityHint to
        sizing a key's first allocation, so HartsyLocalLLMProvider no longer sets one (and no longer
-       tokenizes the prompt to estimate it). -->
+       tokenizes the prompt to estimate it).
+       2.0.0-alpha.243 = 2026-10-02 (alpha.242 -> alpha.243; every HartsyInference package's alpha.243
+       .nupkg verified on nuget.org before bumping). Carries HartsyInference#243: every CUDA op runs in its
+       own backend's context, whatever another engine copy left bound on the thread. SwarmUI loads one
+       private engine copy per extension, all on one thread pool, and each copy cached "this thread is bound
+       to my context" for itself. A 3060 binding this extension's copy made for a voice turn sent AudioLab's
+       4090 work into the 3060's context. The sticky CUDA 700 that followed broke the image backend and this
+       extension's own FreeBackendMemory (HartsyLocalLLMProvider.FreeMemory). The fix only protects the
+       process when every engine copy in it has it, so AudioLab takes alpha.243 at the same time. No source
+       change is needed for the bump. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.242" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.243" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
-         since alpha.222; pinned to the same alpha.242 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.242" />
+         since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.243" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
