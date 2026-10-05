@@ -88,11 +88,11 @@
        process when every engine copy in it has it, so AudioLab takes alpha.243 at the same time. No source
        change is needed for the bump. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.243" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.251" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
          since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.243" />
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.251" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
