@@ -342,6 +342,42 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
     }
 
+    /// <summary>Finds a Clef release directory (the one holding <c>joint_head.safetensors</c>) named <paramref name="model"/>
+    /// under any of <paramref name="folders"/>, searching one level deep; null when there is none.</summary>
+    internal static string ResolveDecisionRelease(string model, IEnumerable<string> folders)
+    {
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            return null;
+        }
+        foreach (string folder in folders)
+        {
+            foreach (string candidate in new[] { Path.Combine(folder, model), Path.Combine(folder, "clef", model) })
+            {
+                if (File.Exists(Path.Combine(candidate, "joint_head.safetensors")))
+                {
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Answers a Jev / SystemOne request body (<c>/v1/systemone</c> shape) with Cloudflare Clef. The release
+    /// directory (<c>model</c> in the body, e.g. <c>clef-flash</c>) must sit in the LLM model folder.</summary>
+    public async Task<string> DecideAsync(string requestJson, CancellationToken ct)
+    {
+        string model = JObject.Parse(requestJson)["model"]?.ToString();
+        string dir = ResolveDecisionRelease(model, ModelFolders());
+        if (dir is null)
+        {
+            throw new SwarmReadableErrorException($"Clef release '{model}' not found. Download Cloudflare/clef-flash into Models/llm/{model}.");
+        }
+        await MaybeEvictForLowMemory();
+        ModelSpec spec = new() { Requested = model, Modality = Modality.Decision, LocalPath = dir };
+        return await Engine.Decisions.DecideAsync(spec, requestJson, ct);
+    }
+
     /// <summary>Resolves a model id (file name) to a full GGUF path, or null if not found.</summary>
     private static string ResolvePath(string modelId)
     {
