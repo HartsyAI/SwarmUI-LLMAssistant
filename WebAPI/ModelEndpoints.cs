@@ -1,6 +1,9 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using SwarmUI.Core;
+using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
@@ -44,6 +47,32 @@ public static class ModelEndpoints
             ["models"] = models,
             ["warnings"] = warnings
         };
+    }
+
+    /// <summary>Answers a typed-decision request (state plus choice / score / true-false questions) with Cloudflare Clef
+    /// through the local HartsyInference backend. The body is the Jev / SystemOne request; the response is its answer body.</summary>
+    public static async Task<JObject> LLMAssistantDecide(Session session, JObject input)
+    {
+        HartsyLocalLLMProvider provider = LLMProviderRegistry.All.OfType<HartsyLocalLLMProvider>().FirstOrDefault();
+        if (provider is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "The local HartsyInference LLM backend is not available." };
+        }
+        try
+        {
+            string answer = await provider.DecideAsync(input.ToString(), CancellationToken.None);
+            JObject result = JObject.Parse(answer);
+            result["success"] = true;
+            return result;
+        }
+        catch (ArgumentException ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        catch (SwarmReadableErrorException ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
     }
 
     /// <summary>Unloads every registered LLM provider's resident model to free VRAM/RAM (eg to make room for
