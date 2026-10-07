@@ -148,11 +148,13 @@ public static class ChatEndpoints
 
     /// <summary>Non-streaming completion for instruction/utility callers (eg prompt enhancement,
     /// magic vision). Does NOT touch chat threads — pass an explicit <paramref name="message"/>
-    /// and you get back the raw model output. For chat use the WS endpoint with a threadId.</summary>
+    /// and you get back the raw model output. For chat use the WS endpoint with a threadId. <paramref name="backendId"/> picks one of
+    /// several backends serving the same model; <paramref name="device"/> overrides the backend's device (eg <c>cuda:0+cuda:1</c>).
+    /// Both are part of the cache key.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
         double temperature = -1, int maxTokens = -1, bool noCache = false,
-        string assistantId = null)
+        string assistantId = null, string device = null, int backendId = -1)
     {
         try
         {
@@ -161,6 +163,11 @@ public static class ChatEndpoints
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
+            input.BackendId = backendId;
+            if (!string.IsNullOrWhiteSpace(device))
+            {
+                input.Device = device;
+            }
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens);
             string response;
@@ -170,7 +177,7 @@ public static class ChatEndpoints
             }
             else
             {
-                response = await Cache.GetOrCreate(session.User?.UserID, model, assistantId, message, instructionId, async () =>
+                response = await Cache.GetOrCreate(session.User?.UserID, $"{model}|{device}|{backendId}", assistantId, message, instructionId, async () =>
                 {
                     return await LLMDispatcher.Generate(input);
                 });
