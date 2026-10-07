@@ -91,12 +91,12 @@
        a flat 2.5x the file, and Q2_K / Q3_K stay compressed on the GPU, so Kolibri-1 can load on a 64 GB server. No source change
        needed here. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <!-- Floating: resolves to the newest published 2.0.0-alpha.N on nuget.org whenever the extension is built (user decision 2026-10-07). Restart with force=true so every extension rebuilds on the same engine. -->
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.*" />
+    <!-- Exact pin on purpose: a floating alpha.* resolves to the stale alpha.NNN-local.M builds in the hartsy-local feed (NuGet ranks the alphanumeric label above numeric ones), which broke every extension build on 2026-10-07. -->
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.270" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
          since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.*" />
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.270" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
