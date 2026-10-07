@@ -460,7 +460,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         // to say nothing", at any log level. Cost an hour on 2026-09-05 to a backend left on
                         // the default Device=cuda that could not actually run.
                         Logs.Warning($"[LLMAssistant] Local LLM '{input.Model}' stopped with an engine error on "
-                            + $"device '{deviceKey}' — no text was produced. If this device is not usable, "
+                            + $"device '{deviceKey}' — no text was produced: {chunk.Text}. If this device is not usable, "
                             + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
                         await onChunk(new JObject() { ["stopReason"] = "error" });
                     }
