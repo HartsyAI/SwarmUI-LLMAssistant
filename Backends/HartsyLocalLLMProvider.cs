@@ -11,9 +11,11 @@ using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Utils;
+using HartsyInference.Core.Configuration;
 using HartsyInference.Core.MemoryManagement;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
+using HartsyInference.Engine.Registry;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
@@ -363,16 +365,34 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return null;
     }
 
+    /// <summary>Downloads the catalog's decision release <paramref name="model"/> (eg <c>clef-flash</c>) under the Swarm model root, not
+    /// the engine's default location, and returns its directory. Nothing is fetched when the files are already there.</summary>
+    private static async Task<string> EnsureDecisionReleaseAsync(string model, CancellationToken ct)
+    {
+        CatalogEntry entry = ModelCatalog.Find(model);
+        if (entry is null || entry.Modality != Modality.Decision)
+        {
+            throw new SwarmReadableErrorException($"Clef release '{model}' not found, and it is not a known decision model. Put its files into Models/llm/{model}.");
+        }
+        if (string.IsNullOrEmpty(EngineKnobs.ModelsRoot.Value))
+        {
+            KnobStore.Set(EngineKnobs.ModelsRoot, Program.ServerSettings.Paths.ActualModelRoot);
+        }
+        IReadOnlyList<ModelAsset> missing = ModelDownloader.MissingAssets(entry);
+        if (missing.Count > 0)
+        {
+            Logs.Info($"[LLMAssistant] Downloading {missing.Count} file(s) of '{model}' to {RepoPaths.ModelsRoot()}.");
+            await ModelDownloader.DownloadAsync(missing, null, ct);
+        }
+        return Path.GetDirectoryName(ModelDownloader.PrimaryLocalPath(entry));
+    }
+
     /// <summary>Answers a Jev / SystemOne request body (<c>/v1/systemone</c> shape) with Cloudflare Clef. The release
     /// directory (<c>model</c> in the body, e.g. <c>clef-flash</c>) must sit in the LLM model folder.</summary>
     public async Task<string> DecideAsync(string requestJson, CancellationToken ct)
     {
         string model = JObject.Parse(requestJson)["model"]?.ToString();
-        string dir = ResolveDecisionRelease(model, ModelFolders());
-        if (dir is null)
-        {
-            throw new SwarmReadableErrorException($"Clef release '{model}' not found. Download Cloudflare/clef-flash into Models/llm/{model}.");
-        }
+        string dir = ResolveDecisionRelease(model, ModelFolders()) ?? await EnsureDecisionReleaseAsync(model, ct);
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = model, Modality = Modality.Decision, LocalPath = dir };
         return await Engine.Decisions.DecideAsync(spec, requestJson, ct);
