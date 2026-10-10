@@ -430,3 +430,61 @@
     font-size: 11px;
     text-align: center;
 }
+
+/* ── Activity group: one quiet collapsed line per run of tool calls ───────── */
+.llma-tool-group { margin: 8px 0; }
+.llma-tool-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 2px 0;
+    background: none;
+    border: 0;
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.llma-tool-group-head:hover { color: var(--text); }
+.llma-tool-group-head .llma-spinner { display: none; margin-right: 0; }
+.llma-tool-group.running .llma-tool-group-head .llma-spinner { display: inline-block; }
+.llma-tool-group.has-error .llma-tool-group-summary { color: var(--backend-errored); }
+.llma-tool-group-chev { transition: transform 0.15s ease; }
+.llma-tool-group:not(.collapsed) .llma-tool-group-chev { transform: rotate(90deg); }
+.llma-tool-group-thumbs { display: flex; gap: 4px; margin-left: auto; padding-left: 12px; }
+.llma-tool-group-thumbs img {
+    width: 34px;
+    height: 34px;
+    object-fit: cover;
+    border-radius: 6px;
+    border: 1px solid var(--light-border);
+}
+.llma-tool-group.collapsed .llma-tool-group-body { display: none; }
+.llma-tool-group-body {
+    margin: 6px 0 0 5px;
+    padding-left: 12px;
+    border-left: 1px solid var(--light-border);
+}
+
+/* Steps inside a group: flat rows, no boxes. */
+.llma-tool-group .llma-tool-call-bubble,
+.llma-tool-group .llma-tool-call-bubble.pending,
+.llma-tool-group .llma-tool-call-bubble.success,
+.llma-tool-group .llma-tool-call-bubble.error {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+.llma-tool-group .llma-tool-call-header,
+.llma-tool-group .llma-tool-call-bubble.success .llma-tool-call-header,
+.llma-tool-group .llma-tool-call-bubble.error .llma-tool-call-header {
+    background: none;
+    padding: 3px 0;
+    cursor: pointer;
+}
+.llma-tool-group .llma-tool-call-title { font-weight: 500; color: var(--text); }
+.llma-tool-group .llma-tool-call-status { background: none; padding: 0; }
+.llma-tool-group .llma-tool-call-body { padding: 4px 0 8px; }
