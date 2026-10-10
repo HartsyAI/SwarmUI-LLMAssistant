@@ -43,10 +43,6 @@
 .llma-tool-call-bubble.error .llma-tool-call-header {
     background: color-mix(in srgb, var(--backend-errored) 10%, transparent);
 }
-.llma-tool-call-icon {
-    font-size: 13px;
-    color: var(--emphasis);
-}
 .llma-tool-call-title {
     flex: 1;
     font-weight: 600;
@@ -120,14 +116,6 @@
 }
 .llma-tool-result-bubble.error {
     border-left: 3px solid var(--backend-errored);
-}
-.llma-tool-result-image {
-    max-width: 320px;
-    max-height: 320px;
-    border-radius: 4px;
-    cursor: pointer;
-    align-self: flex-start;
-    border: 1px solid var(--light-border);
 }
 .llma-tool-result-caption {
     font-size: 11px;
@@ -232,6 +220,16 @@
     color: var(--text-soft);
     margin-bottom: 6px;
     line-height: 1.4;
+    /* Descriptions are the model-facing prompt and run long; keep cards scannable. Hover to read it all. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.llma-tool-list-item:hover .llma-tool-list-desc {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
 }
 .llma-tool-list-meta {
     display: flex;
@@ -429,4 +427,62 @@
     color: var(--text-soft);
     font-size: 11px;
     text-align: center;
+}
+
+/* ── Activity group: one quiet collapsed line per run of tool calls ───────── */
+.llma-tool-group { margin: 8px 0; }
+.llma-tool-group-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 2px 0;
+    background: none;
+    border: 0;
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+.llma-tool-group-head:hover { color: var(--text); }
+.llma-tool-group-head .llma-spinner { display: none; margin-right: 0; }
+.llma-tool-group.running .llma-tool-group-head .llma-spinner { display: inline-block; }
+.llma-tool-group.has-error .llma-tool-group-summary { color: var(--backend-errored); }
+.llma-tool-group-chev { transition: transform 0.15s ease; }
+.llma-tool-group:not(.collapsed) .llma-tool-group-chev { transform: rotate(90deg); }
+.llma-tool-group.collapsed .llma-tool-group-body { display: none; }
+.llma-tool-group-body {
+    margin: 6px 0 0 5px;
+    padding-left: 12px;
+    border-left: 1px solid var(--light-border);
+}
+
+/* Steps inside a group: flat rows, no boxes. */
+.llma-tool-group .llma-tool-call-bubble,
+.llma-tool-group .llma-tool-call-bubble.pending,
+.llma-tool-group .llma-tool-call-bubble.success,
+.llma-tool-group .llma-tool-call-bubble.error {
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+}
+.llma-tool-group .llma-tool-call-header,
+.llma-tool-group .llma-tool-call-bubble.success .llma-tool-call-header,
+.llma-tool-group .llma-tool-call-bubble.error .llma-tool-call-header {
+    background: none;
+    padding: 3px 0;
+    cursor: pointer;
+}
+.llma-tool-group .llma-tool-call-title { font-weight: 500; color: var(--text); }
+.llma-tool-group .llma-tool-call-status { background: none; padding: 0; }
+.llma-tool-group .llma-tool-call-body { padding: 4px 0 8px; }
+
+.llma-tool-group.single .llma-tool-call-header { display: none; }
+.llma-tool-group.single .llma-tool-call-bubble.collapsed .llma-tool-call-body { display: block; }
+.llma-tool-result-errtext {
+    font-size: 12.5px;
+    color: var(--text);
+    word-break: break-word;
 }

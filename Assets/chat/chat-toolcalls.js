@@ -21,11 +21,103 @@
         return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
+    /** Verb phrases per tool: [singular activity, plural noun used in the group summary]. */
+    const LLMA_TOOL_PHRASES = {
+        generate_image: ['Generated an image', 'generated {n} images'],
+        web_search: ['Searched the web', 'searched the web {n} times'],
+        file_read: ['Read a file', 'read {n} files'],
+        file_write: ['Wrote a file', 'wrote {n} files'],
+        shell_exec: ['Ran a command', 'ran {n} commands'],
+        http_request: ['Made a request', 'made {n} requests'],
+    };
+
+    /** Short activity title for one tool call ("Ran a command", or "Used Foo Bar" for unknown tools). */
+    function llmaToolActivity(name) {
+        const p = LLMA_TOOL_PHRASES[name];
+        return p ? translate(p[0]) : `${translate('Used')} ${llmaFormatToolName(name)}`;
+    }
+
+    /**
+     * Find (or create) the collapsed activity group that the next tool call in `bubble` belongs to.
+     * Consecutive tool calls (ignoring empty text segments between them) share one group; text in
+     * between starts a new one.
+     */
+    function llmaToolGroupFor(bubble) {
+        let last = bubble.lastElementChild;
+        while (last && (last.classList.contains('llma-tool-image-card') || (last.classList.contains('llma-msg-text-segment') && !last.textContent.trim()))) {
+            last = last.previousElementSibling;
+        }
+        if (last && last.classList.contains('llma-tool-group')) {
+            return last;
+        }
+        const group = document.createElement('div');
+        group.className = 'llma-tool-group collapsed';
+
+        const head = document.createElement('button');
+        head.type = 'button';
+        head.className = 'llma-tool-group-head';
+        head.setAttribute('aria-expanded', 'false');
+        head.innerHTML = '<span class="llma-spinner" aria-hidden="true"></span>'
+            + '<span class="llma-tool-group-summary"></span>'
+            + '<span class="llma-tool-group-chev" aria-hidden="true">›</span>';
+        head.addEventListener('click', () => {
+            let collapsed = group.classList.toggle('collapsed');
+            head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        });
+
+        const body = document.createElement('div');
+        body.className = 'llma-tool-group-body';
+        group.append(head, body);
+        bubble.appendChild(group);
+        return group;
+    }
+
+    /** Refresh a group's summary line ("Ran 2 commands, read a file"), and running state. */
+    function llmaUpdateToolGroup(group) {
+        if (!group) {
+            return;
+        }
+        let calls = Array.from(group.querySelectorAll('.llma-tool-call-bubble'));
+        let counts = {};
+        let order = [];
+        for (let c of calls) {
+            let n = c.getAttribute('data-tool-name') || '';
+            if (!(n in counts)) {
+                counts[n] = 0;
+                order.push(n);
+            }
+            counts[n]++;
+        }
+        let parts = [];
+        for (let n of order) {
+            let p = LLMA_TOOL_PHRASES[n];
+            if (!p) {
+                parts.push(counts[n] == 1 ? `${translate('used')} ${llmaFormatToolName(n)}` : `${translate('used')} ${llmaFormatToolName(n)} ×${counts[n]}`);
+            }
+            else if (counts[n] == 1) {
+                parts.push(translate(p[0]).charAt(0).toLowerCase() + translate(p[0]).slice(1));
+            }
+            else {
+                parts.push(translate(p[1]).replace('{n}', counts[n]));
+            }
+        }
+        let text = parts.join(', ');
+        text = text.charAt(0).toUpperCase() + text.slice(1);
+        let pending = group.querySelector('.llma-tool-call-bubble.pending');
+        let failed = group.querySelector('.llma-tool-call-bubble.error');
+        let summary = group.querySelector('.llma-tool-group-summary');
+        summary.textContent = pending ? `${text}…` : text;
+        // A lone step needs no row of its own: its details show straight under the summary line.
+        group.classList.toggle('single', calls.length == 1);
+        group.classList.toggle('running', !!pending);
+        group.classList.toggle('has-error', !!failed && !pending);
+    }
+
     /** Append a pending tool-call bubble (header + args, collapsible) under an assistant bubble. */
     function llmaRenderToolCall(bubble, call) {
         if (!bubble || !call) return;
         const wrap = document.createElement('div');
-        wrap.className = 'llma-tool-call-bubble pending';
+        wrap.className = 'llma-tool-call-bubble pending collapsed';
         wrap.setAttribute('data-tool-id', call.id || '');
         // Persist the tool name + args on the bubble so the retry button can re-issue the same call
         // without round-tripping through the message history (which the user might have edited).
@@ -36,14 +128,9 @@
         const header = document.createElement('div');
         header.className = 'llma-tool-call-header';
 
-        const icon = document.createElement('span');
-        icon.className = 'llma-tool-call-icon';
-        icon.textContent = '⚙'; // gear
-        header.appendChild(icon);
-
         const title = document.createElement('span');
         title.className = 'llma-tool-call-title';
-        title.textContent = `${translate('Calling')} ${llmaFormatToolName(call.name)}`;
+        title.textContent = llmaToolActivity(call.name);
         header.appendChild(title);
 
         const status = document.createElement('span');
@@ -56,9 +143,9 @@
 
         const toggle = document.createElement('button');
         toggle.className = 'llma-tool-call-toggle';
-        toggle.textContent = '▾'; // down-arrow
+        toggle.textContent = '▸'; // right-arrow (rows start collapsed)
         toggle.title = translate('Toggle details');
-        toggle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-expanded', 'false');
         toggle.setAttribute('aria-label', translate('Toggle tool call details'));
         header.appendChild(toggle);
 
@@ -83,7 +170,7 @@
         resultSlot.className = 'llma-tool-result-slot';
         body.appendChild(resultSlot);
 
-        toggle.addEventListener('click', () => {
+        header.addEventListener('click', () => {
             const collapsed = wrap.classList.toggle('collapsed');
             toggle.textContent = collapsed ? '▸' : '▾';
             toggle.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -91,7 +178,38 @@
 
         wrap.appendChild(header);
         wrap.appendChild(body);
-        bubble.appendChild(wrap);
+        const group = llmaToolGroupFor(bubble);
+        group.querySelector('.llma-tool-group-body').appendChild(wrap);
+        llmaUpdateToolGroup(group);
+    }
+
+    /** Insert (once) the inline preview card for a generated image right after its activity group. */
+    function llmaShowToolImageCard(bubble, callBubble, toolResult, result) {
+        const msgEl = bubble.closest?.('[data-msg-id]');
+        const msgId = msgEl ? msgEl.getAttribute('data-msg-id') : null;
+        const group = callBubble?.closest('.llma-tool-group');
+        if (!msgId || !group || typeof llmaRenderAssetCardHtml != 'function') {
+            return;
+        }
+        const assetId = `${msgId}-tool-${toolResult.id}`;
+        const findAsset = () => (LLMAState.assets || []).find(a => a.id == assetId);
+        let asset = findAsset();
+        if (!asset && typeof llmaRebuildAssetsForThread == 'function') {
+            llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
+            asset = findAsset();
+        }
+        if (!asset || bubble.querySelector(`.llma-tool-image-card [data-asset-id="${CSS.escape(asset.id)}"]`)) {
+            return;
+        }
+        // Cards live after the group (one per image); keep them in call order.
+        let anchor = group;
+        while (anchor.nextElementSibling?.classList.contains('llma-tool-image-card')) {
+            anchor = anchor.nextElementSibling;
+        }
+        const holder = document.createElement('div');
+        holder.className = 'llma-tool-image-card';
+        holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
+        anchor.after(holder);
     }
 
     /** Fill the result slot of a tool-call bubble with a tool-specific preview (or JSON fallback). */
@@ -107,6 +225,11 @@
             callBubble.classList.add(success ? 'success' : 'error');
             const status = callBubble.querySelector('.llma-tool-call-status');
             if (status) status.textContent = success ? translate('done') : translate('error');
+            if (!success) {
+                // Surface failures: open the step and its group so the error isn't hidden.
+                callBubble.classList.remove('collapsed');
+                callBubble.closest('.llma-tool-group')?.classList.remove('collapsed');
+            }
         }
 
         const slot = callBubble
@@ -130,13 +253,9 @@
         // Tool-specific previews
         const name = toolResult.name || '';
         if (success && name === 'generate_image' && result.imageUrl) {
-            const img = document.createElement('img');
-            img.src = result.imageUrl;
-            img.className = 'llma-tool-result-image';
-            img.addEventListener('click', () => {
-                if (typeof setCurrentImage === 'function') setCurrentImage(result.imageUrl);
-            });
-            resultWrap.appendChild(img);
+            // The image itself shows as an inline preview card under the activity line, so it stays
+            // visible while the group is collapsed; the step keeps just the prompt.
+            llmaShowToolImageCard(bubble, callBubble, toolResult, result);
             if (result.prompt) {
                 const caption = document.createElement('div');
                 caption.className = 'llma-tool-result-caption';
@@ -240,6 +359,12 @@
                 pre.textContent = result.stderr;
                 resultWrap.appendChild(pre);
             }
+        } else if (!success && typeof result.error == 'string' && result.error) {
+            // Failures: lead with the message; the raw payload is rarely more useful.
+            const errText = document.createElement('div');
+            errText.className = 'llma-tool-result-errtext';
+            errText.textContent = result.error;
+            resultWrap.appendChild(errText);
         } else {
             // Generic JSON fallback
             const pre = document.createElement('pre');
@@ -267,6 +392,7 @@
         }
 
         slot.appendChild(resultWrap);
+        llmaUpdateToolGroup(callBubble?.closest('.llma-tool-group'));
     }
 
     /**
@@ -305,6 +431,20 @@
             if (tc.result !== null && tc.result !== undefined) {
                 llmaRenderToolResult(bubble, { id: tc.id, name: tc.name, result: tc.result });
             }
+        }
+        // History keeps the reply text and the calls separately, so replay can't know where they
+        // interleaved. Activity happens before the answer: put the groups ahead of the text.
+        const moving = [];
+        for (const g of bubble.querySelectorAll(':scope > .llma-tool-group')) {
+            moving.push(g);
+            let next = g.nextElementSibling;
+            while (next && next.classList.contains('llma-tool-image-card')) {
+                moving.push(next);
+                next = next.nextElementSibling;
+            }
+        }
+        for (let i = moving.length - 1; i >= 0; i--) {
+            bubble.insertBefore(moving[i], bubble.firstChild);
         }
     }
 
