@@ -90,13 +90,17 @@
   <!-- 2.0.0-alpha.270 (from alpha.264): the host-RAM guard sizes a quantized GGUF by what the load actually expands instead of
        a flat 2.5x the file, and Q2_K / Q3_K stay compressed on the GPU, so Kolibri-1 can load on a 64 GB server. No source change
        needed here. -->
+  <!-- 2.0.0-alpha.329 (from alpha.270): the engine decides where a GGUF runs before loading it (TextRequest.Placement: one GPU,
+       else a layer split across GPUs, else expert offload, or forced), and a MoE layer's experts take one GPU allocation per
+       projection instead of one each, so Qwen3-30B-A3B Q4_K_M (18.5 GB) runs on one 24 GB card. This extension adds the
+       Placement setting and shows each loaded model's placement. The public surface from alpha.270 to here is additive. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
     <!-- Exact pin on purpose: a floating alpha.* resolves to the stale alpha.NNN-local.M builds in the hartsy-local feed (NuGet ranks the alphanumeric label above numeric ones), which broke every extension build on 2026-10-07. -->
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.270" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.329" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
          since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.270" />
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.329" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak

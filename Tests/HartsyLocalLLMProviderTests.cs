@@ -203,6 +203,29 @@ public class HartsyLocalLLMProviderTests
             Assert.Equal(enableThinking, request.EnableThinking);
         }
 
+        [Theory]
+        [InlineData("auto", "auto")]
+        [InlineData("GPU", "gpu")]
+        [InlineData(" split ", "split")]
+        [InlineData("offload", "offload")]
+        [InlineData("", null)]
+        [InlineData("offlaod", null)]
+        public void Placement_ReachesTheTextRequest_AndAnUnknownWordFallsBackToTheEngineDefault(string setting, string expected)
+        {
+            TextRequest request = HartsyLocalLLMProvider.BuildRequestCore(
+                Input(), messages: [], tools: null, deviceKey: "cuda:0", settings: new() { Placement = setting });
+            Assert.Equal(expected, request.Placement);
+        }
+
+        [Theory]
+        [InlineData("cuda:0", 2, "cuda:0+cuda:1")]
+        [InlineData("cuda:1", 2, "cuda:1+cuda:0")]
+        [InlineData("cuda:0", 3, "cuda:0+cuda:1+cuda:2")]
+        [InlineData("cuda:0", 1, null)]
+        [InlineData("cpu", 2, null)]
+        public void SplitDeviceKey_PutsThisBackendsGpuFirst(string primary, int gpus, string expected) =>
+            Assert.Equal(expected, HartsyLocalLLMProvider.SplitDeviceKey(primary, gpus));
+
         [Fact]
         public void ScalarOverrides_AllReachTheTextRequest()
         {
