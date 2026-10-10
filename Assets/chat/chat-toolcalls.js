@@ -108,6 +108,8 @@
         let failed = group.querySelector('.llma-tool-call-bubble.error');
         let summary = group.querySelector('.llma-tool-group-summary');
         summary.textContent = pending ? `${text}…` : text;
+        // A lone step needs no row of its own: its details show straight under the summary line.
+        group.classList.toggle('single', calls.length == 1);
         group.classList.toggle('running', !!pending);
         group.classList.toggle('has-error', !!failed && !pending);
         // Thumbnail strip: any generated images, so results stay visible while the group is collapsed.
@@ -342,6 +344,12 @@
                 pre.textContent = result.stderr;
                 resultWrap.appendChild(pre);
             }
+        } else if (!success && typeof result.error == 'string' && result.error) {
+            // Failures: lead with the message; the raw payload is rarely more useful.
+            const errText = document.createElement('div');
+            errText.className = 'llma-tool-result-errtext';
+            errText.textContent = result.error;
+            resultWrap.appendChild(errText);
         } else {
             // Generic JSON fallback
             const pre = document.createElement('pre');
@@ -408,6 +416,12 @@
             if (tc.result !== null && tc.result !== undefined) {
                 llmaRenderToolResult(bubble, { id: tc.id, name: tc.name, result: tc.result });
             }
+        }
+        // History keeps the reply text and the calls separately, so replay can't know where they
+        // interleaved. Activity happens before the answer: put the groups ahead of the text.
+        const groups = Array.from(bubble.querySelectorAll(':scope > .llma-tool-group'));
+        for (let i = groups.length - 1; i >= 0; i--) {
+            bubble.insertBefore(groups[i], bubble.firstChild);
         }
     }
 

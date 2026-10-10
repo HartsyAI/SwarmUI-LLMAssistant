@@ -488,3 +488,11 @@
 .llma-tool-group .llma-tool-call-title { font-weight: 500; color: var(--text); }
 .llma-tool-group .llma-tool-call-status { background: none; padding: 0; }
 .llma-tool-group .llma-tool-call-body { padding: 4px 0 8px; }
+
+.llma-tool-group.single .llma-tool-call-header { display: none; }
+.llma-tool-group.single .llma-tool-call-bubble.collapsed .llma-tool-call-body { display: block; }
+.llma-tool-result-errtext {
+    font-size: 12.5px;
+    color: var(--text);
+    word-break: break-word;
+}
