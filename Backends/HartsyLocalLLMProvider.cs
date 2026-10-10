@@ -15,6 +15,7 @@ using HartsyInference.Core.Configuration;
 using HartsyInference.Core.MemoryManagement;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
+using HartsyInference.Engine.Placement;
 using HartsyInference.Engine.Registry;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
@@ -44,6 +45,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ManualSettingsOptions(Impl = null, Vals = ["Auto", "Performance", "Balanced", "Aggressive", "Maximum"],
             ManualNames = ["Auto (recommended)", "Performance (stay loaded)", "Balanced", "Aggressive", "Maximum (free after every request)"])]
         public string VramMode = "Auto";
+
+        [ConfigComment("Where a model's weights go when it loads (GGUF on CUDA).\n\n'Auto' (recommended) picks the fastest placement that fits: everything on this backend's GPU; if it does not fit, its layers split across every GPU; if that does not fit either and the model is a mixture-of-experts, expert offload.\n\n'GPU only' refuses a model that does not fit this backend's GPU instead of falling back.\n\n'Split across GPUs' always splits the layers across every GPU.\n\n'Offload experts' keeps the dense weights and the most-used experts on this GPU and runs the rest on the CPU, so a large mixture-of-experts model runs on a small card, at a lower speed. The engine reports what it chose next to the model.")]
+        [ManualSettingsOptions(Impl = null, Vals = ["auto", "gpu", "split", "offload"],
+            ManualNames = ["Auto (recommended)", "GPU only", "Split across GPUs", "Offload experts to CPU"])]
+        public string Placement = "auto";
 
         [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.\n\nNOT the same thing as VRAM Mode above, despite both being about VRAM: this changes HOW a quantized weight is multiplied (compressed with a transient dequant per call, vs. one cached F16 copy), while VRAM Mode decides what stays loaded and when. They compose — 'Maximum' turns this on for you.\nOnly does anything for a quantized (GGUF) checkpoint; on an unquantized one it is inert, and the lever that helps there is splitting layers across GPUs.")]
         public bool LowVramQuant = false;
@@ -314,9 +320,40 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         List<string> devs = [primary];
         if (primary != "cpu")
         {
+            // Every GPU as one layer split, starting with this backend's own, so compare mode can pick a split explicitly.
+            if (SplitDeviceKey(primary, CudaDeviceCount()) is string split)
+            {
+                devs.Add(split);
+            }
             devs.Add("cpu");
         }
         return devs;
+    }
+
+    /// <summary>The layer-split key over <paramref name="gpuCount"/> GPUs with <paramref name="primary"/> first
+    /// ("cuda:0+cuda:1"), or null with fewer than two.</summary>
+    internal static string SplitDeviceKey(string primary, int gpuCount)
+    {
+        if (gpuCount < 2 || !primary.StartsWith("cuda:", StringComparison.Ordinal)
+            || !int.TryParse(primary.AsSpan(5), out int first))
+        {
+            return null;
+        }
+        IEnumerable<int> rest = Enumerable.Range(0, gpuCount).Where(o => o != first);
+        return string.Join('+', new[] { first }.Concat(rest).Select(o => $"cuda:{o}"));
+    }
+
+    private static int _cudaDeviceCount = -1;
+
+    /// <summary>Visible CUDA devices, read once.</summary>
+    private static int CudaDeviceCount()
+    {
+        if (_cudaDeviceCount < 0)
+        {
+            try { _cudaDeviceCount = HartsyInference.Cuda.CudaContext.IsAvailable() ? HartsyInference.Cuda.CudaContext.GetDeviceCount() : 0; }
+            catch (Exception ex) { Logs.Debug($"[HartsyLocalLLMProvider] CUDA device count unavailable: {ex.Message}"); _cudaDeviceCount = 0; }
+        }
+        return _cudaDeviceCount;
     }
 
     /// <summary>Normalizes a requested device string to a slot key. Blank or bare "cuda" → this backend's
@@ -653,9 +690,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             GraphDecode = settings.GraphDecode ? true : null,
             SpeculativeDecode = settings.SpeculativeDecode ? true : null,
             LowVramQuant = settings.LowVramQuant ? "true" : null,
+            Placement = PlacementFor(settings.Placement),
             AlwaysFreeMemory = settings.AlwaysFreeMemory,
             PrefixCacheKey = prefixCacheKey
         };
+    }
+
+    /// <summary>The engine's placement word for the Placement setting: auto, gpu, split or offload. Blank or unrecognized is
+    /// null, which leaves the engine's own default (auto) in force rather than failing every request on a typo.</summary>
+    internal static string PlacementFor(string placement)
+    {
+        string value = placement?.Trim().ToLowerInvariant();
+        return value is "auto" or "gpu" or "split" or "offload" ? value : null;
     }
 
     /// <summary>Whether the VRAM Mode setting is Aggressive or Maximum, the two tiers a user picks to hold the least
@@ -810,6 +856,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         List<LLMModelInfo> models = [];
         string deviceLabel = PrimaryDeviceKey();
         string devices = string.Join(",", SupportedDevices());
+        // The engine reports each model it placed: the authoritative answer to "loaded, and where", not a shadow of it.
+        Dictionary<string, LoadedModelPlacement> placed = new(StringComparer.Ordinal);
+        foreach (LoadedModelPlacement loaded in Engine?.Text.LoadedPlacements ?? [])
+        {
+            placed[FullPath(loaded.ModelPath)] = loaded;
+        }
         foreach (string folder in ModelFolders())
         {
             foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
@@ -831,12 +883,16 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     Provider = "hartsy-local",
                     BackendId = AbstractBackendData?.ID ?? -1,
                     SizeBytes = size,
-                    // ITextService exposes no slot-residency query, so "loaded" can't be answered here without
-                    // the extension tracking its own (easily-stale) shadow of engine state — report unknown
-                    // rather than a badge that can silently lie after an out-of-band free/evict.
-                    IsLoaded = false,
+                    // Known only for a model the engine's placement planner loaded (a GGUF on CUDA); anything else reports
+                    // not loaded rather than a badge that could silently lie after an out-of-band free.
+                    IsLoaded = placed.ContainsKey(FullPath(file)),
                     Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
                 };
+                if (placed.TryGetValue(FullPath(file), out LoadedModelPlacement placement))
+                {
+                    info.Metadata["placement"] = PlacementLabel(placement.Placement);
+                    info.Metadata["placement_reason"] = placement.Placement.Reason;
+                }
                 // Advertise vision capability when a sidecar mmproj sits next to the model (UI can badge it).
                 if (TextService.FindMmproj(file) is not null)
                 {
@@ -846,6 +902,20 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             }
         }
         return Task.FromResult(models);
+    }
+
+    /// <summary>A short label for where a model was placed, for the model list and the chat header.</summary>
+    internal static string PlacementLabel(TextPlacement placement) => placement.Mode switch
+    {
+        TextPlacementMode.Split => $"Split {string.Join(" + ", placement.Devices)}",
+        TextPlacementMode.Offload => $"Offload on {placement.DeviceKey}",
+        _ => $"GPU {placement.DeviceKey}",
+    };
+
+    private static string FullPath(string path)
+    {
+        try { return Path.GetFullPath(path); }
+        catch (Exception) { return path; }
     }
 
     /// <inheritdoc/>

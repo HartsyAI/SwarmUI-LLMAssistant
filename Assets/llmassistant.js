@@ -206,18 +206,25 @@ async function llmaLoadModels(opts = {}) {
                     byProvider[prov].push(m);
                 }
                 const providerKeys = Object.keys(byProvider);
-                // Plain model name — no emoji/badges. Vision capability is surfaced by the paperclip
-                // enable/disable and the Capabilities panel, not in the option text.
-                const labelFor = (m) => llmaEscapeHtml(m.name || m.id);
+                // The model name, plus, once loaded, where the engine placed it (one GPU, a split, or expert offload), with the
+                // reason as the tooltip. No emoji/badges: vision capability is surfaced by the paperclip enable/disable and the
+                // Capabilities panel, not in the option text.
+                const labelFor = (m) => {
+                    const base = llmaEscapeHtml(m.name || m.id);
+                    const placed = m.metadata && m.metadata.placement;
+                    return placed ? `${base} · ${llmaEscapeHtml(placed)}` : base;
+                };
+                const titleFor = (m) => (m.metadata && m.metadata.placement_reason)
+                    ? ` title="${llmaEscapeHtml(m.metadata.placement_reason)}"` : '';
                 if (providerKeys.length === 1) {
                     sel.innerHTML = models.map(m =>
-                        `<option value="${llmaEscapeHtml(m.id)}">${labelFor(m)}</option>`
+                        `<option value="${llmaEscapeHtml(m.id)}"${titleFor(m)}>${labelFor(m)}</option>`
                     ).join('');
                 } else {
                     sel.innerHTML = providerKeys.map(prov =>
                         `<optgroup label="${llmaEscapeHtml(prov)}">` +
                         byProvider[prov].map(m =>
-                            `<option value="${llmaEscapeHtml(m.id)}">${labelFor(m)}</option>`
+                            `<option value="${llmaEscapeHtml(m.id)}"${titleFor(m)}>${labelFor(m)}</option>`
                         ).join('') +
                         `</optgroup>`
                     ).join('');
