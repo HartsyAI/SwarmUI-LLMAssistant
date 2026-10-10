@@ -94,13 +94,17 @@
        else a layer split across GPUs, else expert offload, or forced), and a MoE layer's experts take one GPU allocation per
        projection instead of one each, so Qwen3-30B-A3B Q4_K_M (18.5 GB) runs on one 24 GB card. This extension adds the
        Placement setting and shows each loaded model's placement. The public surface from alpha.270 to here is additive. -->
+  <!-- 2.0.0-alpha.333 (from alpha.329): expert offload runs (alpha.331: a GPU expert cache plus the packed CPU kernels, so the
+       Placement setting's "Offload experts" now loads a mixture-of-experts model larger than the card), the repetition penalty
+       applies once per distinct token instead of once per occurrence (alpha.332: at this backend's default 1.1, long greedy
+       answers no longer misspell identifiers or drift languages), and faster CPU expert kernels (alpha.333). No source change. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
     <!-- Exact pin on purpose: a floating alpha.* resolves to the stale alpha.NNN-local.M builds in the hartsy-local feed (NuGet ranks the alphanumeric label above numeric ones), which broke every extension build on 2026-10-07. -->
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.329" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.333" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
          since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.329" />
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.333" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak

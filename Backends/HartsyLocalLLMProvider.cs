@@ -54,7 +54,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.\n\nNOT the same thing as VRAM Mode above, despite both being about VRAM: this changes HOW a quantized weight is multiplied (compressed with a transient dequant per call, vs. one cached F16 copy), while VRAM Mode decides what stays loaded and when. They compose — 'Maximum' turns this on for you.\nOnly does anything for a quantized (GGUF) checkpoint; on an unquantized one it is inert, and the lever that helps there is splitting layers across GPUs.")]
         public bool LowVramQuant = false;
 
-        [ConfigComment("Repetition penalty on already-generated tokens (1.0 = off).\nSmall models (eg 0.5B) loop/repeat without this — ~1.1 is a good default. Ignored at temperature 0 (greedy).")]
+        [ConfigComment("Repetition penalty on already-generated tokens (1.0 = off), applied once per distinct token as Hugging Face and llama.cpp apply it.\nSmall models (eg 0.5B) loop/repeat without this — ~1.1 is a good default. It also applies at temperature 0 (greedy), where it is what keeps a long reasoning trace from looping.")]
         public double RepetitionPenalty = 1.1;
 
         [ConfigComment("Top-K sampling: keep only the K highest-probability tokens each step (0 = off).\n~40 is a sane default that curbs small-model gibberish.")]
