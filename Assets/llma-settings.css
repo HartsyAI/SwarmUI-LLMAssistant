@@ -594,3 +594,14 @@ input[type="color"]#llma-asst-color {
 .llma-editor-actions .basic-button { font-size: 12.5px; }
 #llma-asst-delete { color: var(--backend-errored) !important; border-color: color-mix(in srgb, var(--backend-errored) 30%, transparent) !important; }
 #llma-asst-delete:hover { background: color-mix(in srgb, var(--backend-errored) 10%, transparent) !important; }
+
+/* Create/clone actions sit above the list so they stay reachable with many assistants. */
+.llma-asst-create-row { margin-bottom: 10px; }
+.llma-asst-filter {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 10px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+}

@@ -281,8 +281,13 @@ function llmaApplyModelSelection() {
     if (saved && models.some(m => m.id === saved)) {
         sel.value = saved;
         LLMAState.currentModel = saved;
-    } else if (!sel.value || !models.some(m => m.id === sel.value)) {
-        sel.selectedIndex = 0;
+    }
+    else {
+        // Nothing (valid) remembered: the dropdown already shows its first option natively, so adopt
+        // whatever it shows instead of leaving state null (which made Send silently refuse).
+        if (!sel.value || !models.some(m => m.id === sel.value)) {
+            sel.selectedIndex = 0;
+        }
         LLMAState.currentModel = sel.value;
     }
     // Enhance to the searchable dropdown (after the value is set so it shows the right selection).
@@ -1537,8 +1542,22 @@ function llmaRenderAssistantList() {
         return;
     }
 
+    // Filter box: only worth showing once the list is long enough to need it.
+    const filterEl = document.getElementById('llma-asst-filter');
+    if (filterEl) {
+        filterEl.style.display = LLMAState.assistants.length > 8 ? '' : 'none';
+        if (filterEl.dataset.llmaBound != '1') {
+            filterEl.dataset.llmaBound = '1';
+            filterEl.addEventListener('input', () => llmaRenderAssistantList());
+        }
+    }
+    const query = (filterEl && filterEl.style.display != 'none' ? filterEl.value : '').trim().toLowerCase();
+
     let html = '';
     for (const a of LLMAState.assistants) {
+        if (query && !`${a.name} ${a.description || ''}`.toLowerCase().includes(query)) {
+            continue;
+        }
         const icon  = llmaCategoryIcon(a.icon || a.category || 'chat');
         const scopeBadge = a._scope === 'shared'
             ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('Shared — visible to all users on this instance')}">${translate('shared')}</span>`
@@ -1555,7 +1574,7 @@ function llmaRenderAssistantList() {
                 <button class="llma-list-edit" data-asst-id="${llmaEscapeHtml(a.id)}">${translate('Edit')}</button>
             </div>`;
     }
-    container.innerHTML = html;
+    container.innerHTML = html || `<div class="llma-empty-state">${translate('No matching assistants.')}</div>`;
 
     container.querySelectorAll('.llma-list-edit').forEach(btn => {
         btn.addEventListener('click', (e) => {

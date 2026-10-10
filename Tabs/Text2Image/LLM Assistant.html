@@ -323,13 +323,14 @@
 
                 <!-- Assistants -->
                 <div class="llma-modal-panel" id="llma-settings-assistants" style="display:none;">
-                    <div class="llma-asst-list-wrap" id="llma-assistant-list"></div>
                     <div class="llma-asst-create-row">
                         <button class="basic-button translate" id="llma-create-asst-btn">+ Create Assistant</button>
                         <select id="llma-template-select" class="llma-template-select translate" title="Clone from a starter template">
                             <option value="" class="translate">Clone from template…</option>
                         </select>
                     </div>
+                    <input class="llma-asst-filter translate" id="llma-asst-filter" type="text" placeholder="Filter assistants..." aria-label="Filter assistants" autocomplete="off" style="display:none;">
+                    <div class="llma-asst-list-wrap" id="llma-assistant-list"></div>
 
                     <!-- Assistant Editor -->
                     <div class="llma-asst-editor" id="llma-asst-editor" style="display:none;">
