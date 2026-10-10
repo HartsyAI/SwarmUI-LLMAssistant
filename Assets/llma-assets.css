@@ -552,3 +552,87 @@
     color: var(--backend-errored);
     font-size: 13px;
 }
+
+/* ── Inline preview card: content on top, details + actions below ───── */
+.llma-asset-card.preview {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
+    max-width: 480px;
+    cursor: pointer;
+}
+.llma-asset-preview {
+    position: relative;
+    height: 240px;
+    overflow: hidden;
+    background: var(--background-panel-subtle);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid var(--light-border);
+}
+.llma-asset-preview.kind-image { height: auto; max-height: 360px; }
+.llma-asset-preview.kind-image img {
+    display: block;
+    width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+}
+.llma-asset-preview.kind-svg { padding: 12px; box-sizing: border-box; }
+.llma-asset-preview.kind-svg svg { max-width: 100%; max-height: 100%; }
+.llma-asset-preview-frame {
+    width: 200%;
+    height: 200%;
+    border: 0;
+    background: #fff;
+    transform: scale(0.5);
+    transform-origin: 0 0;
+    pointer-events: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+.llma-asset-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+}
+.llma-asset-card.preview .llma-asset-card-open { opacity: 1; }
+.llma-asset-card-menu {
+    background: none;
+    border: 0;
+    color: var(--text-soft);
+    font-size: 18px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.llma-asset-card-menu:hover { color: var(--text); background: var(--background-soft); }
+.llma-asset-menu {
+    position: fixed;
+    z-index: 10000;
+    min-width: 150px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--background-soft);
+    border: 1px solid var(--light-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+}
+.llma-asset-menu button {
+    background: none;
+    border: 0;
+    color: var(--text);
+    text-align: left;
+    font: inherit;
+    font-size: 13px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.llma-asset-menu button:hover { background: color-mix(in srgb, var(--emphasis) 14%, transparent); }

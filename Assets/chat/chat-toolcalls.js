@@ -59,8 +59,7 @@
         head.setAttribute('aria-expanded', 'false');
         head.innerHTML = '<span class="llma-spinner" aria-hidden="true"></span>'
             + '<span class="llma-tool-group-summary"></span>'
-            + '<span class="llma-tool-group-chev" aria-hidden="true">›</span>'
-            + '<span class="llma-tool-group-thumbs"></span>';
+            + '<span class="llma-tool-group-chev" aria-hidden="true">›</span>';
         head.addEventListener('click', () => {
             let collapsed = group.classList.toggle('collapsed');
             head.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
@@ -73,7 +72,7 @@
         return group;
     }
 
-    /** Refresh a group's summary line ("Ran 2 commands, read a file"), running state, and image thumbs. */
+    /** Refresh a group's summary line ("Ran 2 commands, read a file"), and running state. */
     function llmaUpdateToolGroup(group) {
         if (!group) {
             return;
@@ -112,15 +111,6 @@
         group.classList.toggle('single', calls.length == 1);
         group.classList.toggle('running', !!pending);
         group.classList.toggle('has-error', !!failed && !pending);
-        // Thumbnail strip: any generated images, so results stay visible while the group is collapsed.
-        let thumbs = group.querySelector('.llma-tool-group-thumbs');
-        thumbs.innerHTML = '';
-        for (let img of group.querySelectorAll('.llma-tool-result-image')) {
-            let t = document.createElement('img');
-            t.src = img.src;
-            t.alt = '';
-            thumbs.appendChild(t);
-        }
     }
 
     /** Append a pending tool-call bubble (header + args, collapsible) under an assistant bubble. */
@@ -193,6 +183,32 @@
         llmaUpdateToolGroup(group);
     }
 
+    /** Insert (once) the inline preview card for a generated image right after its activity group. */
+    function llmaShowToolImageCard(bubble, callBubble, toolResult, result) {
+        const msgEl = bubble.closest?.('[data-msg-id]');
+        const msgId = msgEl ? msgEl.getAttribute('data-msg-id') : null;
+        const group = callBubble?.closest('.llma-tool-group');
+        if (!msgId || !group || typeof llmaRenderAssetCardHtml != 'function') {
+            return;
+        }
+        if (typeof llmaRebuildAssetsForThread == 'function') {
+            llmaRebuildAssetsForThread();
+        }
+        const asset = (LLMAState.assets || []).find(a => a.id == `${msgId}-tool-${toolResult.id}`);
+        if (!asset || group.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`)) {
+            return;
+        }
+        // Cards live after the group (one per image); keep them in call order.
+        let anchor = group;
+        while (anchor.nextElementSibling?.classList.contains('llma-tool-image-card')) {
+            anchor = anchor.nextElementSibling;
+        }
+        const holder = document.createElement('div');
+        holder.className = 'llma-tool-image-card';
+        holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
+        anchor.after(holder);
+    }
+
     /** Fill the result slot of a tool-call bubble with a tool-specific preview (or JSON fallback). */
     function llmaRenderToolResult(bubble, toolResult) {
         if (!bubble || !toolResult) return;
@@ -234,13 +250,9 @@
         // Tool-specific previews
         const name = toolResult.name || '';
         if (success && name === 'generate_image' && result.imageUrl) {
-            const img = document.createElement('img');
-            img.src = result.imageUrl;
-            img.className = 'llma-tool-result-image';
-            img.addEventListener('click', () => {
-                if (typeof setCurrentImage === 'function') setCurrentImage(result.imageUrl);
-            });
-            resultWrap.appendChild(img);
+            // The image itself shows as an inline preview card under the activity line, so it stays
+            // visible while the group is collapsed; the step keeps just the prompt.
+            llmaShowToolImageCard(bubble, callBubble, toolResult, result);
             if (result.prompt) {
                 const caption = document.createElement('div');
                 caption.className = 'llma-tool-result-caption';
@@ -419,9 +431,17 @@
         }
         // History keeps the reply text and the calls separately, so replay can't know where they
         // interleaved. Activity happens before the answer: put the groups ahead of the text.
-        const groups = Array.from(bubble.querySelectorAll(':scope > .llma-tool-group'));
-        for (let i = groups.length - 1; i >= 0; i--) {
-            bubble.insertBefore(groups[i], bubble.firstChild);
+        const moving = [];
+        for (const g of bubble.querySelectorAll(':scope > .llma-tool-group')) {
+            moving.push(g);
+            let next = g.nextElementSibling;
+            while (next && next.classList.contains('llma-tool-image-card')) {
+                moving.push(next);
+                next = next.nextElementSibling;
+            }
+        }
+        for (let i = moving.length - 1; i >= 0; i--) {
+            bubble.insertBefore(moving[i], bubble.firstChild);
         }
     }
 

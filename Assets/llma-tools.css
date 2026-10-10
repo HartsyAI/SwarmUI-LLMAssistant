@@ -232,6 +232,16 @@
     color: var(--text-soft);
     margin-bottom: 6px;
     line-height: 1.4;
+    /* Descriptions are the model-facing prompt and run long; keep cards scannable. Hover to read it all. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.llma-tool-list-item:hover .llma-tool-list-desc {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
 }
 .llma-tool-list-meta {
     display: flex;
@@ -453,14 +463,6 @@
 .llma-tool-group.has-error .llma-tool-group-summary { color: var(--backend-errored); }
 .llma-tool-group-chev { transition: transform 0.15s ease; }
 .llma-tool-group:not(.collapsed) .llma-tool-group-chev { transform: rotate(90deg); }
-.llma-tool-group-thumbs { display: flex; gap: 4px; margin-left: auto; padding-left: 12px; }
-.llma-tool-group-thumbs img {
-    width: 34px;
-    height: 34px;
-    object-fit: cover;
-    border-radius: 6px;
-    border: 1px solid var(--light-border);
-}
 .llma-tool-group.collapsed .llma-tool-group-body { display: none; }
 .llma-tool-group-body {
     margin: 6px 0 0 5px;

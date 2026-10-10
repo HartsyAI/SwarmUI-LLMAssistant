@@ -344,6 +344,22 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
     const subtitle = `${typeLabel}${sizeStr ? ' \u00b7 ' + sizeStr : ''}${lineStr}`;
     const cls = `llma-asset-card${inline ? ' inline' : ''}${compact ? ' compact' : ''}`;
 
+    // Inline preview card (image / html / svg): the content itself fills the top, details sit below.
+    const previewInner = (inline && !compact) ? llmaAssetPreviewHtml(asset) : null;
+    if (previewInner) {
+        return `<div class="${cls} preview" data-asset-id="${llmaEscapeHtml(asset.id)}" role="button" tabindex="0">
+            <div class="llma-asset-preview kind-${llmaEscapeHtml(asset.type)}">${previewInner}</div>
+            <div class="llma-asset-foot">
+                <div class="llma-asset-card-body">
+                    <div class="llma-asset-card-title">${llmaEscapeHtml(asset.title)}</div>
+                    <div class="llma-asset-card-sub">${llmaEscapeHtml(subtitle)}</div>
+                </div>
+                <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}">${llmaEscapeHtml(translate('Open'))}</button>
+                <button class="llma-asset-card-menu" data-asset-menu="${llmaEscapeHtml(asset.id)}" aria-label="${llmaEscapeHtml(translate('More actions'))}" aria-haspopup="true">&#8942;</button>
+            </div>
+        </div>`;
+    }
+
     // Thumbnail per type
     let thumb = `<span class="llma-asset-icon">${icon}</span>`;
     if (asset.type === 'image' && asset.content) {
@@ -358,6 +374,66 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
         </div>
         <button class="llma-asset-card-open" data-asset-open="${llmaEscapeHtml(asset.id)}" title="${llmaEscapeHtml(translate('Open'))}">${llmaEscapeHtml(translate('Open'))}</button>
     </div>`;
+}
+
+// ── Inline preview content (HTML string) for image / html / svg assets; null = use the plain row card ──
+function llmaAssetPreviewHtml(asset) {
+    if (!asset.content) {
+        return null;
+    }
+    if (asset.type == 'image') {
+        return `<img src="${llmaEscapeHtml(asset.content)}" alt="${llmaEscapeHtml(asset.title || '')}" loading="lazy">`;
+    }
+    if (asset.type == 'html') {
+        // Scripts off, no same-origin: a static, non-interactive thumbnail of the page (rendered at 2x then halved).
+        return `<iframe class="llma-asset-preview-frame" sandbox="" tabindex="-1" loading="lazy" srcdoc="${llmaEscapeHtml(asset.content)}"></iframe>`;
+    }
+    if (asset.type == 'svg' && window.DOMPurify) {
+        return window.DOMPurify.sanitize(asset.content, { USE_PROFILES: { svg: true } });
+    }
+    return null;
+}
+
+// ── Card "more" menu (Open / Copy / Download / Use as ...) ────────
+function llmaOpenAssetMenu(button, assetId) {
+    document.querySelectorAll('.llma-asset-menu').forEach(m => m.remove());
+    const asset = (LLMAState.assets || []).find(a => a.id === assetId);
+    if (!asset) {
+        return;
+    }
+    const items = [[translate('Open'), () => llmaOpenAsset(assetId)]];
+    items.push([translate('Copy'), () => llmaAssetCopy(asset)]);
+    items.push([translate('Download'), () => llmaAssetDownload(asset)]);
+    if (asset.type == 'image') {
+        if (typeof setCurrentImage == 'function') {
+            items.push([translate('Use as Init'), () => { setCurrentImage(asset.content); llmaShowToast(translate('Sent as init image'), 'success'); }]);
+        }
+    }
+    else if (typeof llmaSendToPromptBox == 'function') {
+        items.push([translate('Use as Prompt'), () => { llmaSendToPromptBox(asset.content || ''); llmaShowToast(translate('Sent to prompt'), 'success'); }]);
+    }
+    const menu = document.createElement('div');
+    menu.className = 'llma-asset-menu';
+    for (const [label, fn] of items) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = label;
+        b.addEventListener('click', (e) => { e.stopPropagation(); menu.remove(); fn(); });
+        menu.appendChild(b);
+    }
+    document.body.appendChild(menu);
+    const r = button.getBoundingClientRect();
+    menu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
+    menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
+    setTimeout(() => {
+        const away = (ev) => {
+            if (!menu.contains(ev.target)) {
+                menu.remove();
+                document.removeEventListener('mousedown', away, true);
+            }
+        };
+        document.addEventListener('mousedown', away, true);
+    }, 0);
 }
 
 // ── Sidebar renderer ─────────────────────────────────────────────
@@ -498,6 +574,13 @@ function llmaSetupAssets() {
 
     // Delegated clicks on asset cards
     container.addEventListener('click', (e) => {
+        const menuBtn = e.target.closest('[data-asset-menu]');
+        if (menuBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            llmaOpenAssetMenu(menuBtn, menuBtn.getAttribute('data-asset-menu'));
+            return;
+        }
         const openBtn = e.target.closest('[data-asset-open]');
         if (openBtn) {
             e.preventDefault();
