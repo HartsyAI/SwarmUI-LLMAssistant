@@ -43,10 +43,6 @@
 .llma-tool-call-bubble.error .llma-tool-call-header {
     background: color-mix(in srgb, var(--backend-errored) 10%, transparent);
 }
-.llma-tool-call-icon {
-    font-size: 13px;
-    color: var(--emphasis);
-}
 .llma-tool-call-title {
     flex: 1;
     font-weight: 600;
@@ -120,14 +116,6 @@
 }
 .llma-tool-result-bubble.error {
     border-left: 3px solid var(--backend-errored);
-}
-.llma-tool-result-image {
-    max-width: 320px;
-    max-height: 320px;
-    border-radius: 4px;
-    cursor: pointer;
-    align-self: flex-start;
-    border: 1px solid var(--light-border);
 }
 .llma-tool-result-caption {
     font-size: 11px;

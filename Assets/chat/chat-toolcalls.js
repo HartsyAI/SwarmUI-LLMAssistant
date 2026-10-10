@@ -44,7 +44,7 @@
      */
     function llmaToolGroupFor(bubble) {
         let last = bubble.lastElementChild;
-        while (last && last.classList.contains('llma-msg-text-segment') && !last.textContent.trim()) {
+        while (last && (last.classList.contains('llma-tool-image-card') || (last.classList.contains('llma-msg-text-segment') && !last.textContent.trim()))) {
             last = last.previousElementSibling;
         }
         if (last && last.classList.contains('llma-tool-group')) {
@@ -191,11 +191,14 @@
         if (!msgId || !group || typeof llmaRenderAssetCardHtml != 'function') {
             return;
         }
-        if (typeof llmaRebuildAssetsForThread == 'function') {
-            llmaRebuildAssetsForThread();
+        const assetId = `${msgId}-tool-${toolResult.id}`;
+        const findAsset = () => (LLMAState.assets || []).find(a => a.id == assetId);
+        let asset = findAsset();
+        if (!asset && typeof llmaRebuildAssetsForThread == 'function') {
+            llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
+            asset = findAsset();
         }
-        const asset = (LLMAState.assets || []).find(a => a.id == `${msgId}-tool-${toolResult.id}`);
-        if (!asset || group.querySelector(`[data-asset-id="${CSS.escape(asset.id)}"]`)) {
+        if (!asset || bubble.querySelector(`.llma-tool-image-card [data-asset-id="${CSS.escape(asset.id)}"]`)) {
             return;
         }
         // Cards live after the group (one per image); keep them in call order.

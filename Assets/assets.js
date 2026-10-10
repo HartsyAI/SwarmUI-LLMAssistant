@@ -385,11 +385,18 @@ function llmaAssetPreviewHtml(asset) {
         return `<img src="${llmaEscapeHtml(asset.content)}" alt="${llmaEscapeHtml(asset.title || '')}" loading="lazy">`;
     }
     if (asset.type == 'html') {
-        // Scripts off, no same-origin: a static, non-interactive thumbnail of the page (rendered at 2x then halved).
-        return `<iframe class="llma-asset-preview-frame" sandbox="" tabindex="-1" loading="lazy" srcdoc="${llmaEscapeHtml(asset.content)}"></iframe>`;
+        // Static thumbnail: scripts off, no same-origin, and a CSP that blocks every network fetch so a
+        // preview never phones home (keeps the extension's "no outbound requests" promise). Rendered at 2x then halved.
+        const csp = '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:">';
+        const doc = /^\s*<!doctype[^>]*>/i.test(asset.content)
+            ? asset.content.replace(/^(\s*<!doctype[^>]*>)/i, `$1${csp}`)
+            : csp + asset.content;
+        return `<iframe class="llma-asset-preview-frame" sandbox="" tabindex="-1" loading="lazy" srcdoc="${llmaEscapeHtml(doc)}"></iframe>`;
     }
-    if (asset.type == 'svg' && window.DOMPurify) {
-        return window.DOMPurify.sanitize(asset.content, { USE_PROFILES: { svg: true } });
+    if (asset.type == 'svg') {
+        // As an <img> the SVG is fully isolated: its <style> can't leak into the page and its ids
+        // (gradients, clip paths) can't collide with other cards or the viewer.
+        return `<img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(asset.content)}" alt="${llmaEscapeHtml(asset.title || '')}" loading="lazy">`;
     }
     return null;
 }
@@ -414,26 +421,27 @@ function llmaOpenAssetMenu(button, assetId) {
     }
     const menu = document.createElement('div');
     menu.className = 'llma-asset-menu';
+    const away = (ev) => {
+        if (!menu.contains(ev.target)) {
+            close();
+        }
+    };
+    const close = () => {
+        menu.remove();
+        document.removeEventListener('mousedown', away, true);
+    };
     for (const [label, fn] of items) {
         const b = document.createElement('button');
         b.type = 'button';
         b.textContent = label;
-        b.addEventListener('click', (e) => { e.stopPropagation(); menu.remove(); fn(); });
+        b.addEventListener('click', (e) => { e.stopPropagation(); close(); fn(); });
         menu.appendChild(b);
     }
     document.body.appendChild(menu);
     const r = button.getBoundingClientRect();
     menu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
     menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
-    setTimeout(() => {
-        const away = (ev) => {
-            if (!menu.contains(ev.target)) {
-                menu.remove();
-                document.removeEventListener('mousedown', away, true);
-            }
-        };
-        document.addEventListener('mousedown', away, true);
-    }, 0);
+    setTimeout(() => document.addEventListener('mousedown', away, true), 0);
 }
 
 // ── Sidebar renderer ─────────────────────────────────────────────
@@ -598,6 +606,9 @@ function llmaSetupAssets() {
     // Keyboard activation for cards
     container.addEventListener('keydown', (e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (e.target.closest?.('[data-asset-menu]')) {
+            return; // let the native button click open the menu instead of the viewer
+        }
         const card = e.target.closest?.('.llma-asset-card');
         if (card) {
             e.preventDefault();
