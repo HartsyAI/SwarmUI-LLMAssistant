@@ -460,11 +460,52 @@ function llmaFlashModelSelect() {
     sel.classList.add('error', 'llma-flash');
     try { sel.focus({ preventScroll: false }); } catch { /* older browsers */ }
     setTimeout(() => sel.classList.remove('llma-flash'), 1100);
+    const chip = document.getElementById('llma-model-chip');
+    if (chip) {
+        chip.classList.add('llma-flash');
+        setTimeout(() => chip.classList.remove('llma-flash'), 1100);
+    }
 }
 
 function llmaUpdateModelStatus() {
     llmaSetModelSelectError(!LLMAState.currentModel);
     llmaUpdateAttachAvailability();
+    llmaUpdateModelChip();
+}
+
+/** Composer model chip: always shows which model will answer, and opens the picker on click. */
+function llmaUpdateModelChip() {
+    const chip = document.getElementById('llma-model-chip');
+    if (!chip) {
+        return;
+    }
+    if (chip.dataset.llmaBound != '1') {
+        chip.dataset.llmaBound = '1';
+        chip.addEventListener('click', llmaOpenModelPicker);
+    }
+    const model = LLMAState.currentModel;
+    const text = document.getElementById('llma-model-chip-text');
+    if (text) {
+        text.textContent = model ? model.split(/[\\/]/).pop().replace(/\.gguf$/i, '') : translate('Select a model');
+    }
+    chip.classList.toggle('warn', !model);
+    chip.title = model ? `${model}\n${translate('Click to switch model')}` : translate('No model selected: click to pick one');
+}
+
+/** Open the model picker: the top-bar popover when the bar is compact, else the searchable select. */
+function llmaOpenModelPicker() {
+    const bar = document.querySelector('.llma-topbar');
+    if (bar?.classList.contains('llma-bar-compact')) {
+        document.getElementById('llma-model-menu-btn')?.click();
+        return;
+    }
+    const sel = document.getElementById('llma-model-select');
+    if (sel && llmaModelSelect2Ready() && window.$(sel).data('select2')) {
+        window.$(sel).select2('open');
+    }
+    else {
+        sel?.focus();
+    }
 }
 
 // Toggles the paperclip / attach-image button based on the active model's vision capability.
@@ -776,7 +817,10 @@ function llmaSetupSplitBars() {
 
     // Restore persisted collapsed states
     const sidebarCollapsed = localStorage.getItem('llma_sidebar_collapsed') === 'true';
-    const panelCollapsed   = localStorage.getItem('llma_panel_collapsed')   === 'true';
+    // The assistant panel starts collapsed on a first visit: chat gets the width, and inline cards
+    // already show generated content. Once the user opens or closes it, their choice sticks.
+    const panelStored      = localStorage.getItem('llma_panel_collapsed');
+    const panelCollapsed   = panelStored === null ? true : panelStored === 'true';
     if (sidebarCollapsed) { applySidebarState(true); }
     if (panelCollapsed)   { applyPanelState(true);   }
 

@@ -192,10 +192,10 @@
 
             const actions = document.createElement('div');
             actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateActionBtn(translate('Fork'), () => llmaForkFromMessage(id)));
-            actions.appendChild(llmaCreateActionBtn(translate('Edit'), () => llmaStartEdit(id)));
-            actions.appendChild(llmaCreateActionBtn(translate('Del'), () => llmaDeleteMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('copy', translate('Copy'), () => llmaCopyMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('fork', translate('Fork'), () => llmaForkFromMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('edit', translate('Edit'), () => llmaStartEdit(id)));
+            actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
 
             row.appendChild(bubble);
             row.appendChild(actions);
@@ -251,13 +251,13 @@
 
             const actions = document.createElement('div');
             actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateActionBtn(translate('Regen'), () => llmaRegenerateMessage(id)));
-            actions.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => {
+            actions.appendChild(llmaCreateIconBtn('copy', translate('Copy'), () => llmaCopyMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('regen', translate('Regenerate'), () => llmaRegenerateMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('prompt', translate('Use as Prompt'), () => {
                 const msg = LLMAState.messages.find(m => m.id === id);
                 if (msg) llmaSendToPromptBox(msg.content);
             }));
-            actions.appendChild(llmaCreateActionBtn(translate('Del'), () => llmaDeleteMessage(id)));
+            actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
 
             body.appendChild(bubble);
             body.appendChild(metaDiv);
