@@ -3,7 +3,7 @@
     <aside class="llma-sidebar" id="llma-sidebar">
         <div class="llma-sidebar-header">
             <span class="llma-sidebar-label translate">Chats</span>
-            <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select multiple chats" aria-label="Select multiple chats" aria-pressed="false">&#9744;</button>
+            <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select several chats to delete them" aria-label="Select multiple chats" aria-pressed="false">Select</button>
         </div>
         <div class="llma-search-wrap">
             <input class="llma-search translate" id="llma-thread-search" type="text" placeholder="Search chats..." aria-label="Search chats" autocomplete="off">
@@ -14,7 +14,8 @@
         </div>
         <!-- Bulk action bar — shown only while select mode is on and at least one chat is checked. -->
         <div class="llma-bulk-bar" id="llma-bulk-bar" style="display:none;" aria-live="polite">
-            <span class="llma-bulk-count" id="llma-bulk-count">0 selected</span>
+            <input type="checkbox" class="llma-bulk-all" id="llma-bulk-all" aria-label="Select all chats">
+            <label class="llma-bulk-count translate" id="llma-bulk-count" for="llma-bulk-all">0 selected</label>
             <button class="basic-button llma-bulk-delete translate" id="llma-bulk-delete" type="button">Delete</button>
             <button class="llma-bulk-cancel" id="llma-bulk-cancel" type="button" aria-label="Cancel selection">&times;</button>
         </div>
