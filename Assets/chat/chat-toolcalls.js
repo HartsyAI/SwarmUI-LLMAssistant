@@ -193,6 +193,17 @@
         anchor.after(holder);
     }
 
+    /** Only http(s) URLs are linkable: search results are untrusted web data, so a javascript: or data: URL must not become an href. */
+    function llmaSafeHttpUrl(url) {
+        try {
+            const u = new URL(url);
+            return (u.protocol == 'https:' || u.protocol == 'http:') ? u.href : '#';
+        }
+        catch {
+            return '#';
+        }
+    }
+
     /** Hostname for display ("example.com"), or '' when the URL doesn't parse. */
     function llmaSourceDomain(url) {
         try {
@@ -217,6 +228,10 @@
         if (group.parentElement?.querySelector(`.llma-sources[data-tool-id="${CSS.escape(id)}"]`)) {
             return;
         }
+        results = results.filter(r => r && typeof r == 'object');
+        if (!results.length) {
+            return;
+        }
         const SHOWN = 4;
         const card = document.createElement('div');
         card.className = 'llma-sources';
@@ -229,7 +244,7 @@
             const domain = llmaSourceDomain(item.url);
             const row = document.createElement('a');
             row.className = 'llma-source-row' + (i >= SHOWN ? ' extra' : '');
-            row.href = item.url || '#';
+            row.href = llmaSafeHttpUrl(item.url);
             row.target = '_blank';
             row.rel = 'noopener noreferrer';
             const hue = Array.from(domain).reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
@@ -345,7 +360,7 @@
             for (const item of result.results) {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
-                a.href = item.url || '#';
+                a.href = llmaSafeHttpUrl(item.url);
                 a.target = '_blank';
                 a.rel = 'noopener noreferrer';
                 a.textContent = item.title || item.url || translate('(untitled)');

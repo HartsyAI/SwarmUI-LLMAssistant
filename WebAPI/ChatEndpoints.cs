@@ -1115,6 +1115,15 @@ public static class ChatEndpoints
     /// The user wants a short title..."); that is never a title.</summary>
     private static readonly System.Text.RegularExpressions.Regex ReasoningLead = new(@"^(okay|ok|alright|hmm|let me|let's|lets|so,|first,|i need|i should|the user|user wants|looking at)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    /// <summary>Thinking-aloud text opens like prose AND is long or talks about the task itself; a real title that
+    /// merely starts with "Let's" or "First," ("Let's Build a Snake Game") is short and has neither.</summary>
+    private static bool LooksLikeReasoning(string text)
+    {
+        return ReasoningLead.IsMatch(text) && (text.Length > 50 || ReasoningTopic.IsMatch(text));
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex ReasoningTopic = new(@"\b(user|title|conversation|i need|i should|i'll|let me)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <summary>Turns raw model output into a usable chat title, or null when it isn't one. Small models return
     /// junk like `Assistant: **"Something`, and reasoning models return their thinking: strip think blocks,
     /// take the first line, drop label prefixes / markdown / quotes, and reject what is left if unusable.</summary>
@@ -1125,7 +1134,7 @@ public static class ChatEndpoints
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"^(title|chat title|assistant|answer)\s*[:\-]\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         cleaned = cleaned.Replace("**", "").Replace("`", "").Trim().Trim('"', '\'', '*', '_', '.', ' ', '\u201C', '\u201D');
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ");
-        if (cleaned.Length is < 3 or > 80 || !cleaned.Any(char.IsLetter) || ReasoningLead.IsMatch(cleaned))
+        if (cleaned.Length is < 3 or > 80 || !cleaned.Any(char.IsLetter) || LooksLikeReasoning(cleaned))
         {
             return null;
         }
