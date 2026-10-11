@@ -44,7 +44,7 @@
      */
     function llmaToolGroupFor(bubble) {
         let last = bubble.lastElementChild;
-        while (last && (last.classList.contains('llma-tool-image-card') || (last.classList.contains('llma-msg-text-segment') && !last.textContent.trim()))) {
+        while (last && (last.classList.contains('llma-tool-extra') || (last.classList.contains('llma-msg-text-segment') && !last.textContent.trim()))) {
             last = last.previousElementSibling;
         }
         if (last && last.classList.contains('llma-tool-group')) {
@@ -183,6 +183,103 @@
         llmaUpdateToolGroup(group);
     }
 
+    /** Place a card holder after `group`, behind any holders already there (keeps call order). */
+    function llmaInsertToolExtra(group, holder) {
+        holder.classList.add('llma-tool-extra');
+        let anchor = group;
+        while (anchor.nextElementSibling?.classList.contains('llma-tool-extra')) {
+            anchor = anchor.nextElementSibling;
+        }
+        anchor.after(holder);
+    }
+
+    /** Only http(s) URLs are linkable: search results are untrusted web data, so a javascript: or data: URL must not become an href. */
+    function llmaSafeHttpUrl(url) {
+        try {
+            const u = new URL(url);
+            return (u.protocol == 'https:' || u.protocol == 'http:') ? u.href : '#';
+        }
+        catch {
+            return '#';
+        }
+    }
+
+    /** Hostname for display ("example.com"), or '' when the URL doesn't parse. */
+    function llmaSourceDomain(url) {
+        try {
+            return new URL(url).hostname.replace(/^www\./, '');
+        }
+        catch {
+            return '';
+        }
+    }
+
+    /**
+     * Insert (once) a compact "Sources" card under the activity group for a web search: one row per result
+     * with a letter avatar (no favicon fetches: the extension makes no outbound requests), title and domain.
+     * Shows the first few rows; the rest sit behind "Show all".
+     */
+    function llmaShowToolSourcesCard(callBubble, toolResult, results) {
+        const group = callBubble?.closest('.llma-tool-group');
+        if (!group || !results.length) {
+            return;
+        }
+        const id = String(toolResult.id || '');
+        if (group.parentElement?.querySelector(`.llma-sources[data-tool-id="${CSS.escape(id)}"]`)) {
+            return;
+        }
+        results = results.filter(r => r && typeof r == 'object');
+        if (!results.length) {
+            return;
+        }
+        const SHOWN = 4;
+        const card = document.createElement('div');
+        card.className = 'llma-sources';
+        card.setAttribute('data-tool-id', id);
+        const head = document.createElement('div');
+        head.className = 'llma-sources-head';
+        head.textContent = `${results.length} ${results.length == 1 ? translate('source') : translate('sources')}`;
+        card.appendChild(head);
+        results.forEach((item, i) => {
+            const domain = llmaSourceDomain(item.url);
+            const row = document.createElement('a');
+            row.className = 'llma-source-row' + (i >= SHOWN ? ' extra' : '');
+            row.href = llmaSafeHttpUrl(item.url);
+            row.target = '_blank';
+            row.rel = 'noopener noreferrer';
+            const hue = Array.from(domain).reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 0);
+            const avatar = document.createElement('span');
+            avatar.className = 'llma-source-avatar';
+            avatar.style.background = `hsl(${hue} 45% 38%)`;
+            avatar.textContent = (domain || '?').charAt(0).toUpperCase();
+            const text = document.createElement('span');
+            text.className = 'llma-source-text';
+            const title = document.createElement('span');
+            title.className = 'llma-source-title';
+            title.textContent = item.title || item.url || translate('(untitled)');
+            const dom = document.createElement('span');
+            dom.className = 'llma-source-domain';
+            dom.textContent = domain;
+            text.append(title, dom);
+            row.append(avatar, text);
+            card.appendChild(row);
+        });
+        if (results.length > SHOWN) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'llma-sources-more';
+            more.textContent = `${translate('Show all')} ${results.length}`;
+            more.addEventListener('click', () => {
+                const open = card.classList.toggle('expanded');
+                more.textContent = open ? translate('Show fewer') : `${translate('Show all')} ${results.length}`;
+            });
+            card.appendChild(more);
+        }
+        const holder = document.createElement('div');
+        holder.appendChild(card);
+        llmaInsertToolExtra(group, holder);
+    }
+
     /** Insert (once) the inline preview card for a generated image right after its activity group. */
     function llmaShowToolImageCard(bubble, callBubble, toolResult, result) {
         const msgEl = bubble.closest?.('[data-msg-id]');
@@ -198,18 +295,12 @@
             llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
             asset = findAsset();
         }
-        if (!asset || bubble.querySelector(`.llma-tool-image-card [data-asset-id="${CSS.escape(asset.id)}"]`)) {
+        if (!asset || bubble.querySelector(`.llma-tool-extra [data-asset-id="${CSS.escape(asset.id)}"]`)) {
             return;
         }
-        // Cards live after the group (one per image); keep them in call order.
-        let anchor = group;
-        while (anchor.nextElementSibling?.classList.contains('llma-tool-image-card')) {
-            anchor = anchor.nextElementSibling;
-        }
         const holder = document.createElement('div');
-        holder.className = 'llma-tool-image-card';
         holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
-        anchor.after(holder);
+        llmaInsertToolExtra(group, holder);
     }
 
     /** Fill the result slot of a tool-call bubble with a tool-specific preview (or JSON fallback). */
@@ -263,12 +354,13 @@
                 resultWrap.appendChild(caption);
             }
         } else if (success && name === 'web_search' && Array.isArray(result.results)) {
+            llmaShowToolSourcesCard(callBubble, toolResult, result.results);
             const list = document.createElement('ul');
             list.className = 'llma-tool-result-search';
             for (const item of result.results) {
                 const li = document.createElement('li');
                 const a = document.createElement('a');
-                a.href = item.url || '#';
+                a.href = llmaSafeHttpUrl(item.url);
                 a.target = '_blank';
                 a.rel = 'noopener noreferrer';
                 a.textContent = item.title || item.url || translate('(untitled)');
@@ -438,7 +530,7 @@
         for (const g of bubble.querySelectorAll(':scope > .llma-tool-group')) {
             moving.push(g);
             let next = g.nextElementSibling;
-            while (next && next.classList.contains('llma-tool-image-card')) {
+            while (next && next.classList.contains('llma-tool-extra')) {
                 moving.push(next);
                 next = next.nextElementSibling;
             }

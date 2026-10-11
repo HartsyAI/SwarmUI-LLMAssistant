@@ -552,6 +552,28 @@ function llmaGroupByDate(threads) {
     return groups;
 }
 
+/** Groups threads by their assistant, groups ordered by most recent activity. `threads` is already newest-first. */
+function llmaGroupByAssistant(threads) {
+    const groups = {};
+    const labelById = {};
+    const idByLabel = {};
+    for (const t of threads) {
+        const a = (LLMAState.assistants || []).find(x => x.id === t.assistantId);
+        const key = a ? a.id : '';
+        if (!(key in labelById)) {
+            // Two assistants can share a name (personal + shared): keep their chats apart.
+            let label = a?.name || translate('Other');
+            for (let n = 2; label in idByLabel && idByLabel[label] != key; n++) {
+                label = `${a?.name || translate('Other')} (${n})`;
+            }
+            labelById[key] = label;
+            idByLabel[label] = key;
+        }
+        (groups[labelById[key]] = groups[labelById[key]] || []).push(t);
+    }
+    return groups;
+}
+
 // -- Color Utilities --
 function llmaShiftColor(hex, amount) {
     const num = parseInt(hex.replace('#', ''), 16);
@@ -720,6 +742,36 @@ function llmaSetEl(id, value, type = 'value') {
 function llmaSetElChecked(id, checked) {
     const el = document.getElementById(id);
     if (el) el.checked = checked;
+}
+
+/** Stroke icon paths (16x16 viewBox) for icon-only message actions. */
+const LLMA_ICON_PATHS = {
+    copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 5.5V4A1.8 1.8 0 0 0 8.7 2.2H4A1.8 1.8 0 0 0 2.2 4v4.7A1.8 1.8 0 0 0 4 10.5h1.5"/>',
+    regen: '<path d="M13.3 8A5.3 5.3 0 1 1 11.7 4.2"/><path d="M13.5 2.5v3h-3"/>',
+    fork: '<circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="5.5" r="1.5"/><path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-7 4"/>',
+    edit: '<path d="M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 0 1 2 2l-7.6 7.6z"/><path d="M9.5 4.3l2.2 2.2"/>',
+    trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
+    prompt: '<path d="M2.5 8h9M8 4.5L11.5 8 8 11.5"/><path d="M13.5 3v10"/>',
+};
+
+/**
+ * Icon-only action button (hover tooltip + aria-label carry the name). `icon` is a key of LLMA_ICON_PATHS;
+ * falls back to a text button when the icon is unknown.
+ */
+function llmaCreateIconBtn(icon, label, onClick, className = 'llma-msg-action-btn') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `${className} icon`;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    if (LLMA_ICON_PATHS[icon]) {
+        btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${LLMA_ICON_PATHS[icon]}</svg>`;
+    }
+    else {
+        btn.textContent = label;
+    }
+    btn.addEventListener('click', onClick);
+    return btn;
 }
 
 /**

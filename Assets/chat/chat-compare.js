@@ -187,6 +187,7 @@
             selB.addEventListener('change', () => {
                 LLMAState.compareModelB = selB.value || null;
                 llmaSetSessionState({ compareModelB: LLMAState.compareModelB });
+                if (typeof llmaUpdateModelChip == 'function') llmaUpdateModelChip();
             });
         }
         // Restore persisted state (init applied session state onto LLMAState before this runs).
@@ -199,6 +200,7 @@
     /** Show/hide lane B + reflect the toggle/body state. Persists to session state. */
     function llmaToggleCompareMode(on, opts = {}) {
         LLMAState.compareMode = !!on;
+        if (typeof llmaUpdateModelChip == 'function') llmaUpdateModelChip();
         const toggle = document.getElementById('llma-compare-toggle');
         const wrap   = document.getElementById('llma-model-select-b-wrap');
         if (toggle) toggle.classList.toggle('active', LLMAState.compareMode);
