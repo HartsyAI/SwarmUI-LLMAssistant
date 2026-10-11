@@ -62,9 +62,7 @@ public class ToolLoopIntegrationTests
             },
             c =>
             {
-                Assert.Equal(TextChunkKind.Status, c.Kind);
-                Assert.Equal(ToolLoop.ToolResultPhase, c.Status?.Phase);
-                Assert.StartsWith(ToolLoop.ToolResultPrefix, c.Text);
+                Assert.Equal(TextChunkKind.ToolResult, c.Kind);
                 Assert.Contains("\"time\":\"noon\"", c.Text);
             },
             c => Assert.Equal((TextChunkKind.Chunk, "It is noon."), (c.Kind, c.Text)),

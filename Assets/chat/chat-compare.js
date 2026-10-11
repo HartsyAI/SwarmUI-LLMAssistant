@@ -349,6 +349,7 @@
             status(data) {
                 if (data.status === 'loading_model') llmaShowLoadStatusInBubble(bubble, `Loading model ${data.model || ''}…`);
                 else if (data.status === 'model_ready') llmaShowLoadStatusInBubble(bubble, null);
+                else if (data.status === 'queued') llmaShowLoadStatusInBubble(bubble, 'Waiting in queue');
             },
             chunk(text) {
                 if (firstChunk) {
