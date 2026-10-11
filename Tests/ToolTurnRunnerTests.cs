@@ -99,7 +99,9 @@ public class ToolTurnRunnerTests
         Assert.True(outcome.Truncated);
         Assert.Equal("max_iterations", outcome.Reason);
         Assert.True(saved[0]["meta"]!["truncated"]!.Value<bool>());
-        Assert.Equal("done", sink.Events[^1]);
+        // The call the limit stopped gets a result, so the client's bubble is not left pending.
+        Assert.Equal(["tool_call:get_time", "tool_result:get_time", "done"], sink.Events);
+        Assert.False(outcome.ToolEvents[0]!["result"]!["success"]!.Value<bool>());
     }
 
     [Fact]
@@ -127,7 +129,8 @@ public class ToolTurnRunnerTests
             Context(provider, (_, _) => Task.FromResult(new JObject { ["ok"] = true }), []), sink);
 
         Assert.StartsWith("<think>pondering</think>", outcome.FullText, StringComparison.Ordinal);
-        Assert.Equal(["chunk:<think>", "chunk:pondering", "chunk:</think>", "tool_call:get_time", "tool_result:get_time", "iteration:2", "chunk:answer", "done"], sink.Events);
+        Assert.Equal(["reasoning:pondering", "reasoning_end", "tool_call:get_time", "tool_result:get_time", "iteration:2", "chunk:answer", "done"], sink.Events);
+        Assert.Equal("answer", outcome.SpokenText);
         Assert.DoesNotContain(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && (m.Content ?? "").Contains("<think>", StringComparison.Ordinal));
     }
 
@@ -160,5 +163,33 @@ public class ToolTurnRunnerTests
         Assert.Equal(["chunk:saved anyway."], sink.Events);
         Assert.Single(saved);
         Assert.Equal("saved anyway.", saved[0]["content"]!.ToString());
+    }
+
+    [Fact]
+    public async Task EachRoundIsRecordedWithItsTextAndCalls()
+    {
+        ScriptedChatProvider provider = new(
+            [Text("Checking. "), Call("c1", "get_time"), Stop(StopReason.ToolCall)],
+            [Text("It is 14:05."), Stop(StopReason.Stop)]);
+        List<JObject> saved = [];
+        await ToolTurnRunner.RunAsync(Input(GetTime()),
+            Context(provider, (_, _) => Task.FromResult(new JObject { ["now"] = "14:05" }), saved), new RecordingChatSink());
+
+        JArray rounds = (JArray)saved[0]["rounds"]!;
+        Assert.Equal(2, rounds.Count);
+        Assert.Equal("Checking. ", rounds[0]!["text"]!.ToString());
+        Assert.Equal("c1", rounds[0]!["toolCallIds"]![0]!.ToString());
+        Assert.Equal("It is 14:05.", rounds[1]!["text"]!.ToString());
+        Assert.Empty((JArray)rounds[1]!["toolCallIds"]!);
+    }
+
+    [Fact]
+    public async Task SpokenTextLeavesOutTheReasoningTrace()
+    {
+        ScriptedChatProvider provider = new([new TextChunk { Kind = TextChunkKind.Reasoning, Text = "private" }, Text("public answer"), Stop(StopReason.Stop)]);
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), []), new RecordingChatSink());
+
+        Assert.Contains("private", outcome.FullText, StringComparison.Ordinal);
+        Assert.Equal("public answer", outcome.SpokenText);
     }
 }

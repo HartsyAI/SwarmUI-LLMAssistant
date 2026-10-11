@@ -262,7 +262,7 @@ public static class ChatEndpoints
 
             CollectingSink collected = new();
             ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(input, new ToolTurnContext { Session = session, AssistantId = assistantId }, collected);
-            string spokenText = outcome.FullText.Trim();
+            string spokenText = (outcome.SpokenText ?? outcome.FullText).Trim();
             JArray deviceCalls = VoiceWsSink.DeviceCalls(outcome.ToolEvents);
             bool truncated = outcome.Truncated;
             // A turn that produced neither speech nor a device action is a failed turn, not an empty

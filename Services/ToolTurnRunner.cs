@@ -56,7 +56,9 @@ public sealed class ToolTurnContext
 }
 
 /// <summary>What a finished turn produced: its visible text, why it ended, whether the round limit cut it, and its tool events.</summary>
-public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents);
+/// <remarks><see cref="SpokenText"/> is the visible text alone (no reasoning), for speech; <see cref="Rounds"/> is each round's
+/// <c>{text, toolCallIds}</c>, in order.</remarks>
+public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null);
 
 /// <summary>Where a turn's events go: a chat socket, a voice socket, or a collector. <see cref="IsOpen"/> stops forwarding when the
 /// client has gone; the turn still finishes and saves.</summary>
@@ -70,6 +72,12 @@ public interface IToolTurnSink
 
     /// <summary>A new model round begins (round 2 and later).</summary>
     Task Iteration(int round);
+
+    /// <summary>Reasoning text, as the model's think block streams it.</summary>
+    Task Reasoning(string text);
+
+    /// <summary>The think block ended (before visible text, a call, or the turn's end).</summary>
+    Task ReasoningEnd();
 
     /// <summary>A backend status phase (for example <c>queued</c>).</summary>
     Task Status(string phase);
@@ -100,14 +108,27 @@ public static class ToolTurnRunner
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel, ct);
         DateTime startTime = DateTime.UtcNow;
         ILLMProvider provider = await (ctx.ResolveProvider ?? LLMDispatcher.GetProvider)(input);
-        ToolTurnContext resolved = WithDefaults(ctx);
+        ToolTurnContext resolved = WithDefaults(ctx, input.Model);
         StringBuilder fullText = new();
+        StringBuilder spokenText = new();
+        StringBuilder roundText = new();
+        List<string> roundCallIds = [];
         JArray toolEvents = [];
+        JArray rounds = [];
         string stopReason = null;
         bool truncated = false;
         bool pendingIteration = false;
         bool inReasoning = false;
         int round = 1;
+        void CloseRound()
+        {
+            if (roundText.Length > 0 || roundCallIds.Count > 0)
+            {
+                rounds.Add(new JObject { ["text"] = roundText.ToString(), ["toolCallIds"] = new JArray(roundCallIds) });
+            }
+            roundText.Clear();
+            roundCallIds.Clear();
+        }
         try
         {
             IAsyncEnumerable<TextChunk> chunks = input.Tools is { Count: > 0 }
@@ -118,28 +139,38 @@ public static class ToolTurnRunner
                 if (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.Reasoning or TextChunkKind.NativeToolCall && pendingIteration)
                 {
                     pendingIteration = false;
+                    CloseRound();
                     round++;
                     await sink.Iteration(round);
                 }
                 if (chunk.Kind != TextChunkKind.Reasoning && inReasoning)
                 {
                     inReasoning = false;
-                    await Emit(sink, fullText, "</think>");
+                    fullText.Append("</think>");
+                    roundText.Append("</think>");
+                    await sink.ReasoningEnd();
                 }
                 switch (chunk.Kind)
                 {
                     case TextChunkKind.Chunk:
-                        await Emit(sink, fullText, chunk.Text ?? "");
+                        fullText.Append(chunk.Text);
+                        roundText.Append(chunk.Text);
+                        spokenText.Append(chunk.Text);
+                        await sink.Chunk(chunk.Text ?? "");
                         break;
                     case TextChunkKind.Reasoning:
                         if (!inReasoning)
                         {
                             inReasoning = true;
-                            await Emit(sink, fullText, "<think>");
+                            fullText.Append("<think>");
+                            roundText.Append("<think>");
                         }
-                        await Emit(sink, fullText, chunk.Text ?? "");
+                        fullText.Append(chunk.Text);
+                        roundText.Append(chunk.Text);
+                        await sink.Reasoning(chunk.Text ?? "");
                         break;
                     case TextChunkKind.NativeToolCall when chunk.ToolCall is { } call:
+                        roundCallIds.Add(call.Id);
                         toolEvents.Add(new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = LLMMessageMapping.ArgumentsObject(new JValue(call.Arguments)), ["result"] = null });
                         await sink.ToolCall(new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = LLMMessageMapping.ArgumentsObject(new JValue(call.Arguments)) });
                         break;
@@ -163,20 +194,34 @@ public static class ToolTurnRunner
                         break;
                 }
             }
-            if (inReasoning) await Emit(sink, fullText, "</think>");
         }
         catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
             // A Stop (or the socket closing) landed mid-turn: keep what was produced rather than dropping it.
             stopReason ??= "cancelled";
         }
-        // A call with no result yet must not reach a later turn as an orphan tool use.
+        if (inReasoning)
+        {
+            inReasoning = false;
+            fullText.Append("</think>");
+            roundText.Append("</think>");
+            await sink.ReasoningEnd();
+        }
+        CloseRound();
+        // A call the loop never ran (the round limit's last call, or a stop) gets a result: the client closes its bubble, and a later
+        // turn never sees an orphan tool use.
         foreach (JObject entry in toolEvents.OfType<JObject>().Where(e => e["result"] is null or { Type: JTokenType.Null }))
         {
-            entry["result"] = new JObject { ["success"] = false, ["error"] = "The turn was stopped before this tool finished." };
+            JObject stub = new()
+            {
+                ["success"] = false,
+                ["error"] = truncated ? "The round limit was reached before this tool could run." : "The turn was stopped before this tool finished.",
+            };
+            entry["result"] = stub;
+            await sink.ToolResult(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
         }
-        string reason = truncated ? "max_iterations" : null;
-        ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, reason, toolEvents);
+        ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
+            spokenText.ToString(), rounds);
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
             resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, stopReason));
@@ -209,6 +254,7 @@ public static class ToolTurnRunner
             ["content"] = clean,
             ["rawContent"] = raw ?? "",
             ["toolCalls"] = outcome.ToolEvents ?? [],
+            ["rounds"] = outcome.Rounds ?? [],
             ["meta"] = meta,
         };
         if (!string.IsNullOrEmpty(ctx.ClientMessageId)) message["id"] = ctx.ClientMessageId;
@@ -239,7 +285,7 @@ public static class ToolTurnRunner
         }
     }
 
-    private static ToolTurnContext WithDefaults(ToolTurnContext ctx) => new()
+    private static ToolTurnContext WithDefaults(ToolTurnContext ctx, string model) => new()
     {
         Session = ctx.Session,
         ThreadId = ctx.ThreadId,
@@ -252,15 +298,16 @@ public static class ToolTurnRunner
         SetActiveLeaf = ctx.SetActiveLeaf,
         MaxRounds = ctx.MaxRounds,
         ResolveProvider = ctx.ResolveProvider,
-        Dispatch = ctx.Dispatch ?? DefaultDispatch(ctx),
+        Dispatch = ctx.Dispatch ?? DefaultDispatch(ctx, model),
         Persist = ctx.Persist ?? (message => SaveToThread(ctx.Session, ctx.ThreadId, ctx, message)),
     };
 
-    private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx) => async (call, cancel) =>
+    private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model) => async (call, cancel) =>
     {
         try
         {
-            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, null, cancel);
+            // The model id is the turn's own model: a handler that starts a nested request (captioning) must stay on it.
+            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -287,12 +334,6 @@ public static class ToolTurnRunner
             List<LLMMessage> appended = [.. request.Messages.Skip(baseCount).Select(LLMMessageMapping.FromAppendedTextMessage)];
             return provider.StreamAsync(input.CloneForRound(appended, request.ForceToolId), token);
         };
-    }
-
-    private static Task Emit(IToolTurnSink sink, StringBuilder fullText, string text)
-    {
-        fullText.Append(text);
-        return sink.Chunk(text);
     }
 
     private static string ToStopReason(StopReason? stop) => stop switch

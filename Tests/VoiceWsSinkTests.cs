@@ -62,4 +62,14 @@ public class VoiceWsSinkTests
         await sink.Done(new ToolTurnOutcome("", null, true, "max_iterations", []));
         Assert.Equal("tool_call", frames[^1]["stopReason"]!.ToString());
     }
+
+    [Fact]
+    public async Task VisibleTextIsForwardedAsChunkFrames()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+        await sink.Reasoning("hidden");
+        await sink.Chunk("Hello.");
+        Assert.Single(frames);
+        Assert.Equal("Hello.", frames[0]["chunk"]!.ToString());
+    }
 }

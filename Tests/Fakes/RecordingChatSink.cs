@@ -14,6 +14,10 @@ internal sealed class RecordingChatSink : IToolTurnSink
 
     public Task Chunk(string text) { Events.Add("chunk:" + text); return Task.CompletedTask; }
 
+    public Task Reasoning(string text) { Events.Add("reasoning:" + text); return Task.CompletedTask; }
+
+    public Task ReasoningEnd() { Events.Add("reasoning_end"); return Task.CompletedTask; }
+
     public Task Iteration(int round) { Events.Add("iteration:" + round); return Task.CompletedTask; }
 
     public Task Status(string phase) { Events.Add("status:" + phase); return Task.CompletedTask; }

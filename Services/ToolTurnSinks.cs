@@ -11,8 +11,29 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     /// <inheritdoc/>
     public bool IsOpen => socket.State == WebSocketState.Open;
 
+    private bool _inThink;
+
     /// <inheritdoc/>
     public Task Chunk(string text) => Send(new JObject { ["chunk"] = text });
+
+    /// <inheritdoc/>
+    public async Task Reasoning(string text)
+    {
+        if (!_inThink)
+        {
+            _inThink = true;
+            await Send(new JObject { ["chunk"] = "<think>" });
+        }
+        await Send(new JObject { ["chunk"] = text });
+    }
+
+    /// <inheritdoc/>
+    public async Task ReasoningEnd()
+    {
+        if (!_inThink) return;
+        _inThink = false;
+        await Send(new JObject { ["chunk"] = "</think>" });
+    }
 
     /// <inheritdoc/>
     public Task Iteration(int round) => Send(new JObject { ["iteration"] = round });
@@ -68,7 +89,13 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     public bool IsOpen => isOpen();
 
     /// <inheritdoc/>
-    public Task Chunk(string text) => Task.CompletedTask;
+    public Task Chunk(string text) => send(new JObject { ["chunk"] = text });
+
+    /// <inheritdoc/>
+    public Task Reasoning(string text) => Task.CompletedTask;
+
+    /// <inheritdoc/>
+    public Task ReasoningEnd() => Task.CompletedTask;
 
     /// <inheritdoc/>
     public Task Iteration(int round) => Task.CompletedTask;
@@ -113,7 +140,8 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     public Task Done(ToolTurnOutcome outcome) => send(new JObject
     {
         ["done"] = true,
-        ["full_text"] = outcome.FullText,
+        // Speech is the visible text: a reasoning trace is never read aloud.
+        ["full_text"] = outcome.SpokenText ?? outcome.FullText,
         ["toolCalls"] = deviceCalls,
         // A round limit reports as tool_call here, the same as before the runner: the device still knows the model wanted another call.
         ["stopReason"] = outcome.Truncated ? "tool_call" : outcome.StopReason,
@@ -137,6 +165,12 @@ public sealed class CollectingSink : IToolTurnSink
 
     /// <inheritdoc/>
     public Task Chunk(string text) => Task.CompletedTask;
+
+    /// <inheritdoc/>
+    public Task Reasoning(string text) => Task.CompletedTask;
+
+    /// <inheritdoc/>
+    public Task ReasoningEnd() => Task.CompletedTask;
 
     /// <inheritdoc/>
     public Task Iteration(int round) => Task.CompletedTask;
