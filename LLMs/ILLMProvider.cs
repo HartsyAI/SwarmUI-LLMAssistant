@@ -49,6 +49,11 @@ public interface ILLMProvider
     /// the <see cref="GenerateLive"/> stream instead of a <c>&lt;tool_call&gt;</c> tag embedded in text.
     /// Defaults false so every provider is opt-in, not opt-out.</summary>
     bool SupportsNativeToolCalling => false;
+
+    /// <summary>The model turn as engine chunks (text, native tool calls, stop reason). The default adapts
+    /// <see cref="GenerateLive"/>'s frames; a provider with a native chunk stream overrides it.</summary>
+    IAsyncEnumerable<HartsyInference.Engine.Requests.TextChunk> StreamAsync(ExtendedLLMInput input, CancellationToken ct)
+        => LLMChunkStream.FromFrames((frame, token) => GenerateLive(input, "0", frame, token), ct);
 }
 
 /// <summary>In-memory registry of the LLM providers supplied by the removable backend pack.
