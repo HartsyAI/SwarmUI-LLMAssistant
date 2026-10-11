@@ -12,6 +12,9 @@ public class ChatTitleCleaningTests
     [InlineData("Title: \"Fixing Docker Networking\"", "Fixing Docker Networking")]
     [InlineData("**Python Sort Help**\nsome extra line", "Python Sort Help")]
     [InlineData("<think>The user wants a title.</think>Landing Page Draft", "Landing Page Draft")]
+    [InlineData("Let's Build a Snake Game", "Let's Build a Snake Game")]
+    [InlineData("Looking at Python Decorators", "Looking at Python Decorators")]
+    [InlineData("First, Install Docker", "First, Install Docker")]
     public void CleanGeneratedTitle_UsableOutput_IsTidied(string raw, string expected)
     {
         Assert.Equal(expected, ChatEndpoints.CleanGeneratedTitle(raw));

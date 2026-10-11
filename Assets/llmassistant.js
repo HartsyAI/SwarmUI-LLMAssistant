@@ -338,6 +338,11 @@ function llmaSetupTopBar() {
     const asstToggle = document.getElementById('llma-asst-toggle');
     if (asstToggle) {
         asstToggle.addEventListener('click', () => {
+            if (window.innerWidth > 1050) {
+                // Wide layout: the panel is a collapsible column, not a drawer.
+                document.getElementById('llma-split-right-btn')?.click();
+                return;
+            }
             const panel = document.getElementById('llma-asst-panel');
             if (!panel) return;
             panel.classList.toggle('panel-open');
@@ -486,7 +491,9 @@ function llmaUpdateModelChip() {
     const model = LLMAState.currentModel;
     const text = document.getElementById('llma-model-chip-text');
     if (text) {
-        text.textContent = model ? model.split(/[\\/]/).pop().replace(/\.gguf$/i, '') : translate('Select a model');
+        const short = (m) => m.split(/[\\/]/).pop().replace(/\.gguf$/i, '');
+        const versus = LLMAState.compareMode === true && LLMAState.compareModelB && model;
+        text.textContent = versus ? `${short(model)} vs ${short(LLMAState.compareModelB)}` : (model ? short(model) : translate('Select a model'));
     }
     chip.classList.toggle('warn', !model);
     chip.title = model ? `${model}\n${translate('Click to switch model')}` : translate('No model selected: click to pick one');
@@ -2209,7 +2216,7 @@ function llmaSetupResponsive() {
     const check = () => {
         const w = window.innerWidth;
         const toggle = document.getElementById('llma-asst-toggle');
-        if (toggle) toggle.style.display = w <= 1050 ? '' : 'none';
+        if (toggle) toggle.style.display = ''; // always reachable: the panel now starts collapsed on wide screens too
     };
     check();
     window.addEventListener('resize', llmaDebounce(check, 120));

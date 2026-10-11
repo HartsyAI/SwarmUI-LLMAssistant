@@ -555,10 +555,21 @@ function llmaGroupByDate(threads) {
 /** Groups threads by their assistant, groups ordered by most recent activity. `threads` is already newest-first. */
 function llmaGroupByAssistant(threads) {
     const groups = {};
+    const labelById = {};
+    const idByLabel = {};
     for (const t of threads) {
         const a = (LLMAState.assistants || []).find(x => x.id === t.assistantId);
-        const name = a?.name || translate('Other');
-        (groups[name] = groups[name] || []).push(t);
+        const key = a ? a.id : '';
+        if (!(key in labelById)) {
+            // Two assistants can share a name (personal + shared): keep their chats apart.
+            let label = a?.name || translate('Other');
+            for (let n = 2; label in idByLabel && idByLabel[label] != key; n++) {
+                label = `${a?.name || translate('Other')} (${n})`;
+            }
+            labelById[key] = label;
+            idByLabel[label] = key;
+        }
+        (groups[labelById[key]] = groups[labelById[key]] || []).push(t);
     }
     return groups;
 }
@@ -733,14 +744,6 @@ function llmaSetElChecked(id, checked) {
     if (el) el.checked = checked;
 }
 
-/**
- * Generic action-button factory: a labeled <button> with a click handler.
- * Shared across message rows, attachment actions, etc.
- * @param {string} text - Button label.
- * @param {Function} onClick - Click handler.
- * @param {string} [className='llma-msg-action-btn'] - CSS class.
- * @returns {HTMLButtonElement}
- */
 /** Stroke icon paths (16x16 viewBox) for icon-only message actions. */
 const LLMA_ICON_PATHS = {
     copy: '<rect x="5.5" y="5.5" width="8" height="8" rx="1.8"/><path d="M10.5 5.5V4A1.8 1.8 0 0 0 8.7 2.2H4A1.8 1.8 0 0 0 2.2 4v4.7A1.8 1.8 0 0 0 4 10.5h1.5"/>',
@@ -771,6 +774,14 @@ function llmaCreateIconBtn(icon, label, onClick, className = 'llma-msg-action-bt
     return btn;
 }
 
+/**
+ * Generic action-button factory: a labeled <button> with a click handler.
+ * Shared across message rows, attachment actions, etc.
+ * @param {string} text - Button label.
+ * @param {Function} onClick - Click handler.
+ * @param {string} [className='llma-msg-action-btn'] - CSS class.
+ * @returns {HTMLButtonElement}
+ */
 function llmaCreateActionBtn(text, onClick, className = 'llma-msg-action-btn') {
     const btn = document.createElement('button');
     btn.className = className;
