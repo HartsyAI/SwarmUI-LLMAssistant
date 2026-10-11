@@ -11,12 +11,9 @@ public static class LLMRoles
     public const string System = "system";
     public const string User = "user";
     public const string Assistant = "assistant";
-    /// <summary>A tool-call result turn. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently maps this
-    /// onto a real wire role (<c>TextRole.Tool</c>, carrying <see cref="LLMMessage.ToolCallId"/>/<see cref="LLMMessage.Name"/>);
-    /// nothing in this extension constructs one yet — the general chat loop still feeds tool results back as
-    /// <see cref="User"/> turns formatted by <c>ToolPromptService.FormatToolResult</c>, which works for every
-    /// provider including ones that only understand the text-based <c>&lt;tool_call&gt;</c> convention. This
-    /// exists so a native-tool-calling caller (eg a <c>ToolLoop</c>-driven turn) has a correct role to ask for.</summary>
+    /// <summary>A tool-call result turn. Every provider maps it to its own wire shape (the local engine's tool role,
+    /// Anthropic's <c>tool_result</c> block, OpenAI's <c>tool</c> message), carrying <see cref="LLMMessage.ToolCallId"/>
+    /// and <see cref="LLMMessage.Name"/>. A saved tool turn is replayed with this role.</summary>
     public const string Tool = "tool";
 }
 
