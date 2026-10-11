@@ -77,12 +77,18 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 4px;
+    min-width: 0;
     padding: 10px 12px;
     border-bottom: 1px solid var(--light-border);
     flex-shrink: 0;
 }
 .llma-sidebar-label {
     flex: 1;
+    min-width: 0; /* the label gives way first when the sidebar is dragged narrow */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.06em;
@@ -374,3 +380,17 @@
 .llma-bulk-count { cursor: pointer; }
 .llma-thread-group-label.selectable { cursor: pointer; opacity: 0.6; }
 .llma-thread-group-label.selectable:hover { opacity: 1; color: var(--emphasis); }
+
+/* Header pills: Select never shrinks (it is the action); the grouping pill ellipsizes before anything clips. */
+#llma-thread-select-toggle { flex: none; }
+.llma-group-toggle {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Bulk bar at narrow sidebar widths: the count ellipsizes, the actions never get pushed out. */
+.llma-bulk-bar { gap: 4px; min-width: 0; margin-left: 6px; margin-right: 6px; }
+.llma-bulk-count { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.llma-bulk-all, .llma-bulk-delete, .llma-bulk-cancel { flex: none; }
