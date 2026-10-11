@@ -243,8 +243,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>, the
-    /// same shape <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> reads for the legacy
-    /// convention) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
+    /// same shape the engine's tool definitions are built from) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
     /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c> —
     /// not the human display <c>name</c> field — since that's what <c>ToolExecutorService.ExecuteTool</c>
     /// dispatches on for the returned tool_use block.</summary>

@@ -246,24 +246,6 @@ public class ConversationPrefixCacheTests
     }
 
     [Fact]
-    public void TagLoopRounds_RebuildTheSameKeyFromTheGrowingInput()
-    {
-        // LLMStreamHelper's agentic loop and LLMAssistantVoiceTurn rebuild the request every round from the same
-        // ExtendedLLMInput, appending the model's tool-call turn and the tool result as they go.
-        ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("t1"), Model,
-            (LLMRoles.System, "Be helpful."), (LLMRoles.User, "search for cats"));
-        string round1 = Build(input, "alice").PrefixCacheKey;
-        input.Messages.Add(new LLMMessage { Role = LLMRoles.Assistant, Content = "<tool_call>{\"name\":\"web_search\",\"arguments\":{\"q\":\"cats\"}}</tool_call>" });
-        input.Messages.Add(new LLMMessage { Role = LLMRoles.User, Content = ToolPromptServiceResult() });
-        string round2 = Build(input, "alice").PrefixCacheKey;
-        Assert.NotNull(round1);
-        Assert.Equal(round1, round2);
-    }
-
-    private static string ToolPromptServiceResult()
-        => Services.ToolPromptService.FormatToolResult("web_search", new JObject { ["success"] = true, ["results"] = new JArray("cats.example") });
-
-    [Fact]
     public void ThreadConversationId_IsNullForABlankThread()
     {
         Assert.Equal("thread:t1", ChatEndpoints.ThreadConversationId("t1"));

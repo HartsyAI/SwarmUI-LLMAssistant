@@ -909,8 +909,8 @@ public static class ChatEndpoints
     /// <summary>Whether tool-calling is active for this thread: an explicit per-thread override (set via
     /// <see cref="ThreadEndpoints.LLMAssistantSetThreadToolsEnabled"/>) wins; otherwise falls back to the
     /// resolved assistant's master switch. Callers must pass an empty tools list when this is false so
-    /// <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> never runs — small local GGUF models
-    /// reliably get confused by tool descriptions in the system prompt regardless of how compact they are.</summary>
+    /// tools are never attached to the request — small local GGUF models get confused by tool descriptions
+    /// they should not see.</summary>
     private static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
     {
         if (thread["toolsEnabled"]?.Type == JTokenType.Boolean)
