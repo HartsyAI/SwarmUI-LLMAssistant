@@ -153,10 +153,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         JArray messages = [];
         if (input.Messages.Count > 0)
         {
-            foreach (LLMMessage msg in input.Messages)
-            {
-                messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
-            }
+            messages = BuildOpenAIMessages(input.Messages);
         }
         else
         {
@@ -194,6 +191,47 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                 : "auto";
         }
         return body;
+    }
+
+    /// <summary>The OpenAI <c>messages</c> array for a conversation. An assistant turn that made tool calls carries
+    /// <c>tool_calls</c> (arguments as JSON text); a tool result is a <c>tool</c> message keyed by its call id.</summary>
+    internal static JArray BuildOpenAIMessages(IReadOnlyList<LLMMessage> source)
+    {
+        JArray messages = [];
+        foreach (LLMMessage msg in source)
+        {
+            if (msg.Role == LLMRoles.Tool)
+            {
+                messages.Add(new JObject() { ["role"] = LLMRoles.Tool, ["tool_call_id"] = msg.ToolCallId ?? "", ["content"] = msg.Content ?? "" });
+                continue;
+            }
+            if (msg.Role == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            {
+                JArray toolCalls = [];
+                foreach (JObject call in calls)
+                {
+                    toolCalls.Add(new JObject()
+                    {
+                        ["id"] = call["id"]?.ToString() ?? "",
+                        ["type"] = "function",
+                        ["function"] = new JObject()
+                        {
+                            ["name"] = call["name"]?.ToString() ?? "",
+                            ["arguments"] = LLMMessageMapping.ArgumentsText(call["arguments"]),
+                        },
+                    });
+                }
+                messages.Add(new JObject()
+                {
+                    ["role"] = LLMRoles.Assistant,
+                    ["content"] = string.IsNullOrWhiteSpace(msg.Content) ? null : msg.Content,
+                    ["tool_calls"] = toolCalls,
+                });
+                continue;
+            }
+            messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
+        }
+        return messages;
     }
 
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto

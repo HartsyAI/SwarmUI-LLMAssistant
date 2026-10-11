@@ -1361,6 +1361,14 @@ public static class ChatEndpoints
                 Role = msg["role"]?.ToString() ?? Roles.User,
                 Content = msg["content"]?.ToString() ?? ""
             };
+            if (msg["toolCalls"] is JArray savedCalls && savedCalls.Count > 0)
+            {
+                entry.ToolCalls = [.. savedCalls.OfType<JObject>()];
+            }
+            if (msg["rounds"] is JArray savedRounds && savedRounds.Count > 0)
+            {
+                entry.Rounds = [.. savedRounds.OfType<JObject>()];
+            }
             if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
             {
                 entry.Media = [];
