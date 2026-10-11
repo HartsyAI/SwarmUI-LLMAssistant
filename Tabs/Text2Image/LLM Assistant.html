@@ -3,6 +3,7 @@
     <aside class="llma-sidebar" id="llma-sidebar">
         <div class="llma-sidebar-header">
             <span class="llma-sidebar-label translate">Chats</span>
+            <button class="llma-select-toggle llma-group-toggle translate" id="llma-thread-group-toggle" type="button" title="Switch between grouping chats by date or by assistant" aria-label="Group chats">By date</button>
             <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select several chats to delete them" aria-label="Select multiple chats" aria-pressed="false">Select</button>
         </div>
         <div class="llma-search-wrap">
@@ -188,6 +189,11 @@
                                 </label>
                             </div>
                             <div class="llma-input-actions-right">
+                                <button class="llma-model-chip" id="llma-model-chip" type="button" title="Switch model" aria-label="Switch model">
+                                    <span class="llma-model-chip-dot" aria-hidden="true"></span>
+                                    <span class="llma-model-chip-text" id="llma-model-chip-text">No model</span>
+                                    <span class="llma-model-chip-caret" aria-hidden="true">&#9662;</span>
+                                </button>
                                 <button class="llma-send-btn translate" id="llma-send-btn" title="Send" aria-label="Send message">
                                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
                                 </button>

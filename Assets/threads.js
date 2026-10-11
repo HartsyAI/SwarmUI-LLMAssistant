@@ -231,6 +231,7 @@ function llmaRenderThreadList(threads) {
     const hasChats = threads.length > 0;
     document.getElementById('llma-new-thread-btn')?.style.setProperty('display', hasChats ? '' : 'none');
     document.getElementById('llma-thread-select-toggle')?.style.setProperty('display', hasChats ? '' : 'none');
+    document.getElementById('llma-thread-group-toggle')?.style.setProperty('display', hasChats ? '' : 'none');
 
     if (!hasChats) {
         list.innerHTML = `
@@ -244,7 +245,8 @@ function llmaRenderThreadList(threads) {
         return;
     }
 
-    const groups = llmaGroupByDate([...threads].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt)));
+    const newestFirst = [...threads].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+    const groups = llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(newestFirst) : llmaGroupByDate(newestFirst);
     let html = '';
 
     for (const [label, group] of Object.entries(groups)) {
@@ -362,6 +364,35 @@ function llmaBindThreadListEvents(list) {
     });
 }
 
+/** Current sidebar grouping: 'date' (default) or 'assistant'. Remembered per browser. */
+function llmaThreadGroupMode() {
+    try {
+        return localStorage.getItem('llma_thread_group') == 'assistant' ? 'assistant' : 'date';
+    }
+    catch {
+        return 'date';
+    }
+}
+
+/** Flip the sidebar grouping, remember it, and re-render. */
+function llmaToggleThreadGroupMode() {
+    const next = llmaThreadGroupMode() == 'assistant' ? 'date' : 'assistant';
+    try {
+        localStorage.setItem('llma_thread_group', next);
+    }
+    catch { /* private mode: the choice just won't persist */ }
+    llmaSyncGroupToggle();
+    llmaRenderThreadList(LLMAState.threads);
+}
+
+/** Keep the header pill's label in step with the grouping mode. */
+function llmaSyncGroupToggle() {
+    const btn = document.getElementById('llma-thread-group-toggle');
+    if (btn) {
+        btn.textContent = llmaThreadGroupMode() == 'assistant' ? translate('By assistant') : translate('By date');
+    }
+}
+
 // Toggle bulk-select mode. Re-renders the sidebar so each row picks up / drops its checkbox.
 function llmaToggleThreadSelectMode(force) {
     const next = typeof force === 'boolean' ? force : !llmaThreadSelectMode;
@@ -412,7 +443,10 @@ function llmaSetThreadsSelected(ids, selected) {
 function llmaUpdateBulkCount() {
     const count = llmaSelectedThreadIds.size;
     const label = document.getElementById('llma-bulk-count');
-    if (label) label.textContent = `${count} ${translate('selected')}`;
+    if (label) {
+        label.textContent = `${count} ${translate('selected')}`;
+        label.title = label.textContent; // full text when the narrow sidebar ellipsizes it
+    }
     const all = document.getElementById('llma-bulk-all');
     if (all) {
         const visible = llmaVisibleThreadIds();
@@ -460,6 +494,12 @@ async function llmaBulkDeleteThreads() {
 // One-shot wiring of the bulk-bar buttons. Idempotent — guards via dataset flag so callers
 // can invoke it multiple times during page setup without stacking listeners.
 function llmaSetupBulkBar() {
+    const groupBtn = document.getElementById('llma-thread-group-toggle');
+    if (groupBtn && !groupBtn.dataset.llmaBound) {
+        groupBtn.dataset.llmaBound = '1';
+        groupBtn.addEventListener('click', llmaToggleThreadGroupMode);
+        llmaSyncGroupToggle();
+    }
     const toggle = document.getElementById('llma-thread-select-toggle');
     if (toggle && !toggle.dataset.llmaBound) {
         toggle.dataset.llmaBound = '1';

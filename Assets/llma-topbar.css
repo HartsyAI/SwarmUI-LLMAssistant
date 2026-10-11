@@ -242,7 +242,8 @@
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--backend-errored) 55%, transparent);
 }
 /* One-shot attention pulse — used when the user tries to send without a model selected. */
-.llma-model-select.llma-flash {
+.llma-model-select.llma-flash,
+.llma-model-chip.llma-flash {
     animation: llma-flash-pulse 1.1s ease;
 }
 @keyframes llma-flash-pulse {
@@ -367,3 +368,26 @@
     display: flex;
     flex-direction: column;
 }
+
+/* ── Composer model chip ─────────────────────────────────────────── */
+.llma-model-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 200px;
+    height: 28px;
+    padding: 0 10px;
+    border: 1px solid var(--light-border);
+    border-radius: 14px;
+    background: none;
+    color: var(--text-soft);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+.llma-model-chip:hover { color: var(--text); background: var(--background-soft); }
+.llma-model-chip-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.llma-model-chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--backend-running); }
+.llma-model-chip.warn { color: var(--backend-errored); border-color: var(--backend-errored); }
+.llma-model-chip.warn .llma-model-chip-dot { background: var(--backend-errored); }
+.llma-model-chip-caret { font-size: 10px; opacity: 0.7; }
