@@ -147,22 +147,21 @@
 }
 /* Select-mode toggle in the sidebar header — checkbox icon, dims when inactive. */
 .llma-select-toggle {
-    width: 22px;
     height: 22px;
+    padding: 0 8px;
     margin-right: 4px;
-    border: none;
+    border: 1px solid var(--light-border);
     background: transparent;
     color: var(--text-soft);
-    opacity: 0.55;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 11px;
     line-height: 1;
-    border-radius: 3px;
+    border-radius: 11px;
 }
-.llma-select-toggle:hover { opacity: 0.9; background: color-mix(in srgb, var(--emphasis) 12%, transparent); }
+.llma-select-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--emphasis) 12%, transparent); }
 .llma-select-toggle[aria-pressed="true"] {
-    opacity: 1;
     color: var(--emphasis);
+    border-color: var(--emphasis);
     background: color-mix(in srgb, var(--emphasis) 14%, transparent);
 }
 
@@ -368,3 +367,8 @@
     min-height: 0;
     background: var(--background);
 }
+
+.llma-bulk-all { margin: 0; cursor: pointer; }
+.llma-bulk-count { cursor: pointer; }
+.llma-thread-group-label.selectable { cursor: pointer; opacity: 0.6; }
+.llma-thread-group-label.selectable:hover { opacity: 1; color: var(--emphasis); }
