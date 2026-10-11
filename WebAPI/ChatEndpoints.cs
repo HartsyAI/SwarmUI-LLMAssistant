@@ -1365,6 +1365,10 @@ public static class ChatEndpoints
             {
                 entry.ToolCalls = [.. savedCalls.OfType<JObject>()];
             }
+            if (msg["rounds"] is JArray savedRounds && savedRounds.Count > 0)
+            {
+                entry.Rounds = [.. savedRounds.OfType<JObject>()];
+            }
             if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
             {
                 entry.Media = [];

@@ -123,4 +123,29 @@ public class ToolHistoryTests
         JArray messages = RemoteOpenAILLMProvider.BuildOpenAIMessages([new LLMMessage { Role = "user", Content = "hi" }]);
         Assert.Equal("hi", messages[0]["content"]!.ToString());
     }
+
+    [Fact]
+    public void SavedRoundsReplayInTheOrderTheyHappened()
+    {
+        // call A, its result, then call B made from A's result, then the answer: never A and B side by side before A's result.
+        ChatMessageData saved = new()
+        {
+            Role = "assistant",
+            Content = "Looking up A. Using it for B. Done.",
+            ToolCalls = [SavedCall("a", "lookup", new JObject(), new JObject { ["v"] = 1 }), SavedCall("b", "fetch", new JObject(), new JObject { ["v"] = 2 })],
+            Rounds =
+            [
+                new JObject { ["text"] = "Looking up A. ", ["toolCallIds"] = new JArray("a") },
+                new JObject { ["text"] = "Using it for B. ", ["toolCallIds"] = new JArray("b") },
+                new JObject { ["text"] = "Done.", ["toolCallIds"] = new JArray() },
+            ],
+        };
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory([saved]);
+        Assert.Equal(["assistant", "tool", "assistant", "tool", "assistant"], input.Messages.Select(m => m.Role));
+        Assert.Equal("Looking up A. ", input.Messages[0].Content);
+        Assert.Equal("a", input.Messages[1].ToolCallId);
+        Assert.Equal("Using it for B. ", input.Messages[2].Content);
+        Assert.Equal("b", input.Messages[2].ToolCalls![0]["id"]!.ToString());
+        Assert.Equal("Done.", input.Messages[4].Content);
+    }
 }

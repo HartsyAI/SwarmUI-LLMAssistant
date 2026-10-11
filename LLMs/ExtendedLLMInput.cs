@@ -112,9 +112,9 @@ public class ExtendedLLMInput
                 Roles.System => LLMRoles.System,
                 _ => LLMRoles.User
             };
-            if (llmRole == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            if (llmRole == LLMRoles.Assistant && (msg.Rounds is { Count: > 0 } || msg.ToolCalls is { Count: > 0 }))
             {
-                AddToolTurns(input, msg, calls);
+                AddToolTurns(input, msg);
                 continue;
             }
             input.Messages.Add(new LLMMessage()
@@ -131,14 +131,53 @@ public class ExtendedLLMInput
         return input;
     }
 
-    /// <summary>Replays a saved assistant turn that made tool calls: the calls as an assistant turn, one tool result per call
-    /// (cut to <see cref="ToolConstants.MaxReplayedToolResultChars"/>, and a stand-in when none was recorded), then the prose.</summary>
-    private static void AddToolTurns(ExtendedLLMInput input, ChatMessageData msg, List<JObject> calls)
+    /// <summary>Replays a saved assistant turn that made tool calls, in the order it happened. A reply saved with its
+    /// <see cref="ChatMessageData.Rounds"/> replays round by round: each round's prose, its calls, then their results. A reply
+    /// saved without rounds replays all its calls as one turn, then its prose. Each result is cut to
+    /// <see cref="ToolConstants.MaxReplayedToolResultChars"/>, with a stand-in when none was recorded.</summary>
+    private static void AddToolTurns(ExtendedLLMInput input, ChatMessageData msg)
+    {
+        Dictionary<string, JObject> calls = [];
+        foreach (JObject call in msg.ToolCalls ?? [])
+        {
+            string id = call["id"]?.ToString() ?? "";
+            calls.TryAdd(id, call);
+        }
+        if (msg.Rounds is { Count: > 0 } rounds)
+        {
+            foreach (JObject round in rounds)
+            {
+                string text = round["text"]?.ToString() ?? "";
+                List<JObject> roundCalls = [];
+                foreach (JToken id in round["toolCallIds"] as JArray ?? [])
+                {
+                    if (calls.TryGetValue(id?.ToString() ?? "", out JObject call)) roundCalls.Add(call);
+                }
+                if (roundCalls.Count > 0)
+                {
+                    AddCallTurn(input, text, roundCalls);
+                }
+                else if (!string.IsNullOrWhiteSpace(text))
+                {
+                    input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = text });
+                }
+            }
+            return;
+        }
+        AddCallTurn(input, "", [.. calls.Values]);
+        if (!string.IsNullOrWhiteSpace(msg.Content))
+        {
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = msg.Content });
+        }
+    }
+
+    /// <summary>One assistant turn that made calls (with the prose that came before them), then one tool result per call.</summary>
+    private static void AddCallTurn(ExtendedLLMInput input, string text, List<JObject> calls)
     {
         input.Messages.Add(new LLMMessage()
         {
             Role = LLMRoles.Assistant,
-            Content = "",
+            Content = text ?? "",
             ToolCalls = [.. calls.Select(c => new JObject
             {
                 ["id"] = c["id"]?.ToString() ?? "",
@@ -148,24 +187,20 @@ public class ExtendedLLMInput
         });
         foreach (JObject call in calls)
         {
-            string text = call["result"] is { Type: not JTokenType.Null } result
+            string resultText = call["result"] is { Type: not JTokenType.Null } result
                 ? result.Type == JTokenType.String ? result.ToString() : result.ToString(Newtonsoft.Json.Formatting.None)
                 : "{\"success\":false,\"error\":\"no result recorded\"}";
-            if (text.Length > ToolConstants.MaxReplayedToolResultChars)
+            if (resultText.Length > ToolConstants.MaxReplayedToolResultChars)
             {
-                text = text[..ToolConstants.MaxReplayedToolResultChars] + "...[truncated]";
+                resultText = resultText[..ToolConstants.MaxReplayedToolResultChars] + "...[truncated]";
             }
             input.Messages.Add(new LLMMessage()
             {
                 Role = LLMRoles.Tool,
-                Content = text,
+                Content = resultText,
                 ToolCallId = call["id"]?.ToString() ?? "",
                 Name = call["name"]?.ToString() ?? "",
             });
-        }
-        if (!string.IsNullOrWhiteSpace(msg.Content))
-        {
-            input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = msg.Content });
         }
     }
 
@@ -216,4 +251,7 @@ public class ChatMessageData
     public List<LLMMediaAttachment> Media { get; set; }
     /// <summary>Tool calls an assistant message made, each <c>{id, name, arguments, result}</c>; null for a plain turn.</summary>
     public List<JObject> ToolCalls { get; set; }
+    /// <summary>The message's rounds in order, each <c>{text, toolCallIds}</c>, so a replay keeps each round's prose and calls
+    /// together; null when the message was saved without them.</summary>
+    public List<JObject> Rounds { get; set; }
 }
