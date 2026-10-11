@@ -249,7 +249,7 @@ function llmaRenderThreadList(threads) {
 
     for (const [label, group] of Object.entries(groups)) {
         if (group.length === 0) continue;
-        html += `<div class="llma-thread-group-label">${llmaEscapeHtml(translate(label))}</div>`;
+        html += `<div class="llma-thread-group-label${llmaThreadSelectMode ? ' selectable' : ''}" data-ids="${llmaEscapeHtml(group.map(t => t.id).join(','))}"${llmaThreadSelectMode ? ` title="${llmaEscapeHtml(translate('Select this group'))}"` : ''}>${llmaEscapeHtml(translate(label))}</div>`;
         for (const thread of group) {
             const isActive  = thread.id === LLMAState.activeThreadId;
             const checked = llmaSelectedThreadIds.has(thread.id) ? 'checked' : '';
@@ -286,9 +286,19 @@ function llmaRenderThreadList(threads) {
 
     list.innerHTML = html;
     llmaBindThreadListEvents(list);
+    if (llmaThreadSelectMode) {
+        llmaUpdateBulkCount(); // the visible set changed (search, new chat): refresh Select-all state
+    }
 }
 
 function llmaBindThreadListEvents(list) {
+    list.querySelectorAll('.llma-thread-group-label.selectable').forEach(label => {
+        label.addEventListener('click', () => {
+            const ids = label.dataset.ids.split(',').filter(Boolean);
+            const allOn = ids.every(id => llmaSelectedThreadIds.has(id));
+            llmaSetThreadsSelected(ids, !allOn);
+        });
+    });
     list.querySelectorAll('.llma-thread-item').forEach(item => {
         item.addEventListener('click', (e) => {
             // Swallow clicks on hover-only action buttons; they handle their own events.
@@ -360,7 +370,10 @@ function llmaToggleThreadSelectMode(force) {
         llmaSelectedThreadIds.clear();
     }
     const toggleBtn = document.getElementById('llma-thread-select-toggle');
-    if (toggleBtn) toggleBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+    if (toggleBtn) {
+        toggleBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        toggleBtn.textContent = next ? translate('Done') : translate('Select');
+    }
     document.getElementById('llma-bulk-bar').style.display = next ? '' : 'none';
     llmaRenderThreadList(LLMAState.threads);
     llmaUpdateBulkCount();
@@ -372,10 +385,41 @@ function llmaToggleSelectedThread(id, selected) {
     llmaUpdateBulkCount();
 }
 
+/** Ids of the threads currently listed in the sidebar (respects the active search filter). */
+function llmaVisibleThreadIds() {
+    return Array.from(document.querySelectorAll('#llma-thread-list .llma-thread-item')).map(i => i.dataset.id);
+}
+
+/** Select or deselect a set of threads and sync the row checkboxes without a full re-render. */
+function llmaSetThreadsSelected(ids, selected) {
+    const wanted = new Set(ids);
+    for (const id of ids) {
+        if (selected) {
+            llmaSelectedThreadIds.add(id);
+        }
+        else {
+            llmaSelectedThreadIds.delete(id);
+        }
+    }
+    for (const box of document.querySelectorAll('#llma-thread-list .llma-thread-checkbox')) {
+        if (wanted.has(box.dataset.id)) {
+            box.checked = selected;
+        }
+    }
+    llmaUpdateBulkCount();
+}
+
 function llmaUpdateBulkCount() {
     const count = llmaSelectedThreadIds.size;
     const label = document.getElementById('llma-bulk-count');
     if (label) label.textContent = `${count} ${translate('selected')}`;
+    const all = document.getElementById('llma-bulk-all');
+    if (all) {
+        const visible = llmaVisibleThreadIds();
+        const chosen = visible.filter(id => llmaSelectedThreadIds.has(id)).length;
+        all.checked = visible.length > 0 && chosen == visible.length;
+        all.indeterminate = chosen > 0 && chosen < visible.length;
+    }
     const del = document.getElementById('llma-bulk-delete');
     if (del) del.disabled = count === 0;
 }
@@ -420,6 +464,11 @@ function llmaSetupBulkBar() {
     if (toggle && !toggle.dataset.llmaBound) {
         toggle.dataset.llmaBound = '1';
         toggle.addEventListener('click', () => llmaToggleThreadSelectMode());
+    }
+    const all = document.getElementById('llma-bulk-all');
+    if (all && !all.dataset.llmaBound) {
+        all.dataset.llmaBound = '1';
+        all.addEventListener('change', () => llmaSetThreadsSelected(llmaVisibleThreadIds(), all.checked));
     }
     const cancel = document.getElementById('llma-bulk-cancel');
     if (cancel && !cancel.dataset.llmaBound) {
