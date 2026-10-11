@@ -633,7 +633,8 @@ public static class ChatEndpoints
         ToolRegistry registry = new();
         foreach (JObject tool in enabledTools)
         {
-            string name = tool["name"]?.ToString();
+            // The id is what the model calls and what ToolExecutorService looks up; the display name is for people.
+            string name = tool["id"]?.ToString() ?? tool["name"]?.ToString();
             if (string.IsNullOrEmpty(name))
             {
                 continue;
