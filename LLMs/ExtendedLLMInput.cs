@@ -112,6 +112,11 @@ public class ExtendedLLMInput
                 Roles.System => LLMRoles.System,
                 _ => LLMRoles.User
             };
+            if (llmRole == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            {
+                AddToolTurns(input, msg, calls);
+                continue;
+            }
             input.Messages.Add(new LLMMessage()
             {
                 Role = llmRole,
@@ -124,6 +129,44 @@ public class ExtendedLLMInput
             input.UserMessage = messages[^1].Content;
         }
         return input;
+    }
+
+    /// <summary>Replays a saved assistant turn that made tool calls: the calls as an assistant turn, one tool result per call
+    /// (cut to <see cref="ToolConstants.MaxReplayedToolResultChars"/>, and a stand-in when none was recorded), then the prose.</summary>
+    private static void AddToolTurns(ExtendedLLMInput input, ChatMessageData msg, List<JObject> calls)
+    {
+        input.Messages.Add(new LLMMessage()
+        {
+            Role = LLMRoles.Assistant,
+            Content = "",
+            ToolCalls = [.. calls.Select(c => new JObject
+            {
+                ["id"] = c["id"]?.ToString() ?? "",
+                ["name"] = c["name"]?.ToString() ?? "",
+                ["arguments"] = LLMMessageMapping.ArgumentsObject(c["arguments"]),
+            })],
+        });
+        foreach (JObject call in calls)
+        {
+            string text = call["result"] is { Type: not JTokenType.Null } result
+                ? result.Type == JTokenType.String ? result.ToString() : result.ToString(Newtonsoft.Json.Formatting.None)
+                : "{\"success\":false,\"error\":\"no result recorded\"}";
+            if (text.Length > ToolConstants.MaxReplayedToolResultChars)
+            {
+                text = text[..ToolConstants.MaxReplayedToolResultChars] + "...[truncated]";
+            }
+            input.Messages.Add(new LLMMessage()
+            {
+                Role = LLMRoles.Tool,
+                Content = text,
+                ToolCallId = call["id"]?.ToString() ?? "",
+                Name = call["name"]?.ToString() ?? "",
+            });
+        }
+        if (!string.IsNullOrWhiteSpace(msg.Content))
+        {
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = msg.Content });
+        }
     }
 
     /// <summary>Creates an ExtendedLLMInput from an already-parsed conversation (eg
@@ -171,4 +214,6 @@ public class ChatMessageData
     /// <summary>Media URLs persisted on the saved message (eg user-attached images). Built into
     /// <see cref="LLMMessage.Media"/> when the chat endpoint constructs the LLM input.</summary>
     public List<LLMMediaAttachment> Media { get; set; }
+    /// <summary>Tool calls an assistant message made, each <c>{id, name, arguments, result}</c>; null for a plain turn.</summary>
+    public List<JObject> ToolCalls { get; set; }
 }
