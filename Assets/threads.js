@@ -443,7 +443,10 @@ function llmaSetThreadsSelected(ids, selected) {
 function llmaUpdateBulkCount() {
     const count = llmaSelectedThreadIds.size;
     const label = document.getElementById('llma-bulk-count');
-    if (label) label.textContent = `${count} ${translate('selected')}`;
+    if (label) {
+        label.textContent = `${count} ${translate('selected')}`;
+        label.title = label.textContent; // full text when the narrow sidebar ellipsizes it
+    }
     const all = document.getElementById('llma-bulk-all');
     if (all) {
         const visible = llmaVisibleThreadIds();
