@@ -66,9 +66,6 @@ public static class AssistantConstants
 /// <summary>Tool-calling related constants.</summary>
 public static class ToolConstants
 {
-    /// <summary>Maximum number of agentic iterations (tool call rounds) per user message.</summary>
-    public const int MaxAgenticIterations = 8;
-
     /// <summary>Longest tool result replayed to the model from saved history; a longer one is cut with a marker.</summary>
     public const int MaxReplayedToolResultChars = 4000;
 

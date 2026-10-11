@@ -40,13 +40,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         [ConfigComment("When attempting to connect to the backend, this is the maximum time Swarm will wait before considering the connection to be failed.\nNote that depending on other configurations, it may fail faster than this.\nFor local network machines, set this to a low value (eg 5) to avoid 'Loading...' delays.")]
         public int ConnectionAttemptTimeoutSeconds = 30;
 
-        [ConfigComment("Whether to use this endpoint's native `tools`/`tool_calls` wire mechanism instead of the "
-            + "text-based <tool_call> tag convention. 'Auto' only enables it for api.openai.com (the one dialect "
-            + "guaranteed to support it correctly) — arbitrary self-hosted OpenAI-compatible servers (Ollama, "
-            + "LM Studio, vLLM, older llama.cpp builds) vary in tool_calls support and quality, so they stay on "
-            + "the safer tag convention unless you confirm your endpoint supports it and turn this on manually.")]
-        [ManualSettingsOptions(Vals = ["auto", "on", "off"], ManualNames = ["Auto (only api.openai.com)", "On (this endpoint supports tool_calls)", "Off (always use the <tool_call> tag convention)"])]
-        public string NativeToolCalling = "auto";
     }
 
     /// <summary>Shared HTTP client for all instances of this backend type.</summary>
@@ -63,14 +56,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm"];
-
-    /// <inheritdoc/>
-    public bool SupportsNativeToolCalling => Settings.NativeToolCalling switch
-    {
-        "on" => true,
-        "off" => false,
-        _ => (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase),
-    };
 
     /// <inheritdoc/>
     protected override async Task OnProviderInit()
@@ -179,11 +164,8 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             body["seed"] = input.Seed;
         }
-        // Re-check SupportsNativeToolCalling here (not just trust the caller already gated it) — input.Tools
-        // is populated unconditionally by ChatEndpoints.ApplyToolsToInput regardless of native/legacy mode
-        // (only the tag-convention system-prompt injection is conditional), so this is the single place that
-        // actually decides whether THIS request emits a native tools field.
-        if (input.Tools is { Count: > 0 } && SupportsNativeToolCalling)
+        // The endpoint must support tools; one that does not answers with an error, which surfaces to the user.
+        if (input.Tools is { Count: > 0 })
         {
             body["tools"] = BuildOpenAITools(input.Tools);
             body["tool_choice"] = !string.IsNullOrEmpty(input.ForceToolId)
