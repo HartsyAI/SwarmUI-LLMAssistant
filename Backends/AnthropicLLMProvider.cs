@@ -41,9 +41,6 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm", "anthropic"];
 
     /// <inheritdoc/>
-    public bool SupportsNativeToolCalling => true;
-
-    /// <inheritdoc/>
     protected override async Task OnProviderInit() => Status = BackendStatus.RUNNING;
 
     /// <inheritdoc/>

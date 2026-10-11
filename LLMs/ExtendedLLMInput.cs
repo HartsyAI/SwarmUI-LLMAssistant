@@ -52,7 +52,7 @@ public class ExtendedLLMInput
 
     /// <summary>Tools available to the LLM for this request (prompt-injected for legacy/tag-convention
     /// providers, sent as a native <c>tools</c> field for providers with
-    /// <see cref="ILLMProvider.SupportsNativeToolCalling"/>).</summary>
+    /// the provider stream).</summary>
     public List<JObject> Tools { get; set; } = [];
 
     /// <summary>When set, the user explicitly requested this specific tool id — a native provider maps
@@ -167,6 +167,15 @@ public class ExtendedLLMInput
         {
             input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = msg.Content });
         }
+    }
+
+    /// <summary>A copy of this input for one more model round: the same settings and conversation, the given messages appended, and the given forced tool.</summary>
+    public ExtendedLLMInput CloneForRound(IEnumerable<LLMMessage> appended, string forceToolId)
+    {
+        ExtendedLLMInput copy = (ExtendedLLMInput)MemberwiseClone();
+        copy.Messages = [.. Messages, .. appended];
+        copy.ForceToolId = forceToolId;
+        return copy;
     }
 
     /// <summary>Creates an ExtendedLLMInput from an already-parsed conversation (eg
