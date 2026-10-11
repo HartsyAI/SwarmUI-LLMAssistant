@@ -476,7 +476,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     /// <inheritdoc/>
-    public async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [EnumeratorCancellation] CancellationToken ct)
+    public override async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [EnumeratorCancellation] CancellationToken ct)
     {
         (ModelSpec spec, TextRequest request, _) = await ResolveSpecAndRequestAsync(input, ct);
         await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct).WithCancellation(ct))

@@ -16,6 +16,7 @@ public static class LLMChunkStream
     public static async IAsyncEnumerable<TextChunk> FromFrames(Func<Func<JObject, Task>, CancellationToken, Task> produce, [EnumeratorCancellation] CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(produce);
+        using CancellationTokenSource stop = CancellationTokenSource.CreateLinkedTokenSource(ct);
         Channel<TextChunk> channel = Channel.CreateUnbounded<TextChunk>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
         Task producer = Task.Run(async () =>
         {
@@ -23,8 +24,12 @@ public static class LLMChunkStream
             {
                 await produce(async frame =>
                 {
-                    if (ToChunk(frame) is { } chunk) await channel.Writer.WriteAsync(chunk, ct).ConfigureAwait(false);
-                }, ct).ConfigureAwait(false);
+                    if (ToChunk(frame) is { } chunk) await channel.Writer.WriteAsync(chunk, stop.Token).ConfigureAwait(false);
+                }, stop.Token).ConfigureAwait(false);
+                channel.Writer.TryComplete();
+            }
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
+            {
                 channel.Writer.TryComplete();
             }
             catch (Exception ex)
@@ -33,13 +38,24 @@ public static class LLMChunkStream
             }
         }, CancellationToken.None);
         bool sawStop = false;
-        await foreach (TextChunk chunk in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+        bool sawToolCall = false;
+        try
         {
-            if (chunk.Kind == TextChunkKind.StopReason) sawStop = true;
-            yield return chunk;
+            await foreach (TextChunk chunk in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            {
+                if (chunk.Kind == TextChunkKind.StopReason) sawStop = true;
+                if (chunk.Kind == TextChunkKind.NativeToolCall) sawToolCall = true;
+                yield return chunk;
+            }
         }
-        await producer.ConfigureAwait(false);
-        if (!sawStop) yield return new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Stop };
+        finally
+        {
+            // The consumer stopped early or failed: stop the provider's request rather than let it run unobserved, then wait for it to unwind.
+            stop.Cancel();
+            await producer.ConfigureAwait(false);
+        }
+        // A turn that asked for a tool ends as ToolCall, not as a plain Stop, even when the provider sent no stop reason.
+        if (!sawStop) yield return new TextChunk { Kind = TextChunkKind.StopReason, Stop = sawToolCall ? StopReason.ToolCall : StopReason.Stop };
     }
 
     /// <summary>The chunk a JSON frame stands for, or null when the frame is not part of the chunk vocabulary.</summary>

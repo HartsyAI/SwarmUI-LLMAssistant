@@ -43,6 +43,10 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public async Task<bool> Unload() => await FreeMemory(true);
 
     /// <inheritdoc/>
+    public virtual IAsyncEnumerable<HartsyInference.Engine.Requests.TextChunk> StreamAsync(ExtendedLLMInput input, CancellationToken ct)
+        => LLMChunkStream.FromFrames((frame, token) => GenerateLive(input, "0", frame, token), ct);
+
+    /// <inheritdoc/>
     public async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
     {
         StringBuilder output = new();

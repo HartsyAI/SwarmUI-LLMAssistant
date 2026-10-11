@@ -101,4 +101,41 @@ public class LLMChunkStreamTests
         for (int i = 0; i < 50 && !producerSawCancel; i++) await Task.Delay(10);
         Assert.True(producerSawCancel);
     }
+
+    [Fact]
+    public async Task BreakingOutOfTheLoopStopsTheProducer()
+    {
+        bool producerStopped = false;
+        IAsyncEnumerable<TextChunk> stream = LLMChunkStream.FromFrames(async (emit, ct) =>
+        {
+            await emit(new JObject { ["chunk"] = "first" });
+            try
+            {
+                await Task.Delay(Timeout.Infinite, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                producerStopped = true;
+                throw;
+            }
+        });
+        await foreach (TextChunk _ in stream)
+        {
+            break;
+        }
+        // The early exit ran the stream's finally block, which cancels the producer and waits for it to finish.
+        Assert.True(producerStopped);
+    }
+
+    [Fact]
+    public async Task ANativeToolTurnWithNoStopReasonEndsAsToolCall()
+    {
+        IAsyncEnumerable<TextChunk> stream = LLMChunkStream.FromFrames(async (emit, ct) =>
+        {
+            await emit(new JObject { ["native_tool_call"] = new JObject { ["id"] = "c1", ["name"] = "get_time", ["arguments"] = new JObject() } });
+        });
+        List<TextChunk> chunks = await Collect(stream);
+        Assert.Equal([TextChunkKind.NativeToolCall, TextChunkKind.StopReason], chunks.Select(c => c.Kind));
+        Assert.Equal(StopReason.ToolCall, chunks[1].Stop);
+    }
 }
