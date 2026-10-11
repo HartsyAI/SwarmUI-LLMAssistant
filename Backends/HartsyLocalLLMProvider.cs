@@ -475,6 +475,16 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <inheritdoc/>
+    /// <inheritdoc/>
+    public async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [EnumeratorCancellation] CancellationToken ct)
+    {
+        (ModelSpec spec, TextRequest request, _) = await ResolveSpecAndRequestAsync(input, ct);
+        await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct).WithCancellation(ct))
+        {
+            yield return chunk;
+        }
+    }
+
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
