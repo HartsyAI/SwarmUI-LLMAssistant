@@ -1108,14 +1108,24 @@ public static class ChatEndpoints
         input.MaxTokens = 20;
         input.Temperature = 0.7;
         string raw = await LLMDispatcher.Generate(input);
-        // Small models return junk like `Assistant: **"Something` — take the first line, strip label
-        // prefixes / markdown / quotes, and fall back to the default title if what's left isn't usable.
-        string cleaned = (raw ?? "").Trim();
+        return CleanGeneratedTitle(raw);
+    }
+
+    /// <summary>Reasoning models spend the whole 20-token budget "thinking out loud" ("Okay, let's tackle this.
+    /// The user wants a short title..."); that is never a title.</summary>
+    private static readonly System.Text.RegularExpressions.Regex ReasoningLead = new(@"^(okay|ok|alright|hmm|let me|let's|lets|so,|first,|i need|i should|the user|user wants|looking at)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Turns raw model output into a usable chat title, or null when it isn't one. Small models return
+    /// junk like `Assistant: **"Something`, and reasoning models return their thinking: strip think blocks,
+    /// take the first line, drop label prefixes / markdown / quotes, and reject what is left if unusable.</summary>
+    internal static string CleanGeneratedTitle(string raw)
+    {
+        string cleaned = System.Text.RegularExpressions.Regex.Replace(raw ?? "", @"<think>[\s\S]*?</think>|<think>[\s\S]*$", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
         cleaned = cleaned.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault("").Trim();
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"^(title|chat title|assistant|answer)\s*[:\-]\s*", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         cleaned = cleaned.Replace("**", "").Replace("`", "").Trim().Trim('"', '\'', '*', '_', '.', ' ', '\u201C', '\u201D');
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", " ");
-        if (cleaned.Length is < 3 or > 80 || !cleaned.Any(char.IsLetter))
+        if (cleaned.Length is < 3 or > 80 || !cleaned.Any(char.IsLetter) || ReasoningLead.IsMatch(cleaned))
         {
             return null;
         }
