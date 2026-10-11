@@ -620,7 +620,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         {
             tools = [.. input.Tools.Select(t => new ToolDefinition
             {
-                Name = t["name"]?.ToString() ?? "",
+                // Id, not display name: the model calls it by id and the executor resolves it by id.
+                Name = t["id"]?.ToString() ?? t["name"]?.ToString() ?? "",
                 Description = t["description"]?.ToString() ?? "",
                 JsonSchema = (t["parameters"] as JObject ?? new JObject()).ToString()
             })];

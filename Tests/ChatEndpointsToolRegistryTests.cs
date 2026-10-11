@@ -12,12 +12,21 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <c>ToolExecutorService</c>, which needs a real session and thread storage.</summary>
 public class ChatEndpointsToolRegistryTests
 {
+    /// <summary>A tool shaped like the stored definitions: the id is what the model calls, the display name is for people.</summary>
     private static JObject Tool(string name, string description = "desc", JObject parameters = null) => new()
     {
-        ["name"] = name,
+        ["id"] = name,
+        ["name"] = name.Replace('_', ' ') + " (display)",
         ["description"] = description,
         ["parameters"] = parameters ?? new JObject()
     };
+
+    [Fact]
+    public void BuildToolRegistry_RegistersTheIdNotTheDisplayName()
+    {
+        ToolRegistry registry = ChatEndpoints.BuildToolRegistry([Tool("generate_image")], session: null, assistantId: null, model: null);
+        Assert.Equal(["generate_image"], registry.Names);
+    }
 
     [Fact]
     public void BuildToolRegistry_OneTool_RegistersItByName()
