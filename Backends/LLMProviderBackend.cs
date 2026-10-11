@@ -58,8 +58,7 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     /// <paramref name="output"/>. Pulled out of <see cref="Generate(ExtendedLLMInput, CancellationToken)"/> so
     /// it is unit-testable without a live backend.
     ///
-    /// <para><b>native_tool_call.</b> A provider with <see cref="ILLMProvider.SupportsNativeToolCalling"/> on
-    /// (Anthropic always; Hartsy-local when <c>StructuredToolCalling</c> is on) emits this event instead of a
+    /// <para><b>native_tool_call.</b> A provider with native tool calls emits this event instead of a
     /// literal <c>&lt;tool_call&gt;</c> tag in the text stream — which used to mean the one-shot path (this
     /// method, and everything built on it: <see cref="LLMDispatcher.Generate"/>,
     /// <see cref="WebAPI.ChatEndpoints.LLMAssistantVoiceTurn"/>'s agentic loop) silently dropped every native

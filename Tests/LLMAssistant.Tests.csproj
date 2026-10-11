@@ -43,10 +43,18 @@
     <PackageReference Include="FreneticLLC.FreneticUtilities" Version="1.1.4" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
-         for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a
-         path relative to the running assembly, not the source tree. -->
-    <None Include="Fixtures/chat_templates/*.jinja" CopyToOutputDirectory="PreserveNewest" />
+  <!-- Local HartsyInference engine (UseLocalHartsy=true): the extension's own local references are not transitive, so the
+       test project names the same build outputs. Same HartsyRepo default as the extension project. -->
+  <PropertyGroup Condition="'$(UseLocalHartsy)' == 'true'">
+    <TestHartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../../HartsyInference</TestHartsyRepo>
+    <TestHartsyRepo Condition="'$(HartsyRepo)' != ''">$(HartsyRepo)</TestHartsyRepo>
+    <TestHartsyCfg Condition="'$(HartsyCfg)' == ''">Release</TestHartsyCfg>
+    <TestHartsyCfg Condition="'$(HartsyCfg)' != ''">$(HartsyCfg)</TestHartsyCfg>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(UseLocalHartsy)' == 'true'">
+    <Reference Include="HartsyInference.Core"><HintPath>$(TestHartsyRepo)/src/HartsyInference.Core/bin/$(TestHartsyCfg)/net8.0/HartsyInference.Core.dll</HintPath></Reference>
+    <Reference Include="HartsyInference.Engine"><HintPath>$(TestHartsyRepo)/src/HartsyInference.Engine/bin/$(TestHartsyCfg)/net8.0/HartsyInference.Engine.dll</HintPath></Reference>
+    <Reference Include="HartsyInference.Tools"><HintPath>$(TestHartsyRepo)/src/HartsyInference.Tools/bin/$(TestHartsyCfg)/net8.0/HartsyInference.Tools.dll</HintPath></Reference>
+    <Reference Include="HartsyInference.Cuda"><HintPath>$(TestHartsyRepo)/src/HartsyInference.Cuda/bin/$(TestHartsyCfg)/net8.0/HartsyInference.Cuda.dll</HintPath></Reference>
   </ItemGroup>
 </Project>

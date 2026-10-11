@@ -169,6 +169,9 @@
                         llmaShowLoadStatusInBubble(bubble, `${translate('Loading model')} ${data.model || ''}…`);
                     } else if (data.status === 'model_ready') {
                         llmaShowLoadStatusInBubble(bubble, null);
+                    } else if (data.status === 'queued') {
+                        // The engine holds the request behind others on the same model: say so instead of a silent wait.
+                        llmaShowLoadStatusInBubble(bubble, translate('Waiting in queue'));
                     }
                     return;
                 }
