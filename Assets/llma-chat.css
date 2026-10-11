@@ -429,6 +429,22 @@
     transition: opacity 0.1s, background 0.1s;
 }
 .llma-msg-action-btn:hover { opacity: 1; background: var(--background-soft); }
+.llma-msg-action-btn.icon {
+    border: 0;
+    background: none;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+}
+.llma-msg-action-btn.icon:hover { color: var(--text); }
+/* Touch screens have no hover: keep message actions reachable. */
+@media (hover: none) {
+    .llma-msg-actions { opacity: 0.7; }
+}
 
 /* Markdown content inside messages */
 .llma-msg-bubble p { margin: 0 0 10px; }
