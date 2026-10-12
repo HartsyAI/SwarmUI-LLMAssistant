@@ -21,6 +21,9 @@ public class AnthropicLLMProvider : LLMProviderBackend
         [ConfigComment("Maximum timeout in seconds for API requests.")]
         public int TimeoutSeconds = 120;
 
+        [ConfigComment("The Anthropic workspace ID, sent as the anthropic-workspace-id header.\nNeeded when the API key is not scoped to a workspace. Leave empty for a workspace-scoped key.\nA user's own workspace ID, set with their key, takes precedence over this.")]
+        public string WorkspaceId = "";
+
         [ConfigComment("The API base URL.\nOnly change this if using a proxy or compatible endpoint.")]
         public string BaseUrl = "https://api.anthropic.com";
     }
@@ -53,6 +56,29 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public static string GetApiKey(ExtendedLLMInput input)
     {
         return input?.RequestSession?.User?.GetGenericData("anthropic_api", "key");
+    }
+
+    /// <summary>Returns the workspace ID to send with a request: the user's own, else the server's setting, else null.</summary>
+    public string GetWorkspaceId(ExtendedLLMInput input)
+    {
+        string userWorkspace = input?.RequestSession?.User?.GetGenericData("anthropic_api", "workspace_id");
+        if (!string.IsNullOrWhiteSpace(userWorkspace))
+        {
+            return userWorkspace.Trim();
+        }
+        return string.IsNullOrWhiteSpace(Settings.WorkspaceId) ? null : Settings.WorkspaceId.Trim();
+    }
+
+    /// <summary>Sets the headers every Anthropic Messages request needs. The workspace header is added only when
+    /// a workspace ID is known, so requests with a workspace-scoped key are unchanged.</summary>
+    public static void ApplyHeaders(HttpRequestMessage request, string apiKey, string workspaceId)
+    {
+        request.Headers.TryAddWithoutValidation("x-api-key", apiKey);
+        request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+        if (!string.IsNullOrWhiteSpace(workspaceId))
+        {
+            request.Headers.TryAddWithoutValidation("anthropic-workspace-id", workspaceId);
+        }
     }
 
     /// <summary>Builds an Anthropic Messages API request body from the given LLM input.</summary>
@@ -210,8 +236,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
         {
             Content = Utilities.JSONContent(body)
         };
-        request.Headers.TryAddWithoutValidation("x-api-key", apiKey);
-        request.Headers.TryAddWithoutValidation("anthropic-version", "2023-06-01");
+        ApplyHeaders(request, apiKey, GetWorkspaceId(input));
         // Link the per-request timeout with the caller's cancellation so Stop in the UI cancels
         // the HTTP request immediately, not just after the response stream ends.
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(Settings.TimeoutSeconds));
