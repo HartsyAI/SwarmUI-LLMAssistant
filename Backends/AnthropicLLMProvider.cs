@@ -355,6 +355,9 @@ public class AnthropicLLMProvider : LLMProviderBackend
 
     /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases —
     /// never date-suffixed IDs. Older Claude 3.x / 4.0 models were retired and 404 if requested.</summary>
+    // TODO: Talk to mcmonkey about a better way to get the model list. For now this is hardcoded, so new
+    // Claude models stay invisible until someone edits it. Fetching /v1/models needs an API key, and
+    // ListModels gets no session to read the user's key from, so the fix needs a decision on which key to use.
     public static readonly List<(string Id, string Name, int ContextLength)> KnownModels =
     [
         ("claude-opus-4-8", "Claude Opus 4.8", 1000000),
