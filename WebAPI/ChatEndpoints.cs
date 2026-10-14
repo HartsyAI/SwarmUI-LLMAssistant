@@ -741,8 +741,9 @@ public static class ChatEndpoints
     /// <summary>The <c>stopReason</c> of <see cref="LLMAssistantVoiceTurnWS"/>'s <c>done</c> frame for the stop
     /// <see cref="ForwardFramesAsync"/> returned; null for a normal finish. <see cref="StopReason.ToolCall"/> is
     /// <c>"tool_round_limit"</c>, never <c>"tool_call"</c>: on this route that stop only means ToolLoop ended
-    /// with a tool request it did not run (its round limit, already reported in a <c>notice</c> frame), and a
-    /// relay reads <c>"tool_call"</c> as a call it still has to resolve.</summary>
+    /// with a tool request it did not run (normally its round limit, reported in a <c>notice</c> frame; the rare
+    /// tool-call stop with no parsed call sends no notice), and a relay reads <c>"tool_call"</c> as a call it
+    /// still has to resolve.</summary>
     internal static string VoiceTurnWsStopReason(StopReason? stop) => stop switch
     {
         StopReason.Length => "length",
