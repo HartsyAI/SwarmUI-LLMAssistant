@@ -200,5 +200,147 @@ public class ChatEndpointsVoiceTurnWsContractTests
             Assert.Equal("first ", fullText); // only the first chunk was appended before the open-check broke the loop
             Assert.Null(stop); // StopReason chunk never reached
         }
+
+        private static TextChunk Call(string id, string name) =>
+            new() { Kind = TextChunkKind.NativeToolCall, ToolCall = new NativeToolCall { Id = id, Name = name, Arguments = "{}" } };
+
+        private static ToolRegistry TimeRegistry(Action onRun = null)
+        {
+            ToolRegistry registry = new();
+            registry.Add("get_time", "Current time.", "{\"type\":\"object\"}", (args, ct) =>
+            {
+                onRun?.Invoke();
+                return Task.FromResult("{\"time\":\"noon\"}");
+            });
+            return registry;
+        }
+
+        /// <summary>Every <c>native_tool_call</c> frame must be followed by the <c>tool_result</c> for the same id:
+        /// a caller relaying these (AudioLab's <c>RemoteTextService</c>) treats an unresolved call as one it has
+        /// to dispatch itself.</summary>
+        private static void AssertEveryCallFrameHasItsResult(List<JObject> frames)
+        {
+            for (int i = 0; i < frames.Count; i++)
+            {
+                if (frames[i]["native_tool_call"] is not JObject call)
+                {
+                    continue;
+                }
+                string id = call["id"]?.ToString();
+                Assert.Contains(frames.Skip(i + 1), f => f["tool_result"]?["id"]?.ToString() == id);
+            }
+        }
+
+        [Fact]
+        public async Task RoundLimit_NeverForwardsTheUndispatchedCall_AndReportsANoticeInstead()
+        {
+            // maxRounds 1 and a round that ends asking for a tool: ToolLoop stops at its round limit and never
+            // dispatches get_time. Before the fix this forwarded a native_tool_call with no tool_result after it.
+            ScriptedTextService fake = new(
+                [
+                    new TextChunk { Kind = TextChunkKind.Chunk, Text = "Checking. " },
+                    Call("call_1", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+                ]);
+            int runs = 0;
+            TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
+            List<JObject> sentFrames = [];
+            JArray deviceCalls = [];
+            (string fullText, StopReason? stop) = await ChatEndpoints.ForwardFramesAsync(
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry(() => runs++), maxRounds: 1),
+                f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, deviceCalls);
+
+            Assert.Equal(0, runs);
+            AssertEveryCallFrameHasItsResult(sentFrames);
+            Assert.DoesNotContain(sentFrames, f => f["native_tool_call"] is not null || f["tool_result"] is not null);
+            Assert.Equal("Checking. ", fullText);
+            Assert.Collection(sentFrames,
+                f => Assert.Equal("Checking. ", f["chunk"]?.ToString()),
+                f => Assert.Contains("round limit", f["notice"]?.ToString()));
+            // The done frame must not say "tool_call": a relay reads that as an unresolved tool request.
+            string wireStop = ChatEndpoints.VoiceTurnWsStopReason(stop);
+            Assert.NotNull(wireStop);
+            Assert.NotEqual("tool_call", wireStop);
+        }
+
+        [Fact]
+        public async Task RoundLimitAfterADispatchedRound_ForwardsOnlyTheCallThatRan()
+        {
+            // Round 1's call runs and is forwarded with its result; round 2 (the last) asks again and is not run.
+            ScriptedTextService fake = new(
+                [
+                    Call("call_1", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+                ],
+                [
+                    Call("call_2", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+                ]);
+            int runs = 0;
+            TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
+            List<JObject> sentFrames = [];
+            await ChatEndpoints.ForwardFramesAsync(
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry(() => runs++), maxRounds: 2),
+                f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, []);
+
+            Assert.Equal(1, runs);
+            AssertEveryCallFrameHasItsResult(sentFrames);
+            Assert.Collection(sentFrames,
+                f => Assert.Equal("call_1", f["native_tool_call"]?["id"]?.ToString()),
+                f => Assert.Equal("call_1", f["tool_result"]?["id"]?.ToString()),
+                f => Assert.NotNull(f["notice"]));
+        }
+
+        [Fact]
+        public async Task CallAnnouncedWithANonToolCallStop_IsNotForwarded()
+        {
+            // A call parsed in a round that stops for another reason (here the token cap) is never dispatched.
+            ScriptedTextService fake = new(
+                [
+                    new TextChunk { Kind = TextChunkKind.Chunk, Text = "partial" },
+                    Call("call_1", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Length }
+                ]);
+            TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
+            List<JObject> sentFrames = [];
+            (_, StopReason? stop) = await ChatEndpoints.ForwardFramesAsync(
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry()),
+                f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, []);
+
+            Assert.Equal(StopReason.Length, stop);
+            Assert.Equal("length", ChatEndpoints.VoiceTurnWsStopReason(stop));
+            Assert.DoesNotContain(sentFrames, f => f["native_tool_call"] is not null || f["notice"] is not null);
+        }
+
+        [Fact]
+        public async Task DispatchedCalls_StillForwardCallThenResult()
+        {
+            // The normal path keeps both frames, each call immediately before its own result.
+            ScriptedTextService fake = new(
+                [
+                    Call("call_1", "get_time"),
+                    Call("call_2", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+                ],
+                [
+                    new TextChunk { Kind = TextChunkKind.Chunk, Text = "Noon." },
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Stop }
+                ]);
+            TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
+            List<JObject> sentFrames = [];
+            (string fullText, StopReason? stop) = await ChatEndpoints.ForwardFramesAsync(
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry()),
+                f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, []);
+
+            Assert.Equal("Noon.", fullText);
+            Assert.Null(ChatEndpoints.VoiceTurnWsStopReason(stop));
+            AssertEveryCallFrameHasItsResult(sentFrames);
+            Assert.Collection(sentFrames,
+                f => Assert.Equal("call_1", f["native_tool_call"]?["id"]?.ToString()),
+                f => Assert.Equal("call_1", f["tool_result"]?["id"]?.ToString()),
+                f => Assert.Equal("call_2", f["native_tool_call"]?["id"]?.ToString()),
+                f => Assert.Equal("call_2", f["tool_result"]?["id"]?.ToString()),
+                f => Assert.Equal("Noon.", f["chunk"]?.ToString()));
+        }
     }
 }
