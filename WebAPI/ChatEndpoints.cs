@@ -400,11 +400,12 @@ public static class ChatEndpoints
     /// prepended as a leading system turn unless <c>messages</c> already opens with one — no double injection
     /// (see <see cref="ExtendedLLMInput.CreateFromMessages"/>). <c>enableThinking</c> maps straight onto
     /// <see cref="TextRequest.EnableThinking"/>; omitted, the model's template keeps its own default (today's
-    /// behavior). Frames: <c>{notice:"..."}</c>? (at most one, before the first <c>chunk</c>),
-    /// <c>{chunk:"..."}</c>*, <c>{native_tool_call:{id,name,arguments}}</c>,
-    /// <c>{tool_result:{id,name,result}}</c> per call, then one final <c>{done:true, full_text,
-    /// toolCalls:[{name,arguments}], stopReason?}</c> — or <c>{error:"..."}</c> at any point, which ends the
-    /// stream without a <c>done</c> frame.</para></summary>
+    /// behavior). Frames: <c>{notice:"..."}</c>? (at most one tools-unavailable notice, before the first
+    /// <c>chunk</c>), <c>{chunk:"..."}</c>*, <c>{native_tool_call:{id,name,arguments}}</c> then
+    /// <c>{tool_result:{id,name,result}}</c> per call that was run (a call that is never run is never sent), a
+    /// round-limit <c>{notice:"..."}</c> when the tool loop stopped with a call still unrun, then one final
+    /// <c>{done:true, full_text, toolCalls:[{name,arguments}], stopReason?}</c> — or <c>{error:"..."}</c> at
+    /// any point, which ends the stream without a <c>done</c> frame.</para></summary>
     public static async Task<JObject> LLMAssistantVoiceTurnWS(WebSocket socket, Session session, JObject rawInput)
     {
         async Task SendAsync(JObject payload)
@@ -537,16 +538,7 @@ public static class ChatEndpoints
                 ["done"] = true,
                 ["full_text"] = spoken,
                 ["toolCalls"] = deviceCalls,
-                ["stopReason"] = finalStop switch
-                {
-                    StopReason.Length => "length",
-                    StopReason.Cancelled => "cancelled",
-                    StopReason.Error => "error",
-                    // The round limit was hit while the model still wanted another call (ToolLoop never
-                    // dispatches that last one) — distinct from a normal finish, same as the others above.
-                    StopReason.ToolCall => "tool_call",
-                    _ => null
-                }
+                ["stopReason"] = VoiceTurnWsStopReason(finalStop)
             });
             return null;
         }
@@ -746,6 +738,20 @@ public static class ChatEndpoints
         return string.IsNullOrWhiteSpace(sessionId) ? null : $"voice-ws-session:{sessionId}";
     }
 
+    /// <summary>The <c>stopReason</c> of <see cref="LLMAssistantVoiceTurnWS"/>'s <c>done</c> frame for the stop
+    /// <see cref="ForwardFramesAsync"/> returned; null for a normal finish. <see cref="StopReason.ToolCall"/> is
+    /// <c>"tool_round_limit"</c>, never <c>"tool_call"</c>: on this route that stop only means ToolLoop ended
+    /// with a tool request it did not run (its round limit, already reported in a <c>notice</c> frame), and a
+    /// relay reads <c>"tool_call"</c> as a call it still has to resolve.</summary>
+    internal static string VoiceTurnWsStopReason(StopReason? stop) => stop switch
+    {
+        StopReason.Length => "length",
+        StopReason.Cancelled => "cancelled",
+        StopReason.Error => "error",
+        StopReason.ToolCall => "tool_round_limit",
+        _ => null
+    };
+
     /// <summary>Drains <paramref name="chunks"/> into wire frames via <paramref name="send"/>, exactly as
     /// <see cref="LLMAssistantVoiceTurnWS"/> did inline before this was pulled out: the same translation serves
     /// both its native-tool-calling branch and its no-tools-available fallback (an empty
@@ -758,12 +764,24 @@ public static class ChatEndpoints
     /// <paramref name="socketOpen"/> reports false, checked before every chunk is handled, same as the inline
     /// version's own check. <paramref name="deviceCalls"/> is appended in place (a validated device-action
     /// result, the same rule <see cref="LLMAssistantVoiceTurn"/> applies) rather than returned, since the
-    /// caller already owns the <see cref="JArray"/> that goes on its own <c>done</c> frame.</summary>
+    /// caller already owns the <see cref="JArray"/> that goes on its own <c>done</c> frame.
+    ///
+    /// <para>A <c>native_tool_call</c> frame is sent only for a call <see cref="ToolLoop"/> actually ran,
+    /// immediately before that call's <c>tool_result</c>. A call ToolLoop announced but did not run (its round
+    /// limit, or a round that stopped for another reason) is never sent; the round limit is reported as a
+    /// <c>notice</c> frame instead.</para></summary>
     internal static async Task<(string FullText, StopReason? Stop)> ForwardFramesAsync(
         IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> send, Func<bool> socketOpen, JArray deviceCalls)
     {
         StringBuilder spoken = new();
         StopReason? finalStop = null;
+        // Calls the model announced but ToolLoop has not run yet, in announcement order. A call is only
+        // forwarded once its tool_result arrives (call frame first, then the result), because ToolLoop yields a
+        // NativeToolCall before it knows whether it will dispatch it: at the round limit, or when the round
+        // stops for any reason other than a tool call, the call is never run. A relay such as AudioLab's
+        // RemoteTextService treats a forwarded call without a result as one it must dispatch itself, so an
+        // unrun call must never reach the wire. Whatever is still pending when the stream ends is dropped.
+        List<NativeToolCall> pendingCalls = [];
         await foreach (TextChunk chunk in chunks)
         {
             if (!socketOpen())
@@ -779,19 +797,38 @@ public static class ChatEndpoints
                 case TextChunkKind.NativeToolCall:
                     if (chunk.ToolCall is { } call)
                     {
+                        pendingCalls.Add(call);
+                    }
+                    break;
+                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.RoundLimitPhase:
+                    // ToolLoop hit its round limit with the model still asking for a tool; that last call is not
+                    // run. Said as a notice, not as a tool call the caller would have to resolve.
+                    pendingCalls.Clear();
+                    string limit = chunk.Text is { } limitText && limitText.StartsWith(ToolLoop.RoundLimitPrefix, StringComparison.Ordinal)
+                        ? limitText[ToolLoop.RoundLimitPrefix.Length..]
+                        : chunk.Text;
+                    await send(new JObject
+                    {
+                        ["notice"] = $"tool round limit reached ({limit}); the model's last tool call was not run"
+                    });
+                    break;
+                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.ToolResultPhase:
+                {
+                    int pendingIndex = pendingCalls.FindIndex(p => p.Id == chunk.ToolCall?.Id);
+                    if (pendingIndex >= 0)
+                    {
+                        NativeToolCall ran = pendingCalls[pendingIndex];
+                        pendingCalls.RemoveAt(pendingIndex);
                         await send(new JObject
                         {
                             ["native_tool_call"] = new JObject
                             {
-                                ["id"] = call.Id,
-                                ["name"] = call.Name,
-                                ["arguments"] = ParseJsonOrEmpty(call.Arguments)
+                                ["id"] = ran.Id,
+                                ["name"] = ran.Name,
+                                ["arguments"] = ParseJsonOrEmpty(ran.Arguments)
                             }
                         });
                     }
-                    break;
-                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.ToolResultPhase:
-                {
                     JObject result = ParseJsonOrEmpty(chunk.Text?[ToolLoop.ToolResultPrefix.Length..]);
                     await send(new JObject
                     {

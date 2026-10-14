@@ -504,10 +504,11 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 
 | Frame | Meaning |
 |---|---|
-| `{"notice": "…"}` | At most one, before the first `chunk`: tools were enabled for this assistant but dropped from this turn — `StructuredToolCalling` is off, or the resolved model's chat template doesn't instruct Hermes JSON tool calls (see the settings table below). The turn still runs, as a plain stream with no tool definitions sent. No notice at all means either native tool calling is active, or the assistant had no tools enabled to drop in the first place. |
-| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan). |
+| `{"notice": "…"}` | At most one tools-unavailable notice, before the first `chunk`: tools were enabled for this assistant but dropped from this turn — `StructuredToolCalling` is off, or the resolved model's chat template doesn't instruct Hermes JSON tool calls (see the settings table below). The turn still runs, as a plain stream with no tool definitions sent. No notice before the first `chunk` means either native tool calling is active, or the assistant had no tools enabled to drop in the first place. |
+| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan) and it was run. Sent immediately before that call's `tool_result`; a call that is not run (round cap, or a round that stopped for another reason) is never sent. |
 | `{"tool_result": {id, name, result}}` | That tool finished — same shape as above. |
-| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_call"` means the 8-round cap was hit while the model still wanted another call. |
+| `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
+| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
 `[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]` — a client resuming a
