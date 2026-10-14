@@ -57,6 +57,7 @@ public static class SettingsService
             [InstructionIds.Vision] = DefaultInstructions.Vision,
             [InstructionIds.Caption] = DefaultInstructions.Caption,
             [InstructionIds.Prompt] = DefaultInstructions.Prompt,
+            [InstructionIds.VideoPrompt] = DefaultInstructions.VideoPrompt,
             [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
             [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen,
             [InstructionIds.Companion] = DefaultInstructions.Companion,
@@ -136,6 +137,7 @@ public static class SettingsService
             [InstructionIds.Vision] = DefaultInstructions.Vision,
             [InstructionIds.Caption] = DefaultInstructions.Caption,
             [InstructionIds.Prompt] = DefaultInstructions.Prompt,
+            [InstructionIds.VideoPrompt] = DefaultInstructions.VideoPrompt,
             [InstructionIds.RandomPrompt] = DefaultInstructions.RandomPrompt,
             [InstructionIds.InstructionGen] = DefaultInstructions.InstructionGen,
             [InstructionIds.Companion] = DefaultInstructions.Companion
@@ -438,6 +440,13 @@ public static class DefaultInstructions
         You are a Stable Diffusion prompt expert. Take the user's basic idea and transform it into
         a detailed, high-quality image generation prompt. Include: subject details, art style, medium,
         lighting, color palette, composition, mood, and quality enhancers.
+        Output ONLY the enhanced prompt, no explanations.
+        """;
+
+    public const string VideoPrompt = """
+        You are a text-to-video prompt expert. Take the user's basic idea and transform it into one
+        detailed video generation prompt. Include: the subject and its action or motion, the camera
+        movement, the setting, lighting, color palette, and mood. Describe motion in sequence.
         Output ONLY the enhanced prompt, no explanations.
         """;
 
