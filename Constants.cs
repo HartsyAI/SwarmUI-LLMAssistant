@@ -13,6 +13,8 @@ public static class InstructionIds
     public const string Prompt = "prompt";
     /// <summary>Random-prompt-generation instruction id.</summary>
     public const string RandomPrompt = "randomprompt";
+    /// <summary>Video-prompt-enhancement instruction id. Like <see cref="Prompt"/>, but for text-to-video prompts (motion, camera, pacing).</summary>
+    public const string VideoPrompt = "video-prompt";
     /// <summary>Instruction-generation (meta) instruction id.</summary>
     public const string InstructionGen = "instructiongen";
     /// <summary>Short, glanceable single-paragraph replies tuned for the floating Companion overlay
@@ -21,7 +23,7 @@ public static class InstructionIds
     public const string Companion = "companion";
 
     /// <summary>All built-in instruction IDs in display order.</summary>
-    public static readonly string[] All = [Chat, Vision, Caption, Prompt, RandomPrompt, InstructionGen, Companion];
+    public static readonly string[] All = [Chat, Vision, Caption, Prompt, RandomPrompt, InstructionGen, Companion, VideoPrompt];
 }
 
 /// <summary>Feature mapping keys that bind UI features to instruction IDs.</summary>
