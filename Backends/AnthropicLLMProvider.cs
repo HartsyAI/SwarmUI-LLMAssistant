@@ -17,8 +17,8 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public class AnthropicLLMProviderSettings : AutoConfiguration
     {
         [ConfigComment("The default model to use when a request doesn't specify one. Pick from the list.")]
-        [ManualSettingsOptions(Vals = ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5"],
-            ManualNames = ["Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Sonnet 5", "Claude Sonnet 4.6", "Claude Haiku 4.5"])]
+        [ManualSettingsOptions(Vals = ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"],
+            ManualNames = ["Claude Fable 5.1", "Claude Opus 5.5", "Claude Sonnet 5.5", "Claude Haiku 5.5", "Claude Opus 5", "Claude Fable 5", "Claude Sonnet 5", "Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Sonnet 4.6", "Claude Haiku 4.5", "Claude Opus 4.5", "Claude Sonnet 4.5", "Claude Haiku 4.5 (2025-10-01)"])]
         public string DefaultModel = "claude-opus-4-8";
 
         [ConfigComment("Maximum timeout in seconds for API requests.")]
@@ -363,12 +363,21 @@ public class AnthropicLLMProvider : LLMProviderBackend
     // ListModels gets no session to read the user's key from, so the fix needs a decision on which key to use.
     public static readonly List<(string Id, string Name, int ContextLength)> KnownModels =
     [
+        ("claude-fable-5-1", "Claude Fable 5.1", 1000000),
+        ("claude-opus-5-5", "Claude Opus 5.5", 1000000),
+        ("claude-sonnet-5-5", "Claude Sonnet 5.5", 1000000),
+        ("claude-haiku-5-5", "Claude Haiku 5.5", 1000000),
+        ("claude-opus-5", "Claude Opus 5", 1000000),
+        ("claude-fable-5", "Claude Fable 5", 1000000),
+        ("claude-sonnet-5", "Claude Sonnet 5", 1000000),
         ("claude-opus-4-8", "Claude Opus 4.8", 1000000),
         ("claude-opus-4-7", "Claude Opus 4.7", 1000000),
         ("claude-opus-4-6", "Claude Opus 4.6", 1000000),
-        ("claude-sonnet-5", "Claude Sonnet 5", 1000000),
         ("claude-sonnet-4-6", "Claude Sonnet 4.6", 1000000),
-        ("claude-haiku-4-5", "Claude Haiku 4.5", 200000)
+        ("claude-haiku-4-5", "Claude Haiku 4.5", 200000),
+        ("claude-opus-4-5-20251101", "Claude Opus 4.5", 200000),
+        ("claude-sonnet-4-5-20250929", "Claude Sonnet 4.5", 200000),
+        ("claude-haiku-4-5-20251001", "Claude Haiku 4.5 (2025-10-01)", 200000)
     ];
 
     /// <inheritdoc/>
