@@ -98,13 +98,17 @@
        Placement setting's "Offload experts" now loads a mixture-of-experts model larger than the card), the repetition penalty
        applies once per distinct token instead of once per occurrence (alpha.332: at this backend's default 1.1, long greedy
        answers no longer misspell identifiers or drift languages), and faster CPU expert kernels (alpha.333). No source change. -->
+  <!-- 2.0.0-alpha.375 (from alpha.333): Meta's Muse Spark (alpha.371, family muse-spark), whose replies the engine's own parser splits into
+       reasoning, answer text and <atem:invoke> tool calls. ToolLoop now reports a dispatched tool's result as a ToolResult chunk instead of a
+       prefixed Status chunk (ChatEndpoints.ForwardFramesAsync reads the new kind), ToolCalling.Install with no format now picks one per
+       request (this backend passes Hermes to keep its gated behavior), and GenerateLive renders Reasoning chunks as <think> text. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
     <!-- Exact pin on purpose: a floating alpha.* resolves to the stale alpha.NNN-local.M builds in the hartsy-local feed (NuGet ranks the alphanumeric label above numeric ones), which broke every extension build on 2026-10-07. -->
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.333" />
+    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.375" />
     <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
          NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
-         since alpha.222; pinned to the same alpha.243 as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.333" />
+         since alpha.222; pinned to the same version as the meta package to stay in lockstep. -->
+    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.375" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak

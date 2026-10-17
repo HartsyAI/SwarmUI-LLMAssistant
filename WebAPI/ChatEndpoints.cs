@@ -813,7 +813,7 @@ public static class ChatEndpoints
                         ["notice"] = $"tool round limit reached ({limit}); the model's last tool call was not run"
                     });
                     break;
-                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.ToolResultPhase:
+                case TextChunkKind.ToolResult:
                 {
                     int pendingIndex = pendingCalls.FindIndex(p => p.Id == chunk.ToolCall?.Id);
                     if (pendingIndex >= 0)
@@ -830,7 +830,7 @@ public static class ChatEndpoints
                             }
                         });
                     }
-                    JObject result = ParseJsonOrEmpty(chunk.Text?[ToolLoop.ToolResultPrefix.Length..]);
+                    JObject result = ParseJsonOrEmpty(chunk.Text);
                     await send(new JObject
                     {
                         ["tool_result"] = new JObject

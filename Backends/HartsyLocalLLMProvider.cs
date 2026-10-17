@@ -21,6 +21,7 @@ using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
 using HartsyInference.Tools;
+using HartsyInference.Tools.Parsing;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -113,10 +114,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// right now: <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on, <b>and</b> the
     /// resolved checkpoint's own <c>tokenizer.chat_template</c> actually instructs the Hermes JSON
     /// <c>&lt;tool_call&gt;</c> convention the engine's installed filter parses (<see cref="OnProviderInit"/>
-    /// installs only that one format, for the whole engine instance, not per-model — there is currently no
-    /// per-request hook to vary it: <c>EngineOptions.TextStreamFilterFactory</c> is a
-    /// <c>Func&lt;TextRequest,…&gt;</c>, and <c>TextRequest</c> carries no model id, only the separate
-    /// <see cref="ModelSpec"/> argument alongside it).
+    /// installs only that one format, for the whole engine instance, not per-model).
     ///
     /// <para>An earlier version of this checked the model's <i>filename</i> against a family allow-list
     /// (Qwen/Hermes/GLM/DeepSeek). Independent review found a real false positive it: DeepSeek's R1
@@ -273,7 +271,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention. It is the ONLY format
         // installed for this whole engine instance (see SupportsNativeToolCallingFor for why a non-Hermes
         // model never reaches this filter with Tools set at all, rather than reaching it and failing to parse).
-        ToolCalling.Install(options);
+        // Explicit since alpha.375, where a null format means per-request detection; an engine-parsed template (Muse Spark) still gets no filter.
+        ToolCalling.Install(options, ToolCallFormat.Hermes);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key — without that it would only govern this shell engine's own unused backend.
         Engine = new InferenceEngine(
@@ -557,7 +556,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// the model is asked again with the result appended as a <see cref="TextRole.Tool"/> message, up to
     /// <paramref name="maxRounds"/> model invocations. Chunk kinds match <see cref="ToolLoop"/>'s own contract
     /// exactly (<see cref="TextChunkKind.Chunk"/>, <see cref="TextChunkKind.NativeToolCall"/>,
-    /// <see cref="TextChunkKind.Status"/> tool-result/round-limit chunks, one final
+    /// <see cref="TextChunkKind.ToolResult"/> chunks, a <see cref="TextChunkKind.Status"/> round-limit chunk, one final
     /// <see cref="TextChunkKind.Result"/> then <see cref="TextChunkKind.StopReason"/>) — callers translate those
     /// the same way <see cref="GenerateLive"/> translates <see cref="Engine"/>'s plain stream, they are just a
     /// layer further from the wire than <c>GenerateLive</c>'s <c>JObject</c> shape. Requires
