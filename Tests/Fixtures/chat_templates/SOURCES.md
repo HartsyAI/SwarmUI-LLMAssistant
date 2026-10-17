@@ -1,7 +1,8 @@
 # Chat template fixtures
 
 Ground truth for `HartsyLocalLLMProviderTests`/`HermesTemplateDetectionTests`'s
-`InstructsHermesJsonToolCalls` coverage. Each file is the raw `tokenizer.chat_template`
+`InstructsHermesJsonToolCalls` coverage and `ReasoningHistoryTests`' `TakesReasoningContent`
+coverage (see the last section). Each file is the raw `tokenizer.chat_template`
 string, byte-for-byte, with no header or commentary added — so a test reading one of
 these is reading exactly what `GgufMetadata.GetString("tokenizer.chat_template")` (or
 the model's published `tokenizer_config.json`/`chat_template.jinja`) returns.

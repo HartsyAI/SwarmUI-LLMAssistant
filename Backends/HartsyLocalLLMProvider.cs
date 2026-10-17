@@ -226,42 +226,54 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return verdict;
     }
 
+    /// <summary>The tags <see cref="ForwardEngineStreamAsync"/> wraps reasoning in, and <see cref="TrySplitLeadingThink"/> reads back.</summary>
+    internal const string ThinkOpen = "<think>";
+
+    /// <summary>Closes a <see cref="ThinkOpen"/> block.</summary>
+    internal const string ThinkClose = "</think>";
+
     /// <summary>Whether a chat template takes an assistant turn's reasoning only as <c>reasoning_content</c>: it reads that field and has
     /// no <c>&lt;/think&gt;</c> of its own (Muse Spark, Gemma 4), so a stored <c>&lt;think&gt;</c> block would reach it as answer text.
     /// A template that splits <c>&lt;think&gt;</c> out of the content itself (Qwen3, Qwen3.5, GLM-4.5) is left to do that, and one that
     /// ignores the field (DeepSeek R1) keeps its own split; see <c>Tests/ReasoningHistoryTests.cs</c> for each fixture.</summary>
     internal static bool TakesReasoningContent(string chatTemplate)
         => !string.IsNullOrWhiteSpace(chatTemplate) && Regex.IsMatch(chatTemplate, @"\breasoning_content\b")
-            && !chatTemplate.Contains("</think>", StringComparison.Ordinal);
+            && !chatTemplate.Contains(ThinkClose, StringComparison.Ordinal);
 
     /// <summary>Splits a stored assistant reply that starts with one <c>&lt;think&gt;...&lt;/think&gt;</c> block into its reasoning (null
-    /// when empty) and the answer after it, without the newlines between them. False, leaving the reply as it is, for anything else: no
+    /// when empty) and the answer after it, without the whitespace between them. False, leaving the reply as it is, for anything else: no
     /// leading block, a nested <c>&lt;think&gt;</c>, or a second <c>&lt;/think&gt;</c> later on (a reply that spans tool rounds).</summary>
     internal static bool TrySplitLeadingThink(string content, out string reasoning, out string answer)
     {
         reasoning = null;
         answer = content;
         string trimmed = content?.TrimStart();
-        if (trimmed is null || !trimmed.StartsWith("<think>", StringComparison.Ordinal))
+        if (trimmed is null || !trimmed.StartsWith(ThinkOpen, StringComparison.Ordinal))
         {
             return false;
         }
-        int close = trimmed.IndexOf("</think>", StringComparison.Ordinal);
+        int close = trimmed.IndexOf(ThinkClose, StringComparison.Ordinal);
         if (close < 0)
         {
             return false;
         }
-        string inner = trimmed["<think>".Length..close];
-        string rest = trimmed[(close + "</think>".Length)..];
-        if (inner.Contains("<think>", StringComparison.Ordinal) || rest.Contains("</think>", StringComparison.Ordinal))
+        string inner = trimmed[ThinkOpen.Length..close];
+        string rest = trimmed[(close + ThinkClose.Length)..];
+        if (inner.Contains(ThinkOpen, StringComparison.Ordinal) || rest.Contains(ThinkClose, StringComparison.Ordinal))
         {
             return false;
         }
-        string thought = inner.Trim('\n');
+        string thought = inner.Trim();
         reasoning = thought.Length > 0 ? thought : null;
-        answer = rest.TrimStart('\n');
+        answer = rest.TrimStart();
         return true;
     }
+
+    /// <summary>Whether any assistant reply in <paramref name="messages"/> starts with a <see cref="ThinkOpen"/> block, the only case where
+    /// <see cref="BuildRequestAsync"/> needs the model's template (<see cref="TakesReasoningContentFromFile"/>) at all.</summary>
+    internal static bool HasLeadingThinkReply(List<LLMMessage> messages)
+        => messages.Any(m => m.Role == LLMRoles.Assistant && m.Content is not null
+            && m.Content.TrimStart().StartsWith(ThinkOpen, StringComparison.Ordinal));
 
     /// <summary>The actual classification, over the template text directly — pulled out from
     /// <see cref="InstructsHermesJsonToolCallsFromFile"/> so it is unit-testable against fixture strings with
@@ -536,14 +548,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             if (inThink && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
             {
                 inThink = false;
-                await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
+                await onChunk(new JObject() { ["chunk"] = ThinkClose, ["reasoning"] = true });
             }
             switch (chunk.Kind)
             {
                 case TextChunkKind.Reasoning:
                     if (!string.IsNullOrEmpty(chunk.Text))
                     {
-                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : "<think>" + chunk.Text, ["reasoning"] = true });
+                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : ThinkOpen + chunk.Text, ["reasoning"] = true });
                         inThink = true;
                     }
                     break;
@@ -595,7 +607,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         if (inThink)
         {
-            await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
+            await onChunk(new JObject() { ["chunk"] = ThinkClose, ["reasoning"] = true });
         }
     }
 
@@ -661,7 +673,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             }
         }
         List<TextMessage> messages = [];
-        bool splitReasoning = TakesReasoningContentFromFile(path);
+        bool splitReasoning = HasLeadingThinkReply(source) && TakesReasoningContentFromFile(path);
         for (int i = 0; i < source.Count; i++)
         {
             LLMMessage m = source[i];

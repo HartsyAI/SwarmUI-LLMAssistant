@@ -72,6 +72,8 @@ public class ReasoningHistoryTests
     [InlineData("  \n<think>r</think>answer", "r", "answer")]
     [InlineData("<think>r</think>a<think>unclosed", "r", "a<think>unclosed")]
     [InlineData("<think>r</think>", "r", "")]
+    [InlineData("<think>\r\nplan\r\n</think>\r\n\r\nAnswer", "plan", "Answer")]
+    [InlineData("<think> r </think> a", "r", "a")]
     public void TrySplitLeadingThink_OneLeadingBlock_SplitsReasoningFromTheAnswer(string content, string reasoning, string answer)
     {
         Assert.True(HartsyLocalLLMProvider.TrySplitLeadingThink(content, out string gotReasoning, out string gotAnswer));
@@ -101,6 +103,22 @@ public class ReasoningHistoryTests
         Assert.False(HartsyLocalLLMProvider.TrySplitLeadingThink(content, out string reasoning, out string answer));
         Assert.Null(reasoning);
         Assert.Equal(content, answer);
+    }
+
+    [Fact]
+    public void HasLeadingThinkReply_OnlyAnAssistantReplyStartingWithThinkCounts()
+    {
+        // BuildRequestAsync reads the model's template only when this is true, so a plain chat never opens the GGUF for it.
+        Assert.False(HartsyLocalLLMProvider.HasLeadingThinkReply([]));
+        Assert.False(HartsyLocalLLMProvider.HasLeadingThinkReply([
+            new() { Role = LLMRoles.User, Content = "<think>quoted</think>" },
+            new() { Role = LLMRoles.Assistant, Content = "Plain answer <think>aside</think>" },
+            new() { Role = LLMRoles.Assistant, Content = null }
+        ]));
+        Assert.True(HartsyLocalLLMProvider.HasLeadingThinkReply([
+            new() { Role = LLMRoles.User, Content = "hi" },
+            new() { Role = LLMRoles.Assistant, Content = "\n<think>r</think>Hello" }
+        ]));
     }
 
     [Fact]
