@@ -217,7 +217,7 @@ function llmaMakeStreamRenderer(getBubble) {
     const renderNow = () => {
         const tc = ensureTextContainer();
         if (!tc) return;
-        llmaSetRenderedHtml(tc, llmaRenderMarkdown(filter.visibleText().trim()));
+        llmaSetRenderedHtml(tc, llmaRenderMarkdown(filter.visibleText().trim(), { streaming: true }));
         lastRender = performance.now();
     };
     // Scales up (capped) as the segment grows — re-render cost (markdown parse + sanitize) grows with
@@ -241,7 +241,12 @@ function llmaMakeStreamRenderer(getBubble) {
 // -- Markdown Renderer --
 let llmaMermaidCounter = 0;
 
-function llmaRenderMarkdown(text) {
+/**
+ * Renders model markdown to sanitized HTML, with reasoning, LaTeX and Mermaid blocks pulled out first.
+ * @param {string} text - The markdown to render.
+ * @param {{streaming?: boolean}} [options] - streaming: the reply is still arriving, so an unclosed reasoning block is live.
+ */
+function llmaRenderMarkdown(text, options) {
     if (!LLMAState.markdownEnabled || !window.marked || !window.DOMPurify) {
         return `<p>${llmaEscapeHtml(text).replace(/\n/g, '<br>')}</p>`;
     }
@@ -256,7 +261,8 @@ function llmaRenderMarkdown(text) {
     });
     let openThink = processed.match(/<think>([\s\S]*)$/i);
     if (openThink) {
-        thinkBlocks.push({ text: openThink[1].trim(), live: true });
+        // Only a reply still streaming is thinking; a saved one cut off mid-reasoning is plain reasoning.
+        thinkBlocks.push({ text: openThink[1].trim(), live: !!(options && options.streaming) });
         processed = processed.slice(0, openThink.index) + `%%LLMA_THINK_${thinkBlocks.length - 1}%%`;
     }
 
@@ -325,7 +331,7 @@ function llmaRenderMarkdown(text) {
         } else {
             rendered = display ? `<pre><code>${llmaEscapeHtml(tex)}</code></pre>` : `<code>${llmaEscapeHtml(tex)}</code>`;
         }
-        result = result.replace(`%%LLMA_LATEX_${i}%%`, rendered);
+        result = result.replace(`%%LLMA_LATEX_${i}%%`, () => rendered);
     }
 
     // Restore Mermaid placeholders
@@ -334,7 +340,7 @@ function llmaRenderMarkdown(text) {
         const placeholder = `<div class="llma-mermaid-block" id="${mId}" data-mermaid="${llmaEscapeHtml(mermaidBlocks[i])}"><pre><code>${llmaEscapeHtml(mermaidBlocks[i])}</code></pre></div>`;
         result = result.replace(
             new RegExp(`(<p>)?%%LLMA_MERMAID_${i}%%(</p>)?`),
-            placeholder
+            () => placeholder
         );
     }
 
@@ -349,7 +355,8 @@ function llmaRenderMarkdown(text) {
         let block = `<details class="llma-think${think.live ? ' llma-think-live' : ''}"><summary class="llma-think-summary">`
             + `<span class="llma-think-label">${label}</span><span class="llma-think-preview">${preview}</span></summary>`
             + `<div class="llma-think-body">${innerHtml}</div></details>`;
-        result = result.replace(new RegExp(`(<p>)?%%LLMA_THINK_${i}%%(</p>)?`), block);
+        // A replacer function, so $& or $1 in the reasoning is inserted as written rather than expanded as a pattern.
+        result = result.replace(new RegExp(`(<p>)?%%LLMA_THINK_${i}%%(</p>)?`), () => block);
     }
 
     // Add copy buttons to code blocks
