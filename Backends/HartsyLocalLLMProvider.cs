@@ -482,7 +482,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Translates the engine's plain text stream into this pack's wire events for <see cref="GenerateLive"/>, pulled out so
     /// it is unit-testable with scripted chunks. Reasoning that a structured parser reports apart from the answer (Muse Spark) goes out
-    /// as inline <c>&lt;think&gt;</c> text, the shape a Qwen3 stream already carries it in, which the chat renders as its Reasoning block.</summary>
+    /// as inline <c>&lt;think&gt;</c> text, the shape a Qwen3 stream already carries it in, which the chat renders as its Reasoning block.
+    /// Those events are flagged <c>reasoning</c> so the one-shot accumulator leaves them out of a reply that is spoken or used as a prompt.</summary>
     internal static async Task ForwardEngineStreamAsync(IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> onChunk, string model, string deviceKey)
     {
         bool inThink = false;
@@ -491,14 +492,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             if (inThink && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
             {
                 inThink = false;
-                await onChunk(new JObject() { ["chunk"] = "</think>" });
+                await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
             }
             switch (chunk.Kind)
             {
                 case TextChunkKind.Reasoning:
                     if (!string.IsNullOrEmpty(chunk.Text))
                     {
-                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : "<think>" + chunk.Text });
+                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : "<think>" + chunk.Text, ["reasoning"] = true });
                         inThink = true;
                     }
                     break;
@@ -550,7 +551,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         if (inThink)
         {
-            await onChunk(new JObject() { ["chunk"] = "</think>" });
+            await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
         }
     }
 

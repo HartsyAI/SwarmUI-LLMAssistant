@@ -1,13 +1,15 @@
 using Hartsy.Extensions.LLMAssistant.Backends;
 using HartsyInference.Engine.Requests;
 using Newtonsoft.Json.Linq;
+using System.Text;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>Covers <see cref="HartsyLocalLLMProvider.ForwardEngineStreamAsync"/>, the engine-stream to wire-event translation behind
 /// <c>GenerateLive</c>, with scripted chunks: Reasoning chunks (what a structured parser such as Muse Spark's reports) become inline
-/// <c>&lt;think&gt;</c> text, and the other new chunk kinds emit nothing.</summary>
+/// <c>&lt;think&gt;</c> text flagged <c>reasoning</c>, which the one-shot accumulator leaves out, and the other new chunk kinds emit
+/// nothing.</summary>
 public class HartsyLocalLLMProviderStreamTests
 {
     private static async IAsyncEnumerable<TextChunk> Stream(TextChunk[] chunks)
@@ -34,6 +36,18 @@ public class HartsyLocalLLMProviderStreamTests
 
     private static string StreamedText(List<JObject> events) => string.Concat(events.Select(e => e["chunk"]?.ToString() ?? ""));
 
+    private static bool IsReasoning(JObject e) => e.Value<bool?>("reasoning") == true;
+
+    private static string OneShotReply(List<JObject> events)
+    {
+        StringBuilder output = new();
+        foreach (JObject e in events)
+        {
+            LLMProviderBackend.AppendGenerateChunk(output, e);
+        }
+        return output.ToString();
+    }
+
     [Fact]
     public async Task ReasoningThenAnswer_IsOneThinkBlockBeforeTheAnswer()
     {
@@ -44,6 +58,23 @@ public class HartsyLocalLLMProviderStreamTests
             e => Assert.Equal("</think>", e["chunk"]?.ToString()),
             e => Assert.Equal("Hi.", e["chunk"]?.ToString()));
         Assert.Equal("<think>Let me think.</think>Hi.", StreamedText(events));
+        Assert.Equal([true, true, true, false], events.Select(IsReasoning));
+    }
+
+    [Fact]
+    public async Task OneShotReply_HoldsOnlyTheAnswer()
+    {
+        // What a voice turn speaks and what prompt enhancement uses: Muse Spark has no enable_thinking switch to turn reasoning off.
+        List<JObject> events = await Forward(Reasoning("Let me "), Reasoning("think."), Text("Hi."), Stop(StopReason.Stop));
+        Assert.Equal("Hi.", OneShotReply(events));
+    }
+
+    [Fact]
+    public async Task OneShotReply_KeepsAPlainStreamsOwnThinkTags()
+    {
+        // Qwen3's one-shot output is unchanged: its <think> text arrives as ordinary answer chunks.
+        List<JObject> events = await Forward(Text("<think>x</think>"), Text("y"), Stop(StopReason.Stop));
+        Assert.Equal("<think>x</think>y", OneShotReply(events));
     }
 
     [Fact]
@@ -63,7 +94,9 @@ public class HartsyLocalLLMProviderStreamTests
             {
                 Assert.Equal("get_time", e["native_tool_call"]?["name"]?.ToString());
                 Assert.Equal("UTC", e["native_tool_call"]?["arguments"]?["zone"]?.ToString());
+                Assert.False(IsReasoning(e));
             });
+        Assert.StartsWith("<tool_call>", OneShotReply(events));
     }
 
     [Fact]
@@ -99,6 +132,7 @@ public class HartsyLocalLLMProviderStreamTests
         Assert.Collection(events,
             e => Assert.Equal("<think>x</think>", e["chunk"]?.ToString()),
             e => Assert.Equal("y", e["chunk"]?.ToString()));
+        Assert.DoesNotContain(events, IsReasoning);
     }
 
     [Fact]
