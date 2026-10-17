@@ -204,6 +204,20 @@ public class HartsyLocalLLMProviderTests
         }
 
         [Theory]
+        [InlineData(null, 0, null)]
+        [InlineData(null, 3, 3)]
+        [InlineData(2, 3, 2)]
+        [InlineData(0, 0, null)]
+        public void Loops_RequestWinsOverTheBackendDefault_AndZeroMeansTheCheckpointDefault(int? requested, int settingDefault, int? expected)
+        {
+            ExtendedLLMInput input = Input();
+            input.Loops = requested;
+            TextRequest request = HartsyLocalLLMProvider.BuildRequestCore(
+                input, messages: [], tools: null, deviceKey: "cuda:0", settings: new() { RecurrentLoops = settingDefault });
+            Assert.Equal(expected, request.Loops);
+        }
+
+        [Theory]
         [InlineData("auto", "auto")]
         [InlineData("GPU", "gpu")]
         [InlineData(" split ", "split")]

@@ -572,6 +572,7 @@ function llmaSetupParamsPopover() {
             llmaSetEl('llma-p-top-p',           get('topP')               ?? 0.9);
             llmaSetEl('llma-p-top-p-val',       get('topP')               ?? 0.9, 'text');
             llmaSetEl('llma-p-context',         get('maxContextMessages') ?? 0);
+            llmaSetEl('llma-p-loops',           get('loops')              ?? 0);
         }
 
         if (open) {
@@ -590,6 +591,7 @@ function llmaSetupParamsPopover() {
                 maxTokens:       parseInt(document.getElementById('llma-p-max-tokens')?.value, 10) || undefined,
                 topP:               parseFloat(document.getElementById('llma-p-top-p')?.value) || undefined,
                 maxContextMessages: parseInt(document.getElementById('llma-p-context')?.value, 10) || 0,
+                loops:              parseInt(document.getElementById('llma-p-loops')?.value, 10) || 0,
             };
             llmaShowToast('Parameters applied to this chat', 'success');
             popover.style.display = 'none';
@@ -1479,6 +1481,7 @@ function llmaReadSettingsFromModal() {
     const seedRaw        = parseInt(document.getElementById('llma-s-seed')?.value, 10);
     g.seed               = Number.isFinite(seedRaw) ? seedRaw : -1;
     g.maxContextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)    || 0;
+    g.loops              = parseInt(document.getElementById('llma-s-loops')?.value, 10)      || 0;
     g.imageMaxDimension  = parseInt(document.getElementById('llma-s-image-max')?.value, 10)  || 1536;
     g.stream             = document.getElementById('llma-s-stream')?.checked ?? true;
     LLMAState.settings.parameters = g;
@@ -1525,6 +1528,7 @@ function llmaWriteSettingsToModal() {
     llmaSetEl('llma-s-top-p-val',           g.topP               ?? 0.9, 'text');
     llmaSetEl('llma-s-seed',                g.seed               ?? -1);
     llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
+    llmaSetEl('llma-s-loops',               g.loops              ?? 0);
     llmaSetEl('llma-s-image-max',           g.imageMaxDimension  ?? 1536);
     llmaSetEl('llma-s-image-max-val',       `${g.imageMaxDimension ?? 1536}px`, 'text');
     llmaSetElChecked('llma-s-stream',       g.stream             !== false);

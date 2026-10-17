@@ -393,7 +393,7 @@ public static class ChatEndpoints
     /// Either way it only scopes the local engine's prefix-KV reuse; nothing is stored here.</para>
     ///
     /// <para>Request: <c>{ message?|messages?, assistantId?, model?, temperature?, maxTokens?,
-    /// enableThinking?, conversationId? }</c> — at least one of <c>message</c> (a single new user turn) or <c>messages</c> (the
+    /// enableThinking?, loops?, conversationId? }</c> — at least one of <c>message</c> (a single new user turn) or <c>messages</c> (the
     /// full conversation so far, oldest first, as
     /// <c>[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]</c>) is required;
     /// <c>messages</c> takes priority when both are present. The assistant's resolved system prompt is
@@ -447,6 +447,7 @@ public static class ChatEndpoints
             bool? enableThinking = rawInput["enableThinking"]?.Type == JTokenType.Boolean
                 ? rawInput["enableThinking"].Value<bool>()
                 : (bool?)null;
+            int loops = ReadLoops(rawInput);
 
             JObject settings = SettingsService.GetMergedSettings(session.User);
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
@@ -474,7 +475,7 @@ public static class ChatEndpoints
             input.RequestSession = session;
             input.EnableThinking = enableThinking;
             input.ConversationId = VoiceTurnWsConversationId(rawInput["conversationId"]?.ToString(), session.ID);
-            ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens);
+            ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens, loops: loops);
 
             // Resolved before touching tools at all, unlike the other routes in this file: the non-native
             // branch below must never call ApplyToolsToInput (it would inject the tag-based tool system prompt
@@ -882,7 +883,9 @@ public static class ChatEndpoints
 
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
-    /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, instructionId? }</c>.
+    /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, loops?, instructionId? }</c>.
+    /// <c>loops</c> is the recurrent-block pass count for a looped model such as Dory (1 to 4); omitted, the saved
+    /// <c>loops</c> parameter and then the local backend's <c>RecurrentLoops</c> setting apply, and other models ignore it.
     /// The server loads the thread, appends the user message, builds the LLM input from the stored
     /// history, streams the response, and persists the assistant reply when done.</summary>
     public static async Task<JObject> LLMAssistantSendMessageWS(WebSocket socket, Session session, JObject rawInput)
@@ -1030,6 +1033,7 @@ public static class ChatEndpoints
         double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
+        int loops = ReadLoops(rawInput);
 
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
@@ -1063,7 +1067,7 @@ public static class ChatEndpoints
             input.RequestSession = session;
             input.ConversationId = ThreadConversationId(threadId);
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt —
             // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
             List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
@@ -1287,6 +1291,7 @@ public static class ChatEndpoints
         double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
+        int loops = ReadLoops(rawInput);
         // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
@@ -1335,7 +1340,7 @@ public static class ChatEndpoints
                 input.ConversationId = ThreadConversationId(threadId);
                 input.BackendId = L.BackendId;
                 input.Device = L.Device;
-                ApplyParameters(input, resolvedParams, temperature, maxTokens, seed);
+                ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
                 await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
                 if (cts.IsCancellationRequested)
                 {
@@ -1499,14 +1504,26 @@ public static class ChatEndpoints
         return history;
     }
 
+    /// <summary>The request's <c>loops</c> field (recurrent-block passes for a looped model such as Dory): a positive integer, or 0 when
+    /// absent, not a number, or not positive, which leaves the saved parameters and then the backend's own default in force.</summary>
+    internal static int ReadLoops(JObject rawInput)
+    {
+        JToken token = rawInput?["loops"];
+        return token is { Type: JTokenType.Integer } && token.Value<int>() > 0 ? token.Value<int>() : 0;
+    }
+
     /// <summary>Applies per-request parameter overrides on top of resolved parameters.
     /// <paramref name="seed"/> <c>-1</c> means "random, let the backend pick"; any non-negative
-    /// value pins the seed (only providers that honor <c>ExtendedLLMInput.Seed</c> will use it).</summary>
-    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1)
+    /// value pins the seed (only providers that honor <c>ExtendedLLMInput.Seed</c> will use it).
+    /// <paramref name="loops"/> <c>0</c> means "not set by this request": the saved <c>loops</c> parameter applies when
+    /// positive, else the provider's own default (the checkpoint's for a looped model, ignored by every other model).</summary>
+    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1, int loops = 0)
     {
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 4096;
         input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;
+        int savedLoops = parameters?["loops"]?.Type == JTokenType.Integer ? parameters["loops"].Value<int>() : 0;
+        input.Loops = loops > 0 ? loops : savedLoops > 0 ? savedLoops : null;
         if (seed < 0)
         {
             // Pull a default from saved parameters if the request didn't pin one. Saved value -1 means random.

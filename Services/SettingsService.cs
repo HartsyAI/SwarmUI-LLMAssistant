@@ -40,6 +40,8 @@ public static class SettingsService
             // -1 = backend picks a random seed; pin to any non-negative value for reproducibility.
             // Only backends that honor LLMParamInput.Seed (SimpleRemote/OpenAI-compatible, LlamaSharp) will use it.
             ["seed"] = -1,
+            // Recurrent-block passes for a looped model (Dory: 1-4); 0 = the backend's default. Ignored by other models.
+            ["loops"] = 0,
             ["maxContextMessages"] = 0,
             // Long-edge cap (px) for images sent to vision models. Lower = fewer vision tokens (cheaper on
             // remote APIs), at some loss of fine detail. Clamped to [256, 2048]; 1536 = the prior fixed cap.

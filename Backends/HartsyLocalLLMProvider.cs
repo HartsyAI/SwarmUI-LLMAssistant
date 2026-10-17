@@ -81,6 +81,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
         [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Replies are equivalent (byte-identical on CPU; on a GPU the reused cache can round slightly differently).\n\nThe engine bounds what this holds. After each turn a conversation's cache shrinks to its length plus vram.prefixCacheHeadroomTokens (256 tokens), about 0.34 GiB for a 1,000-token Qwen3-4B chat, and grows again by an on-device copy when the next turn needs room. A conversation that would need more than vram.prefixCacheMaxBytes (1.5 GiB) is not kept, so a very long thread runs uncached. Each GPU keeps at most vram.prefixCacheMaxEntries (4) conversations within that same budget, least recently used first. Free Memory (including Swarm's idle VRAM clear), switching models or editing this backend releases them.\n\nHas no effect while 'Always Free Memory' is on, or with VRAM Mode 'Aggressive' or 'Maximum'.")]
         public bool ReuseConversationPrefix = true;
+
+        [ConfigComment("Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one.\n1 = lowest latency, 2 = the recommended balance, 4 = highest accuracy, all from the same weights.\n0 = the checkpoint's own default. Ignored by every other model.")]
+        public int RecurrentLoops = 0;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -826,6 +829,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             // (every caller before this field existed, and still every caller except the new messages/enableThinking
             // WS request fields) leaves the template's own default alone -- unchanged behavior.
             EnableThinking = input.EnableThinking,
+            // A request's own loop count wins; else the backend's default; else null leaves the checkpoint's default to the engine.
+            Loops = input.Loops is > 0 ? input.Loops : settings.RecurrentLoops > 0 ? settings.RecurrentLoops : null,
             Device = deviceKey,
             Tools = tools,
             GraphDecode = settings.GraphDecode ? true : null,

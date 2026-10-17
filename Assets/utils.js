@@ -724,6 +724,8 @@ const LLMA_DEFAULT_SETTINGS = {
         topP:               0.9,
         seed:               -1,
         maxContextMessages: 0,
+        // Recurrent-block passes for a looped model (Dory); 0 = the backend's default.
+        loops:              0,
         imageMaxDimension:  1536,
         stream:             true,
     },
