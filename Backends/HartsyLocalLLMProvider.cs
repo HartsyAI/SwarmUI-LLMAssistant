@@ -18,6 +18,7 @@ using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Placement;
 using HartsyInference.Engine.Registry;
 using HartsyInference.Engine.Requests;
+using HartsyInference.LLM.Looped;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
 using HartsyInference.Tools;
@@ -81,6 +82,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
         [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Replies are equivalent (byte-identical on CPU; on a GPU the reused cache can round slightly differently).\n\nThe engine bounds what this holds. After each turn a conversation's cache shrinks to its length plus vram.prefixCacheHeadroomTokens (256 tokens), about 0.34 GiB for a 1,000-token Qwen3-4B chat, and grows again by an on-device copy when the next turn needs room. A conversation that would need more than vram.prefixCacheMaxBytes (1.5 GiB) is not kept, so a very long thread runs uncached. Each GPU keeps at most vram.prefixCacheMaxEntries (4) conversations within that same budget, least recently used first. Free Memory (including Swarm's idle VRAM clear), switching models or editing this backend releases them.\n\nHas no effect while 'Always Free Memory' is on, or with VRAM Mode 'Aggressive' or 'Maximum'.")]
         public bool ReuseConversationPrefix = true;
+
+        [ConfigComment("Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one.\n1 = lowest latency up to 4 = highest accuracy, all from the same weights; above 4 is ignored with a warning.\n0 = the checkpoint's own default. Ignored by every other model.")]
+        public int RecurrentLoops = 0;
     }
 
     /// <summary>The settings for this backend.</summary>
@@ -826,6 +830,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             // (every caller before this field existed, and still every caller except the new messages/enableThinking
             // WS request fields) leaves the template's own default alone -- unchanged behavior.
             EnableThinking = input.EnableThinking,
+            // A request's own loop count wins; else the backend's default; else null leaves the checkpoint's default to the engine.
+            Loops = input.Loops is > 0 ? input.Loops : BackendDefaultLoops(settings.RecurrentLoops),
             Device = deviceKey,
             Tools = tools,
             GraphDecode = settings.GraphDecode ? true : null,
@@ -835,6 +841,20 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             AlwaysFreeMemory = settings.AlwaysFreeMemory,
             PrefixCacheKey = prefixCacheKey
         };
+    }
+
+    /// <summary>The RecurrentLoops setting as the engine takes it: null when unset (0), and null with a warning when above
+    /// <see cref="LoopedTransformerConfig.DefaultMaxLoops"/>, the ceiling of every looped GGUF the engine loads, so a typo in the
+    /// setting leaves the checkpoint's default in force rather than failing every request (as <see cref="PlacementFor"/> does).
+    /// A request's own count is not bounded here: the engine rejects it with a message naming the model's maximum.</summary>
+    internal static int? BackendDefaultLoops(int recurrentLoops)
+    {
+        if (recurrentLoops > LoopedTransformerConfig.DefaultMaxLoops)
+        {
+            Logs.Warning($"[LLMAssistant] RecurrentLoops {recurrentLoops} is above the {LoopedTransformerConfig.DefaultMaxLoops} passes a looped model runs; using the checkpoint's default.");
+            return null;
+        }
+        return recurrentLoops > 0 ? recurrentLoops : null;
     }
 
     /// <summary>The engine's placement word for the Placement setting: auto, gpu, split or offload. Blank or unrecognized is

@@ -1,0 +1,36 @@
+<Project>
+  <!-- Imported by SwarmUI-LLMAssistant.csproj and Tests/LLMAssistant.Tests.csproj. It carries one thing, the local-engine
+       switch. UseLocalHartsy=true (on the command line, or from a developer's own gitignored Directory.Build.props, which
+       MSBuild imports before this file) points both projects at a prebuilt HartsyInference checkout next to the SwarmUI tree
+       as loose <Reference> items, not ProjectReferences (a ProjectReference would leak SwarmUI's global obj/output MSBuild
+       properties into the engine projects and break their build); and because a loose reference does not flow to a
+       referencing project the way a PackageReference does, the test project needs the same list, so it lives here once.
+       Default builds (the published package) take nothing from this file.
+       Build the engine first: dotnet build src/HartsyInference.{LLM,Cpu,Cuda}/*.csproj -c Release -f net8.0, and, for the
+       Tools package, dotnet build src/HartsyInference.Tools -c Release -f net8.0 (Tools depends on Engine, not the reverse, so
+       it is not in Engine's output). -->
+  <PropertyGroup>
+    <!-- false = published HartsyInference NuGet; true = local HartsyInference engine build. -->
+    <UseLocalHartsy Condition="'$(UseLocalHartsy)' == ''">false</UseLocalHartsy>
+    <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../HartsyInference</HartsyRepo>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UseLocalHartsy)' == 'true'">
+    <HartsyCfg Condition="'$(HartsyCfg)' == '' and Exists('$(HartsyRepo)/src/HartsyInference.LLM/bin/Release/net8.0/HartsyInference.LLM.dll')">Release</HartsyCfg>
+    <HartsyCfg Condition="'$(HartsyCfg)' == ''">Debug</HartsyCfg>
+    <HartsyEngineBin>$(HartsyRepo)/src/HartsyInference.Engine/bin/$(HartsyCfg)/net8.0</HartsyEngineBin>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(UseLocalHartsy)' == 'true'">
+    <!-- The extension talks to HartsyInference.Engine's ITextService, and the compiler also needs every engine assembly whose
+         types the sources name: Core (VRAM policy), ModelAssets (GGUF metadata probes), LLM (the text contracts Engine's
+         signatures expose) and Cuda (device probes). A loose <Reference> brings no transitive references, so each is listed;
+         Engine's build output already ships them all at runtime. -->
+    <Reference Include="HartsyInference.Engine"><HintPath>$(HartsyEngineBin)/HartsyInference.Engine.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.Core"><HintPath>$(HartsyEngineBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.ModelAssets"><HintPath>$(HartsyEngineBin)/HartsyInference.ModelAssets.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.LLM"><HintPath>$(HartsyEngineBin)/HartsyInference.LLM.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.Cuda"><HintPath>$(HartsyEngineBin)/HartsyInference.Cuda.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.Tools"><HintPath>$(HartsyRepo)/src/HartsyInference.Tools/bin/$(HartsyCfg)/net8.0/HartsyInference.Tools.dll</HintPath><Private>true</Private></Reference>
+  </ItemGroup>
+</Project>

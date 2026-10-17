@@ -43,6 +43,11 @@
     <PackageReference Include="FreneticLLC.FreneticUtilities" Version="1.1.4" />
   </ItemGroup>
 
+  <!-- Local-engine builds (dotnet test -p:UseLocalHartsy=true): the extension's engine references are loose <Reference>
+       items, which do not flow to a referencing project the way a PackageReference does, so HartsyLocal.props at the
+       extension root defines them once for both projects. Default builds take the published package transitively. -->
+  <Import Project="../HartsyLocal.props" />
+
   <ItemGroup>
     <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
          for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a

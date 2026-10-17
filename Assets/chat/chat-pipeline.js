@@ -115,6 +115,9 @@
 
         if (get('temperature') !== undefined) payload.temperature = get('temperature');
         if (get('maxTokens'))   payload.maxTokens = get('maxTokens');
+        // Recurrent-block passes for a looped model (Dory): only this chat's own override is sent; the saved value is resolved
+        // server-side (assistant parameters over the user's), then the backend default, so neither is shadowed from here.
+        if (tp.loops > 0)       payload.loops = tp.loops;
         if (get('maxContextMessages') > 0) payload.maxContextMessages = get('maxContextMessages');
         // Seed: -1 means "random, let the backend pick"; only forward when the user pinned a value.
         const seed = get('seed');

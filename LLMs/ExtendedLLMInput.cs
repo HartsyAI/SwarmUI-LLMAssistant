@@ -66,6 +66,12 @@ public class ExtendedLLMInput
     /// honors it; ignored by a provider/template without a thinking slot.</summary>
     public bool? EnableThinking;
 
+    /// <summary>Recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory (1 fastest, 4 most
+    /// accurate, from the same weights), mirroring <see cref="HartsyInference.Engine.Requests.TextRequest.Loops"/>: null
+    /// leaves the checkpoint's default (or the local backend's <c>RecurrentLoops</c> setting) in force. Only
+    /// <see cref="Backends.HartsyLocalLLMProvider"/> honors it; every other provider and every non-looped model ignores it.</summary>
+    public int? Loops;
+
     /// <summary>Which conversation this request continues (eg <c>thread:{threadId}</c>), so a provider that keeps
     /// per-conversation state can find it again next turn; null (the default) for one-off calls such as titles,
     /// prompt enhancement or a tool's own caption request. Set only by the conversational routes in
