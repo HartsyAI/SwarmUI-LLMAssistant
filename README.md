@@ -10,7 +10,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 |---|---|
 | **Version** | `2.0.0-alpha.2` |
 | **Requires** | SwarmUI (tested against `0.9.8.2`) |
-| **Local engine** | [`HartsyInference`](https://www.nuget.org/packages/HartsyInference) `2.0.0-alpha.375` (NuGet, pulled automatically) |
+| **Local engine** | [`HartsyInference`](https://www.nuget.org/packages/HartsyInference), the latest published version (NuGet, pulled automatically on each build) |
 | **License** | MIT |
 
 ---

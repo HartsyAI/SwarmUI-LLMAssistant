@@ -4,9 +4,11 @@
     <!-- false = published HartsyInference NuGet; true = local HartsyInference engine build (see Directory.Build.props). -->
     <UseLocalHartsy Condition="'$(UseLocalHartsy)' == ''">false</UseLocalHartsy>
     <HartsyRepo Condition="'$(HartsyRepo)' == ''">$(MSBuildThisFileDirectory)../../../../HartsyInference</HartsyRepo>
-    <!-- Force the alpha.4 ref (just pinned below, ahead of its publish) to resolve as soon as it's live,
-         bypassing NuGet's ~30 min flat-container HTTP cache (same reasoning as the sibling extensions). -->
+    <!-- Force the floating HartsyInference references to resolve to the latest published version. -->
     <RestoreNoHttpCache>true</RestoreNoHttpCache>
+    <!-- The engine version floats (see the HartsyInference references below); a floating version must never resolve to a
+         locally packed build from another feed, so this project restores from nuget.org alone. -->
+    <RestoreSources>https://api.nuget.org/v3/index.json</RestoreSources>
   </PropertyGroup>
 
   <Import Project="../../SwarmUI.extension.props" />
@@ -22,93 +24,16 @@
     <Compile Remove="Tests/**" />
   </ItemGroup>
 
-  <!-- RELEASE: the published meta-package. https://www.nuget.org/packages/HartsyInference
-       Pinned ahead of nuget.org's alpha.3 (its latest published version as of this writing): alpha.3
-       predates the 2026-07-25 commit that made TextService.FindMmproj public, which this extension's
-       HartsyLocalLLMProvider now calls. Pinned to alpha.4 in step with the other two SwarmUI-Hartsy
-       extensions, ahead of the engine repo's manual publish of that version — restore will 404 until
-       that push lands on nuget.org. NEVER pin a "-local" suffix here: this extension is cloned by
-       end users who only have nuget.org, and a "-local" version only resolves on the dev feed at
-       /home/hartsy/.local/share/hartsy-local-nuget.
-       2.0.0-alpha.33 = the current nuget.org release, bringing this extension back in step with
-       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab. It had drifted ten versions behind while the
-       deployed output carried a hand-deployed local engine build, so the pin was not what actually ran.
-       2.0.0-alpha.47 = threads the CPU kernels, which the voice path needs: token decode goes through the
-       same GEMM that ran on a single core, and this extension shares a box with the TTS that dominates a
-       voice turn. Note the pin had drifted to alpha.40 again while a gitignored Directory.Build.props
-       pointed local builds at a checkout — a Release build against this pin is now verified.
-       2.0.0-alpha.130 = catch-up bump, 2026-09-19 (alpha.47 -> alpha.130, 83 versions). Confirmed via a full
-       Release build against this pin that nothing in this extension needed to change: compiled clean, no
-       source edits, despite the size of the gap. Keeps this extension in lockstep with
-       SwarmUI-HartsyInference-Backend and SwarmUI-AudioLab.
-       2.0.0-alpha.235 = catch-up bump for the phone-call voice agent work, 2026-10-01 (alpha.130 -> alpha.235,
-       105 versions). Nothing in that span changes a signature this extension calls — TextChunkKind/TextChunk
-       and ChatMessage only gained new, additive members (Reasoning/ToolCallDelta/ToolCallAbort/Usage,
-       ToolCallIndex/Status/Usage) — so this stays a clean build against the nuget.org package
-       (UseLocalHartsy=false). Two source changes ride along in this same PR because they are tiny and
-       directly enabled by this range: HartsyLocalLLMProvider.RoleFor now maps a Tool-role message onto
-       TextRole.Tool with its id/name (alpha.220 added TextMessage.ToolCalls/ToolCallId/Name; nothing emitted
-       a Tool-role LLMMessage before this, so this is a latent-bug fix, not a behavior change) and
-       TextService.StreamAsync's lifetime fix (alpha.220, #193) is what LLMStreamHelper's mid-round
-       roundCts.Cancel() (LLMStreamHelper.cs:96,110) already relied on being prompt — verified by the engine's
-       own cancel-before-start / abandonment unit tests (<=100ms), not re-measured live here.
-       2.0.0-alpha.237 = catch-up bump, 2026-10-01 (alpha.235 -> alpha.237, verified indexed on nuget.org for
-       both hartsyinference.engine and hartsyinference.tools before bumping). alpha.236 (#215) fixes
-       SamplerChain/TopPStep/TopKStep/MinPStep to reuse scratch buffers instead of argsorting the whole ~152K
-       vocabulary through a Comparison<int> delegate every decode step on the non-greedy path (Greedy=false,
-       this extension's default whenever Temperature > 0) — faster decode, token-identical output, no public
-       signature touched. alpha.237 adds the new, separate HartsyInference.Voice package (the phone-call voice
-       agent); this extension references neither it nor anything it depends on. Full Release build + full test
-       run against this pin: clean, no source edits required by the bump itself (the source changes in this
-       same PR are FIX 1/FIX 2/the messages-history and enableThinking additions, independent of the pin).
-       2.0.0-alpha.241 = 2026-10-02 (alpha.237 -> alpha.241, verified indexed on nuget.org for hartsyinference,
-       hartsyinference.engine and hartsyinference.tools before bumping). Brings HartsyInference#217's opt-in
-       prefix-KV reuse (TextRequest.PrefixCacheKey/PrefixCacheCapacityHint), which HartsyLocalLLMProvider now
-       sets per conversation behind ReuseConversationPrefix (off until engine alpha.242 bounds the VRAM a
-       retained entry holds), and needs: the pin IS the feature here, not a catch-up. Everything else in the
-       range is additive (TextRequest.CacheWeightCasts/PreloadRedundantWeightSplits, ITextService.TrimMemoryPool
-       with a default implementation); this extension leaves those at their defaults. #227
-       (ToolCallFormats.TryDetectFromTemplate) merged after alpha.241 was published, so it is NOT in this pin,
-       and SupportsNativeToolCallingFor keeps its own template check.
-       2.0.0-alpha.242 = 2026-10-02 (alpha.241 -> alpha.242; every HartsyInference package's alpha.242
-       .nupkg verified on nuget.org before bumping). Brings HartsyInference#234's bounded retained KV: what a
-       request retains under a PrefixCacheKey shrinks to its length + vram.prefixCacheHeadroomTokens (256)
-       when the request ends, grows by an on-device copy when a later request needs more room, and is not
-       kept at all past vram.prefixCacheMaxBytes (now 1.5 GiB, the per-entry cap as well as the store's).
-       That is what lets ReuseConversationPrefix default to on, and it reduces PrefixCacheCapacityHint to
-       sizing a key's first allocation, so HartsyLocalLLMProvider no longer sets one (and no longer
-       tokenizes the prompt to estimate it).
-       2.0.0-alpha.243 = 2026-10-02 (alpha.242 -> alpha.243; every HartsyInference package's alpha.243
-       .nupkg verified on nuget.org before bumping). Carries HartsyInference#243: every CUDA op runs in its
-       own backend's context, whatever another engine copy left bound on the thread. SwarmUI loads one
-       private engine copy per extension, all on one thread pool, and each copy cached "this thread is bound
-       to my context" for itself. A 3060 binding this extension's copy made for a voice turn sent AudioLab's
-       4090 work into the 3060's context. The sticky CUDA 700 that followed broke the image backend and this
-       extension's own FreeBackendMemory (HartsyLocalLLMProvider.FreeMemory). The fix only protects the
-       process when every engine copy in it has it, so AudioLab takes alpha.243 at the same time. No source
-       change is needed for the bump. -->
-  <!-- 2.0.0-alpha.270 (from alpha.264): the host-RAM guard sizes a quantized GGUF by what the load actually expands instead of
-       a flat 2.5x the file, and Q2_K / Q3_K stay compressed on the GPU, so Kolibri-1 can load on a 64 GB server. No source change
-       needed here. -->
-  <!-- 2.0.0-alpha.329 (from alpha.270): the engine decides where a GGUF runs before loading it (TextRequest.Placement: one GPU,
-       else a layer split across GPUs, else expert offload, or forced), and a MoE layer's experts take one GPU allocation per
-       projection instead of one each, so Qwen3-30B-A3B Q4_K_M (18.5 GB) runs on one 24 GB card. This extension adds the
-       Placement setting and shows each loaded model's placement. The public surface from alpha.270 to here is additive. -->
-  <!-- 2.0.0-alpha.333 (from alpha.329): expert offload runs (alpha.331: a GPU expert cache plus the packed CPU kernels, so the
-       Placement setting's "Offload experts" now loads a mixture-of-experts model larger than the card), the repetition penalty
-       applies once per distinct token instead of once per occurrence (alpha.332: at this backend's default 1.1, long greedy
-       answers no longer misspell identifiers or drift languages), and faster CPU expert kernels (alpha.333). No source change. -->
-  <!-- 2.0.0-alpha.375 (from alpha.333): Meta's Muse Spark (alpha.371, family muse-spark), whose replies the engine's own parser splits into
-       reasoning, answer text and <atem:invoke> tool calls. ToolLoop now reports a dispatched tool's result as a ToolResult chunk instead of a
-       prefixed Status chunk (ChatEndpoints.ForwardFramesAsync reads the new kind), ToolCalling.Install with no format now picks one per
-       request (this backend passes Hermes to keep its gated behavior), and GenerateLive renders Reasoning chunks as <think> text. -->
+  <!-- RELEASE: the published meta-package, https://www.nuget.org/packages/HartsyInference. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
-    <!-- Exact pin on purpose: a floating alpha.* resolves to the stale alpha.NNN-local.M builds in the hartsy-local feed (NuGet ranks the alphanumeric label above numeric ones), which broke every extension build on 2026-10-07. -->
-    <PackageReference Include="HartsyInference" Version="2.0.0-alpha.375" />
-    <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package by design — it is
-         NOT part of the HartsyInference meta package, so it needs its own reference. Published on nuget.org
-         since alpha.222; pinned to the same version as the meta package to stay in lockstep. -->
-    <PackageReference Include="HartsyInference.Tools" Version="2.0.0-alpha.375" />
+    <!-- Always the newest engine published on nuget.org, as SwarmUI-AudioLab and SwarmUI-HartsyInference do: SwarmUI rebuilds
+         this extension at startup, and RestoreNoHttpCache makes each restore ask nuget.org again. RestoreSources keeps that
+         lookup on nuget.org, so a developer's local feed of alpha.N-local.M packs, which NuGet ranks above the published
+         alpha.N, is never picked up (that is what broke every extension build on 2026-10-07 under the old floating alpha.*). -->
+    <PackageReference Include="HartsyInference" Version="*-*" />
+    <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package, not part of the meta package; it
+         floats the same way, and the engine publishes both together. -->
+    <PackageReference Include="HartsyInference.Tools" Version="*-*" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING: prebuilt engine DLLs, not ProjectReferences (a ProjectReference would leak
@@ -137,9 +62,9 @@
   </ItemGroup>
 
   <!-- Loud reminder that a local-engine build is NOT what end users get: they build against the
-       NuGet pin above. Before any release, prove that path compiles: dotnet build -p:UseLocalHartsy=false -->
+       published NuGet package above. Before any release, prove that path compiles: dotnet build -p:UseLocalHartsy=false -->
   <Target Name="WarnLocalHartsy" BeforeTargets="Build" Condition="'$(UseLocalHartsy)' == 'true'">
-    <Warning Text="Building against the LOCAL HartsyInference engine (Directory.Build.props). Release builds must use the NuGet pin: dotnet build -p:UseLocalHartsy=false" />
+    <Warning Text="Building against the LOCAL HartsyInference engine (Directory.Build.props). Release builds must use the published NuGet package: dotnet build -p:UseLocalHartsy=false" />
   </Target>
 
   <!-- Compile against the packages the SwarmUI host already loads, without copying their runtime DLLs.
