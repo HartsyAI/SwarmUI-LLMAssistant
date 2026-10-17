@@ -1,6 +1,7 @@
 using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using HartsyInference.Engine.Requests;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
@@ -70,55 +71,86 @@ public class ReasoningHistoryTests
     [InlineData("<think>Let me think.</think>Hi.", "Let me think.", "Hi.")]
     [InlineData("<think>\nLet me think.\n</think>\n\nHi.", "Let me think.", "Hi.")]
     [InlineData("  \n<think>r</think>answer", "r", "answer")]
-    [InlineData("<think>r</think>a<think>unclosed", "r", "a<think>unclosed")]
     [InlineData("<think>r</think>", "r", "")]
     [InlineData("<think>\r\nplan\r\n</think>\r\n\r\nAnswer", "plan", "Answer")]
     [InlineData("<think> r </think> a", "r", "a")]
-    public void TrySplitLeadingThink_OneLeadingBlock_SplitsReasoningFromTheAnswer(string content, string reasoning, string answer)
+    [InlineData("<THINK>r</Think>a", "r", "a")]
+    [InlineData("Answer first <think>aside</think> then more.", "aside", "Answer first  then more.")]
+    [InlineData("<think>r1</think><think>r2</think>answer", "r1\n\nr2", "answer")]
+    [InlineData("<think>r</think>a<think>cut off", "r\n\ncut off", "a")]
+    [InlineData("<think>never closed", "never closed", "")]
+    public void TrySplitThinkBlocks_PairedBlocks_SplitReasoningFromTheAnswer(string content, string reasoning, string answer)
     {
-        Assert.True(HartsyLocalLLMProvider.TrySplitLeadingThink(content, out string gotReasoning, out string gotAnswer));
+        Assert.True(HartsyLocalLLMProvider.TrySplitThinkBlocks(content, out string gotReasoning, out string gotAnswer));
         Assert.Equal(reasoning, gotReasoning);
         Assert.Equal(answer, gotAnswer);
     }
 
     [Fact]
-    public void TrySplitLeadingThink_EmptyBlock_HasNoReasoning()
+    public void TrySplitThinkBlocks_MultiRoundToolReply_KeepsTheToolTagsAsContent()
     {
-        Assert.True(HartsyLocalLLMProvider.TrySplitLeadingThink("<think>\n\n</think>\n\nHi.", out string reasoning, out string answer));
+        // LLMStreamHelper saves every round of a tool turn joined, so the reasoning of each round sits between the calls.
+        string saved = "<think>I need the time.</think>\n<tool_call>{\"name\":\"get_time\",\"arguments\":{}}</tool_call>"
+            + "<think>It said noon.</think>\n\nIt is noon.";
+        Assert.True(HartsyLocalLLMProvider.TrySplitThinkBlocks(saved, out string reasoning, out string answer));
+        Assert.Equal("I need the time.\n\nIt said noon.", reasoning);
+        Assert.Equal("<tool_call>{\"name\":\"get_time\",\"arguments\":{}}</tool_call>\n\nIt is noon.", answer);
+    }
+
+    [Fact]
+    public void TrySplitThinkBlocks_EmptyBlock_HasNoReasoning()
+    {
+        Assert.True(HartsyLocalLLMProvider.TrySplitThinkBlocks("<think>\n\n</think>\n\nHi.", out string reasoning, out string answer));
         Assert.Null(reasoning);
         Assert.Equal("Hi.", answer);
     }
 
     [Theory]
     [InlineData("Hi.")]
-    [InlineData("Answer first <think>aside</think> then more.")]
-    [InlineData("<think>never closed")]
     [InlineData("<think>a<think>b</think>c")]
-    [InlineData("<think>r1</think><think>r2</think>answer")]
-    [InlineData("<think>r1</think>text<think>r2</think>answer")]
+    [InlineData("stray </think> close")]
+    [InlineData("<think>a</think>b</think>c")]
+    [InlineData("<think>a<think>open twice")]
     [InlineData("")]
     [InlineData(null)]
-    public void TrySplitLeadingThink_AnythingElse_LeavesTheReplyAsItIs(string content)
+    public void TrySplitThinkBlocks_NoBlockOrUnpairedTags_LeavesTheReplyAsItIs(string content)
     {
-        Assert.False(HartsyLocalLLMProvider.TrySplitLeadingThink(content, out string reasoning, out string answer));
+        Assert.False(HartsyLocalLLMProvider.TrySplitThinkBlocks(content, out string reasoning, out string answer));
         Assert.Null(reasoning);
         Assert.Equal(content, answer);
     }
 
     [Fact]
-    public void HasLeadingThinkReply_OnlyAnAssistantReplyStartingWithThinkCounts()
+    public void HasThinkReply_OnlyAnAssistantReplyWithAThinkBlockCounts()
     {
         // BuildRequestAsync reads the model's template only when this is true, so a plain chat never opens the GGUF for it.
-        Assert.False(HartsyLocalLLMProvider.HasLeadingThinkReply([]));
-        Assert.False(HartsyLocalLLMProvider.HasLeadingThinkReply([
+        Assert.False(HartsyLocalLLMProvider.HasThinkReply([]));
+        Assert.False(HartsyLocalLLMProvider.HasThinkReply([
             new() { Role = LLMRoles.User, Content = "<think>quoted</think>" },
-            new() { Role = LLMRoles.Assistant, Content = "Plain answer <think>aside</think>" },
+            new() { Role = LLMRoles.Assistant, Content = "Plain answer" },
             new() { Role = LLMRoles.Assistant, Content = null }
         ]));
-        Assert.True(HartsyLocalLLMProvider.HasLeadingThinkReply([
+        Assert.True(HartsyLocalLLMProvider.HasThinkReply([
             new() { Role = LLMRoles.User, Content = "hi" },
-            new() { Role = LLMRoles.Assistant, Content = "\n<think>r</think>Hello" }
+            new() { Role = LLMRoles.Assistant, Content = "Hello <THINK>r</THINK>" }
         ]));
+    }
+
+    [Fact]
+    public void TakesReasoningContent_ATemplateThatOnlyWrapsTheFieldInItsOwnTags_IsTrue()
+    {
+        // Kimi/MiniMax style: </think> appears only around the field, never as a split of the content.
+        string template = "{% for m in messages %}{% if m.role == 'assistant' %}<think>{{ m.reasoning_content }}</think>{% endif %}"
+            + "{{ m.content }}{% endfor %}";
+        Assert.True(HartsyLocalLLMProvider.TakesReasoningContent(template));
+    }
+
+    [Fact]
+    public void TakesReasoningContent_TheWordInACommentOrError_IsFalse()
+    {
+        string template = "{# reasoning_content is not rendered #}{% for m in messages %}{{ m.content }}{% endfor %}"
+            + "{{ raise_exception('reasoning_content unsupported') if false }}";
+        Assert.False(HartsyLocalLLMProvider.TakesReasoningContent(template));
     }
 
     [Fact]
@@ -154,11 +186,38 @@ public class ReasoningHistoryTests
     }
 
     [Fact]
-    public void ToTextMessage_SplitReasoning_KeepsAMultiRoundReplyAsItIs()
+    public void ToTextMessage_SplitReasoning_SplitsAMultiRoundReply()
     {
-        LLMMessage reply = new() { Role = LLMRoles.Assistant, Content = "<think>r1</think><think>r2</think>Noon." };
+        LLMMessage reply = new() { Role = LLMRoles.Assistant, Content = "<think>r1</think><tool_call>{}</tool_call><think>r2</think>Noon." };
         TextMessage msg = HartsyLocalLLMProvider.ToTextMessage(reply, reply.Content, images: null, splitReasoning: true);
-        Assert.Equal(reply.Content, msg.Content);
+        Assert.Equal("<tool_call>{}</tool_call>Noon.", msg.Content);
+        Assert.Equal("r1\n\nr2", msg.ReasoningContent);
+    }
+
+    [Theory]
+    [InlineData("<think>Only thinking.</think>")]
+    [InlineData("<think>Cut off mid-reasoning")]
+    public void ToTextMessage_SplitReasoning_LeavesAReasoningOnlyReplyAsStored(string content)
+    {
+        // Splitting it would leave an assistant turn with no content at all.
+        LLMMessage reply = new() { Role = LLMRoles.Assistant, Content = content };
+        TextMessage msg = HartsyLocalLLMProvider.ToTextMessage(reply, reply.Content, images: null, splitReasoning: true);
+        Assert.Equal(content, msg.Content);
         Assert.Null(msg.ReasoningContent);
+    }
+
+    [Fact]
+    public void ToTextMessage_SplitReasoning_SplitsAReasoningOnlyReplyThatMadeToolCalls()
+    {
+        LLMMessage reply = new()
+        {
+            Role = LLMRoles.Assistant,
+            Content = "<think>Need the time.</think>",
+            ToolCalls = [new JObject { ["id"] = "c1", ["name"] = "get_time", ["arguments"] = new JObject() }]
+        };
+        TextMessage msg = HartsyLocalLLMProvider.ToTextMessage(reply, reply.Content, images: null, splitReasoning: true);
+        Assert.Equal("", msg.Content);
+        Assert.Equal("Need the time.", msg.ReasoningContent);
+        Assert.Single(msg.ToolCalls);
     }
 }

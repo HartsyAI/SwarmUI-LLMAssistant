@@ -226,54 +226,87 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return verdict;
     }
 
-    /// <summary>The tags <see cref="ForwardEngineStreamAsync"/> wraps reasoning in, and <see cref="TrySplitLeadingThink"/> reads back.</summary>
+    /// <summary>The tags <see cref="ForwardEngineStreamAsync"/> wraps reasoning in, and <see cref="TrySplitThinkBlocks"/> reads back.</summary>
     internal const string ThinkOpen = "<think>";
 
     /// <summary>Closes a <see cref="ThinkOpen"/> block.</summary>
     internal const string ThinkClose = "</think>";
 
-    /// <summary>Whether a chat template takes an assistant turn's reasoning only as <c>reasoning_content</c>: it reads that field and has
-    /// no <c>&lt;/think&gt;</c> of its own (Muse Spark, Gemma 4), so a stored <c>&lt;think&gt;</c> block would reach it as answer text.
-    /// A template that splits <c>&lt;think&gt;</c> out of the content itself (Qwen3, Qwen3.5, GLM-4.5) is left to do that, and one that
-    /// ignores the field (DeepSeek R1) keeps its own split; see <c>Tests/ReasoningHistoryTests.cs</c> for each fixture.</summary>
+    /// <summary>Whether a chat template takes an assistant turn's reasoning only as <c>reasoning_content</c>: it reads that field and does
+    /// not split <c>&lt;/think&gt;</c> out of the content itself (Muse Spark, Gemma 4, or a template that only wraps the field in its own
+    /// tags), so a stored <c>&lt;think&gt;</c> block would reach it as answer text. Qwen3, Qwen3.5 and GLM-4.5 split the content
+    /// themselves and DeepSeek R1 never reads the field; sending them the split would change what they render (R1 keeps the newlines
+    /// after <c>&lt;/think&gt;</c>, and the Qwen3 family keeps only the text after the last one), so they get the reply as stored. See
+    /// <c>Tests/ReasoningHistoryTests.cs</c> for each fixture.</summary>
     internal static bool TakesReasoningContent(string chatTemplate)
-        => !string.IsNullOrWhiteSpace(chatTemplate) && Regex.IsMatch(chatTemplate, @"\breasoning_content\b")
-            && !chatTemplate.Contains(ThinkClose, StringComparison.Ordinal);
+    {
+        if (string.IsNullOrWhiteSpace(chatTemplate))
+        {
+            return false;
+        }
+        string normalized = chatTemplate.Replace("\\\"", "\"");
+        // A field access, not the word in a comment or an error string.
+        bool readsField = Regex.IsMatch(normalized, @"(?:\.|\[\s*['""]|get\(\s*['""])reasoning_content\b");
+        bool splitsContent = Regex.IsMatch(normalized, @"split\(\s*['""]</think>['""]|['""]</think>['""]\s+in\s");
+        return readsField && !splitsContent;
+    }
 
-    /// <summary>Splits a stored assistant reply that starts with one <c>&lt;think&gt;...&lt;/think&gt;</c> block into its reasoning (null
-    /// when empty) and the answer after it, without the whitespace between them. False, leaving the reply as it is, for anything else: no
-    /// leading block, a nested <c>&lt;think&gt;</c>, or a second <c>&lt;/think&gt;</c> later on (a reply that spans tool rounds).</summary>
-    internal static bool TrySplitLeadingThink(string content, out string reasoning, out string answer)
+    /// <summary>Splits a stored assistant reply into its reasoning, every <see cref="ThinkOpen"/> block joined by a blank line (null when
+    /// all are empty), and the rest as the answer, tool-call tags included. A block left open at the end counts as reasoning, since a stop
+    /// mid-reasoning can save the reply without its close. Tags match case-insensitively, as the chat UI matches them. False, leaving the
+    /// reply as it is, when there is no block or the tags do not pair up: a nested <see cref="ThinkOpen"/> or a stray
+    /// <see cref="ThinkClose"/>.</summary>
+    internal static bool TrySplitThinkBlocks(string content, out string reasoning, out string answer)
     {
         reasoning = null;
         answer = content;
-        string trimmed = content?.TrimStart();
-        if (trimmed is null || !trimmed.StartsWith(ThinkOpen, StringComparison.Ordinal))
+        if (string.IsNullOrEmpty(content))
         {
             return false;
         }
-        int close = trimmed.IndexOf(ThinkClose, StringComparison.Ordinal);
-        if (close < 0)
+        List<string> thoughts = [];
+        StringBuilder rest = new();
+        int pos = 0;
+        while (pos < content.Length)
+        {
+            int open = content.IndexOf(ThinkOpen, pos, StringComparison.OrdinalIgnoreCase);
+            int strayClose = content.IndexOf(ThinkClose, pos, StringComparison.OrdinalIgnoreCase);
+            if (strayClose >= 0 && (open < 0 || strayClose < open))
+            {
+                return false;
+            }
+            if (open < 0)
+            {
+                rest.Append(content, pos, content.Length - pos);
+                break;
+            }
+            rest.Append(content, pos, open - pos);
+            int innerStart = open + ThinkOpen.Length;
+            int close = content.IndexOf(ThinkClose, innerStart, StringComparison.OrdinalIgnoreCase);
+            int nested = content.IndexOf(ThinkOpen, innerStart, StringComparison.OrdinalIgnoreCase);
+            if (nested >= 0 && (close < 0 || nested < close))
+            {
+                return false;
+            }
+            int innerEnd = close < 0 ? content.Length : close;
+            thoughts.Add(content[innerStart..innerEnd].Trim());
+            pos = close < 0 ? content.Length : close + ThinkClose.Length;
+        }
+        if (thoughts.Count == 0)
         {
             return false;
         }
-        string inner = trimmed[ThinkOpen.Length..close];
-        string rest = trimmed[(close + ThinkClose.Length)..];
-        if (inner.Contains(ThinkOpen, StringComparison.Ordinal) || rest.Contains(ThinkClose, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        string thought = inner.Trim();
-        reasoning = thought.Length > 0 ? thought : null;
-        answer = rest.TrimStart();
+        string joined = string.Join("\n\n", thoughts.Where(t => t.Length > 0));
+        reasoning = joined.Length > 0 ? joined : null;
+        answer = rest.ToString().Trim();
         return true;
     }
 
-    /// <summary>Whether any assistant reply in <paramref name="messages"/> starts with a <see cref="ThinkOpen"/> block, the only case where
+    /// <summary>Whether any assistant reply in <paramref name="messages"/> holds a <see cref="ThinkOpen"/> block, the only case where
     /// <see cref="BuildRequestAsync"/> needs the model's template (<see cref="TakesReasoningContentFromFile"/>) at all.</summary>
-    internal static bool HasLeadingThinkReply(List<LLMMessage> messages)
+    internal static bool HasThinkReply(List<LLMMessage> messages)
         => messages.Any(m => m.Role == LLMRoles.Assistant && m.Content is not null
-            && m.Content.TrimStart().StartsWith(ThinkOpen, StringComparison.Ordinal));
+            && m.Content.Contains(ThinkOpen, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The actual classification, over the template text directly — pulled out from
     /// <see cref="InstructsHermesJsonToolCallsFromFile"/> so it is unit-testable against fixture strings with
@@ -542,12 +575,40 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// Those events are flagged <c>reasoning</c> so the one-shot accumulator leaves them out of a reply that is spoken or used as a prompt.</summary>
     internal static async Task ForwardEngineStreamAsync(IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> onChunk, string model, string deviceKey)
     {
-        bool inThink = false;
+        StrongBox<bool> inThink = new(false);
+        bool finished = false;
+        try
+        {
+            await ForwardChunksAsync(chunks, onChunk, model, deviceKey, inThink);
+            finished = true;
+        }
+        finally
+        {
+            if (inThink.Value)
+            {
+                // A stop or engine failure mid-reasoning still closes the block in the saved reply, without hiding the original error.
+                try
+                {
+                    await onChunk(new JObject() { ["chunk"] = ThinkClose, ["reasoning"] = true });
+                }
+                catch (Exception ex) when (!finished)
+                {
+                    Logs.Debug($"[LLMAssistant] Could not close a reasoning block after the stream stopped: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>The chunk loop of <see cref="ForwardEngineStreamAsync"/>; <paramref name="inThink"/> tracks an open reasoning block so the
+    /// caller can close it however the loop ends.</summary>
+    private static async Task ForwardChunksAsync(IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> onChunk, string model, string deviceKey,
+        StrongBox<bool> inThink)
+    {
         await foreach (TextChunk chunk in chunks)
         {
-            if (inThink && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
+            if (inThink.Value && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
             {
-                inThink = false;
+                inThink.Value = false;
                 await onChunk(new JObject() { ["chunk"] = ThinkClose, ["reasoning"] = true });
             }
             switch (chunk.Kind)
@@ -555,8 +616,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 case TextChunkKind.Reasoning:
                     if (!string.IsNullOrEmpty(chunk.Text))
                     {
-                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : ThinkOpen + chunk.Text, ["reasoning"] = true });
-                        inThink = true;
+                        await onChunk(new JObject() { ["chunk"] = inThink.Value ? chunk.Text : ThinkOpen + chunk.Text, ["reasoning"] = true });
+                        inThink.Value = true;
                     }
                     break;
                 case TextChunkKind.Chunk:
@@ -604,10 +665,6 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     // double the text.
                     // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), Usage has no wire field, and only ToolLoop emits ToolResult.
             }
-        }
-        if (inThink)
-        {
-            await onChunk(new JObject() { ["chunk"] = ThinkClose, ["reasoning"] = true });
         }
     }
 
@@ -673,7 +730,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             }
         }
         List<TextMessage> messages = [];
-        bool splitReasoning = HasLeadingThinkReply(source) && TakesReasoningContentFromFile(path);
+        bool splitReasoning = HasThinkReply(source) && TakesReasoningContentFromFile(path);
         for (int i = 0; i < source.Count; i++)
         {
             LLMMessage m = source[i];
@@ -847,12 +904,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// the id/name a <see cref="LLMRoles.Tool"/> turn carries. Pulled out of <see cref="BuildRequestAsync"/> so the
     /// role/id mapping is unit-testable without constructing a provider (which needs a live <c>SettingsRaw</c>).
     /// With <paramref name="splitReasoning"/> (<see cref="TakesReasoningContent(string)"/> for the model's template), an assistant
-    /// reply's leading <c>&lt;think&gt;</c> block moves to <see cref="TextMessage.ReasoningContent"/> (<see cref="TrySplitLeadingThink"/>).</summary>
+    /// reply's <c>&lt;think&gt;</c> blocks move to <see cref="TextMessage.ReasoningContent"/> (<see cref="TrySplitThinkBlocks"/>), unless
+    /// that would leave an empty turn: a reply that is only reasoning, with no answer or tool call, stays as stored.</summary>
     internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images, bool splitReasoning = false)
     {
         bool isTool = m.Role == LLMRoles.Tool;
         string reasoning = null;
-        if (splitReasoning && m.Role == LLMRoles.Assistant && TrySplitLeadingThink(content, out string thought, out string answer))
+        if (splitReasoning && m.Role == LLMRoles.Assistant && TrySplitThinkBlocks(content, out string thought, out string answer)
+            && (answer.Length > 0 || m.ToolCalls is { Count: > 0 }))
         {
             reasoning = thought;
             content = answer;

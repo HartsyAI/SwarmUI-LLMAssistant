@@ -28,6 +28,16 @@ public class HartsyLocalLLMProviderStreamTests
         return events;
     }
 
+    private static async IAsyncEnumerable<TextChunk> StreamThenThrow(Exception failure, params TextChunk[] chunks)
+    {
+        foreach (TextChunk chunk in chunks)
+        {
+            await Task.Yield();
+            yield return chunk;
+        }
+        throw failure;
+    }
+
     private static TextChunk Reasoning(string text) => new() { Kind = TextChunkKind.Reasoning, Text = text };
 
     private static TextChunk Text(string text) => new() { Kind = TextChunkKind.Chunk, Text = text };
@@ -157,5 +167,37 @@ public class HartsyLocalLLMProviderStreamTests
             e => Assert.Equal("<think>r", e["chunk"]?.ToString()),
             e => Assert.Equal("</think>", e["chunk"]?.ToString()),
             e => Assert.Equal("error", e["stopReason"]?.ToString()));
+    }
+
+    [Fact]
+    public async Task StopMidReasoning_StillClosesTheBlock_AndTheCancellationPropagates()
+    {
+        // A Stop cancels the engine stream mid-reasoning; the saved reply must still hold a closed block.
+        List<JObject> events = [];
+        await Assert.ThrowsAsync<OperationCanceledException>(() => HartsyLocalLLMProvider.ForwardEngineStreamAsync(
+            StreamThenThrow(new OperationCanceledException(), Reasoning("Working it out")),
+            e => { events.Add(e); return Task.CompletedTask; }, "muse-spark.gguf", "cpu"));
+        Assert.Equal("<think>Working it out</think>", StreamedText(events));
+    }
+
+    [Fact]
+    public async Task EngineFailureMidReasoning_IsNotHiddenByAFailingClose()
+    {
+        // The socket is gone, so the close itself throws; the caller must still see the engine's own failure.
+        int sends = 0;
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => HartsyLocalLLMProvider.ForwardEngineStreamAsync(
+            StreamThenThrow(new InvalidOperationException("engine failed"), Reasoning("r")),
+            e => { if (++sends > 1) { throw new IOException("socket closed"); } return Task.CompletedTask; }, "muse-spark.gguf", "cpu"));
+        Assert.Equal("engine failed", thrown.Message);
+        Assert.Equal(2, sends);
+    }
+
+    [Fact]
+    public async Task AFailingCloseAfterANormalEnd_StillSurfaces()
+    {
+        int sends = 0;
+        await Assert.ThrowsAsync<IOException>(() => HartsyLocalLLMProvider.ForwardEngineStreamAsync(
+            Stream([Reasoning("r")]),
+            e => { if (++sends > 1) { throw new IOException("socket closed"); } return Task.CompletedTask; }, "muse-spark.gguf", "cpu"));
     }
 }
