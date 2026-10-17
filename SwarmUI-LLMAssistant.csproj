@@ -45,15 +45,15 @@
     <HartsyEngineBin>$(HartsyRepo)/src/HartsyInference.Engine/bin/$(HartsyCfg)/net8.0</HartsyEngineBin>
   </PropertyGroup>
   <ItemGroup Condition="'$(UseLocalHartsy)' == 'true'">
-    <!-- The extension now talks only to HartsyInference.Engine's ITextService — it no longer touches
-         HartsyInference.LLM/ModelAssets/Cpu/Cuda types directly. This <Reference> was missing entirely
-         from this ItemGroup before the Engine-delegation cutover (2026-07-25); Engine's own build output
-         already carries its dependency closure (LLM/Core/ModelAssets/Cpu/Cuda), so those don't need
-         separate entries here. -->
+    <!-- The extension talks to HartsyInference.Engine's ITextService, and the compiler also needs every engine
+         assembly whose types the sources name: Core (VRAM policy), ModelAssets (GGUF metadata probes), LLM (the
+         text contracts Engine's signatures expose) and Cuda (device probes). A loose <Reference> brings no
+         transitive references, so each is listed; Engine's build output already ships them all at runtime. -->
     <Reference Include="HartsyInference.Engine"><HintPath>$(HartsyEngineBin)/HartsyInference.Engine.dll</HintPath><Private>true</Private></Reference>
-    <!-- Core carries the VRAM policy types (VramPolicy/VramTier) this backend maps its VramMode setting onto.
-         Engine's output already ships Core at runtime; this entry is only so the compiler can see the types. -->
     <Reference Include="HartsyInference.Core"><HintPath>$(HartsyEngineBin)/HartsyInference.Core.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.ModelAssets"><HintPath>$(HartsyEngineBin)/HartsyInference.ModelAssets.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.LLM"><HintPath>$(HartsyEngineBin)/HartsyInference.LLM.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="HartsyInference.Cuda"><HintPath>$(HartsyEngineBin)/HartsyInference.Cuda.dll</HintPath><Private>true</Private></Reference>
     <!-- HartsyInference.Tools lives in its own project, not Engine's output closure (it depends ON Engine,
          not the reverse), so it needs its own local-dev path: dotnet build src/HartsyInference.Tools -c
          $(HartsyCfg) -f net8.0 -->
