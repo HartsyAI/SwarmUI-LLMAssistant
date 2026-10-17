@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -448,7 +447,7 @@ public static class ChatEndpoints
             bool? enableThinking = rawInput["enableThinking"]?.Type == JTokenType.Boolean
                 ? rawInput["enableThinking"].Value<bool>()
                 : (bool?)null;
-            int loops = ReadLoops(rawInput);
+            int loops = ReadPositiveInt(rawInput, "loops");
 
             JObject settings = SettingsService.GetMergedSettings(session.User);
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
@@ -1034,7 +1033,7 @@ public static class ChatEndpoints
         double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
-        int loops = ReadLoops(rawInput);
+        int loops = ReadPositiveInt(rawInput, "loops");
 
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
@@ -1292,7 +1291,7 @@ public static class ChatEndpoints
         double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
-        int loops = ReadLoops(rawInput);
+        int loops = ReadPositiveInt(rawInput, "loops");
         // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
@@ -1505,13 +1504,14 @@ public static class ChatEndpoints
         return history;
     }
 
-    /// <summary>The request's <c>loops</c> field (recurrent-block passes for a looped model such as Dory): a positive integer, or 0 when
-    /// absent, not an integer, not positive, or beyond <see cref="int"/>, which leaves the saved parameters and then the backend's own
-    /// default in force. The engine rejects a count above the model's maximum when the request runs.</summary>
-    internal static int ReadLoops(JObject rawInput)
+    /// <summary>Reads <paramref name="key"/> from <paramref name="obj"/> as a positive <see cref="int"/>: the value when it is a JSON integer
+    /// above zero that fits, else 0, the "not set" value of a zero-means-unset integer field (absent, null, zero, negative, fractional, a
+    /// string, or an integer beyond <see cref="int"/> all read as not set). Reads the <c>loops</c> field of a websocket request and the
+    /// saved <c>loops</c> parameter; the engine rejects a loop count above the model's maximum when the request runs.</summary>
+    internal static int ReadPositiveInt(JObject obj, string key)
     {
-        JToken token = rawInput?["loops"];
-        return token is { Type: JTokenType.Integer } && int.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int loops) && loops > 0 ? loops : 0;
+        // Newtonsoft stores every JSON integer that fits a long as a long (a bigger one is a BigInteger, which fails the pattern).
+        return obj?[key] is JValue { Type: JTokenType.Integer, Value: long value } && value is > 0 and <= int.MaxValue ? (int)value : 0;
     }
 
     /// <summary>Applies per-request parameter overrides on top of resolved parameters.
@@ -1524,7 +1524,7 @@ public static class ChatEndpoints
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 4096;
         input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;
-        int savedLoops = parameters?["loops"]?.Type == JTokenType.Integer ? parameters["loops"].Value<int>() : 0;
+        int savedLoops = ReadPositiveInt(parameters, "loops");
         input.Loops = loops > 0 ? loops : savedLoops > 0 ? savedLoops : null;
         if (seed < 0)
         {
