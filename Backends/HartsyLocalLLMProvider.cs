@@ -170,19 +170,25 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             : $"'{modelId}'s chat template doesn't instruct Hermes/Qwen-style JSON tool calls";
     }
 
-    /// <summary>Per-(path, length, last-write-time) cache of <see cref="InstructsHermesJsonToolCallsFromFile"/>'s
-    /// verdict, so a hot provider doesn't re-mmap and re-scan the same GGUF header on every request. The key
+    /// <summary>Per-(path, length, last-write-time) cache of <see cref="TemplateTraitsFromFile"/>'s verdicts,
+    /// so a hot provider doesn't re-mmap and re-scan the same GGUF header on every request. The key
     /// doubles as a cheap staleness check: replacing the file on disk (a re-download, a re-quant) changes its
     /// length and/or write time, which misses the cache and re-reads rather than trusting a stale verdict.</summary>
-    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), bool> _hermesTemplateCache = new();
+    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), (bool InstructsHermesJson, bool TakesReasoningContent)> _templateTraitsCache = new();
+
+    /// <summary>Whether <paramref name="ggufPath"/>'s chat template instructs Hermes JSON tool calls (<see cref="InstructsHermesJsonToolCalls(string)"/>).</summary>
+    internal static bool InstructsHermesJsonToolCallsFromFile(string ggufPath) => TemplateTraitsFromFile(ggufPath).InstructsHermesJson;
+
+    /// <summary>Whether <paramref name="ggufPath"/>'s chat template takes reasoning only as <c>reasoning_content</c> (<see cref="TakesReasoningContent(string)"/>).</summary>
+    internal static bool TakesReasoningContentFromFile(string ggufPath) => TemplateTraitsFromFile(ggufPath).TakesReasoningContent;
 
     /// <summary>Reads <paramref name="ggufPath"/>'s <c>tokenizer.chat_template</c> metadata key — metadata
     /// only; <see cref="GgufLoader.Load"/> memory-maps and parses the header/tensor directory, never tensor
-    /// data — and classifies it with <see cref="InstructsHermesJsonToolCalls(string)"/>. Any failure (file
+    /// data, and classifies it with <see cref="InstructsHermesJsonToolCalls(string)"/> and <see cref="TakesReasoningContent(string)"/>. Any failure (file
     /// missing, not a GGUF, no such key, a malformed header) is a safe false, logged once at Debug rather than
     /// thrown: a provider that can't confirm native support falls back to the tag prompt, which is exactly
     /// the behavior a model this can't even read should get.</summary>
-    internal static bool InstructsHermesJsonToolCallsFromFile(string ggufPath)
+    private static (bool InstructsHermesJson, bool TakesReasoningContent) TemplateTraitsFromFile(string ggufPath)
     {
         FileInfo info;
         try
@@ -192,31 +198,69 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         catch (Exception ex)
         {
             Logs.Debug($"[LLMAssistant] Could not stat '{ggufPath}' for the chat-template cache: {ex.Message}");
-            return false;
+            return (false, false);
         }
         if (!info.Exists)
         {
-            return false;
+            return (false, false);
         }
         (string Path, long Length, DateTime LastWriteUtc) key = (ggufPath, info.Length, info.LastWriteTimeUtc);
-        if (_hermesTemplateCache.TryGetValue(key, out bool cached))
+        if (_templateTraitsCache.TryGetValue(key, out (bool InstructsHermesJson, bool TakesReasoningContent) cached))
         {
             return cached;
         }
-        bool verdict;
+        (bool InstructsHermesJson, bool TakesReasoningContent) verdict;
         try
         {
             using GgufLoader loader = new();
             loader.Load(ggufPath);
-            verdict = InstructsHermesJsonToolCalls(loader.Metadata.GetString("tokenizer.chat_template"));
+            string chatTemplate = loader.Metadata.GetString("tokenizer.chat_template");
+            verdict = (InstructsHermesJsonToolCalls(chatTemplate), TakesReasoningContent(chatTemplate));
         }
         catch (Exception ex)
         {
             Logs.Debug($"[LLMAssistant] Could not read '{ggufPath}'s chat template: {ex.Message}");
-            verdict = false;
+            verdict = (false, false);
         }
-        _hermesTemplateCache[key] = verdict;
+        _templateTraitsCache[key] = verdict;
         return verdict;
+    }
+
+    /// <summary>Whether a chat template takes an assistant turn's reasoning only as <c>reasoning_content</c>: it reads that field and has
+    /// no <c>&lt;/think&gt;</c> of its own (Muse Spark, Gemma 4), so a stored <c>&lt;think&gt;</c> block would reach it as answer text.
+    /// A template that splits <c>&lt;think&gt;</c> out of the content itself (Qwen3, Qwen3.5, GLM-4.5) is left to do that, and one that
+    /// ignores the field (DeepSeek R1) keeps its own split; see <c>Tests/ReasoningHistoryTests.cs</c> for each fixture.</summary>
+    internal static bool TakesReasoningContent(string chatTemplate)
+        => !string.IsNullOrWhiteSpace(chatTemplate) && Regex.IsMatch(chatTemplate, @"\breasoning_content\b")
+            && !chatTemplate.Contains("</think>", StringComparison.Ordinal);
+
+    /// <summary>Splits a stored assistant reply that starts with one <c>&lt;think&gt;...&lt;/think&gt;</c> block into its reasoning (null
+    /// when empty) and the answer after it, without the newlines between them. False, leaving the reply as it is, for anything else: no
+    /// leading block, a nested <c>&lt;think&gt;</c>, or a second <c>&lt;/think&gt;</c> later on (a reply that spans tool rounds).</summary>
+    internal static bool TrySplitLeadingThink(string content, out string reasoning, out string answer)
+    {
+        reasoning = null;
+        answer = content;
+        string trimmed = content?.TrimStart();
+        if (trimmed is null || !trimmed.StartsWith("<think>", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        int close = trimmed.IndexOf("</think>", StringComparison.Ordinal);
+        if (close < 0)
+        {
+            return false;
+        }
+        string inner = trimmed["<think>".Length..close];
+        string rest = trimmed[(close + "</think>".Length)..];
+        if (inner.Contains("<think>", StringComparison.Ordinal) || rest.Contains("</think>", StringComparison.Ordinal))
+        {
+            return false;
+        }
+        string thought = inner.Trim('\n');
+        reasoning = thought.Length > 0 ? thought : null;
+        answer = rest.TrimStart('\n');
+        return true;
     }
 
     /// <summary>The actual classification, over the template text directly — pulled out from
@@ -469,7 +513,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
-        TextRequest request = await BuildRequestAsync(input, deviceKey, ct);
+        TextRequest request = await BuildRequestAsync(input, deviceKey, path, ct);
         return (spec, request, deviceKey);
     }
 
@@ -605,7 +649,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// from settings plus per-request overrides, the vision attachment (decoded only for the final user turn —
     /// the engine's vision path only ever looks at the latest one), tool definitions when structured tool
     /// calling is enabled, and the conversation's prefix-cache key (see <see cref="BuildRequestCore"/>).</summary>
-    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, string deviceKey, CancellationToken ct)
+    private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, string deviceKey, string path, CancellationToken ct)
     {
         List<LLMMessage> source = input.Messages is { Count: > 0 } ? input.Messages : SyntheticMessages(input);
         int lastUserIdx = -1;
@@ -617,6 +661,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             }
         }
         List<TextMessage> messages = [];
+        bool splitReasoning = TakesReasoningContentFromFile(path);
         for (int i = 0; i < source.Count; i++)
         {
             LLMMessage m = source[i];
@@ -633,7 +678,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     content = StripImageAnnotations(content);
                 }
             }
-            messages.Add(ToTextMessage(m, content, images));
+            messages.Add(ToTextMessage(m, content, images, splitReasoning));
         }
         List<ToolDefinition> tools = null;
         // Gated on SupportsNativeToolCallingFor, not just the StructuredToolCalling setting: for a non-Hermes
@@ -788,10 +833,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Builds one engine <see cref="TextMessage"/> from an extension <see cref="LLMMessage"/>, including
     /// the id/name a <see cref="LLMRoles.Tool"/> turn carries. Pulled out of <see cref="BuildRequestAsync"/> so the
-    /// role/id mapping is unit-testable without constructing a provider (which needs a live <c>SettingsRaw</c>).</summary>
-    internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images)
+    /// role/id mapping is unit-testable without constructing a provider (which needs a live <c>SettingsRaw</c>).
+    /// With <paramref name="splitReasoning"/> (<see cref="TakesReasoningContent(string)"/> for the model's template), an assistant
+    /// reply's leading <c>&lt;think&gt;</c> block moves to <see cref="TextMessage.ReasoningContent"/> (<see cref="TrySplitLeadingThink"/>).</summary>
+    internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images, bool splitReasoning = false)
     {
         bool isTool = m.Role == LLMRoles.Tool;
+        string reasoning = null;
+        if (splitReasoning && m.Role == LLMRoles.Assistant && TrySplitLeadingThink(content, out string thought, out string answer))
+        {
+            reasoning = thought;
+            content = answer;
+        }
         // TextMessage's ToolCallId/Name/ToolCalls are init-only, so they're set in the same initializer rather
         // than assigned after construction.
         return new TextMessage
@@ -803,7 +856,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             Name = isTool ? m.Name : null,
             ToolCalls = m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 }
                 ? [.. m.ToolCalls.Select(ToNativeToolCall)]
-                : null
+                : null,
+            ReasoningContent = reasoning
         };
     }
 

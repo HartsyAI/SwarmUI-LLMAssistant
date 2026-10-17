@@ -33,6 +33,12 @@ template text only (a few KB), not the multi-GB checkpoint.
 | `deepseek-r1-distill-llama-8b.jinja` | `chat_template` field of `https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-8B/raw/main/tokenizer_config.json` |
 | `glm-4.5.jinja` | `https://huggingface.co/zai-org/GLM-4.5/raw/main/chat_template.jinja` (GLM-4.5 ships its template as a separate file rather than inside `tokenizer_config.json`) |
 
+## Copied from the HartsyInference engine's own test fixtures, 2026-10-17:
+
+| Fixture | Source |
+|---|---|
+| `muse-spark-open.jinja` | `tests/HartsyInference.LLM.Tests/Fixtures/templates/muse-spark-open.jinja` in HartsyAI/HartsyInference at `36400d86` (the template llama.cpp's converter writes into the released Muse Spark GGUFs; the engine renders it byte-identical to transformers). Used by `ReasoningHistoryTests`, not by the Hermes coverage. |
+
 ## What each one actually instructs, and why that makes it true/false
 
 See the doc comment on `HartsyLocalLLMProvider.InstructsHermesJsonToolCalls` for the
@@ -60,3 +66,14 @@ full reasoning; summary:
   - `gemma-4-e2b-it` — references `tools`, but its tag is `<|tool_call>` (leading
     pipe) / `<tool_call|>` (trailing pipe), neither of which contains the literal
     substring `<tool_call>`.
+
+## Reasoning history (`TakesReasoningContent`, `ReasoningHistoryTests`)
+
+- **True** (reads `reasoning_content` and has no `</think>` of its own, so a stored
+  `<think>` block would reach it as answer text): `muse-spark-open`, `gemma-4-e2b-it`.
+- **False**, because the template splits `<think>` out of the content itself:
+  `qwen3-4b`, `qwen3.5-0.8b`, `glm-4.5`.
+- **False**, because the template never reads `reasoning_content`: the two DeepSeek R1
+  distills (they strip up to `</think>` themselves), `qwen2.5-1.5b-instruct`,
+  `glm-4-9b-0414`, `llama-3.2-1b-instruct`, `mistral-7b-instruct-v0.3`,
+  `phi-3-mini-4k-instruct`.
