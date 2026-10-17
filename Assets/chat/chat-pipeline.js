@@ -259,7 +259,7 @@
                     const cleanFinal = llmaStripToolTags(renderer.getRawText());
                     const tc = renderer.ensureTextContainer();
                     if (tc) {
-                        tc.innerHTML = llmaRenderAssistantContent(cleanFinal, assistantMsgId);
+                        llmaSetRenderedHtml(tc, llmaRenderAssistantContent(cleanFinal, assistantMsgId));
                         llmaPostRenderMermaid(tc);
                     }
 
@@ -328,7 +328,7 @@
             if (msg) msg.content = LLMAState._streamingText;
             const bubble = document.querySelector(`[data-msg-id="${LLMAState._streamingMsgId}"] .llma-msg-bubble`);
             if (bubble) {
-                bubble.innerHTML = llmaRenderMarkdown(LLMAState._streamingText);
+                llmaSetRenderedHtml(bubble, llmaRenderMarkdown(LLMAState._streamingText));
                 llmaPostRenderMermaid(bubble);
             }
             llmaSaveActiveThread();
