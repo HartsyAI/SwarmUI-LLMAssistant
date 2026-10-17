@@ -217,7 +217,7 @@ function llmaMakeStreamRenderer(getBubble) {
     const renderNow = () => {
         const tc = ensureTextContainer();
         if (!tc) return;
-        tc.innerHTML = llmaRenderMarkdown(filter.visibleText().trim());
+        llmaSetRenderedHtml(tc, llmaRenderMarkdown(filter.visibleText().trim(), { streaming: true }));
         lastRender = performance.now();
     };
     // Scales up (capped) as the segment grows — re-render cost (markdown parse + sanitize) grows with
@@ -241,7 +241,12 @@ function llmaMakeStreamRenderer(getBubble) {
 // -- Markdown Renderer --
 let llmaMermaidCounter = 0;
 
-function llmaRenderMarkdown(text) {
+/**
+ * Renders model markdown to sanitized HTML, with reasoning, LaTeX and Mermaid blocks pulled out first.
+ * @param {string} text - The markdown to render.
+ * @param {{streaming?: boolean}} [options] - streaming: the reply is still arriving, so an unclosed reasoning block is live.
+ */
+function llmaRenderMarkdown(text, options) {
     if (!LLMAState.markdownEnabled || !window.marked || !window.DOMPurify) {
         return `<p>${llmaEscapeHtml(text).replace(/\n/g, '<br>')}</p>`;
     }
@@ -249,14 +254,15 @@ function llmaRenderMarkdown(text) {
     // Reasoning models (Qwen3, DeepSeek-R1, GLM thinking, …) wrap their chain-of-thought in <think>…</think>.
     // Pull those out into a collapsible block so the visible answer isn't buried in raw reasoning. Handles an
     // unclosed <think> mid-stream (everything after it is still "thinking" until the closing tag arrives).
-    const thinkBlocks = [];
+    let thinkBlocks = [];
     processed = processed.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
-        thinkBlocks.push(inner.trim());
+        thinkBlocks.push({ text: inner.trim(), live: false });
         return `%%LLMA_THINK_${thinkBlocks.length - 1}%%`;
     });
-    const openThink = processed.match(/<think>([\s\S]*)$/i);
+    let openThink = processed.match(/<think>([\s\S]*)$/i);
     if (openThink) {
-        thinkBlocks.push(openThink[1].trim());
+        // Only a reply still streaming is thinking; a saved one cut off mid-reasoning is plain reasoning.
+        thinkBlocks.push({ text: openThink[1].trim(), live: !!(options && options.streaming) });
         processed = processed.slice(0, openThink.index) + `%%LLMA_THINK_${thinkBlocks.length - 1}%%`;
     }
 
@@ -325,7 +331,7 @@ function llmaRenderMarkdown(text) {
         } else {
             rendered = display ? `<pre><code>${llmaEscapeHtml(tex)}</code></pre>` : `<code>${llmaEscapeHtml(tex)}</code>`;
         }
-        result = result.replace(`%%LLMA_LATEX_${i}%%`, rendered);
+        result = result.replace(`%%LLMA_LATEX_${i}%%`, () => rendered);
     }
 
     // Restore Mermaid placeholders
@@ -334,23 +340,68 @@ function llmaRenderMarkdown(text) {
         const placeholder = `<div class="llma-mermaid-block" id="${mId}" data-mermaid="${llmaEscapeHtml(mermaidBlocks[i])}"><pre><code>${llmaEscapeHtml(mermaidBlocks[i])}</code></pre></div>`;
         result = result.replace(
             new RegExp(`(<p>)?%%LLMA_MERMAID_${i}%%(</p>)?`),
-            placeholder
+            () => placeholder
         );
     }
 
-    // Restore <think> reasoning blocks as collapsible sections (app-generated shell; inner model text is
-    // markdown-rendered then sanitized with the same allowlist). Injected after the main sanitize pass, so
-    // the <details>/<summary> shell survives without widening the allowlist for model output.
+    // Restore <think> reasoning blocks as one collapsed line (app-generated shell; inner model text is
+    // markdown-rendered then sanitized with the same allowlist, the preview escaped). Injected after the main
+    // sanitize pass, so the <details>/<summary> shell survives without widening the allowlist for model output.
     for (let i = 0; i < thinkBlocks.length; i++) {
-        const innerHtml = window.DOMPurify.sanitize(window.marked.parse(thinkBlocks[i] || ''), sanitizeConfig);
-        const block = `<details class="llma-think"><summary class="llma-think-summary">💭 Reasoning</summary><div class="llma-think-body">${innerHtml}</div></details>`;
-        result = result.replace(new RegExp(`(<p>)?%%LLMA_THINK_${i}%%(</p>)?`), block);
+        let think = thinkBlocks[i];
+        let innerHtml = window.DOMPurify.sanitize(window.marked.parse(think.text || ''), sanitizeConfig);
+        let label = think.live ? translate('Thinking...') : translate('Reasoning');
+        let preview = llmaEscapeHtml(llmaThinkPreview(think.text, think.live));
+        let block = `<details class="llma-think${think.live ? ' llma-think-live' : ''}"><summary class="llma-think-summary">`
+            + `<span class="llma-think-label">${label}</span><span class="llma-think-preview">${preview}</span></summary>`
+            + `<div class="llma-think-body">${innerHtml}</div></details>`;
+        // A replacer function, so $& or $1 in the reasoning is inserted as written rather than expanded as a pattern.
+        result = result.replace(new RegExp(`(<p>)?%%LLMA_THINK_${i}%%(</p>)?`), () => block);
     }
 
     // Add copy buttons to code blocks
     result = result.replace(/<pre>/g, `<pre><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
 
     return result;
+}
+
+/**
+ * The one line a collapsed reasoning block shows: its latest line while it is still streaming, else its first.
+ * @param {string} text - The reasoning text.
+ * @param {boolean} live - Whether the block is still open (streaming).
+ */
+function llmaThinkPreview(text, live) {
+    let lines = (text || '').split('\n');
+    let line = '';
+    for (let i = 0; i < lines.length; i++) {
+        let candidate = lines[live ? lines.length - 1 - i : i].trim();
+        if (candidate.length > 0) {
+            line = candidate;
+            break;
+        }
+    }
+    return line.length > 300 ? line.slice(0, 300) : line;
+}
+
+/**
+ * Sets an element's rendered HTML, keeping open any reasoning blocks the user expanded.
+ * Blocks are matched by position, which stays stable while one reply re-renders as it streams.
+ * @param {HTMLElement} el - The element to render into.
+ * @param {string} html - The rendered HTML.
+ */
+function llmaSetRenderedHtml(el, html) {
+    let wasOpen = [];
+    let before = el.querySelectorAll('.llma-think');
+    for (let i = 0; i < before.length; i++) {
+        wasOpen.push(before[i].open);
+    }
+    el.innerHTML = html;
+    let after = el.querySelectorAll('.llma-think');
+    for (let i = 0; i < after.length && i < wasOpen.length; i++) {
+        if (wasOpen[i]) {
+            after[i].open = true;
+        }
+    }
 }
 
 /** Call after inserting rendered HTML into the DOM to activate mermaid diagrams. */

@@ -390,9 +390,9 @@
                 if (data.stopReason) L.node.meta.stopReason = data.stopReason;
                 const tc = renderer.ensureTextContainer();
                 if (tc) {
-                    tc.innerHTML = (typeof llmaRenderAssistantContent === 'function')
+                    llmaSetRenderedHtml(tc, (typeof llmaRenderAssistantContent === 'function')
                         ? llmaRenderAssistantContent(llmaStripToolTags(rawText), L.msgId)
-                        : llmaRenderMarkdown(rawText);
+                        : llmaRenderMarkdown(rawText));
                     if (typeof llmaPostRenderMermaid === 'function') llmaPostRenderMermaid(tc);
                 }
                 bubble && bubble.querySelector('.llma-typing')?.remove();

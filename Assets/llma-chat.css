@@ -998,21 +998,21 @@ mark.llma-find-mark.active {
     opacity: 0.5;
 }
 
-/* Reasoning (<think>) collapsible block for thinking models (Qwen3, DeepSeek-R1, GLM thinking, …). */
+/* Reasoning (<think>) for thinking models (Qwen3, DeepSeek-R1, GLM thinking, Muse Spark): one line that expands. */
 .llma-think {
-    margin: 6px 0 10px;
-    border: 1px solid var(--light-border);
-    border-radius: 8px;
-    background: color-mix(in srgb, var(--emphasis) 7%, transparent);
-    overflow: hidden;
+    margin: 2px 0 8px;
 }
 .llma-think-summary {
+    display: block;
     cursor: pointer;
     user-select: none;
-    padding: 6px 10px;
+    padding: 2px 0;
     font-size: 0.85em;
     color: var(--text-soft);
     list-style: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .llma-think-summary::-webkit-details-marker { display: none; }
 .llma-think-summary::before {
@@ -1022,14 +1022,26 @@ mark.llma-find-mark.active {
     transition: transform 0.15s ease;
 }
 .llma-think[open] > .llma-think-summary::before { transform: rotate(90deg); }
+.llma-think-label {
+    font-weight: 600;
+    margin-right: 8px;
+}
+.llma-think-preview { opacity: 0.75; }
+.llma-think[open] .llma-think-preview { display: none; }
+.llma-think-live .llma-think-label { animation: llma-think-pulse 1.6s ease-in-out infinite; }
+@keyframes llma-think-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) {
+    .llma-think-live .llma-think-label { animation: none; }
+}
 .llma-think-body {
-    padding: 2px 12px 8px;
+    margin: 2px 0 0 4px;
+    padding: 0 0 2px 12px;
+    border-left: 2px solid var(--light-border);
     font-size: 0.9em;
     color: var(--text-soft);
-    border-top: 1px solid var(--light-border);
     opacity: 0.9;
 }
-.llma-think-body > *:first-child { margin-top: 6px; }
+.llma-think-body > *:first-child { margin-top: 4px; }
 
 /* Large-image nudge under the attachment preview → points at the Vision Image Max Size setting. */
 .llma-attach-warn {
