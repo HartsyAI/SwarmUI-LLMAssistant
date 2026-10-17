@@ -10,7 +10,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 |---|---|
 | **Version** | `2.0.0-alpha.2` |
 | **Requires** | SwarmUI (tested against `0.9.8.2`) |
-| **Local engine** | [`HartsyInference`](https://www.nuget.org/packages/HartsyInference) `2.0.0-alpha.23` (NuGet, pulled automatically) |
+| **Local engine** | [`HartsyInference`](https://www.nuget.org/packages/HartsyInference) `2.0.0-alpha.375` (NuGet, pulled automatically) |
 | **License** | MIT |
 
 ---
@@ -234,6 +234,8 @@ How the call is made depends on the provider:
 | **Everything else** (including Hartsy-local with `StructuredToolCalling` off, or on with a model whose template doesn't instruct Hermes JSON — Llama, Mistral, Gemma, DeepSeek's R1 distillations, and GLM-4.5/Qwen3.5/Qwen3-Coder-style XML-argument templates all fall here) | A text convention: the model emits `<tool_call>{"name":"…","arguments":{…}}</tool_call>`, which the streaming layer detects with a cheap tail-window scan and executes. |
 
 The installed parser only understands one format for the whole engine instance (Hermes), so Hartsy-local's native path is gated per request on whether the resolved checkpoint's own chat template actually instructs that format, not just the setting — a template that doesn't (Llama-3.2, Mistral, Gemma, DeepSeek R1's own delimiter scheme, or an XML-argument template like GLM-4.5/Qwen3.5) keeps using the proven tag convention above even with `StructuredToolCalling` on, rather than silently losing every tool call to a filter that can't parse its native format.
+
+Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. The engine only reports that parser once the model has loaded, after this gate runs, so a Muse Spark GGUF still uses the tag convention here even with `StructuredToolCalling` on.
 
 All of these normalize to the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS` and `LLMAssistantVoiceTurn`, so nothing downstream cares which path was used. Malformed JSON isn't swallowed — the model gets an error result back and can retry, and near-valid JSON is run through a repair pass first (fence unwrapping, trailing commas, unbalanced brackets from truncation), with the repair verified by actually re-parsing.
 
@@ -505,7 +507,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | Frame | Meaning |
 |---|---|
 | `{"notice": "…"}` | At most one tools-unavailable notice, before the first `chunk`: tools were enabled for this assistant but dropped from this turn — `StructuredToolCalling` is off, or the resolved model's chat template doesn't instruct Hermes JSON tool calls (see the settings table below). The turn still runs, as a plain stream with no tool definitions sent. No notice before the first `chunk` means either native tool calling is active, or the assistant had no tools enabled to drop in the first place. |
-| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan) and it was run. Sent immediately before that call's `tool_result`; a call that is not run (round cap, or a round that stopped for another reason) is never sent. |
+| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan) and it was run. Sent immediately before that call's `tool_result`; a call that is not run (round cap, or a round that ended in an error or cancellation) is never sent. |
 | `{"tool_result": {id, name, result}}` | That tool finished — same shape as above. |
 | `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
 | `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |

@@ -96,7 +96,11 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     {
         if (chunk.TryGetValue("chunk", out JToken text))
         {
-            output.Append($"{text}");
+            // Reasoning a provider reports apart from the answer (flagged) is shown in chat, never part of a one-shot reply.
+            if (chunk.Value<bool?>("reasoning") != true)
+            {
+                output.Append($"{text}");
+            }
         }
         else if (chunk.TryGetValue("result", out JToken result))
         {

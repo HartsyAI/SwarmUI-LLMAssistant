@@ -21,6 +21,7 @@ using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
 using HartsyInference.Tools;
+using HartsyInference.Tools.Parsing;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -113,10 +114,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// right now: <see cref="HartsyLocalLLMProviderSettings.StructuredToolCalling"/> is on, <b>and</b> the
     /// resolved checkpoint's own <c>tokenizer.chat_template</c> actually instructs the Hermes JSON
     /// <c>&lt;tool_call&gt;</c> convention the engine's installed filter parses (<see cref="OnProviderInit"/>
-    /// installs only that one format, for the whole engine instance, not per-model — there is currently no
-    /// per-request hook to vary it: <c>EngineOptions.TextStreamFilterFactory</c> is a
-    /// <c>Func&lt;TextRequest,…&gt;</c>, and <c>TextRequest</c> carries no model id, only the separate
-    /// <see cref="ModelSpec"/> argument alongside it).
+    /// installs only that one format, for the whole engine instance, not per-model).
     ///
     /// <para>An earlier version of this checked the model's <i>filename</i> against a family allow-list
     /// (Qwen/Hermes/GLM/DeepSeek). Independent review found a real false positive it: DeepSeek's R1
@@ -273,7 +271,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         // Hermes (the default format) is Qwen's <tool_call>{...}</tool_call> convention. It is the ONLY format
         // installed for this whole engine instance (see SupportsNativeToolCallingFor for why a non-Hermes
         // model never reaches this filter with Tools set at all, rather than reaching it and failing to parse).
-        ToolCalling.Install(options);
+        // Explicit since alpha.375, where a null format means per-request detection; an engine-parsed template (Muse Spark) still gets no filter.
+        ToolCalling.Install(options, ToolCallFormat.Hermes);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key — without that it would only govern this shell engine's own unused backend.
         Engine = new InferenceEngine(
@@ -478,10 +477,32 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
-        await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct))
+        await ForwardEngineStreamAsync(Engine.Text.StreamAsync(spec, request, ct), onChunk, input.Model, deviceKey);
+    }
+
+    /// <summary>Translates the engine's plain text stream into this pack's wire events for <see cref="GenerateLive"/>, pulled out so
+    /// it is unit-testable with scripted chunks. Reasoning that a structured parser reports apart from the answer (Muse Spark) goes out
+    /// as inline <c>&lt;think&gt;</c> text, the shape a Qwen3 stream already carries it in, which the chat renders as its Reasoning block.
+    /// Those events are flagged <c>reasoning</c> so the one-shot accumulator leaves them out of a reply that is spoken or used as a prompt.</summary>
+    internal static async Task ForwardEngineStreamAsync(IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> onChunk, string model, string deviceKey)
+    {
+        bool inThink = false;
+        await foreach (TextChunk chunk in chunks)
         {
+            if (inThink && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
+            {
+                inThink = false;
+                await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
+            }
             switch (chunk.Kind)
             {
+                case TextChunkKind.Reasoning:
+                    if (!string.IsNullOrEmpty(chunk.Text))
+                    {
+                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : "<think>" + chunk.Text, ["reasoning"] = true });
+                        inThink = true;
+                    }
+                    break;
                 case TextChunkKind.Chunk:
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
                     break;
@@ -516,7 +537,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         // anywhere else — an engine-side failure was indistinguishable from "the model chose
                         // to say nothing", at any log level. Cost an hour on 2026-09-05 to a backend left on
                         // the default Device=cuda that could not actually run.
-                        Logs.Warning($"[LLMAssistant] Local LLM '{input.Model}' stopped with an engine error on "
+                        Logs.Warning($"[LLMAssistant] Local LLM '{model}' stopped with an engine error on "
                             + $"device '{deviceKey}' — no text was produced: {chunk.Text}. If this device is not usable, "
                             + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
                         await onChunk(new JObject() { ["stopReason"] = "error" });
@@ -525,7 +546,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
                     // double the text.
+                    // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), Usage has no wire field, and only ToolLoop emits ToolResult.
             }
+        }
+        if (inThink)
+        {
+            await onChunk(new JObject() { ["chunk"] = "</think>", ["reasoning"] = true });
         }
     }
 
@@ -557,7 +583,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// the model is asked again with the result appended as a <see cref="TextRole.Tool"/> message, up to
     /// <paramref name="maxRounds"/> model invocations. Chunk kinds match <see cref="ToolLoop"/>'s own contract
     /// exactly (<see cref="TextChunkKind.Chunk"/>, <see cref="TextChunkKind.NativeToolCall"/>,
-    /// <see cref="TextChunkKind.Status"/> tool-result/round-limit chunks, one final
+    /// <see cref="TextChunkKind.ToolResult"/> chunks, a <see cref="TextChunkKind.Status"/> round-limit chunk, one final
     /// <see cref="TextChunkKind.Result"/> then <see cref="TextChunkKind.StopReason"/>) — callers translate those
     /// the same way <see cref="GenerateLive"/> translates <see cref="Engine"/>'s plain stream, they are just a
     /// layer further from the wire than <c>GenerateLive</c>'s <c>JObject</c> shape. Requires

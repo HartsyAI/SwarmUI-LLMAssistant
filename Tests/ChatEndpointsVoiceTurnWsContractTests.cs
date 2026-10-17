@@ -292,23 +292,26 @@ public class ChatEndpointsVoiceTurnWsContractTests
         }
 
         [Fact]
-        public async Task CallAnnouncedWithANonToolCallStop_IsNotForwarded()
+        public async Task CallAnnouncedInARoundThatErrors_IsNotForwarded()
         {
-            // A call parsed in a round that stops for another reason (here the token cap) is never dispatched.
+            // A call parsed in a round that ends in an engine error is never dispatched (from engine alpha.375 a
+            // completed call in a round that hit the token cap is dispatched, so that case no longer applies).
             ScriptedTextService fake = new(
                 [
                     new TextChunk { Kind = TextChunkKind.Chunk, Text = "partial" },
                     Call("call_1", "get_time"),
-                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Length }
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Error }
                 ]);
+            int runs = 0;
             TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
             List<JObject> sentFrames = [];
             (_, StopReason? stop) = await ChatEndpoints.ForwardFramesAsync(
-                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry()),
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry(() => runs++)),
                 f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, []);
 
-            Assert.Equal(StopReason.Length, stop);
-            Assert.Equal("length", ChatEndpoints.VoiceTurnWsStopReason(stop));
+            Assert.Equal(0, runs);
+            Assert.Equal(StopReason.Error, stop);
+            Assert.Equal("error", ChatEndpoints.VoiceTurnWsStopReason(stop));
             Assert.DoesNotContain(sentFrames, f => f["native_tool_call"] is not null || f["notice"] is not null);
         }
 
@@ -340,6 +343,35 @@ public class ChatEndpointsVoiceTurnWsContractTests
                 f => Assert.Equal("call_1", f["tool_result"]?["id"]?.ToString()),
                 f => Assert.Equal("call_2", f["native_tool_call"]?["id"]?.ToString()),
                 f => Assert.Equal("call_2", f["tool_result"]?["id"]?.ToString()),
+                f => Assert.Equal("Noon.", f["chunk"]?.ToString()));
+        }
+
+        [Fact]
+        public async Task ReasoningChunks_AreNeitherSpokenNorSent_AndTheToolResultArrivesWhole()
+        {
+            // A Muse Spark-shaped turn: reasoning before the call and before the answer, as its parser reports it.
+            ScriptedTextService fake = new(
+                [
+                    new TextChunk { Kind = TextChunkKind.Reasoning, Text = "I should check the clock." },
+                    Call("call_1", "get_time"),
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.ToolCall }
+                ],
+                [
+                    new TextChunk { Kind = TextChunkKind.Reasoning, Text = "It said noon." },
+                    new TextChunk { Kind = TextChunkKind.Chunk, Text = "Noon." },
+                    new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Stop }
+                ]);
+            TextRequest request = new() { Messages = [new TextMessage { Role = TextRole.User, Content = "time?" }] };
+            List<JObject> sentFrames = [];
+            (string fullText, _) = await ChatEndpoints.ForwardFramesAsync(
+                ToolLoop.RunAsync(fake, Spec(), request, TimeRegistry()),
+                f => { sentFrames.Add(f); return Task.CompletedTask; }, () => true, []);
+
+            Assert.Equal("Noon.", fullText);
+            Assert.DoesNotContain(sentFrames, f => f.ToString().Contains("clock") || f.ToString().Contains("It said"));
+            Assert.Collection(sentFrames,
+                f => Assert.Equal("call_1", f["native_tool_call"]?["id"]?.ToString()),
+                f => Assert.Equal("noon", f["tool_result"]?["result"]?["time"]?.ToString()),
                 f => Assert.Equal("Noon.", f["chunk"]?.ToString()));
         }
     }

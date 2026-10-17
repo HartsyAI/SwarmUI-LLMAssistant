@@ -769,7 +769,7 @@ public static class ChatEndpoints
     ///
     /// <para>A <c>native_tool_call</c> frame is sent only for a call <see cref="ToolLoop"/> actually ran,
     /// immediately before that call's <c>tool_result</c>. A call ToolLoop announced but did not run (its round
-    /// limit, or a round that stopped for another reason) is never sent; the round limit is reported as a
+    /// limit, or a round that ended in an error or cancellation) is never sent; the round limit is reported as a
     /// <c>notice</c> frame instead.</para></summary>
     internal static async Task<(string FullText, StopReason? Stop)> ForwardFramesAsync(
         IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> send, Func<bool> socketOpen, JArray deviceCalls)
@@ -779,7 +779,7 @@ public static class ChatEndpoints
         // Calls the model announced but ToolLoop has not run yet, in announcement order. A call is only
         // forwarded once its tool_result arrives (call frame first, then the result), because ToolLoop yields a
         // NativeToolCall before it knows whether it will dispatch it: at the round limit, or when the round
-        // stops for any reason other than a tool call, the call is never run. A relay such as AudioLab's
+        // ends in an error or cancellation, the call is never run. A relay such as AudioLab's
         // RemoteTextService treats a forwarded call without a result as one it must dispatch itself, so an
         // unrun call must never reach the wire. Whatever is still pending when the stream ends is dropped.
         List<NativeToolCall> pendingCalls = [];
@@ -813,7 +813,7 @@ public static class ChatEndpoints
                         ["notice"] = $"tool round limit reached ({limit}); the model's last tool call was not run"
                     });
                     break;
-                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.ToolResultPhase:
+                case TextChunkKind.ToolResult:
                 {
                     int pendingIndex = pendingCalls.FindIndex(p => p.Id == chunk.ToolCall?.Id);
                     if (pendingIndex >= 0)
@@ -830,7 +830,7 @@ public static class ChatEndpoints
                             }
                         });
                     }
-                    JObject result = ParseJsonOrEmpty(chunk.Text?[ToolLoop.ToolResultPrefix.Length..]);
+                    JObject result = ParseJsonOrEmpty(chunk.Text);
                     await send(new JObject
                     {
                         ["tool_result"] = new JObject
@@ -851,6 +851,9 @@ public static class ChatEndpoints
                 }
                 case TextChunkKind.StopReason:
                     finalStop = chunk.Stop;
+                    break;
+                case TextChunkKind.Reasoning:
+                    // This route feeds speech and a relay that reads only answer text, so reasoning is neither spoken nor sent.
                     break;
             }
         }
