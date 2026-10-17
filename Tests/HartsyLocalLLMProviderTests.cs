@@ -210,6 +210,7 @@ public class HartsyLocalLLMProviderTests
         [InlineData(5, 3, 5)]
         [InlineData(0, 3, 3)]
         [InlineData(0, 0, null)]
+        [InlineData(null, 5, null)]
         public void Loops_RequestWinsOverTheBackendDefault_AndZeroMeansTheCheckpointDefault(int? requested, int settingDefault, int? expected)
         {
             ExtendedLLMInput input = Input();
