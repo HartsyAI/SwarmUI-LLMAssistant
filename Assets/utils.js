@@ -445,6 +445,17 @@ function llmaEscapeHtml(str) {
 }
 
 // -- ID Generation --
+// Reads a whole number from a numeric input, clamped to the element's own min/max, so a range lives only in the markup
+// (typing past max does not invalidate .value). NaN (empty field) reads as 0.
+function llmaReadBoundedInt(id) {
+    const el = document.getElementById(id);
+    const n = parseInt(el?.value, 10);
+    if (!Number.isFinite(n)) return 0;
+    const min = el.min !== '' ? parseInt(el.min, 10) : -Infinity;
+    const max = el.max !== '' ? parseInt(el.max, 10) : Infinity;
+    return Math.min(Math.max(n, min), max);
+}
+
 function llmaGenerateId() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
