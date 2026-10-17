@@ -477,10 +477,31 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
         (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
-        await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct))
+        await ForwardEngineStreamAsync(Engine.Text.StreamAsync(spec, request, ct), onChunk, input.Model, deviceKey);
+    }
+
+    /// <summary>Translates the engine's plain text stream into this pack's wire events for <see cref="GenerateLive"/>, pulled out so
+    /// it is unit-testable with scripted chunks. Reasoning that a structured parser reports apart from the answer (Muse Spark) goes out
+    /// as inline <c>&lt;think&gt;</c> text, the shape a Qwen3 stream already carries it in, which the chat renders as its Reasoning block.</summary>
+    internal static async Task ForwardEngineStreamAsync(IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> onChunk, string model, string deviceKey)
+    {
+        bool inThink = false;
+        await foreach (TextChunk chunk in chunks)
         {
+            if (inThink && (chunk.Kind is TextChunkKind.Chunk or TextChunkKind.NativeToolCall or TextChunkKind.StopReason))
+            {
+                inThink = false;
+                await onChunk(new JObject() { ["chunk"] = "</think>" });
+            }
             switch (chunk.Kind)
             {
+                case TextChunkKind.Reasoning:
+                    if (!string.IsNullOrEmpty(chunk.Text))
+                    {
+                        await onChunk(new JObject() { ["chunk"] = inThink ? chunk.Text : "<think>" + chunk.Text });
+                        inThink = true;
+                    }
+                    break;
                 case TextChunkKind.Chunk:
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
                     break;
@@ -515,7 +536,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         // anywhere else — an engine-side failure was indistinguishable from "the model chose
                         // to say nothing", at any log level. Cost an hour on 2026-09-05 to a backend left on
                         // the default Device=cuda that could not actually run.
-                        Logs.Warning($"[LLMAssistant] Local LLM '{input.Model}' stopped with an engine error on "
+                        Logs.Warning($"[LLMAssistant] Local LLM '{model}' stopped with an engine error on "
                             + $"device '{deviceKey}' — no text was produced: {chunk.Text}. If this device is not usable, "
                             + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
                         await onChunk(new JObject() { ["stopReason"] = "error" });
@@ -524,7 +545,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
                     // double the text.
+                    // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), Usage has no wire field, and only ToolLoop emits ToolResult.
             }
+        }
+        if (inThink)
+        {
+            await onChunk(new JObject() { ["chunk"] = "</think>" });
         }
     }
 
