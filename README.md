@@ -110,7 +110,7 @@ Go to `Server > Backends` — the three LLM backend types appear directly in the
 | `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
 | `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and**, for a model whose own chat template instructs Hermes JSON tool calls specifically (checked by reading its `tokenizer.chat_template` metadata, not its name), turn on real native tool calling instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. A model whose template doesn't instruct that format (Llama, Mistral, Gemma, DeepSeek R1's distillations, GLM-4.5/Qwen3.5-style XML-argument templates, or anything with no template at all) keeps using the tag convention regardless of this setting — the engine only installs one parser (Hermes) for the whole backend. [`LLMAssistantVoiceTurnWS`](#streaming-frames) runs without it too now (a `{"notice": …}` frame then a plain stream, no hard error), but still needs it for native tool dispatch specifically. |
 | `ReuseConversationPrefix` | `true` | Keep each conversation's prompt prefix cached on the device between turns (see below). No effect while `AlwaysFreeMemory` is on or with `VramMode` Aggressive or Maximum. |
-| `RecurrentLoops` | `0` | Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one: 1 = lowest latency, 2 = the recommended balance, 4 = highest accuracy, all from the same weights. 0 = the checkpoint's own default. Ignored by every other model. See [looped models](#looped-models-dory). |
+| `RecurrentLoops` | `0` | Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one: 1 = lowest latency up to 4 = highest accuracy, all from the same weights. 0 = the checkpoint's own default. Ignored by every other model. See [looped models](#looped-models-dory). |
 
 **Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's `RecurrentLoops` default when neither is set; a request's own value wins. The websocket routes take it as `loops` (1 to 4). The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
 
@@ -392,6 +392,7 @@ Example:
 | Max Tokens | `4096` | Response length cap. |
 | Top P | `0.9` | Nucleus sampling cutoff. |
 | Seed | `-1` | `-1` = random. Only providers that honor a seed use it. |
+| Loops | `0` | Recurrent-block passes for a looped model such as Nemotron Dory, 1 to 4; `0` = not set (the local backend's `RecurrentLoops` default applies). Other models ignore it. |
 | Context Messages | `0` | Prior messages included per request; `0` = all. |
 | Stream | `true` | WebSocket streaming. |
 | Vision Image Max Size | `1536` | Long-edge cap in px, clamped to 256–2048. |
@@ -478,10 +479,10 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 |---|---|---|---|
 | `LLMAssistantCreateThread` | POST | `assistantId?`, `title?` | `{success, thread}` |
 | `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `noCache?`, `assistantId?` | `{success, response}` — one-shot, does **not** touch threads |
-| `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?` | streaming frames (below) |
+| `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?` | streaming frames (below) |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
-| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `conversationId?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
+| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}` — persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |

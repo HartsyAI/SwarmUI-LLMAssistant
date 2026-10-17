@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -1505,11 +1506,12 @@ public static class ChatEndpoints
     }
 
     /// <summary>The request's <c>loops</c> field (recurrent-block passes for a looped model such as Dory): a positive integer, or 0 when
-    /// absent, not a number, or not positive, which leaves the saved parameters and then the backend's own default in force.</summary>
+    /// absent, not an integer, not positive, or beyond <see cref="int"/>, which leaves the saved parameters and then the backend's own
+    /// default in force. The engine rejects a count above the model's maximum when the request runs.</summary>
     internal static int ReadLoops(JObject rawInput)
     {
         JToken token = rawInput?["loops"];
-        return token is { Type: JTokenType.Integer } && token.Value<int>() > 0 ? token.Value<int>() : 0;
+        return token is { Type: JTokenType.Integer } && int.TryParse(token.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int loops) && loops > 0 ? loops : 0;
     }
 
     /// <summary>Applies per-request parameter overrides on top of resolved parameters.

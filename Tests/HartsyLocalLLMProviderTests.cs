@@ -207,6 +207,8 @@ public class HartsyLocalLLMProviderTests
         [InlineData(null, 0, null)]
         [InlineData(null, 3, 3)]
         [InlineData(2, 3, 2)]
+        [InlineData(5, 3, 5)]
+        [InlineData(0, 3, 3)]
         [InlineData(0, 0, null)]
         public void Loops_RequestWinsOverTheBackendDefault_AndZeroMeansTheCheckpointDefault(int? requested, int settingDefault, int? expected)
         {
