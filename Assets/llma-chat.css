@@ -854,6 +854,37 @@
 .llma-tools-toggle-btn.off .llma-tools-toggle-slash {
     display: inline;
 }
+/* Thinking toggle (Auto / On / Off), next to the tools toggle: a pill with its state in words so the three states read apart. */
+.llma-thinking-toggle-btn {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--text-soft) 35%, transparent);
+    color: var(--text-soft);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.llma-thinking-toggle-btn:hover {
+    background: color-mix(in srgb, var(--emphasis) 12%, transparent);
+    color: var(--text);
+}
+.llma-thinking-toggle-btn .llma-thinking-toggle-label {
+    font-weight: 600;
+}
+.llma-thinking-toggle-btn.on {
+    color: var(--emphasis);
+    border-color: color-mix(in srgb, var(--emphasis) 60%, transparent);
+}
+.llma-thinking-toggle-btn.off {
+    color: var(--warning, #d9822b);
+    border-color: color-mix(in srgb, var(--warning, #d9822b) 60%, transparent);
+}
 .llma-input-actions .llma-icon-btn {
     width: 32px;
     height: 32px;

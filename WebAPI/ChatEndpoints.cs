@@ -152,11 +152,16 @@ public static class ChatEndpoints
     /// several backends serving the same model; <paramref name="device"/> overrides the backend's device (eg <c>cuda:0+cuda:1</c>).
     /// Both are part of the cache key, as is the resolved loop count (<paramref name="loops"/>, else the saved <c>loops</c>
     /// parameter; recurrent-block passes for a looped model such as Dory, ignored by other models), since a looped model's reply
-    /// changes with it.</summary>
+    /// changes with it. <paramref name="enableThinking"/> (<c>true</c>/<c>false</c>; anything else leaves the template's default, which is
+    /// on for Dory and Qwen3) sets the chat template's reasoning switch, as on the voice route, and keys the cache too.
+    /// <para>Reply (<see cref="OneShotReply"/>): <c>{ success, response, reasoning, finish_reason }</c>. <c>response</c> is the answer alone,
+    /// <c>reasoning</c> what the model wrote before it (empty when it wrote none), <c>finish_reason</c> <c>stop</c> or <c>length</c>: a
+    /// budget that runs out mid-reasoning is a success with the partial reasoning, an empty <c>response</c> and <c>length</c>. A failure is
+    /// <c>{ success: false, error, finish_reason: "error" }</c>.</para></summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
         double temperature = -1, int maxTokens = -1, bool noCache = false,
-        string assistantId = null, string device = null, int backendId = -1, int loops = 0)
+        string assistantId = null, string device = null, int backendId = -1, int loops = 0, string enableThinking = null)
     {
         try
         {
@@ -172,33 +177,46 @@ public static class ChatEndpoints
             }
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, loops: loops);
-            string response;
+            input.EnableThinking = ReadOptionalBool(enableThinking);
+            LLMGenerateResult result;
             if (noCache)
             {
-                response = await LLMDispatcher.Generate(input);
+                result = await LLMDispatcher.GenerateDetailed(input);
             }
             else
             {
-                response = await Cache.GetOrCreate(session.User?.UserID, $"{model}|{device}|{backendId}|{input.Loops ?? 0}", assistantId, message, instructionId, async () =>
+                // The token budget is in the key too: a reply cut off by a small budget must not answer a request with a larger one.
+                string cacheModel = $"detailed|{model}|{device}|{backendId}|{input.Loops ?? 0}|{input.EnableThinking?.ToString() ?? "default"}|{input.MaxTokens}";
+                string cached = await Cache.GetOrCreate(session.User?.UserID, cacheModel, assistantId, message, instructionId, async () =>
                 {
-                    return await LLMDispatcher.Generate(input);
+                    return (await LLMDispatcher.GenerateDetailed(input)).ToJson();
                 });
+                result = LLMGenerateResult.FromJson(cached);
             }
-            return new JObject
-            {
-                ["success"] = true,
-                ["response"] = response
-            };
+            return OneShotReply(result);
         }
         catch (Exception ex)
         {
-            return new JObject
-            {
-                ["success"] = false,
-                ["error"] = ex.Message
-            };
+            return OneShotError(ex.Message);
         }
     }
+
+    /// <summary>The success reply of <see cref="LLMAssistantSendMessage"/>.</summary>
+    internal static JObject OneShotReply(LLMGenerateResult result) => new()
+    {
+        ["success"] = true,
+        ["response"] = result.Response ?? "",
+        ["reasoning"] = result.Reasoning ?? "",
+        ["finish_reason"] = result.FinishReason ?? LLMGenerateResult.Stop
+    };
+
+    /// <summary>The failure reply of <see cref="LLMAssistantSendMessage"/>.</summary>
+    internal static JObject OneShotError(string message) => new()
+    {
+        ["success"] = false,
+        ["error"] = message,
+        ["finish_reason"] = LLMGenerateResult.Error
+    };
 
     /// <summary>One-shot conversational turn <b>with tool calling</b>, for a voice satellite: text in, spoken
     /// reply plus any device actions out.
@@ -1036,6 +1054,8 @@ public static class ChatEndpoints
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
         int loops = ReadPositiveInt(rawInput, "loops");
+        // The composer's Thinking toggle: true or false, or absent for the model's template default.
+        bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
 
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
@@ -1068,6 +1088,7 @@ public static class ChatEndpoints
             ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
             input.RequestSession = session;
             input.ConversationId = ThreadConversationId(threadId);
+            input.EnableThinking = enableThinking;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
             // Load tools enabled for this assistant and inject their descriptions into the system prompt —
@@ -1294,6 +1315,7 @@ public static class ChatEndpoints
         int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
         int loops = ReadPositiveInt(rawInput, "loops");
+        bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
         // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
@@ -1342,6 +1364,7 @@ public static class ChatEndpoints
                 input.ConversationId = ThreadConversationId(threadId);
                 input.BackendId = L.BackendId;
                 input.Device = L.Device;
+                input.EnableThinking = enableThinking;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
                 await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
                 if (cts.IsCancellationRequested)
@@ -1510,6 +1533,19 @@ public static class ChatEndpoints
     /// above zero that fits, else 0, the "not set" value of a zero-means-unset integer field (absent, null, zero, negative, fractional, a
     /// string, or an integer beyond <see cref="int"/> all read as not set). Reads the <c>loops</c> field of a websocket request and the
     /// saved <c>loops</c> parameter; the engine rejects a loop count above the model's maximum when the request runs.</summary>
+    /// <summary>A tri-state switch from a string API parameter: <c>true</c> or <c>false</c> in any case is the value; anything else, null
+    /// included, is null ("not set"), since SwarmUI's reflected API parameters have no nullable bool.</summary>
+    internal static bool? ReadOptionalBool(string value) => bool.TryParse(value?.Trim(), out bool parsed) ? parsed : null;
+
+    /// <summary>Reads <paramref name="key"/> from a websocket request body as a tri-state switch: a JSON boolean, or the string <c>true</c> or
+    /// <c>false</c>, is the value; absent, null or anything else is null ("not set", so the model's template default applies).</summary>
+    internal static bool? ReadOptionalBool(JObject obj, string key) => obj?[key] switch
+    {
+        JValue { Type: JTokenType.Boolean } flag => flag.Value<bool>(),
+        JValue { Type: JTokenType.String } text => ReadOptionalBool(text.Value<string>()),
+        _ => null
+    };
+
     internal static int ReadPositiveInt(JObject obj, string key)
     {
         // Newtonsoft stores every JSON integer that fits a long as a long (a bigger one is a BigInteger, which fails the pattern).

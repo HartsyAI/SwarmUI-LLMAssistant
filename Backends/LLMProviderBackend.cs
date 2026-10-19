@@ -4,6 +4,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.LLMs;
+using SwarmUI.Utils;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 
@@ -46,12 +47,44 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
     {
         StringBuilder output = new();
+        string engineError = null;
         await GenerateLive(input, "0", j =>
         {
+            engineError ??= ErrorStopMessage(j);
             AppendGenerateChunk(output, j);
             return Task.CompletedTask;
         }, ct);
+        // A failed generation must not read as a reply the model chose to leave empty: the one-shot routes report it as an error.
+        if (engineError is not null)
+        {
+            throw new SwarmReadableErrorException($"The model '{input.Model}' stopped with an error: {engineError}");
+        }
         return output.ToString();
+    }
+
+    /// <summary>Generates a full response with the reasoning apart from the answer and the finish reason (see <see cref="OneShotAccumulator"/>):
+    /// a reply that ran out of tokens mid-reasoning comes back with its partial reasoning, an empty answer and <c>length</c>; an engine
+    /// failure throws.</summary>
+    public async Task<LLMGenerateResult> GenerateDetailed(ExtendedLLMInput input, CancellationToken ct = default)
+    {
+        OneShotAccumulator accumulator = new();
+        await GenerateLive(input, "0", j =>
+        {
+            accumulator.Add(j);
+            return Task.CompletedTask;
+        }, ct);
+        return accumulator.Finish(input.Model);
+    }
+
+    /// <summary>The message of a <c>{stopReason: "error"}</c> event (its <c>error</c> text, else a generic one), or null for any other event.</summary>
+    internal static string ErrorStopMessage(JObject chunk)
+    {
+        if (chunk.Value<string>("stopReason") != "error")
+        {
+            return null;
+        }
+        string message = chunk.Value<string>("error");
+        return string.IsNullOrWhiteSpace(message) ? "the backend reported a failure without a message" : message;
     }
 
     /// <summary>The one-shot accumulation step: folds one <see cref="GenerateLive"/> event into

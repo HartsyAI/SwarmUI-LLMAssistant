@@ -29,6 +29,16 @@
         });
         if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
 
+        // Thinking toggle: cycles auto → on → off; llmaBuildPayload sends the matching enableThinking with every request.
+        const thinkingBtn = document.getElementById('llma-thinking-toggle-btn');
+        LLMAState.thinkingMode = llmaLoadThinkingMode();
+        if (thinkingBtn) thinkingBtn.addEventListener('click', () => {
+            LLMAState.thinkingMode = llmaNextThinkingMode(LLMAState.thinkingMode);
+            llmaSaveThinkingMode(LLMAState.thinkingMode);
+            llmaUpdateThinkingToggleBtn();
+        });
+        llmaUpdateThinkingToggleBtn();
+
         if (input) {
             input.addEventListener('keydown', e => {
                 // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).
@@ -97,6 +107,24 @@
                 }
             });
         }
+    }
+
+    /** Shows the Thinking mode on the composer button: its label, title, aria-pressed and the on/off class. */
+    function llmaUpdateThinkingToggleBtn() {
+        const btn = document.getElementById('llma-thinking-toggle-btn');
+        if (!btn) return;
+        const mode = LLMAState.thinkingMode;
+        const label = btn.querySelector('.llma-thinking-toggle-label');
+        if (label) label.textContent = mode === 'on' ? translate('On') : mode === 'off' ? translate('Off') : translate('Auto');
+        btn.classList.toggle('on', mode === 'on');
+        btn.classList.toggle('off', mode === 'off');
+        btn.setAttribute('aria-pressed', mode === 'auto' ? 'mixed' : String(mode === 'on'));
+        // title is reassigned every time this runs — translate() directly, never class="translate".
+        btn.title = mode === 'on'
+            ? translate('Thinking is ON: the model reasons before answering. Click for OFF.')
+            : mode === 'off'
+                ? translate('Thinking is OFF: the model answers directly. Click for Auto.')
+                : translate("Thinking is Auto: the model's own default applies. Click for ON.");
     }
 
     /** Update the "~N tokens" char-count hint under the input. */
@@ -238,6 +266,7 @@
 
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSetupInput        = llmaSetupInput;
+    window.llmaUpdateThinkingToggleBtn = llmaUpdateThinkingToggleBtn;
     window.llmaUpdateCharCount   = llmaUpdateCharCount;
     window.llmaCopyMessage       = llmaCopyMessage;
     window.llmaDeleteMessage     = llmaDeleteMessage;
