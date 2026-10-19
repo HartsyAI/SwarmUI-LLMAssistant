@@ -166,7 +166,11 @@ public class HartsyLocalLLMProviderStreamTests
         Assert.Collection(events,
             e => Assert.Equal("<think>r", e["chunk"]?.ToString()),
             e => Assert.Equal("</think>", e["chunk"]?.ToString()),
-            e => Assert.Equal("error", e["stopReason"]?.ToString()));
+            e =>
+            {
+                Assert.Equal("error", e["stopReason"]?.ToString());
+                Assert.Equal("boom", e["error"]?.ToString());
+            });
     }
 
     [Fact]

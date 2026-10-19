@@ -661,7 +661,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         Logs.Warning($"[LLMAssistant] Local LLM '{model}' stopped with an engine error on "
                             + $"device '{deviceKey}' — no text was produced: {chunk.Text}. If this device is not usable, "
                             + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
-                        await onChunk(new JObject() { ["stopReason"] = "error" });
+                        // The engine's message rides along so the one-shot accumulator can fail the request with it.
+                        await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = chunk.Text ?? "" });
                     }
                     break;
                     // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's

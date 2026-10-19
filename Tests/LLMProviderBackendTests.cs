@@ -129,4 +129,15 @@ public class LLMProviderBackendTests
         Assert.Empty(ToolPromptService.ParseToolCalls(output.ToString(), out List<string> malformed));
         Assert.Empty(malformed);
     }
+
+    [Fact]
+    public void ErrorStopMessage_ReadsTheEngineMessage_AndIgnoresEveryOtherEvent()
+    {
+        // Generate throws with this message, so a one-shot route returns success:false instead of an empty reply.
+        Assert.Equal("This model runs at most 4 loops.",
+            LLMProviderBackend.ErrorStopMessage(new JObject { ["stopReason"] = "error", ["error"] = "This model runs at most 4 loops." }));
+        Assert.Equal("the backend reported a failure without a message", LLMProviderBackend.ErrorStopMessage(new JObject { ["stopReason"] = "error" }));
+        Assert.Null(LLMProviderBackend.ErrorStopMessage(new JObject { ["stopReason"] = "length" }));
+        Assert.Null(LLMProviderBackend.ErrorStopMessage(new JObject { ["chunk"] = "text" }));
+    }
 }

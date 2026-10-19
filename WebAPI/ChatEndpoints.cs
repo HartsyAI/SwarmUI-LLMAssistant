@@ -152,11 +152,13 @@ public static class ChatEndpoints
     /// several backends serving the same model; <paramref name="device"/> overrides the backend's device (eg <c>cuda:0+cuda:1</c>).
     /// Both are part of the cache key, as is the resolved loop count (<paramref name="loops"/>, else the saved <c>loops</c>
     /// parameter; recurrent-block passes for a looped model such as Dory, ignored by other models), since a looped model's reply
-    /// changes with it.</summary>
+    /// changes with it. <paramref name="enableThinking"/> (<c>true</c>/<c>false</c>; anything else leaves the template's default) sets
+    /// the chat template's reasoning switch, as on the voice route, and keys the cache too: a reasoning model such as Dory or Qwen3
+    /// thinks by default, and with <c>false</c> it answers directly. An engine failure returns <c>success: false</c> with its message.</summary>
     public static async Task<JObject> LLMAssistantSendMessage(Session session,
         string message, string instructionId = null, string model = null,
         double temperature = -1, int maxTokens = -1, bool noCache = false,
-        string assistantId = null, string device = null, int backendId = -1, int loops = 0)
+        string assistantId = null, string device = null, int backendId = -1, int loops = 0, string enableThinking = null)
     {
         try
         {
@@ -172,6 +174,7 @@ public static class ChatEndpoints
             }
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, loops: loops);
+            input.EnableThinking = ReadOptionalBool(enableThinking);
             string response;
             if (noCache)
             {
@@ -179,7 +182,8 @@ public static class ChatEndpoints
             }
             else
             {
-                response = await Cache.GetOrCreate(session.User?.UserID, $"{model}|{device}|{backendId}|{input.Loops ?? 0}", assistantId, message, instructionId, async () =>
+                string cacheModel = $"{model}|{device}|{backendId}|{input.Loops ?? 0}|{input.EnableThinking?.ToString() ?? "default"}";
+                response = await Cache.GetOrCreate(session.User?.UserID, cacheModel, assistantId, message, instructionId, async () =>
                 {
                     return await LLMDispatcher.Generate(input);
                 });
@@ -1510,6 +1514,10 @@ public static class ChatEndpoints
     /// above zero that fits, else 0, the "not set" value of a zero-means-unset integer field (absent, null, zero, negative, fractional, a
     /// string, or an integer beyond <see cref="int"/> all read as not set). Reads the <c>loops</c> field of a websocket request and the
     /// saved <c>loops</c> parameter; the engine rejects a loop count above the model's maximum when the request runs.</summary>
+    /// <summary>A tri-state switch from a string API parameter: <c>true</c> or <c>false</c> in any case is the value; anything else, null
+    /// included, is null ("not set"), since SwarmUI's reflected API parameters have no nullable bool.</summary>
+    internal static bool? ReadOptionalBool(string value) => bool.TryParse(value?.Trim(), out bool parsed) ? parsed : null;
+
     internal static int ReadPositiveInt(JObject obj, string key)
     {
         // Newtonsoft stores every JSON integer that fits a long as a long (a bigger one is a BigInteger, which fails the pattern).
