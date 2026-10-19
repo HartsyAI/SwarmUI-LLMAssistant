@@ -27,6 +27,11 @@ public interface ILLMProvider
     /// the same way <see cref="GenerateLive"/> does.</summary>
     Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default);
 
+    /// <summary>Generates a full response with the reasoning apart from the answer and why it stopped (<c>stop</c> or <c>length</c>); a
+    /// failure throws. The default, for a provider that returns only text, is its whole text as the answer with a natural stop.</summary>
+    async Task<LLMGenerateResult> GenerateDetailed(ExtendedLLMInput input, CancellationToken ct = default)
+        => LLMGenerateResult.FromText(await Generate(input, ct));
+
     /// <summary>Generates with live chunks. Implementations must <c>await onChunk(...)</c> (consumer
     /// backpressure) and honor <paramref name="ct"/> (the chat UI's Stop button).</summary>
     Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct);

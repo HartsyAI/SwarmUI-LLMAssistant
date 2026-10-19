@@ -62,6 +62,20 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
         return output.ToString();
     }
 
+    /// <summary>Generates a full response with the reasoning apart from the answer and the finish reason (see <see cref="OneShotAccumulator"/>):
+    /// a reply that ran out of tokens mid-reasoning comes back with its partial reasoning, an empty answer and <c>length</c>; an engine
+    /// failure throws.</summary>
+    public async Task<LLMGenerateResult> GenerateDetailed(ExtendedLLMInput input, CancellationToken ct = default)
+    {
+        OneShotAccumulator accumulator = new();
+        await GenerateLive(input, "0", j =>
+        {
+            accumulator.Add(j);
+            return Task.CompletedTask;
+        }, ct);
+        return accumulator.Finish(input.Model);
+    }
+
     /// <summary>The message of a <c>{stopReason: "error"}</c> event (its <c>error</c> text, else a generic one), or null for any other event.</summary>
     internal static string ErrorStopMessage(JObject chunk)
     {

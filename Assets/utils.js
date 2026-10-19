@@ -43,7 +43,46 @@ const LLMAState = {
     // True after llmaLoadModels() saw zero models with no API error. Used to render
     // a softer "no backend running" banner that's distinct from a hard load failure.
     noBackendsRunning: false,
+    // The composer's Thinking toggle: 'auto' sends no enableThinking (the model's template default: on for Dory and Qwen3),
+    // 'on' and 'off' send true and false. Kept per browser; see llmaNextThinkingMode()/llmaThinkingRequestValue().
+    thinkingMode:      'auto',
 };
+
+// -- Thinking toggle --
+const LLMA_THINKING_MODES = Object.freeze(['auto', 'on', 'off']);
+const LLMA_THINKING_STORAGE_KEY = 'llma.thinkingMode';
+
+/** The mode a click on the Thinking toggle moves to: auto → on → off → auto. Anything unknown restarts at auto. */
+function llmaNextThinkingMode(mode) {
+    const i = LLMA_THINKING_MODES.indexOf(mode);
+    return i < 0 ? 'auto' : LLMA_THINKING_MODES[(i + 1) % LLMA_THINKING_MODES.length];
+}
+
+/** The enableThinking value a request carries for a mode: true, false, or undefined (field left out, template default). */
+function llmaThinkingRequestValue(mode) {
+    if (mode === 'on') return true;
+    if (mode === 'off') return false;
+    return undefined;
+}
+
+/** The saved mode, or 'auto' when nothing (or something invalid) is stored or storage is unavailable. */
+function llmaLoadThinkingMode() {
+    try {
+        const saved = window.localStorage.getItem(LLMA_THINKING_STORAGE_KEY);
+        return LLMA_THINKING_MODES.includes(saved) ? saved : 'auto';
+    } catch {
+        return 'auto';
+    }
+}
+
+/** Remembers the mode in this browser; a blocked storage only loses the preference. */
+function llmaSaveThinkingMode(mode) {
+    try {
+        window.localStorage.setItem(LLMA_THINKING_STORAGE_KEY, mode);
+    } catch {
+        // Private window or blocked site data: the toggle still works for this page.
+    }
+}
 
 // -- Shared Constants --
 // Centralized so every module reads from one place. Module-local timing constants

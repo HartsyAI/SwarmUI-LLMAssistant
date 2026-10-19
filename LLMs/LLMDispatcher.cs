@@ -36,6 +36,14 @@ public static class LLMDispatcher
         return await provider.Generate(input, ct);
     }
 
+    /// <summary>Sends a message and returns the answer, the reasoning apart from it, and the finish reason
+    /// (<see cref="ILLMProvider.GenerateDetailed"/>).</summary>
+    public static async Task<LLMGenerateResult> GenerateDetailed(ExtendedLLMInput input, CancellationToken ct = default)
+    {
+        ILLMProvider provider = await GetProvider(input);
+        return await provider.GenerateDetailed(input, ct);
+    }
+
     /// <summary>Sends a message with streaming chunks via callback. <paramref name="ct"/> is
     /// forwarded to the provider so HTTP requests and async-enumerable streams can be cancelled
     /// when the user hits Stop or the WebSocket closes.</summary>
