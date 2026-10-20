@@ -499,7 +499,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"error": "…"}` | A failure after streaming began. |
 | `{"lane": n, …}` | Compare mode, routes the frame to a column. |
 
-`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
+`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames and one frame of its own, the round-limit `notice`. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
 
 | Frame | Meaning |
 |---|---|
