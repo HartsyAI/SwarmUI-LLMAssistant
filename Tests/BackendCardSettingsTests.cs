@@ -214,7 +214,7 @@ public class BackendCardSettingsTests
             {
                 string comment = field.GetCustomAttribute<AutoConfiguration.ConfigComment>()?.Comments;
                 Assert.False(string.IsNullOrWhiteSpace(comment), $"{field.Name} has no tooltip");
-                Assert.DoesNotContain("—", comment);
+                Assert.DoesNotContain("\u2014", comment);
                 Assert.True(comment.Length <= 300, $"{field.Name}'s tooltip is {comment.Length} characters");
                 Assert.True(comment.Split('\n').Length <= 3, $"{field.Name}'s tooltip has more than 3 lines");
             }
