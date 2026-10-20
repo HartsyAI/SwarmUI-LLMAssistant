@@ -99,8 +99,9 @@ public class ToolTurnRunnerTests
         Assert.True(outcome.Truncated);
         Assert.Equal("max_iterations", outcome.Reason);
         Assert.True(saved[0]["meta"]!["truncated"]!.Value<bool>());
-        // The call the limit stopped gets a result, so the client's bubble is not left pending.
-        Assert.Equal(["tool_call:get_time", "tool_result:get_time", "done"], sink.Events);
+        Assert.Equal("max_rounds=1", outcome.RoundLimit);
+        // The call the limit stopped gets a stand-in result, so the client's bubble is not left pending.
+        Assert.Equal(["tool_call:get_time", "tool_not_run:get_time", "done"], sink.Events);
         Assert.False(outcome.ToolEvents[0]!["result"]!["success"]!.Value<bool>());
     }
 

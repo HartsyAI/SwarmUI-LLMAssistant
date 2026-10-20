@@ -48,6 +48,10 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     public Task ToolResult(JObject result) => Send(new JObject { ["tool_result"] = result });
 
     /// <inheritdoc/>
+    /// <remarks>Sent as an ordinary <c>tool_result</c>, so the chat closes the call's bubble with the stand-in result.</remarks>
+    public Task ToolNotRun(JObject result) => Send(new JObject { ["tool_result"] = result });
+
+    /// <inheritdoc/>
     public Task Done(ToolTurnOutcome outcome)
     {
         JObject frame = outcome.Truncated
@@ -79,17 +83,20 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     }
 }
 
-/// <summary>The voice socket's events, in the shape AudioLab's client reads: <c>native_tool_call</c>, <c>tool_result</c>, and a
-/// <c>done</c> frame carrying the device actions the turn took.</summary>
+/// <summary>The voice socket's events, in the shape AudioLab's client reads: <c>chunk</c>, <c>native_tool_call</c>, <c>tool_result</c>,
+/// a round-limit <c>notice</c>, and a <c>done</c> frame carrying the device actions the turn took.</summary>
+/// <remarks>A call is sent only once it has run, right before its result: a relay treats a call without a result as one it must run
+/// itself, so a call the turn never ran (the round limit, an error or a stop) is never sent. Nothing is sent once the socket is gone.</remarks>
 public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JArray deviceCalls) : IToolTurnSink
 {
-    private readonly Dictionary<string, JObject> _argumentsById = new(StringComparer.Ordinal);
+    /// <summary>Calls the model made that have no result yet, by id.</summary>
+    private readonly Dictionary<string, JObject> _pendingCalls = new(StringComparer.Ordinal);
 
     /// <inheritdoc/>
     public bool IsOpen => isOpen();
 
     /// <inheritdoc/>
-    public Task Chunk(string text) => send(new JObject { ["chunk"] = text });
+    public Task Chunk(string text) => Send(new JObject { ["chunk"] = text });
 
     /// <inheritdoc/>
     public Task Reasoning(string text) => Task.CompletedTask;
@@ -106,20 +113,34 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     /// <inheritdoc/>
     public Task ToolCall(JObject call)
     {
-        string id = call["id"]?.ToString() ?? "";
-        _argumentsById[id] = call["arguments"] as JObject ?? new JObject();
-        return send(new JObject { ["native_tool_call"] = new JObject { ["id"] = id, ["name"] = call["name"]?.ToString(), ["arguments"] = _argumentsById[id] } });
+        _pendingCalls[call["id"]?.ToString() ?? ""] = call;
+        return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public Task ToolResult(JObject result)
+    public async Task ToolResult(JObject result)
     {
         string id = result["id"]?.ToString() ?? "";
-        if (result["result"] is JObject outcome && outcome["success"]?.Value<bool>() == true && DeviceActionTool.IsDeviceAction(result["name"]?.ToString()))
+        string name = result["name"]?.ToString();
+        JObject arguments = new();
+        if (_pendingCalls.Remove(id, out JObject call))
         {
-            deviceCalls.Add(new JObject { ["name"] = result["name"]?.ToString(), ["arguments"] = _argumentsById.GetValueOrDefault(id) ?? new JObject() });
+            arguments = call["arguments"] as JObject ?? new JObject();
+            await Send(new JObject { ["native_tool_call"] = new JObject { ["id"] = id, ["name"] = call["name"]?.ToString() ?? name, ["arguments"] = arguments } });
         }
-        return send(new JObject { ["tool_result"] = new JObject { ["id"] = id, ["name"] = result["name"]?.ToString(), ["result"] = result["result"] } });
+        // Only a validated device action: a rejected call would hand the device arguments the server refused to run.
+        if (result["result"] is JObject outcome && outcome["success"]?.Value<bool>() == true && DeviceActionTool.IsDeviceAction(name))
+        {
+            deviceCalls.Add(new JObject { ["name"] = name, ["arguments"] = arguments });
+        }
+        await Send(new JObject { ["tool_result"] = new JObject { ["id"] = id, ["name"] = name, ["result"] = result["result"] } });
+    }
+
+    /// <inheritdoc/>
+    public Task ToolNotRun(JObject result)
+    {
+        _pendingCalls.Remove(result["id"]?.ToString() ?? "");
+        return Task.CompletedTask;
     }
 
     /// <summary>The device actions a turn took: each successful call to a device tool, as <c>{name, arguments}</c>.</summary>
@@ -137,15 +158,30 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     }
 
     /// <inheritdoc/>
-    public Task Done(ToolTurnOutcome outcome) => send(new JObject
+    public async Task Done(ToolTurnOutcome outcome)
     {
-        ["done"] = true,
-        // Speech is the visible text: a reasoning trace is never read aloud.
-        ["full_text"] = outcome.SpokenText ?? outcome.FullText,
-        ["toolCalls"] = deviceCalls,
-        // A round limit reports as tool_call here, the same as before the runner: the device still knows the model wanted another call.
-        ["stopReason"] = outcome.Truncated ? "tool_call" : outcome.StopReason,
-    });
+        _pendingCalls.Clear();
+        if (outcome.Truncated)
+        {
+            await Send(new JObject { ["notice"] = $"tool round limit reached ({outcome.RoundLimit ?? "max_rounds"}); the model's last tool call was not run" });
+        }
+        await Send(new JObject
+        {
+            ["done"] = true,
+            // Speech is the visible text: a reasoning trace is never read aloud.
+            ["full_text"] = outcome.SpokenText ?? outcome.FullText,
+            ["toolCalls"] = deviceCalls,
+            ["stopReason"] = DoneStopReason(outcome),
+        });
+    }
+
+    /// <summary>The <c>done</c> frame's <c>stopReason</c>: a round limit (or any tool-call stop) is <c>tool_round_limit</c>, never
+    /// <c>tool_call</c>, which a relay reads as a call it still has to run.</summary>
+    internal static string DoneStopReason(ToolTurnOutcome outcome)
+        => outcome.Truncated || outcome.StopReason == "tool_call" ? "tool_round_limit" : outcome.StopReason;
+
+    /// <summary>Sends one frame while the socket is open.</summary>
+    private Task Send(JObject frame) => isOpen() ? send(frame) : Task.CompletedTask;
 }
 
 /// <summary>Records what a turn did, for callers that read the result rather than stream it.</summary>
@@ -187,6 +223,13 @@ public sealed class CollectingSink : IToolTurnSink
 
     /// <inheritdoc/>
     public Task ToolResult(JObject result)
+    {
+        Results.Add(result);
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public Task ToolNotRun(JObject result)
     {
         Results.Add(result);
         return Task.CompletedTask;

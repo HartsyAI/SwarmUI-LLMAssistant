@@ -56,11 +56,59 @@ public class VoiceWsSinkTests
     }
 
     [Fact]
-    public async Task ARoundLimitReportsAsToolCallStop()
+    public async Task ARoundLimitSendsANoticeThenReportsToolRoundLimit()
     {
         (VoiceWsSink sink, List<JObject> frames, _) = Make();
-        await sink.Done(new ToolTurnOutcome("", null, true, "max_iterations", []));
-        Assert.Equal("tool_call", frames[^1]["stopReason"]!.ToString());
+        await sink.Done(new ToolTurnOutcome("", null, true, "max_iterations", [], RoundLimit: "max_rounds=8"));
+        Assert.Collection(frames,
+            f => Assert.Equal("tool round limit reached (max_rounds=8); the model's last tool call was not run", f["notice"]!.ToString()),
+            f => Assert.Equal("tool_round_limit", f["stopReason"]!.ToString()));
+    }
+
+    [Theory]
+    [InlineData("tool_call", "tool_round_limit")]
+    [InlineData("length", "length")]
+    [InlineData("error", "error")]
+    [InlineData("cancelled", "cancelled")]
+    [InlineData(null, null)]
+    public void TheDoneStopReasonNeverSaysToolCall(string stopReason, string expected)
+        => Assert.Equal(expected, VoiceWsSink.DoneStopReason(new ToolTurnOutcome("x", stopReason, false, null, [])));
+
+    [Fact]
+    public async Task ACallIsSentOnlyWithItsResult()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+        await sink.ToolCall(new JObject { ["id"] = "c1", ["name"] = "get_time", ["arguments"] = new JObject() });
+        Assert.Empty(frames);
+        await sink.ToolResult(new JObject { ["id"] = "c1", ["name"] = "get_time", ["result"] = new JObject { ["now"] = "14:05" } });
+        Assert.Collection(frames,
+            f => Assert.Equal("c1", f["native_tool_call"]!["id"]!.ToString()),
+            f => Assert.Equal("c1", f["tool_result"]!["id"]!.ToString()));
+    }
+
+    [Fact]
+    public async Task ACallThatWasNotRunIsNeverSent()
+    {
+        (VoiceWsSink sink, List<JObject> frames, JArray deviceCalls) = Make();
+        await sink.ToolCall(new JObject { ["id"] = "d1", ["name"] = "set_volume", ["arguments"] = new JObject { ["level"] = 40 } });
+        await sink.ToolNotRun(new JObject { ["id"] = "d1", ["name"] = "set_volume", ["result"] = new JObject { ["success"] = false } });
+        await sink.Done(new ToolTurnOutcome("", "error", false, null, []));
+        JObject done = Assert.Single(frames);
+        Assert.True(done["done"]!.Value<bool>());
+        Assert.Empty(deviceCalls);
+    }
+
+    [Fact]
+    public async Task NothingIsSentOnceTheSocketIsGone()
+    {
+        List<JObject> frames = [];
+        bool open = true;
+        VoiceWsSink sink = new(frame => { frames.Add(frame); return Task.CompletedTask; }, () => open, []);
+        await sink.Chunk("first");
+        open = false;
+        await sink.Chunk("second");
+        await sink.Done(new ToolTurnOutcome("first second", null, false, null, []));
+        Assert.Equal("first", Assert.Single(frames)["chunk"]!.ToString());
     }
 
     [Fact]

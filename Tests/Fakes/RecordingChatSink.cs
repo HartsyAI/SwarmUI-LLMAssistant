@@ -26,5 +26,7 @@ internal sealed class RecordingChatSink : IToolTurnSink
 
     public Task ToolResult(JObject result) { Events.Add("tool_result:" + result["name"]); return Task.CompletedTask; }
 
+    public Task ToolNotRun(JObject result) { Events.Add("tool_not_run:" + result["name"]); return Task.CompletedTask; }
+
     public Task Done(ToolTurnOutcome outcome) { Outcome = outcome; Events.Add("done"); return Task.CompletedTask; }
 }

@@ -321,55 +321,28 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Streaming variant of <see cref="LLMAssistantVoiceTurn"/>: forwards <c>chunk</c>/
-    /// <c>native_tool_call</c>/<c>tool_result</c>/<c>done</c> frames over the socket as they happen, instead of
-    /// returning one accumulated response. Runs <see cref="HartsyLocalLLMProvider.StreamToolLoopAsync"/> (the
-    /// Tools package's <see cref="ToolLoop"/> against the engine directly) rather than the tag-based
-    /// <c>&lt;tool_call&gt;</c> convention every other route in this file uses for tool calls, because that is
-    /// the whole reason this route exists: a caller that wants tool-call ids and native dispatch latency
-    /// instead of scanning generated text for a closing tag.
+    /// <summary>Streaming variant of <see cref="LLMAssistantVoiceTurn"/>: runs the same <see cref="ToolTurnRunner"/> turn as the chat routes,
+    /// on any provider, and forwards it as frames (<see cref="VoiceWsSink"/>) instead of returning one accumulated response.
     ///
-    /// <para><b>Hartsy-local only, by design.</b> Native tool calling through the Tools package only exists
-    /// for the engine's own <see cref="HartsyInference.Engine.Services.ITextService"/>, which only the
-    /// Hartsy-local provider exposes — there is no equivalent for a remote/cloud provider to plug into here,
-    /// so a resolved provider that isn't Hartsy-local sends one <c>error</c> frame naming the gap. Use
-    /// <see cref="LLMAssistantVoiceTurn"/> or <see cref="LLMAssistantSendMessageWS"/> for every other
-    /// provider.</para>
+    /// <para>Stateless like <see cref="LLMAssistantVoiceTurn"/>: no thread is loaded or written, and device actions (<c>set_led_profile</c>,
+    /// etc.) execute as no-ops server-side and come back in the final <c>done</c> frame's <c>toolCalls</c> for the caller to run against its
+    /// own hardware, exactly as the one-shot route returns them.</para>
     ///
-    /// <para><b>Native tool calling being unavailable for this model is not an error.</b> When the resolved
-    /// provider is Hartsy-local but the model cannot run tools
-    /// for <c>model</c> (<see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings.StructuredToolCalling"/>
-    /// off — the default — or the resolved checkpoint's own chat template doesn't instruct Hermes JSON tool
-    /// calls), the turn still runs: tools are dropped from the request entirely, with no tag-prompt fallback
-    /// either (this route has no tag scanner of its own to read one back out). If the assistant actually had
-    /// tools enabled, exactly one <c>{notice:"..."}</c> frame says so, before the plain stream starts, so the
-    /// caller knows why no <c>native_tool_call</c> frame is coming; an assistant with no tools enabled at all
-    /// gets no notice, since nothing was dropped.</para>
+    /// <para>Every turn is its own WebSocket connection (one request frame in, frames out, then closed), so the socket cannot identify a
+    /// conversation across turns. The optional <c>conversationId</c> does, when the client sends one; otherwise the caller's SwarmUI session
+    /// does (see <see cref="VoiceTurnWsConversationId"/>). Either way it only scopes the local engine's prefix-KV reuse; nothing is stored
+    /// here.</para>
     ///
-    /// <para>Stateless like <see cref="LLMAssistantVoiceTurn"/>: no thread is loaded or written, and device
-    /// actions (<c>set_led_profile</c>, etc.) execute as no-ops server-side and come back in the final
-    /// <c>done</c> frame's <c>toolCalls</c> for the caller to run against its own hardware, exactly as the
-    /// one-shot route returns them.</para>
-    ///
-    /// <para>Every turn is its own WebSocket connection (one request frame in, frames out, then closed), so the
-    /// socket cannot identify a conversation across turns. The optional <c>conversationId</c> does, when the
-    /// client sends one; otherwise the caller's SwarmUI session does — see <see cref="VoiceTurnWsConversationId"/>.
-    /// Either way it only scopes the local engine's prefix-KV reuse; nothing is stored here.</para>
-    ///
-    /// <para>Request: <c>{ message?|messages?, assistantId?, model?, temperature?, maxTokens?,
-    /// enableThinking?, loops?, conversationId? }</c> — at least one of <c>message</c> (a single new user turn) or <c>messages</c> (the
-    /// full conversation so far, oldest first, as
-    /// <c>[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]</c>) is required;
-    /// <c>messages</c> takes priority when both are present. The assistant's resolved system prompt is
-    /// prepended as a leading system turn unless <c>messages</c> already opens with one — no double injection
-    /// (see <see cref="ExtendedLLMInput.CreateFromMessages"/>). <c>enableThinking</c> maps straight onto
-    /// <see cref="TextRequest.EnableThinking"/>; omitted, the model's template keeps its own default (today's
-    /// behavior). Frames: <c>{notice:"..."}</c>? (at most one tools-unavailable notice, before the first
-    /// <c>chunk</c>), <c>{chunk:"..."}</c>*, <c>{native_tool_call:{id,name,arguments}}</c> then
-    /// <c>{tool_result:{id,name,result}}</c> per call that was run (a call that is never run is never sent), a
-    /// round-limit <c>{notice:"..."}</c> when the tool loop stopped with a call still unrun, then one final
-    /// <c>{done:true, full_text, toolCalls:[{name,arguments}], stopReason?}</c> — or <c>{error:"..."}</c> at
-    /// any point, which ends the stream without a <c>done</c> frame.</para></summary>
+    /// <para>Request: <c>{ message?|messages?, assistantId?, model?, temperature?, maxTokens?, enableThinking?, loops?, conversationId? }</c>.
+    /// At least one of <c>message</c> (a single new user turn) or <c>messages</c> (the full conversation so far, oldest first, as
+    /// <c>[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, ...]</c>) is required; <c>messages</c> takes priority
+    /// when both are present. The assistant's resolved system prompt is prepended as a leading system turn unless <c>messages</c> already
+    /// opens with one (see <see cref="ExtendedLLMInput.CreateFromMessages"/>). <c>enableThinking</c> maps straight onto
+    /// <see cref="TextRequest.EnableThinking"/>; omitted, the model's template keeps its own default. Frames: <c>{chunk:"..."}</c>*,
+    /// <c>{native_tool_call:{id,name,arguments}}</c> then <c>{tool_result:{id,name,result}}</c> per call that was run (a call that is never
+    /// run is never sent), a round-limit <c>{notice:"..."}</c> when the tool loop stopped with a call still unrun, then one final
+    /// <c>{done:true, full_text, toolCalls:[{name,arguments}], stopReason?}</c>, or <c>{error:"..."}</c> at any point, which ends the stream
+    /// without a <c>done</c> frame.</para></summary>
     public static async Task<JObject> LLMAssistantVoiceTurnWS(WebSocket socket, Session session, JObject rawInput)
     {
         async Task SendAsync(JObject payload)

@@ -57,8 +57,9 @@ public sealed class ToolTurnContext
 
 /// <summary>What a finished turn produced: its visible text, why it ended, whether the round limit cut it, and its tool events.</summary>
 /// <remarks><see cref="SpokenText"/> is the visible text alone (no reasoning), for speech; <see cref="Rounds"/> is each round's
-/// <c>{text, toolCallIds}</c>, in order.</remarks>
-public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null);
+/// <c>{text, toolCallIds}</c>, in order; <see cref="RoundLimit"/> is the loop's limit detail (<c>max_rounds=8</c>) when it cut the turn.</remarks>
+public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null,
+    string RoundLimit = null);
 
 /// <summary>Where a turn's events go: a chat socket, a voice socket, or a collector. <see cref="IsOpen"/> stops forwarding when the
 /// client has gone; the turn still finishes and saves.</summary>
@@ -87,6 +88,9 @@ public interface IToolTurnSink
 
     /// <summary>A tool's result: <c>{id, name, result}</c>.</summary>
     Task ToolResult(JObject result);
+
+    /// <summary>A call the turn never ran (the round limit, an error or a stop), with its stand-in result: <c>{id, name, result}</c>.</summary>
+    Task ToolNotRun(JObject result);
 
     /// <summary>The turn ended.</summary>
     Task Done(ToolTurnOutcome outcome);
@@ -117,6 +121,7 @@ public static class ToolTurnRunner
         JArray rounds = [];
         string stopReason = null;
         bool truncated = false;
+        string roundLimit = null;
         bool pendingIteration = false;
         bool inReasoning = false;
         int round = 1;
@@ -185,6 +190,9 @@ public static class ToolTurnRunner
                         break;
                     case TextChunkKind.Status when chunk.Status is { Phase: ToolLoop.RoundLimitPhase }:
                         truncated = true;
+                        roundLimit = chunk.Text is { } limit && limit.StartsWith(ToolLoop.RoundLimitPrefix, StringComparison.Ordinal)
+                            ? limit[ToolLoop.RoundLimitPrefix.Length..]
+                            : chunk.Text;
                         break;
                     case TextChunkKind.Status when chunk.Status is { } status:
                         await sink.Status(status.Phase);
@@ -218,10 +226,10 @@ public static class ToolTurnRunner
                 ["error"] = truncated ? "The round limit was reached before this tool could run." : "The turn was stopped before this tool finished.",
             };
             entry["result"] = stub;
-            await sink.ToolResult(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
+            await sink.ToolNotRun(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
         }
         ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
-            spokenText.ToString(), rounds);
+            spokenText.ToString(), rounds, roundLimit);
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
             resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, stopReason));

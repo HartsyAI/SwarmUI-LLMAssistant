@@ -503,9 +503,10 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 
 | Frame | Meaning |
 |---|---|
-| `{"native_tool_call": {id, name, arguments}}` | The model made a tool call. |
+| `{"native_tool_call": {id, name, arguments}}` | The model made a tool call and it was run. Sent immediately before that call's `tool_result`; a call that is not run (the round cap, or a round that ended in an error or a stop) is never sent. |
 | `{"tool_result": {id, name, result}}` | That tool finished, same shape as above. |
-| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_call"` means the 8-round cap was hit while the model still wanted another call. |
+| `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
+| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
 `[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]`, a client resuming a
