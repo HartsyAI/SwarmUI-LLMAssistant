@@ -14,8 +14,8 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <see cref="TextRequest.PrefixCacheKey"/>, what scopes it (user, conversation, model), that it leaves
 /// <see cref="TextRequest.PrefixCacheCapacityHint"/> to the engine, that every tool round keeps the turn's key, and that
 /// no other provider's request ever carries the conversation scope. Everything here goes through the same pure
-/// pieces the routes use — <see cref="HartsyLocalLLMProvider.BuildRequestCore"/> and the
-/// <see cref="ChatEndpoints"/> scope helpers — since the routes themselves need a live <c>Session</c>/host (see
+/// pieces the routes use (<see cref="HartsyLocalLLMProvider.BuildRequestCore"/> and the
+/// <see cref="ChatEndpoints"/> scope helpers), since the routes themselves need a live <c>Session</c>/host (see
 /// <see cref="HartsyLocalLLMProviderTests"/>' own class doc).</summary>
 public class ConversationPrefixCacheTests
 {

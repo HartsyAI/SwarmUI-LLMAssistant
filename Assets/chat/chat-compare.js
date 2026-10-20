@@ -32,7 +32,7 @@
         return (m && (m.name || m.id)) || modelId || '(model)';
     }
 
-    /** Every place a given model id can run — one option per (backend, device) pair. A single local backend
+    /** Every place a given model id can run: one option per (backend, device) pair. A single local backend
      *  contributes several (its `devices` metadata: eg "cuda:0,cpu"); multiple backends each add their own.
      *  Each: { backendId, device, provider }. */
     function llmaModelDeviceOptions(modelId) {
@@ -118,13 +118,13 @@
     }
 
     /** If both lanes resolve to the same local device, they can't run at the same time (one device, one
-     *  pipeline) — nudge the user to split them across devices. Fires only on an explicit device change. */
+     *  pipeline), so nudge the user to split them across devices. Fires only on an explicit device change. */
     function llmaMaybeWarnSameDevice() {
         const a = llmaLaneDeviceInfo(0, LLMAState.currentModel);
         const b = llmaLaneDeviceInfo(1, LLMAState.compareModelB);
         if (a && b && a.device === b.device && a.device !== 'cloud' && a.backendId === b.backendId) {
             if (typeof llmaShowToast === 'function') {
-                llmaShowToast(`${translate('Both lanes are on')} ${a.device} — ${translate("they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.")}`, 'info');
+                llmaShowToast(`${translate('Both lanes are on')} ${a.device}: ${translate("they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.")}`, 'info');
             }
         }
     }
@@ -497,7 +497,7 @@
             llmaSetSessionState({ currentModel: model });
         }
         const keptLabel = model ? llmaModelName(model) : translate('this reply');
-        llmaShowToast(`${translate('Kept')} ${keptLabel} — ${translate('continuing single-model.')}`, 'info');
+        llmaShowToast(`${translate('Kept')} ${keptLabel}, ${translate('continuing single-model.')}`, 'info');
     }
 
     // ---- DOM: history (thread load / branch switch / converge re-render) ---------

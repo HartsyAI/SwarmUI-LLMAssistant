@@ -30,7 +30,7 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// <summary>Thin local LLM backend: maps the extension's chat input onto HartsyInference.Engine's native
 /// <see cref="ITextService"/> contract (<see cref="TextRequest"/>/<see cref="TextChunk"/>) and lets the engine
 /// own model loading, device slots, sampling, chat templating, and the vision path. No GGUF/tokenizer/pipeline
-/// code lives here — see HartsyInference's <c>TextService</c> for that orchestration.</summary>
+/// code lives here; see HartsyInference's <c>TextService</c> for that orchestration.</summary>
 public class HartsyLocalLLMProvider : LLMProviderBackend
 {
     public class HartsyLocalLLMProviderSettings : AutoConfiguration
@@ -230,11 +230,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         EngineOptions options = new() { VramPolicy = ParseVramMode(Settings.VramMode) };
         // Installs the Tools package's stream filter: it only ever does anything for a request that sets
         // TextRequest.Tools (ToolCalling.CreateFilter returns null otherwise), so this is safe to install
-        // unconditionally — every existing request without Tools set keeps its exact current code path.
+        // unconditionally; every existing request without Tools set keeps its exact current code path.
         // The format is resolved per request from the model's own template (see ToolCalling.ResolveFormat).
         ToolCalling.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
-        // builds per device key — without that it would only govern this shell engine's own unused backend.
+        // builds per device key; without that it would only govern this shell engine's own unused backend.
         Engine = new InferenceEngine(
             string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda",
             options);
@@ -272,7 +272,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         => string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : $"cuda:{Settings.GPUDeviceId}";
 
     /// <summary>The devices this backend can run a model on. A CUDA backend can also fall back to the CPU,
-    /// so it offers both — letting compare mode place one lane on the GPU and one on the CPU to run at once.</summary>
+    /// so it offers both, letting compare mode place one lane on the GPU and one on the CPU to run at once.</summary>
     private List<string> SupportedDevices()
     {
         string primary = PrimaryDeviceKey();
@@ -517,7 +517,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     }
                     break;
                 case TextChunkKind.StopReason:
-                    // Only surface truncation/cancellation/error — a normal finish (Stop) is the common case and
+                    // Only surface truncation/cancellation/error. A normal finish (Stop) is the common case and
                     // the old provider never emitted a stopReason event for it; matching that keeps the wire
                     // format's "stopReason present" signal meaning "something other than a clean finish happened".
                     if (chunk.Stop is StopReason.Length)
@@ -533,17 +533,17 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         // Log it as well as forwarding it. The wire event alone reaches the chat UI, but a
                         // caller that only accumulates text (LLMProviderBackend.Generate, and through it the
                         // one-shot and voice routes) sees nothing but an empty string, and nothing is written
-                        // anywhere else — an engine-side failure was indistinguishable from "the model chose
+                        // anywhere else, so an engine-side failure was indistinguishable from "the model chose
                         // to say nothing", at any log level. Cost an hour on 2026-09-05 to a backend left on
                         // the default Device=cuda that could not actually run.
                         Logs.Warning($"[LLMAssistant] Local LLM '{model}' stopped with an engine error on "
-                            + $"device '{deviceKey}' — no text was produced: {chunk.Text}. If this device is not usable, "
+                            + $"device '{deviceKey}', so no text was produced: {chunk.Text}. If this device is not usable, "
                             + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
                         // The engine's message rides along so the one-shot accumulator can fail the request with it.
                         await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = chunk.Text ?? "" });
                     }
                     break;
-                    // Result duplicates the text already streamed as Chunk events — LLMProviderBackend.Generate's
+                    // Result duplicates the text already streamed as Chunk events: LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
                     // double the text.
                     // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), Usage has no wire field, and only ToolLoop emits ToolResult.
@@ -597,7 +597,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 if (images.Count > 0)
                 {
                     // The chat layer inlines "[Attached image URL: ...]" into the text alongside real media so
-                    // the model can reference the path when chaining tools — that annotation must never reach a
+                    // the model can reference the path when chaining tools. That annotation must never reach a
                     // vision model's literal question (it badly degrades small VLMs), so strip it here.
                     content = StripImageAnnotations(content);
                 }
@@ -624,14 +624,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// plus <paramref name="input"/>'s per-request overrides and <paramref name="settings"/>'s provider-wide
     /// defaults into the engine's native <see cref="TextRequest"/>. Pulled out so every scalar mapping
     /// (<see cref="TextRequest.EnableThinking"/> included) is unit-testable against a freshly constructed
-    /// <see cref="HartsyLocalLLMProviderSettings"/> — the rest of <see cref="BuildRequestAsync"/> needs a live
+    /// <see cref="HartsyLocalLLMProviderSettings"/>; the rest of <see cref="BuildRequestAsync"/> needs a live
     /// host (the model path resolution reads
     /// <c>Program.ServerSettings</c>; the image-decode loop is async I/O), this does neither.
     ///
     /// <para><b>Prefix-KV reuse.</b> A request continuing a conversation (<see cref="ExtendedLLMInput.ConversationId"/>
     /// set by its route) for a known <paramref name="userId"/> carries <see cref="TextRequest.PrefixCacheKey"/>
     /// (<see cref="PrefixCacheKeyFor(string, string, string)"/>): the engine keeps that conversation's KV cache
-    /// between calls and prefills only the tokens past the longest prefix it already holds — equivalent to a fresh
+    /// between calls and prefills only the tokens past the longest prefix it already holds, equivalent to a fresh
     /// prefill, byte-identical on CPU (on CUDA the reused KV of an earlier reply came from decode steps, not one
     /// batched prefill, so it can round differently). Every round of a tool loop is built from the same input, so
     /// it carries the same key. No <see cref="TextRequest.PrefixCacheCapacityHint"/>: from engine alpha.242 it only
@@ -645,7 +645,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// the engine's prefix store with it) after every request, so a key could only make each request allocate more
     /// KV than it needs; or when <see cref="HartsyLocalLLMProviderSettings.VramMode"/> is Aggressive or Maximum
     /// (<see cref="VramModeHoldsLeastBetweenRequests"/>), which the user picked to hold the least VRAM between
-    /// requests — a retained entry is live memory that a same-process pipeline's OOM recovery or a pool trim
+    /// requests: a retained entry is live memory that a same-process pipeline's OOM recovery or a pool trim
     /// cannot reclaim, unlike a finished request's KV.
     /// <see cref="TextRequest.CacheWeightCasts"/>/<see cref="TextRequest.PreloadRedundantWeightSplits"/> stay at
     /// the backend default: nothing here measured a reason to move them.</para></summary>
@@ -714,7 +714,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Whether the VRAM Mode setting is Aggressive or Maximum, the two tiers a user picks to hold the least
-    /// VRAM between requests — <see cref="BuildRequestCore"/> keeps no conversation's KV cache between turns under
+    /// VRAM between requests, so <see cref="BuildRequestCore"/> keeps no conversation's KV cache between turns under
     /// either. Parsed exactly as <see cref="ParseVramMode"/> parses it, so a blank or unrecognized value (Auto
     /// there) keeps reuse available.</summary>
     internal static bool VramModeHoldsLeastBetweenRequests(string vramMode)
@@ -724,8 +724,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <summary>The engine prefix-cache key for one user's conversation on one model, or null unless all three are
     /// present, so a request with no conversation (or no user) never touches the engine's store. The user id comes
     /// from the server-side session, so a client choosing its own conversation id can only ever reach its own
-    /// user's entries. Hashed (SHA-256, first 128 bits) rather than concatenated, so no raw id — on the voice
-    /// routes that includes a SwarmUI session id, which is a credential — sits in the engine's key store or in
+    /// user's entries. Hashed (SHA-256, first 128 bits) rather than concatenated, so no raw id (on the voice
+    /// routes that includes a SwarmUI session id, which is a credential) sits in the engine's key store or in
     /// anything that logs it; each part is length-prefixed first, so no choice of ids makes two different triples
     /// hash the same input. The model id is case-folded, matching <see cref="ResolvePath"/>'s own comparison.</summary>
     internal static string PrefixCacheKeyFor(string userId, string conversationId, string model)
@@ -754,7 +754,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Maps the extension's role string onto the engine's native <see cref="TextRole"/>. A Tool-role
-    /// message used to fall through to <see cref="TextRole.User"/> like any other unrecognized string — harmless
+    /// message used to fall through to <see cref="TextRole.User"/> like any other unrecognized string: harmless
     /// while nothing ever constructed one, but wrong the moment something does (eg a native-tool-calling turn
     /// replaying history that already contains a <see cref="LLMRoles.Tool"/> message): the engine's chat
     /// templates render a <c>tool</c> turn differently (Qwen's <c>&lt;tool_response&gt;</c>, the Jinja
@@ -800,9 +800,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         };
     }
 
-    /// <summary>Maps one <c>{id, name, arguments}</c> wire-shaped tool call — the exact shape
+    /// <summary>Maps one <c>{id, name, arguments}</c> wire-shaped tool call (the exact shape
     /// <see cref="NativeToolCallJson"/> emits on a <c>native_tool_call</c> frame, and so what a client replaying
-    /// conversation history is expected to echo back in a <see cref="LLMMessage.ToolCalls"/> entry — onto the
+    /// conversation history is expected to echo back in a <see cref="LLMMessage.ToolCalls"/> entry) onto the
     /// engine's <see cref="NativeToolCall"/>. <c>arguments</c> is accepted either as a parsed <see cref="JObject"/>
     /// (what a client gets from the earlier frame, and what it should normally send back) or as an already-
     /// serialized JSON string (since <see cref="NativeToolCall.Arguments"/> is a string either way, a client
@@ -820,7 +820,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
     };
 
-    /// <summary>Resolves each attachment (URL/base64/data-URI) to bytes and decodes to interleaved RGB — the
+    /// <summary>Resolves each attachment (URL/base64/data-URI) to bytes and decodes to interleaved RGB, the
     /// engine's native <see cref="ImageData"/> shape, so it owns resizing/normalization per vision encoder.</summary>
     private static async Task<List<ImageData>> DecodeImagesAsync(List<LLMMediaAttachment> media, CancellationToken ct)
     {
@@ -844,7 +844,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Removes the "[Attached image URL: …]" lines the chat layer appends to a user message (for
-    /// tool-chaining). Those must never reach the VLM's question — the image is already delivered as pixels,
+    /// tool-chaining). Those must never reach the VLM's question: the image is already delivered as pixels,
     /// not as a URL, and the raw path text badly degrades small models.</summary>
     private static string StripImageAnnotations(string text)
     {
@@ -888,7 +888,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             {
                 ct.ThrowIfCancellationRequested();
                 string id = Path.GetFileName(file);
-                // mmproj projectors are companions to a text model, not selectable chat models — hide them.
+                // mmproj projectors are companions to a text model, not selectable chat models, so hide them.
                 if (id.Contains("mmproj", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;

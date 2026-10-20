@@ -27,7 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="../SwarmUI-LLMAssistant.csproj" />
     <!-- The extension references SwarmUI.dll with Private=false (the live host already has it loaded, so the
-         extension never bundles its own copy) — that keeps it out of this project's transitive closure too, but
+         extension never bundles its own copy); that keeps it out of this project's transitive closure too, but
          HartsyLocalLLMProvider's base type chain (LLMProviderBackend : AbstractLLMBackend) is still SwarmUI.dll
          metadata the compiler needs to resolve, and the CLR needs the same assembly loadable to run a single
          static method on a type whose base lives there. Unlike the extension, this test project has no host

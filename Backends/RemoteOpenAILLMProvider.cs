@@ -219,7 +219,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto
     /// the OpenAI function-tool definition (<c>{type:"function", function:{name, description, parameters}}</c>).
     /// <c>id</c> (snake_case, eg <c>generate_image</c>) is used as the function name, matching
-    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key — same reasoning as Anthropic's mapping.</summary>
+    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key; same reasoning as Anthropic's mapping.</summary>
     private static JArray BuildOpenAITools(List<JObject> tools)
     {
         JArray result = [];
@@ -247,7 +247,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <summary>Builds the OpenAI-shaped <c>content</c> for one message: a plain string when there's
     /// no media, or text + <c>image_url</c> parts otherwise. HTTPS URLs pass through; base64
     /// attachments are wrapped in a <c>data:</c> URI (local paths must already be resolved to base64
-    /// by the caller — this never touches the filesystem).</summary>
+    /// by the caller; this never touches the filesystem).</summary>
     private static JToken BuildOpenAIContent(LLMMessage msg)
     {
         if (msg.Media is null || msg.Media.Count == 0)
@@ -292,7 +292,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         }
         using Stream stream = await response.Content.ReadAsStreamAsync(ct);
         using StreamReader reader = new(stream, Encoding.UTF8);
-        // Tracks in-progress native tool_calls by their `index` — OpenAI streams id/name once on the first
+        // Tracks in-progress native tool_calls by their `index`: OpenAI streams id/name once on the first
         // delta for an index and `arguments` as incremental string fragments across subsequent deltas for
         // the same index; nothing is complete/parseable until `finish_reason == "tool_calls"` arrives.
         Dictionary<int, (string Id, string Name, StringBuilder Args)> pendingToolCalls = [];
@@ -348,7 +348,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     }
                     string finishReason = firstChoice?.Value<string>("finish_reason");
                     // finish_reason "length" means the server truncated the reply at the token cap, not
-                    // a natural stop — surface that so the UI can tell the user why.
+                    // a natural stop, so surface that and the UI can tell the user why.
                     if (finishReason == "length")
                     {
                         await onChunk(new JObject() { ["stopReason"] = "length" });

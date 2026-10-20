@@ -18,7 +18,7 @@ public static class InstructionIds
     /// <summary>Instruction-generation (meta) instruction id.</summary>
     public const string InstructionGen = "instructiongen";
     /// <summary>Short, glanceable single-paragraph replies tuned for the floating Companion overlay
-    /// (Clippy-style helper). Used when a Companion message is sent — falls back to <see cref="Chat"/>
+    /// (Clippy-style helper). Used when a Companion message is sent; falls back to <see cref="Chat"/>
     /// if an assistant has not defined its own companion text.</summary>
     public const string Companion = "companion";
 

@@ -60,7 +60,7 @@ public class ExtendedLLMInput
 
     /// <summary>Sets the model's chat-template <c>enable_thinking</c> variable (Qwen3-family reasoning-block
     /// toggle), mirroring <see cref="HartsyInference.Engine.Requests.TextRequest.EnableThinking"/> exactly:
-    /// null leaves it undefined so the template falls back to its own default — today's behavior for every
+    /// null leaves it undefined so the template falls back to its own default, today's behavior for every
     /// existing caller, none of which set this. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently
     /// honors it; ignored by a provider/template without a thinking slot.</summary>
     public bool? EnableThinking;
@@ -224,14 +224,14 @@ public class ExtendedLLMInput
     /// <summary>Creates an ExtendedLLMInput from an already-parsed conversation (eg
     /// <see cref="Hartsy.Extensions.LLMAssistant.WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s optional
     /// <c>messages</c> request field, oldest first). Prepends <paramref name="systemPrompt"/> as a new leading
-    /// system message unless <paramref name="messages"/> already opens with one — the same rule
+    /// system message unless <paramref name="messages"/> already opens with one; the same rule
     /// <c>HartsyInference.LLM.Generation.PromptBuilder.WithSystemPrompt</c> applies at the engine's own
     /// prompt-build layer, kept here too so this type's own invariant (see <see cref="SystemPrompt"/>'s doc:
     /// mirrored into <see cref="Messages"/>[0]) never ends up carrying two system turns into
     /// <see cref="Backends.HartsyLocalLLMProvider.BuildRequestAsync"/>, which trusts that invariant completely
-    /// (it never sets <c>TextRequest.SystemPrompt</c>, on purpose — see that method's own comment). When
-    /// <paramref name="messages"/> already opens with a system turn, <em>that turn's own content</em> — not
-    /// <paramref name="systemPrompt"/> — is what gets mirrored into <see cref="SystemPrompt"/>, since the
+    /// (it never sets <c>TextRequest.SystemPrompt</c>, on purpose; see that method's own comment). When
+    /// <paramref name="messages"/> already opens with a system turn, <em>that turn's own content</em>, not
+    /// <paramref name="systemPrompt"/>, is what gets mirrored into <see cref="SystemPrompt"/>, since the
     /// caller's own system message is what will actually reach the model.</summary>
     public static ExtendedLLMInput CreateFromMessages(List<LLMMessage> messages, string systemPrompt = null, string model = null)
     {

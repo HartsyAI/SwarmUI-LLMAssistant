@@ -7,23 +7,23 @@ using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
-/// <summary>Pins <see cref="ChatEndpoints.WatchForDisconnectAsync"/> — the fix for a real, independent-review-found
+/// <summary>Pins <see cref="ChatEndpoints.WatchForDisconnectAsync"/>: the fix for a real, independent-review-found
 /// bug in <see cref="ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s WebSocket lifecycle. The earlier version started
 /// the background "watch for a disconnect" receive with a token tied to the turn's own lifetime and cancelled it
 /// once the turn finished, intending to "clean up" the dangling receive. Cancelling a pending
-/// <c>WebSocket.ReceiveAsync</c> instead aborts the whole socket (undocumented behavior, not a guess — this file
+/// <c>WebSocket.ReceiveAsync</c> instead aborts the whole socket (undocumented behavior, not a guess; this file
 /// reproduces it against a real loopback socket, not a mock), and SwarmUI's own request handler calls
 /// <c>socket.CloseAsync(...)</c> unconditionally right after every WS route returns; an <c>Aborted</c> socket is
 /// not a state <c>CloseAsync</c> accepts. The reviewer's empirical repro found this threw on roughly 41% of
-/// otherwise-completely-normal turns — a coin-flip failure rate that unit tests against a fake/mocked
+/// otherwise-completely-normal turns; a coin-flip failure rate that unit tests against a fake/mocked
 /// <see cref="WebSocket"/> would never catch, because the bug lives entirely in the real
 /// <c>ManagedWebSocket</c>'s state machine, not in this extension's own code. Every test here therefore runs a
 /// real <see cref="HttpListener"/> server socket against a real <see cref="ClientWebSocket"/> client over
-/// loopback TCP — the same shape the reviewer's repro used — rather than a fake or mocked socket.
+/// loopback TCP, the same shape the reviewer's repro used, rather than a fake or mocked socket.
 ///
 /// <para>Covers the three scenarios the fix needs to get right: (a) 200 repetitions of a normal
 /// turn-finishes-then-framework-closes completion, asserting zero exceptions and that the socket ends
-/// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once" — the original bug was intermittent,
+/// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once"; the original bug was intermittent,
 /// so one passing iteration proves nothing); (b) an ungraceful client abort mid-turn cancels the turn's own
 /// cancellation token promptly; (c) the same abort, while something is actively awaiting that exact token
 /// (standing in for a long-running tool handler: the route hands <c>turnCancel.Token</c> to <c>ToolTurnRunner</c>,

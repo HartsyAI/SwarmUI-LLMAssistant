@@ -21,8 +21,8 @@ public static class ChatEndpoints
 
     /// <summary>Uploads an image the user just attached to chat: parses the data URI, resizes if
     /// needed (long edge capped at <see cref="MediaStorageService.MaxDimension"/>), writes to the
-    /// user's per-user uploads dir, and returns the served URL. The frontend stores the URL —
-    /// not the base64 — on the message so thread blobs stay slim.</summary>
+    /// user's per-user uploads dir, and returns the served URL. The frontend stores the URL,
+    /// not the base64, on the message so thread blobs stay slim.</summary>
     public static async Task<JObject> LLMAssistantUploadChatImage(Session session, JObject rawInput)
     {
         if (session?.User is null)
@@ -147,7 +147,7 @@ public static class ChatEndpoints
     }
 
     /// <summary>Non-streaming completion for instruction/utility callers (eg prompt enhancement,
-    /// magic vision). Does NOT touch chat threads — pass an explicit <paramref name="message"/>
+    /// magic vision). Does NOT touch chat threads; pass an explicit <paramref name="message"/>
     /// and you get back the raw model output. For chat use the WS endpoint with a threadId. <paramref name="backendId"/> picks one of
     /// several backends serving the same model; <paramref name="device"/> overrides the backend's device (eg <c>cuda:0+cuda:1</c>).
     /// Both are part of the cache key, as is the resolved loop count (<paramref name="loops"/>, else the saved <c>loops</c>
@@ -224,7 +224,7 @@ public static class ChatEndpoints
     /// <para>Exists because the two existing paths each miss half of what a device needs.
     /// <see cref="LLMAssistantSendMessage"/> is one-shot but has no tool loop, so the assistant can talk and
     /// nothing else. <c>LLMAssistantSendMessageWS</c> has the tool loop but is a WebSocket carrying incremental
-    /// frames and requires a stored thread — the wrong shape for a microcontroller that wants one request and
+    /// frames and requires a stored thread; the wrong shape for a microcontroller that wants one request and
     /// one answer.</para>
     ///
     /// <para>Device actions (<c>set_led_profile</c>, <c>set_volume</c>, <c>mute_mic</c>) execute as no-ops
@@ -232,10 +232,10 @@ public static class ChatEndpoints
     /// <see cref="Tools.BuiltIn.DeviceActionTool"/>. Server-side tools still run normally here, so the same turn
     /// can search the web and dim the lights.</para>
     ///
-    /// <para>Stateless like <see cref="LLMAssistantSendMessage"/> — no thread is loaded or written. Unlike it,
+    /// <para>Stateless like <see cref="LLMAssistantSendMessage"/>; no thread is loaded or written. Unlike it,
     /// nothing is cached: a voice assistant asked the same thing twice should answer twice, not replay one
     /// canned reply. The local engine still reuses the system prompt and tool definitions across calls (see
-    /// <see cref="VoiceTurnConversationId"/>) — reused KV, never a reused reply.</para>
+    /// <see cref="VoiceTurnConversationId"/>); reused KV, never a reused reply.</para>
     ///
     /// <para>Request: <c>{ message (required), assistantId?, model?, temperature?, maxTokens?, loops? }</c> (<c>loops</c> as on
     /// <see cref="LLMAssistantVoiceTurnWS"/>). Response: <c>{ success, response, toolCalls: [{ name, arguments }], truncated? }</c>.</para></summary>
@@ -251,7 +251,7 @@ public static class ChatEndpoints
             }
             JObject settings = SettingsService.GetMergedSettings(session.User);
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
-            // A voice satellite sends an utterance and nothing else — there is no model picker on a device
+            // A voice satellite sends an utterance and nothing else; there is no model picker on a device
             // with no screen. Left unresolved, the empty id reaches the provider and comes back as
             // "LLM model '' not found in the LLM model folder(s)", which reads like a missing file rather
             // than a missing request field. Verified on hardware 2026-09-05: this was the whole failure.
@@ -462,25 +462,25 @@ public static class ChatEndpoints
     }
 
     /// <summary>Watches <paramref name="socket"/> for a disconnect and invokes <paramref name="onDisconnect"/>
-    /// exactly once when it happens — on a received <see cref="WebSocketMessageType.Close"/> frame, or on any
+    /// exactly once when it happens: on a received <see cref="WebSocketMessageType.Close"/> frame, or on any
     /// exception from <see cref="WebSocket.ReceiveAsync(ArraySegment{byte}, CancellationToken)"/> (a reset
     /// connection, a transport error, etc; treated the same as a clean close since this route has no way to
-    /// tell those apart and no reason to react differently). An unexpected <c>Text</c>/<c>Binary</c> frame —
-    /// nothing is expected from the client on this route — is <b>not</b> treated as a disconnect; it keeps
+    /// tell those apart and no reason to react differently). An unexpected <c>Text</c>/<c>Binary</c> frame
+    /// (nothing is expected from the client on this route) is <b>not</b> treated as a disconnect; it keeps
     /// receiving instead of ending the watch early.
     ///
     /// <para><b>Always receives with <see cref="CancellationToken.None"/>, never a token the caller might
     /// cancel.</b> An earlier version of this took a token tied to the turn's own lifetime and cancelled the
-    /// pending receive when the turn finished normally, to "clean up" — but cancelling a pending
+    /// pending receive when the turn finished normally, to "clean up", but cancelling a pending
     /// <c>ReceiveAsync</c> aborts the whole <see cref="WebSocket"/> (observed, not just documented:
     /// <c>Tests/VoiceTurnWsDisconnectTests.cs</c> reproduces it against a real loopback socket). SwarmUI's own
     /// request handler calls <c>socket.CloseAsync(...)</c> unconditionally right after the route returns
     /// (<c>API.cs</c>, not wrapped in its own try/catch), and an <c>Aborted</c> socket is not a state
-    /// <c>CloseAsync</c> accepts — it threw on roughly 41% of otherwise-completely-normal turns. Leaving the
+    /// <c>CloseAsync</c> accepts; it threw on roughly 41% of otherwise-completely-normal turns. Leaving the
     /// receive outstanding and uncancelled is what lets it work: .NET's own <c>ManagedWebSocket.CloseAsync</c>
     /// waits on an already-outstanding receive to complete the close handshake instead of starting a second
     /// one, so the close frame <c>CloseAsync</c> sends (and the peer's reply to it) is exactly what completes
-    /// this method's own pending <c>ReceiveAsync</c> — this method's job is only to notice that and call
+    /// this method's own pending <c>ReceiveAsync</c>; this method's job is only to notice that and call
     /// <paramref name="onDisconnect"/>, never to make the receive happen sooner.</para></summary>
     internal static async Task WatchForDisconnectAsync(WebSocket socket, Action onDisconnect)
     {
@@ -507,8 +507,8 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Parses <see cref="LLMAssistantVoiceTurnWS"/>'s optional <c>messages</c> request field —
-    /// <c>[{role, content, toolCallId?, name?, toolCalls?}, …]</c> — into the extension's own
+    /// <summary>Parses <see cref="LLMAssistantVoiceTurnWS"/>'s optional <c>messages</c> request field,
+    /// <c>[{role, content, toolCallId?, name?, toolCalls?}, …]</c>, into the extension's own
     /// <see cref="LLMMessage"/> shape. An entry's <c>toolCalls</c> is expected in the same <c>{id, name,
     /// arguments}</c> shape a <c>native_tool_call</c> frame sent earlier in the same session, so a client can
     /// replay its own history (including an earlier native tool call/result pair) back verbatim. A non-object
@@ -549,8 +549,8 @@ public static class ChatEndpoints
 
     /// <summary><see cref="ExtendedLLMInput.ConversationId"/> for a stored chat thread: the thread is the
     /// conversation, and every route here loads it through <see cref="ThreadStorageService.GetThread"/> for the
-    /// calling user before building an input from it. Edits and regenerations stay on the same id — the engine
-    /// reuses the prefix up to wherever the new branch diverges — and compare-mode lanes share it, since the
+    /// calling user before building an input from it. Edits and regenerations stay on the same id (the engine
+    /// reuses the prefix up to wherever the new branch diverges), and compare-mode lanes share it, since the
     /// provider keys each lane's model separately. Null for a blank id.</summary>
     internal static string ThreadConversationId(string threadId)
         => string.IsNullOrWhiteSpace(threadId) ? null : $"thread:{threadId}";
@@ -670,7 +670,7 @@ public static class ChatEndpoints
 
     /// <summary>Edits a user message into a NEW branch and streams a fresh reply. The original message and
     /// the subtree beneath it are kept as a sibling branch (switchable via the pager); the edited copy
-    /// becomes the active branch. WS — same streaming protocol as <see cref="LLMAssistantSendMessageWS"/>.
+    /// becomes the active branch. WS, same streaming protocol as <see cref="LLMAssistantSendMessageWS"/>.
     /// Request: <c>{ threadId, messageId (edited message), content, userMessageId (id for the new branch
     /// node), assistantMessageId, model?, ... }</c>.</summary>
     public static async Task<JObject> LLMAssistantEditMessageWS(WebSocket socket, Session session, JObject rawInput)
@@ -707,8 +707,8 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Regenerates an assistant reply as a NEW sibling branch — the previous reply stays switchable
-    /// via the pager — and streams it. WS. Request: <c>{ threadId, messageId (assistant reply to regen),
+    /// <summary>Regenerates an assistant reply as a NEW sibling branch (the previous reply stays switchable
+    /// via the pager) and streams it. WS. Request: <c>{ threadId, messageId (assistant reply to regen),
     /// assistantMessageId, model?, ... }</c>.</summary>
     public static async Task<JObject> LLMAssistantRegenerateWS(WebSocket socket, Session session, JObject rawInput)
     {
@@ -725,7 +725,7 @@ public static class ChatEndpoints
             JToken pidTok = target["parentId"];
             string parentId = pidTok is null || pidTok.Type == JTokenType.Null ? null : pidTok.ToString();
             if (string.IsNullOrEmpty(parentId)) { return Fail("Cannot regenerate a message with no preceding turn."); }
-            // Move the active leaf to the preceding turn; the streamed reply appends as a new child — a
+            // Move the active leaf to the preceding turn; the streamed reply appends as a new child, a
             // sibling of the previous reply.
             if (ThreadStorageService.SetActiveLeaf(session.User, threadId, parentId) is null)
             {
@@ -765,7 +765,7 @@ public static class ChatEndpoints
             return;
         }
         // Assistant is locked to the thread (set at creation). Per-message override would make history
-        // confusing — assistant identity is part of the thread's identity.
+        // confusing; assistant identity is part of the thread's identity.
         string assistantId = thread["assistantId"]?.ToString();
         JObject settings = SettingsService.GetMergedSettings(session.User);
         if (string.IsNullOrEmpty(assistantId))
@@ -824,8 +824,8 @@ public static class ChatEndpoints
 
     /// <summary>Claude/ChatGPT-style auto-titling: right after a chat's first exchange, asks the model
     /// for a short title and replaces the raw-first-message fallback with it. No-ops once the title has
-    /// been claimed (by a prior attempt or a manual rename — see <see cref="ThreadStorageService.NeedsGeneratedTitle"/>),
-    /// and never throws into the caller — a failed title generation just leaves the fallback title in place.</summary>
+    /// been claimed (by a prior attempt or a manual rename; see <see cref="ThreadStorageService.NeedsGeneratedTitle"/>),
+    /// and never throws into the caller; a failed title generation just leaves the fallback title in place.</summary>
     private static async Task MaybeGenerateTitleAsync(WebSocket socket, Session session, string threadId, string model)
     {
         try
@@ -920,7 +920,7 @@ public static class ChatEndpoints
     /// <summary>Whether tool-calling is active for this thread: an explicit per-thread override (set via
     /// <see cref="ThreadEndpoints.LLMAssistantSetThreadToolsEnabled"/>) wins; otherwise falls back to the
     /// resolved assistant's master switch. Callers must pass an empty tools list when this is false so
-    /// tools are never attached to the request — small local GGUF models get confused by tool descriptions
+    /// tools are never attached to the request; small local GGUF models get confused by tool descriptions
     /// they should not see.</summary>
     private static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
     {
@@ -984,7 +984,7 @@ public static class ChatEndpoints
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
         int loops = ReadPositiveInt(rawInput, "loops");
         bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
-        // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
+        // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
@@ -1051,7 +1051,7 @@ public static class ChatEndpoints
             }
             catch (Exception ex)
             {
-                // Isolate a lane failure — the other lane(s) must keep streaming. Surface as a lane-tagged error.
+                // Isolate a lane failure; the other lane(s) must keep streaming. Surface as a lane-tagged error.
                 Logs.Error($"[LLMAssistant] Compare lane {lane} ({L.Model}) failed: {ex.Message}");
                 await SendJsonLane(socket, sendLock, lane, new JObject { ["error"] = ex.Message });
             }
@@ -1105,7 +1105,7 @@ public static class ChatEndpoints
     }
 
     /// <summary>Reads stored thread messages, applies maxContextMessages truncation.
-    /// Source of truth is the saved thread — the client cannot inject fake history.
+    /// Source of truth is the saved thread; the client cannot inject fake history.
     /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
     /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.</summary>
     private static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
@@ -1147,7 +1147,7 @@ public static class ChatEndpoints
                     urlsForContext.Add(url);
                 }
                 // Inline the URL(s) as a system-style annotation so the LLM has the path
-                // accessible as text — needed for tool calls like generate_image's initImage.
+                // accessible as text; needed for tool calls like generate_image's initImage.
                 // The LLM sees the image natively via vision; this just lets it *reference*
                 // the URL string when chaining tools.
                 if (urlsForContext.Count > 0)

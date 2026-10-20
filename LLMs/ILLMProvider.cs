@@ -5,11 +5,11 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>The single seam between the extension and whatever actually runs an LLM.
 /// <para>Everything in the stable extension core (chat, threads, tools, companion, T2I) talks only
-/// to this interface and the extension's own DTOs — it never names a concrete backend or SwarmUI's
+/// to this interface and the extension's own DTOs; it never names a concrete backend or SwarmUI's
 /// <c>AbstractLLMBackend</c>. The concrete implementations live in the removable <c>Backends/</c>
 /// pack and register themselves via <see cref="LLMProviderRegistry"/>.</para>
 /// <para>When SwarmUI ships a rich native LLM API, delete the pack and add one thin
-/// <c>ILLMProvider</c> that adapts the native backend — nothing else changes.</para></summary>
+/// <c>ILLMProvider</c> that adapts the native backend; nothing else changes.</para></summary>
 public interface ILLMProvider
 {
     /// <summary>Stable provider id (eg <c>"hartsy-local"</c>, <c>"anthropic"</c>).</summary>
@@ -38,7 +38,7 @@ public interface ILLMProvider
 
     /// <summary>Exact token count for the given text, or null if this provider can't tokenize cheaply
     /// (the caller then falls back to a chars/4 heuristic). Implementations must never block on a
-    /// model load — return null instead.</summary>
+    /// model load; return null instead.</summary>
     int? CountTokens(string text);
 
     /// <summary>Unloads any resident model(s) to free VRAM/RAM (eg to make room for an image model).

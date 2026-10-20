@@ -14,7 +14,7 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// <see cref="LLMProviderRegistry"/> on <see cref="Init"/> and removes it on <see cref="Shutdown"/>,
 /// bridges the thin core <c>Generate</c>/<c>GenerateLive</c> overloads to the rich ones, and
 /// provides a default streaming-accumulator <see cref="Generate(ExtendedLLMInput)"/>.</para>
-/// <para>This whole <c>Backends/</c> folder is the removable pack — delete it (and the
+/// <para>This whole <c>Backends/</c> folder is the removable pack; delete it (and the
 /// <c>LLMBackendPack.Register()</c> call) to fall back to a native Swarm LLM API.</para></summary>
 public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
 {

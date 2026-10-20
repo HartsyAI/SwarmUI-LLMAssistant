@@ -123,13 +123,13 @@ public class AnthropicLLMProvider : LLMProviderBackend
                 : new JObject { ["type"] = "auto" };
         }
         // temperature / top_p were removed on the current flagship generation (Opus 4.7+, Sonnet 5, Fable 5)
-        // and return a 400 if sent — only forward them for models that still accept them. Even where accepted,
-        // Claude 4+ rejects specifying BOTH ("temperature and top_p cannot both be specified") — send only one.
+        // and return a 400 if sent, so only forward them for models that still accept them. Even where accepted,
+        // Claude 4+ rejects specifying BOTH ("temperature and top_p cannot both be specified"), so send only one.
         if (AcceptsSamplingParams(model))
         {
             if (input.Temperature >= 0)
             {
-                // Anthropic's temperature range is 0–1.0 (the UI slider goes to 2, OpenAI-style) — clamp.
+                // Anthropic's temperature range is 0 to 1.0 (the UI slider goes to 2, OpenAI-style), so clamp.
                 body["temperature"] = Math.Min(input.Temperature, 1.0);
             }
             else if (input.TopP >= 0 && input.TopP < 1.0)
@@ -141,7 +141,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Whether a model accepts the <c>temperature</c>/<c>top_p</c> sampling params. Anthropic
-    /// removed them on the current flagship generation (Opus 4.7/4.8, Sonnet 5, Fable 5) — sending them
+    /// removed them on the current flagship generation (Opus 4.7/4.8, Sonnet 5, Fable 5); sending them
     /// there returns a 400. Allowlist of older families that still accept them; unknown/new models default
     /// to OFF so a request never fails on an unrecognized model.</summary>
     private static bool AcceptsSamplingParams(string model)
@@ -246,7 +246,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     /// <summary>Builds the Anthropic-shaped <c>content</c> for one message: a plain string when
     /// there's no media, or text + image blocks otherwise. HTTPS URLs use the <c>url</c> source
     /// form; everything else uses <c>base64</c> (local paths must already be resolved to base64 by
-    /// the caller — this never touches the filesystem).</summary>
+    /// the caller; this never touches the filesystem).</summary>
     private static JToken BuildAnthropicContent(LLMMessage msg)
     {
         if (msg.Media is null || msg.Media.Count == 0)
@@ -280,8 +280,8 @@ public class AnthropicLLMProvider : LLMProviderBackend
 
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>, the
     /// same shape the engine's tool definitions are built from) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
-    /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c> —
-    /// not the human display <c>name</c> field — since that's what <c>ToolExecutorService.ExecuteTool</c>
+    /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c>,
+    /// not the human display <c>name</c> field, since that's what <c>ToolExecutorService.ExecuteTool</c>
     /// dispatches on for the returned tool_use block.</summary>
     private static JArray BuildAnthropicTools(List<JObject> tools)
     {
@@ -331,7 +331,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
         using Stream stream = await response.Content.ReadAsStreamAsync(linked.Token);
         using StreamReader reader = new(stream, Encoding.UTF8);
         string currentEvent = "";
-        // Tracks in-progress native tool_use blocks by their content-block index — Anthropic streams a
+        // Tracks in-progress native tool_use blocks by their content-block index: Anthropic streams a
         // block's `input` as incremental `input_json_delta.partial_json` fragments (never mid-stream
         // parseable on their own), only complete/valid once the block's content_block_stop arrives.
         Dictionary<int, (string Id, string Name, StringBuilder Json)> pendingToolUse = [];
@@ -412,7 +412,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
                 else if (currentEvent == "message_delta")
                 {
                     // stop_reason "max_tokens" means Anthropic cut the reply off at the token cap, not
-                    // because the model was done — surface that so the UI can tell the user why.
+                    // because the model was done, so surface that and the UI can tell the user why.
                     string stopReason = parsed.Value<JObject>("delta")?.Value<string>("stop_reason");
                     if (stopReason == "max_tokens")
                     {
@@ -427,7 +427,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
         }
     }
 
-    /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases —
+    /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases,
     /// never date-suffixed IDs. Older Claude 3.x / 4.0 models were retired and 404 if requested.</summary>
     // TODO: Talk to mcmonkey about a better way to get the model list. For now this is hardcoded, so new
     // Claude models stay invisible until someone edits it. Fetching /v1/models needs an API key, and

@@ -6,7 +6,7 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// <summary>Routes LLM requests to a registered <see cref="ILLMProvider"/>.
 /// <para>When the request names a model, the dispatcher asks each provider's
 /// <see cref="ILLMProvider.ListModels"/> which one owns it. Otherwise it uses the first
-/// registered provider. Providers are supplied by the removable <c>Backends/</c> pack — with none
+/// registered provider. Providers are supplied by the removable <c>Backends/</c> pack; with none
 /// registered, every call reports "no LLM backend running".</para></summary>
 public static class LLMDispatcher
 {
