@@ -120,7 +120,7 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
-    public async Task ReasoningIsWrappedInThinkTagsAndNeverFedBackToTheModel()
+    public async Task ReasoningIsFedBackToTheNextRoundAsAThinkBlock()
     {
         ScriptedChatProvider provider = new(
             [new TextChunk { Kind = TextChunkKind.Reasoning, Text = "pondering" }, Call("c1", "get_time"), Stop(StopReason.ToolCall)],
@@ -132,7 +132,43 @@ public class ToolTurnRunnerTests
         Assert.StartsWith("<think>pondering</think>", outcome.FullText, StringComparison.Ordinal);
         Assert.Equal(["reasoning:pondering", "reasoning_end", "tool_call:get_time", "tool_result:get_time", "iteration:2", "chunk:answer", "done"], sink.Events);
         Assert.Equal("answer", outcome.SpokenText);
-        Assert.DoesNotContain(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && (m.Content ?? "").Contains("<think>", StringComparison.Ordinal));
+        // Round two sees the reasoning of the round that made the call, as a think block on that assistant turn (as main did).
+        LLMMessage callTurn = Assert.Single(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 });
+        Assert.Equal("<think>pondering</think>", callTurn.Content);
+    }
+
+    [Fact]
+    public async Task ARoundWithoutReasoningLeavesItsCallTurnUnchanged()
+    {
+        ScriptedChatProvider provider = new([Call("c1", "get_time"), Stop(StopReason.ToolCall)], [Text("done"), Stop(StopReason.Stop)]);
+        await ToolTurnRunner.RunAsync(Input(GetTime()), Context(provider, (_, _) => Task.FromResult(new JObject { ["ok"] = true }), []), new RecordingChatSink());
+
+        LLMMessage callTurn = Assert.Single(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 });
+        Assert.Equal("", callTurn.Content);
+    }
+
+    [Fact]
+    public async Task AnInlineThinkBlockIsNotWrappedAgain()
+    {
+        // A template that writes its reasoning as visible text (Qwen3) already carries it in the call turn's content.
+        ScriptedChatProvider provider = new([Text("<think>x</think>"), Call("c1", "get_time"), Stop(StopReason.ToolCall)], [Text("y"), Stop(StopReason.Stop)]);
+        await ToolTurnRunner.RunAsync(Input(GetTime()), Context(provider, (_, _) => Task.FromResult(new JObject { ["ok"] = true }), []), new RecordingChatSink());
+
+        LLMMessage callTurn = Assert.Single(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 });
+        Assert.Equal("<think>x</think>", callTurn.Content);
+    }
+
+    [Fact]
+    public async Task EachCallRoundsReasoningReachesItsOwnTurnInOrder()
+    {
+        ScriptedChatProvider provider = new(
+            [new TextChunk { Kind = TextChunkKind.Reasoning, Text = "one" }, Call("c1", "get_time"), Stop(StopReason.ToolCall)],
+            [new TextChunk { Kind = TextChunkKind.Reasoning, Text = "two" }, Call("c2", "get_time"), Stop(StopReason.ToolCall)],
+            [Text("done"), Stop(StopReason.Stop)]);
+        await ToolTurnRunner.RunAsync(Input(GetTime()), Context(provider, (_, _) => Task.FromResult(new JObject { ["ok"] = true }), []), new RecordingChatSink());
+
+        List<LLMMessage> calls = provider.Inputs[2].Messages.Where(m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 }).ToList();
+        Assert.Equal(["<think>one</think>", "<think>two</think>"], calls.Select(m => m.Content));
     }
 
     [Fact]

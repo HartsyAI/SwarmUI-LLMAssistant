@@ -131,6 +131,7 @@ public static class ToolTurnRunner
         bool inReasoning = false;
         int round = 1;
         bool runsTools = input.Tools is { Count: > 0 };
+        ReasoningReplay replay = new();
         async Task AppendText(string text)
         {
             fullText.Append(text);
@@ -150,7 +151,7 @@ public static class ToolTurnRunner
         try
         {
             IAsyncEnumerable<TextChunk> chunks = runsTools
-                ? ToolLoop.Create(MakeRoundStream(input, provider), SeedRequest(input), new HostToolDispatcher(resolved, input), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
+                ? ToolLoop.Create(MakeRoundStream(input, provider, replay), SeedRequest(input), new HostToolDispatcher(resolved, input), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
                 : provider.StreamAsync(input, linked.Token);
             await foreach (TextChunk chunk in chunks.WithCancellation(linked.Token))
             {
@@ -186,6 +187,7 @@ public static class ToolTurnRunner
                         }
                         fullText.Append(chunk.Text);
                         roundText.Append(chunk.Text);
+                        replay.Add(chunk.Text ?? "");
                         await sink.Reasoning(chunk.Text ?? "");
                         break;
                     case TextChunkKind.NativeToolCall when chunk.ToolCall is { } call:
@@ -387,14 +389,57 @@ public static class ToolTurnRunner
     };
 
     /// <summary>One model round: the input's own messages plus whatever the loop appended, through the provider's stream.</summary>
-    private static Func<TextRequest, CancellationToken, IAsyncEnumerable<TextChunk>> MakeRoundStream(ExtendedLLMInput input, ILLMProvider provider)
+    private static Func<TextRequest, CancellationToken, IAsyncEnumerable<TextChunk>> MakeRoundStream(ExtendedLLMInput input, ILLMProvider provider,
+        ReasoningReplay replay)
     {
         int baseCount = input.Messages.Count;
         return (request, token) =>
         {
-            List<LLMMessage> appended = [.. request.Messages.Skip(baseCount).Select(LLMMessageMapping.FromAppendedTextMessage)];
+            List<LLMMessage> appended = replay.Carry([.. request.Messages.Skip(baseCount).Select(LLMMessageMapping.FromAppendedTextMessage)]);
             return provider.StreamAsync(input.CloneForRound(appended, request.ForceToolId), token);
         };
+    }
+
+    /// <summary>Carries each round's reasoning into the assistant turn that round made, as a think block, so the next round sees it.</summary>
+    private sealed class ReasoningReplay
+    {
+        /// <summary>The reasoning of each finished round that made calls, in order.</summary>
+        private readonly List<string> _callRounds = [];
+
+        /// <summary>The reasoning of the round being streamed.</summary>
+        private readonly StringBuilder _open = new();
+
+        /// <summary>Whether a round has streamed, so the open round has finished by the next call of the stream.</summary>
+        private bool _streamed;
+
+        /// <summary>Adds streamed reasoning to the open round.</summary>
+        public void Add(string text) => _open.Append(text);
+
+        /// <summary>Closes the round that just finished, then prefixes each assistant turn that made calls with its round's think block.</summary>
+        public List<LLMMessage> Carry(List<LLMMessage> appended)
+        {
+            if (_streamed)
+            {
+                _callRounds.Add(_open.ToString());
+                _open.Clear();
+            }
+            _streamed = true;
+            int call = 0;
+            foreach (LLMMessage message in appended)
+            {
+                if (message.Role != LLMRoles.Assistant || message.ToolCalls is not { Count: > 0 })
+                {
+                    continue;
+                }
+                string thought = call < _callRounds.Count ? _callRounds[call] : "";
+                call++;
+                if (thought.Length > 0)
+                {
+                    message.Content = "<think>" + thought + "</think>" + message.Content;
+                }
+            }
+            return appended;
+        }
     }
 
     /// <summary>The wire name of a stop reason; null for a natural stop.</summary>
