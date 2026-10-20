@@ -106,11 +106,18 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     /// <summary>Calls the model made that have no result yet, by id.</summary>
     private readonly Dictionary<string, JObject> _pendingCalls = new(StringComparer.Ordinal);
 
+    /// <summary>Strips inline think spans from the chunk text, so a passthrough reasoning trace is not spoken.</summary>
+    private readonly ThinkSpanFilter _speech = new();
+
     /// <inheritdoc/>
     public bool IsOpen => isOpen();
 
     /// <inheritdoc/>
-    public Task Chunk(string text) => Send(new JObject { ["chunk"] = text });
+    public Task Chunk(string text)
+    {
+        string spoken = _speech.Feed(text);
+        return spoken.Length == 0 ? Task.CompletedTask : Send(new JObject { ["chunk"] = spoken });
+    }
 
     /// <inheritdoc/>
     public Task Reasoning(string text) => Task.CompletedTask;
@@ -175,6 +182,11 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     public async Task Done(ToolTurnOutcome outcome)
     {
         _pendingCalls.Clear();
+        string held = _speech.Flush();
+        if (held.Length > 0)
+        {
+            await Send(new JObject { ["chunk"] = held });
+        }
         if (outcome.Truncated)
         {
             await Send(new JObject { ["notice"] = $"tool round limit reached ({outcome.RoundLimit ?? "max_rounds"}); the model's last tool call was not run" });

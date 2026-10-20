@@ -326,6 +326,17 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task InlineThinkTextIsNotSpokenButIsKeptInTheReply()
+    {
+        // A template that writes its reasoning as visible text (Qwen3): the chat keeps it, the speech does not.
+        ScriptedChatProvider provider = new([Text("<think>pla"), Text("n</think>Noon."), Stop(StopReason.Stop)]);
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), []), new RecordingChatSink());
+
+        Assert.Equal("Noon.", outcome.SpokenText);
+        Assert.Equal("<think>plan</think>Noon.", outcome.FullText);
+    }
+
+    [Fact]
     public async Task SpokenTextLeavesOutTheReasoningTrace()
     {
         ScriptedChatProvider provider = new([new TextChunk { Kind = TextChunkKind.Reasoning, Text = "private" }, Text("public answer"), Stop(StopReason.Stop)]);

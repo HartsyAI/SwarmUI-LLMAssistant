@@ -118,6 +118,7 @@ public static class ToolTurnRunner
         ToolTurnContext resolved = WithDefaults(ctx, input.Model);
         StringBuilder fullText = new();
         StringBuilder spokenText = new();
+        ThinkSpanFilter speech = new();
         StringBuilder roundText = new();
         List<string> roundCallIds = [];
         JArray toolEvents = [];
@@ -136,7 +137,7 @@ public static class ToolTurnRunner
         {
             fullText.Append(text);
             roundText.Append(text);
-            spokenText.Append(text);
+            spokenText.Append(speech.Feed(text));
             await sink.Chunk(text ?? "");
         }
         void CloseRound()
@@ -257,6 +258,7 @@ public static class ToolTurnRunner
             entry["result"] = stub;
             await sink.ToolNotRun(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
         }
+        spokenText.Append(speech.Flush());
         ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
             spokenText.ToString(), rounds, roundLimit, error);
         if (fullText.Length > 0 || toolEvents.Count > 0)

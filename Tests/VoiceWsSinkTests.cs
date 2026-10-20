@@ -120,4 +120,25 @@ public class VoiceWsSinkTests
         Assert.Single(frames);
         Assert.Equal("Hello.", frames[0]["chunk"]!.ToString());
     }
+
+    [Fact]
+    public async Task InlineThinkTextIsNotSentAsSpeechAcrossChunks()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+        await sink.Chunk("<think>pla");
+        await sink.Chunk("n</think>Noon.");
+        Assert.Equal("Noon.", Assert.Single(frames)["chunk"]!.ToString());
+    }
+
+    [Fact]
+    public async Task APartialTagHeldAtTheEndOfTheTurnIsSent()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+        await sink.Chunk("a <");
+        await sink.Done(new ToolTurnOutcome("a <", "stop", false, null, [], SpokenText: "a <"));
+        Assert.Collection(frames,
+            f => Assert.Equal("a ", f["chunk"]?.ToString()),
+            f => Assert.Equal("<", f["chunk"]?.ToString()),
+            f => Assert.True(f["done"]?.Value<bool>()));
+    }
 }
