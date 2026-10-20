@@ -250,7 +250,7 @@ public static class ChatEndpoints
                 return new JObject { ["success"] = false, ["error"] = "message is required." };
             }
             JObject settings = SettingsService.GetMergedSettings(session.User);
-            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            assistantId = ResolveAssistantId(assistantId, () => AssistantService.GetActiveAssistantId(settings, session.User));
             // A voice satellite sends an utterance and nothing else; there is no model picker on a device
             // with no screen. Left unresolved, the empty id reaches the provider and comes back as
             // "LLM model '' not found in the LLM model folder(s)", which reads like a missing file rather
@@ -399,7 +399,7 @@ public static class ChatEndpoints
             int loops = ReadPositiveInt(rawInput, "loops");
 
             JObject settings = SettingsService.GetMergedSettings(session.User);
-            assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
+            assistantId = ResolveAssistantId(assistantId, () => AssistantService.GetActiveAssistantId(settings, session.User));
             if (string.IsNullOrWhiteSpace(model))
             {
                 LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync();
@@ -505,6 +505,18 @@ public static class ChatEndpoints
             // Unexpected data frame: not a disconnect signal on this protocol. Loop back to ReceiveAsync
             // rather than returning, so the eventual real close (or error) is still caught.
         }
+    }
+
+    /// <summary>The assistant a request runs as: the one it names, or the active one when it names none. A blank value, including a JSON null
+    /// read as text, counts as naming none, so the assistant's tool allowlist always applies.</summary>
+    internal static string ResolveAssistantId(string requested, Func<string> activeAssistant)
+    {
+        if (!string.IsNullOrWhiteSpace(requested))
+        {
+            return requested;
+        }
+        string active = activeAssistant();
+        return string.IsNullOrWhiteSpace(active) ? AssistantConstants.DefaultId : active;
     }
 
     /// <summary>Cancels a chat turn that runs tools when its tab closes, so no later call starts and what ran is saved. A turn without
