@@ -115,7 +115,7 @@ class LLMBackendCards {
         for (let cardBody of document.querySelectorAll('.llma-card-organized')) {
             let backend = backends_loaded[cardBody.dataset.llmaBackendId];
             if (backend && cardBody.dataset.llmaType != this.localType) {
-                this.applyModelList(cardBody, backend);
+                this.applyModelList(cardBody, backend, true);
             }
         }
     }
@@ -158,7 +158,8 @@ class LLMBackendCards {
             }
             else {
                 this.prepareModelField(cardBody, backend);
-                this.applyModelList(cardBody, backend);
+                // Core renders the cards hidden at page load; ask the providers only once a card can be seen or the tab opens.
+                this.applyModelList(cardBody, backend, cardBody.offsetParent != null);
             }
             this.applyRules(cardBody);
         }
@@ -410,11 +411,16 @@ class LLMBackendCards {
         input.after(list);
     }
 
-    /** Fills Default Model from a cached LLMAssistantListBackendModels answer: suggestions on the OpenAI card, the dropdown on the Anthropic one. */
-    applyModelList(cardBody, backend) {
+    /**
+     * Fills Default Model from a cached LLMAssistantListBackendModels answer: suggestions on the OpenAI card, the dropdown on the
+     * Anthropic one. With nothing cached, asks the server only when mayAsk is set.
+     */
+    applyModelList(cardBody, backend, mayAsk) {
         let key = `${backend.id}:${backend.modcount}`;
         if (!(key in this.modelLists)) {
-            this.requestModelList(backend.id, key);
+            if (mayAsk) {
+                this.requestModelList(backend.id, key);
+            }
             return;
         }
         let list = this.modelLists[key];
@@ -460,7 +466,7 @@ class LLMBackendCards {
             let backend = backends_loaded[backendId];
             let cardBody = document.getElementById(`backend-card-${backendId}`)?.querySelector('.llma-card-organized');
             if (backend && cardBody) {
-                this.applyModelList(cardBody, backend);
+                this.applyModelList(cardBody, backend, false);
             }
         }, 0, e => {
             this.modelPending[key] = false;
