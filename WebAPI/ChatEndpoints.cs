@@ -285,20 +285,10 @@ public static class ChatEndpoints
             string spokenText = (outcome.SpokenText ?? outcome.FullText).Trim();
             JArray deviceCalls = VoiceWsSink.DeviceCalls(outcome.ToolEvents);
             bool truncated = outcome.Truncated;
-            // A turn that produced neither speech nor a device action is a failed turn, not an empty
-            // success. The provider returns "" for an engine-side failure just as it would for a model
-            // that genuinely said nothing, and a voice device cannot tell those apart: it would speak
-            // silence and log nothing, which is the least debuggable possible outcome. Callers get a
-            // real error instead. Tool-only turns ("turn the ring blue") legitimately have no speech,
-            // so they must not trip this.
-            if (spokenText.Length == 0 && deviceCalls.Count == 0)
+            if (VoiceTurnFailure(outcome, model, spokenText, deviceCalls) is JObject failure)
             {
-                return new JObject
-                {
-                    ["success"] = false,
-                    ["error"] = "The model produced no reply. This is usually a backend that cannot run "
-                        + "on its configured device — check Server > Backends and the server log."
-                };
+                Logs.Error($"[LLMAssistant] Voice turn failed: {failure["error"]}");
+                return failure;
             }
             JObject response = new()
             {
@@ -319,6 +309,28 @@ public static class ChatEndpoints
             Logs.Error($"[LLMAssistant] Voice turn failed: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
         }
+    }
+
+    /// <summary>The failure reply of <see cref="LLMAssistantVoiceTurn"/> for a finished turn, or null when it succeeded. An engine error keeps
+    /// its message, as the one-shot route reports it. A turn with neither speech nor a device action is a failure too, not an empty success: a
+    /// voice device would otherwise speak silence and log nothing. A tool-only turn ("turn the ring blue") has no speech and still succeeds.</summary>
+    internal static JObject VoiceTurnFailure(ToolTurnOutcome outcome, string model, string spokenText, JArray deviceCalls)
+    {
+        if (outcome.StopReason == "error")
+        {
+            string reason = string.IsNullOrWhiteSpace(outcome.Error) ? "the backend reported a failure without a message" : outcome.Error;
+            return new JObject { ["success"] = false, ["error"] = $"The model '{model}' stopped with an error: {reason}" };
+        }
+        if (spokenText.Length == 0 && deviceCalls.Count == 0)
+        {
+            return new JObject
+            {
+                ["success"] = false,
+                ["error"] = "The model produced no reply. This is usually a backend that cannot run "
+                    + "on its configured device; check Server > Backends and the server log."
+            };
+        }
+        return null;
     }
 
     /// <summary>Streaming variant of <see cref="LLMAssistantVoiceTurn"/>: runs the same <see cref="ToolTurnRunner"/> turn as the chat routes,
@@ -956,9 +968,12 @@ public static class ChatEndpoints
             enrichedTools.Add(handler is null ? tool : handler.EnrichForUser(tool, session, assistantId));
         }
         input.Tools = enrichedTools;
-        if (!string.IsNullOrEmpty(forceToolId) && enabledTools.Any(t => string.Equals(t["id"]?.ToString(), forceToolId, StringComparison.OrdinalIgnoreCase)))
+        // The enabled tool's own id: the local engine refuses a forced name that differs from the offered one, even in case.
+        string forcedId = string.IsNullOrEmpty(forceToolId) ? null
+            : enabledTools.Select(t => t["id"]?.ToString()).FirstOrDefault(id => string.Equals(id, forceToolId, StringComparison.OrdinalIgnoreCase));
+        if (forcedId is not null)
         {
-            input.ForceToolId = forceToolId;
+            input.ForceToolId = forcedId;
         }
         await Task.CompletedTask;
     }

@@ -57,9 +57,10 @@ public sealed class ToolTurnContext
 
 /// <summary>What a finished turn produced: its visible text, why it ended, whether the round limit cut it, and its tool events.</summary>
 /// <remarks><see cref="SpokenText"/> is the visible text alone (no reasoning), for speech; <see cref="Rounds"/> is each round's
-/// <c>{text, toolCallIds}</c>, in order; <see cref="RoundLimit"/> is the loop's limit detail (<c>max_rounds=8</c>) when it cut the turn.</remarks>
+/// <c>{text, toolCallIds}</c>, in order; <see cref="RoundLimit"/> is the loop's limit detail (<c>max_rounds=8</c>) when it cut the turn;
+/// <see cref="Error"/> is the provider's message when the turn stopped on an error.</remarks>
 public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null,
-    string RoundLimit = null);
+    string RoundLimit = null, string Error = null);
 
 /// <summary>Where a turn's events go: a chat socket, a voice socket, or a collector. <see cref="IsOpen"/> stops forwarding when the
 /// client has gone; the turn still finishes and saves.</summary>
@@ -122,6 +123,7 @@ public static class ToolTurnRunner
         string stopReason = null;
         bool truncated = false;
         string roundLimit = null;
+        string error = null;
         bool pendingIteration = false;
         bool inReasoning = false;
         int round = 1;
@@ -199,6 +201,10 @@ public static class ToolTurnRunner
                         break;
                     case TextChunkKind.StopReason:
                         stopReason = ToStopReason(chunk.Stop);
+                        if (chunk.Stop == StopReason.Error)
+                        {
+                            error = chunk.Text;
+                        }
                         break;
                 }
             }
@@ -229,7 +235,7 @@ public static class ToolTurnRunner
             await sink.ToolNotRun(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
         }
         ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
-            spokenText.ToString(), rounds, roundLimit);
+            spokenText.ToString(), rounds, roundLimit, error);
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
             resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, stopReason));

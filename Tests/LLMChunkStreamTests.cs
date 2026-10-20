@@ -34,6 +34,14 @@ public class LLMChunkStreamTests
     }
 
     [Fact]
+    public void AnErrorStopKeepsItsMessage()
+    {
+        TextChunk stop = LLMChunkStream.ToChunk(new JObject { ["stopReason"] = "error", ["error"] = "CUDA is not available." })!;
+        Assert.Equal(StopReason.Error, stop.Stop);
+        Assert.Equal("CUDA is not available.", stop.Text);
+    }
+
+    [Fact]
     public async Task StreamEndsWithAStopWhenTheProducerDoesNotSayOne()
     {
         IAsyncEnumerable<TextChunk> stream = LLMChunkStream.FromFrames(async (emit, ct) =>

@@ -185,6 +185,16 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task AnErrorStopKeepsTheProvidersMessage()
+    {
+        ScriptedChatProvider provider = new([Text("partial"), new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Error, Text = "CUDA is not available." }]);
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), []), new RecordingChatSink());
+
+        Assert.Equal("error", outcome.StopReason);
+        Assert.Equal("CUDA is not available.", outcome.Error);
+    }
+
+    [Fact]
     public async Task SpokenTextLeavesOutTheReasoningTrace()
     {
         ScriptedChatProvider provider = new([new TextChunk { Kind = TextChunkKind.Reasoning, Text = "private" }, Text("public answer"), Stop(StopReason.Stop)]);

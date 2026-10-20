@@ -76,7 +76,8 @@ public static class LLMChunkStream
                 },
             };
         }
-        if (frame["stopReason"] is { } reason) return new TextChunk { Kind = TextChunkKind.StopReason, Stop = ToStop(reason.ToString()) };
+        // An error stop keeps the provider's message, as the one-shot path reports it.
+        if (frame["stopReason"] is { } reason) return new TextChunk { Kind = TextChunkKind.StopReason, Stop = ToStop(reason.ToString()), Text = frame["error"]?.ToString() };
         if (frame["status"] is { } status) return new TextChunk { Kind = TextChunkKind.Status, Status = new TextStatus(status.ToString()) };
         return null;
     }

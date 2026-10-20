@@ -204,6 +204,18 @@ public class HartsyLocalLLMProviderTests
         }
 
         [Theory]
+        [InlineData("get_time")]
+        [InlineData(null)]
+        public void ForceToolId_ReachesTheTextRequest(string forced)
+        {
+            ExtendedLLMInput input = Input();
+            input.ForceToolId = forced;
+            TextRequest request = HartsyLocalLLMProvider.BuildRequestCore(
+                input, messages: [], tools: [new ToolDefinition { Name = "get_time" }], deviceKey: "cpu", settings: new());
+            Assert.Equal(forced, request.ForceToolId);
+        }
+
+        [Theory]
         [InlineData(null, 0, null)]
         [InlineData(null, 3, 3)]
         [InlineData(2, 3, 2)]

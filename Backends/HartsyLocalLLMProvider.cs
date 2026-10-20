@@ -436,9 +436,14 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [EnumeratorCancellation] CancellationToken ct)
     {
-        (ModelSpec spec, TextRequest request, _) = await ResolveSpecAndRequestAsync(input, ct);
+        (ModelSpec spec, TextRequest request, string deviceKey) = await ResolveSpecAndRequestAsync(input, ct);
         await foreach (TextChunk chunk in Engine.Text.StreamAsync(spec, request, ct).WithCancellation(ct))
         {
+            if (chunk.Kind == TextChunkKind.StopReason && chunk.Stop == StopReason.Error)
+            {
+                // As GenerateLive's forwarder does: an engine failure must reach the log, not only the client.
+                Logs.Warning($"[LLMAssistant] Local LLM '{input.Model}' stopped with an engine error on device '{deviceKey}': {chunk.Text}");
+            }
             yield return chunk;
         }
     }
@@ -687,6 +692,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             Loops = input.Loops is > 0 ? input.Loops : BackendDefaultLoops(settings.RecurrentLoops),
             Device = deviceKey,
             Tools = tools,
+            // The engine refuses a name that is not one of the offered tools; the tool loop clears it after round one.
+            ForceToolId = input.ForceToolId,
             GraphDecode = settings.GraphDecode ? true : null,
             SpeculativeDecode = settings.SpeculativeDecode ? true : null,
             LowVramQuant = settings.LowVramQuant ? "true" : null,
