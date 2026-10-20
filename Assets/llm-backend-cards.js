@@ -98,7 +98,26 @@ class LLMBackendCards {
             new MutationObserver(() => this.onListMutated()).observe(list, { childList: true, subtree: true });
         }
         document.addEventListener('change', e => this.onFieldChanged(e));
+        let tabButton = document.getElementById('serverbackendstabbutton');
+        if (tabButton) {
+            // Each visit asks again, so a key added in the User tab since then shows up without a page reload.
+            tabButton.addEventListener('click', () => this.refreshModelLists());
+        }
         this.enhanceAllCards();
+    }
+
+    /** Drops the cached model lists and asks again for every organized remote card. */
+    refreshModelLists() {
+        this.modelLists = {};
+        if (typeof backends_loaded == 'undefined') {
+            return;
+        }
+        for (let cardBody of document.querySelectorAll('.llma-card-organized')) {
+            let backend = backends_loaded[cardBody.dataset.llmaBackendId];
+            if (backend && cardBody.dataset.llmaType != this.localType) {
+                this.applyModelList(cardBody, backend);
+            }
+        }
     }
 
     /** Re-runs enhancement after core changes the backends list, guarding against our own writes. */
@@ -411,7 +430,10 @@ class LLMBackendCards {
             return;
         }
         let datalist = document.getElementById(field.getAttribute('list'));
-        if (datalist && datalist.options.length == 0) {
+        let signature = JSON.stringify([list.values, list.names]);
+        if (datalist && datalist.dataset.llmaSig != signature) {
+            datalist.innerHTML = '';
+            datalist.dataset.llmaSig = signature;
             for (let i = 0; i < list.values.length; i++) {
                 let option = document.createElement('option');
                 option.value = list.values[i];

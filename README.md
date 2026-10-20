@@ -764,7 +764,7 @@ The engine's CUDA kernels need an NVIDIA RTX 30-series card or newer. Set **Devi
 The value saved for that backend is not in the list this machine offers, for example a GPU that is gone or CUDA on a card that fails the CUDA check. The backend still uses it. Pick another entry and Save to change it.
 
 **Default Model doesn't list any models.**
-For an OpenAI-compatible server the list appears once the backend is saved with an **Address** that answers; for Anthropic it needs your own key in the `User` tab. Until then the field works as before. For an OpenAI-compatible server the SwarmUI log says why the list is empty; for Anthropic the browser console does.
+For an OpenAI-compatible server the list appears once the backend is saved with an **Address** that answers; for Anthropic it needs your own key in the `User` tab, and the list is asked again each time you open `Server > Backends`. Until then the field works as before. For an OpenAI-compatible server the SwarmUI log says why the list is empty; for Anthropic the browser console does.
 
 ---
 
