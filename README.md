@@ -1,6 +1,6 @@
 # SwarmUI LLM Assistant
 
-A full LLM workspace inside [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) — persistent chats, custom assistants, agentic tool calling, vision, side-by-side model comparison, a floating in-page companion, and deep Generate-tab prompt integration.
+A full LLM workspace inside [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI), persistent chats, custom assistants, agentic tool calling, vision, side-by-side model comparison, a floating in-page companion, and deep Generate-tab prompt integration.
 
 ![The LLM Assistant tab](Assets/screenshots/chat-overview.png)
 
@@ -45,11 +45,11 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 ## Highlights
 
 - **Real chats, stored on the server.** Threads are grouped by date, searchable, renameable, exportable (JSON / Markdown / plain text), and auto-titled from the first exchange. Your message is saved *before* the model is called, so a disconnect never loses it.
-- **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch — no destructive edits.
+- **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, no destructive edits.
 - **Side-by-side comparison.** Run the same prompt through two models at once, in parallel, then keep the winner.
-- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Providers with a native tool API (Anthropic, OpenAI) use it; everything else uses a text tag convention that works on any model that can stream text.
+- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and Anthropic and OpenAI-compatible endpoints use their native tool APIs.
 - **Custom assistants.** Per-mode system prompts, inheritance, per-model prompt variants, parameter overrides, avatars, and a per-assistant tool allowlist.
-- **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams — all sanitized through DOMPurify, all served locally. **No CDN, no outbound requests.**
+- **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify, all served locally. **No CDN, no outbound requests.**
 - **Floating companion.** An opt-in in-page helper that can critique your last render, suggest a preset, or explain a SwarmUI feature from the bundled docs.
 - **Prompt integration.** `<llmprompt:…>` tags in the Generate tab are expanded by the LLM at generation time.
 
@@ -73,17 +73,17 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
    git clone https://github.com/HartsyAI/SwarmUI-LLMAssistant.git
    ```
 
-2. Rebuild SwarmUI — run `update-windows.bat` or `update-linuxmac.sh` from the SwarmUI root. This restores the `HartsyInference` NuGet package the local engine needs.
+2. Rebuild SwarmUI, run `update-windows.bat` or `update-linuxmac.sh` from the SwarmUI root. This restores the `HartsyInference` NuGet package the local engine needs.
 
 3. Restart SwarmUI. An **LLM Assistant** tab appears in the main tab strip.
 
-4. (Local engine only) Drop GGUF weights into `Models/llm/`. They show up in SwarmUI's model browser too — the extension registers `LLM` as a first-class model type.
+4. (Local engine only) Drop GGUF weights into `Models/llm/`. They show up in SwarmUI's model browser too, the extension registers `LLM` as a first-class model type.
 
 ---
 
 ## Adding an LLM backend
 
-Go to `Server > Backends` — the three LLM backend types appear directly in the "Add new backend" row.
+Go to `Server > Backends`, the three LLM backend types appear directly in the "Add new backend" row.
 
 ![LLM backend types](Assets/screenshots/backend-types.png)
 
@@ -101,20 +101,19 @@ Go to `Server > Backends` — the three LLM backend types appear directly in the
 |---|---|---|
 | `Device` | `cuda` | `cuda` (NVIDIA GPU) or `cpu`. |
 | `GPUDeviceId` | `0` | CUDA ordinal. One backend instance per GPU for multi-GPU. |
-| `LowVramQuant` | `false` | Keep quantized weights compressed on-device — lower VRAM, slower decode. |
+| `LowVramQuant` | `false` | Keep quantized weights compressed on-device, lower VRAM, slower decode. |
 | `RepetitionPenalty` | `1.1` | Small models loop without this. Ignored at temperature 0. |
 | `TopK` | `40` | `0` disables. |
 | `MinP` | `0.0` | `0` disables. |
 | `AlwaysFreeMemory` | `false` | Unload the model after every generation instead of keeping it resident. |
 | `GraphDecode` | `false` | CUDA-graph decode for plain dense Llama/Qwen/Mistral shapes. Requires the request to end up greedy (temperature 0). |
 | `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
-| `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and**, for a model whose own chat template instructs Hermes JSON tool calls specifically (checked by reading its `tokenizer.chat_template` metadata, not its name), turn on real native tool calling instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. A model whose template doesn't instruct that format (Llama, Mistral, Gemma, DeepSeek R1's distillations, GLM-4.5/Qwen3.5-style XML-argument templates, or anything with no template at all) keeps using the tag convention regardless of this setting — the engine only installs one parser (Hermes) for the whole backend. [`LLMAssistantVoiceTurnWS`](#streaming-frames) runs without it too now (a `{"notice": …}` frame then a plain stream, no hard error), but still needs it for native tool dispatch specifically. |
 | `ReuseConversationPrefix` | `true` | Keep each conversation's prompt prefix cached on the device between turns (see below). No effect while `AlwaysFreeMemory` is on or with `VramMode` Aggressive or Maximum. |
 | `RecurrentLoops` | `0` | Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one: 1 = lowest latency up to 4 = highest accuracy, all from the same weights; above 4 is ignored with a warning. 0 = the checkpoint's own default. Ignored by every other model. See [looped models](#looped-models-dory). |
 
 **Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's `RecurrentLoops` default when neither is set; a request's own value wins. The chat and voice routes take it as `loops` (1 to 4); the engine rejects a count above the model's maximum. Calls the extension makes on its own (chat titles, `<llm:…>` prompt enhancement, the caption tools) use the backend default. The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
 
-**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation — a chat thread, a voice session — keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. The engine bounds what this holds, with settings in `~/.config/hartsyinference/settings.json`:
+**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation, a chat thread, a voice session, keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. The engine bounds what this holds, with settings in `~/.config/hartsyinference/settings.json`:
 
 - **Shrink to fit.** After each turn a conversation's cache shrinks to its length plus `vram.prefixCacheHeadroomTokens` (default 256), and grows again by an on-device copy when the next turn needs room. A 1,000-token Qwen3-4B chat holds about 0.34 GiB between turns.
 - **Per-conversation cap.** A conversation that would need more than `vram.prefixCacheMaxBytes` (default 1.5 GiB: about 5,200 tokens of conversation for Qwen3-4B, 24,300 for Llama-3.2-1B) is not kept at all, so a very long thread runs uncached, as every turn did before this setting existed.
@@ -133,7 +132,6 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | `DefaultModel` | *(empty)* | Used when a request doesn't name a model. |
 | `TokenLimitParameter` | `auto` | `auto` picks `max_completion_tokens` for `api.openai.com` and `max_tokens` everywhere else. |
 | `ConnectionAttemptTimeoutSeconds` | `30` | Lower this (e.g. `5`) for LAN endpoints. |
-| `NativeToolCalling` | `auto` | `auto` enables native `tools`/`tool_calls` only for `api.openai.com`. Self-hosted servers vary in quality here, so they stay on the tag convention unless you set `on`. |
 
 ### Anthropic settings
 
@@ -143,7 +141,7 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | `TimeoutSeconds` | `120` |
 | `BaseUrl` | `https://api.anthropic.com` |
 
-Anthropic's tool API is always on — there's no toggle, because it's one stable contract. Set your key in the `User` tab.
+Anthropic's tool API is always on, there's no toggle, because it's one stable contract. Set your key in the `User` tab.
 
 ---
 
@@ -155,17 +153,17 @@ Anthropic's tool API is always on — there's no toggle, because it's one stable
 
 2. Pick a model from the dropdown in the top bar.
 3. Type. `Enter` sends, `Shift+Enter` makes a newline, `/` opens the tool picker, and the paperclip (or a drag-and-drop) attaches an image.
-4. Everything else — parameters, export, settings, the assistant panel — hangs off the top bar and the right-hand panel.
+4. Everything else, parameters, export, settings, the assistant panel, hangs off the top bar and the right-hand panel.
 
 ---
 
 ## The interface
 
-**Left sidebar** — chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
+**Left sidebar**, chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
 
-**Top bar** — thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings.
+**Top bar**, thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings.
 
-**Right panel** — the active assistant (with capability badges), live message/token counters, and the thread's Assets index.
+**Right panel**, the active assistant (with capability badges), live message/token counters, and the thread's Assets index.
 
 Both split bars are draggable and remember their width; double-click resets them.
 
@@ -207,13 +205,13 @@ Open `Settings > Assistants` to create one from scratch, or clone one of the bun
 
 Each assistant has:
 
-- **Identity** — name, category, description, color, and an uploaded avatar.
-- **Seven instruction modes** — `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
-- **Per-model variants** — any instruction can carry alternates keyed on the model's `Exact` id, `Family`, `Provider`, `Tag`, or a `Glob` pattern. Specificity order: `Exact > Family > Provider > Tag > Glob`.
-- **Inheritance (`extends`)** — inherit instructions, parameters, and enabled tools from another assistant, then override selectively. Cycle-safe.
-- **Parameter overrides** — temperature / max tokens / top-p, blank to fall back to your global defaults.
-- **Tool allowlist** — a master on/off plus a per-tool checklist, and per-assistant tool config that overrides your account defaults.
-- **A test runner** — run a sample message against the unsaved instruction text before you commit it.
+- **Identity**, name, category, description, color, and an uploaded avatar.
+- **Seven instruction modes**, `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
+- **Per-model variants**, any instruction can carry alternates keyed on the model's `Exact` id, `Family`, `Provider`, `Tag`, or a `Glob` pattern. Specificity order: `Exact > Family > Provider > Tag > Glob`.
+- **Inheritance (`extends`)**, inherit instructions, parameters, and enabled tools from another assistant, then override selectively. Cycle-safe.
+- **Parameter overrides**, temperature / max tokens / top-p, blank to fall back to your global defaults.
+- **Tool allowlist**, a master on/off plus a per-tool checklist, and per-assistant tool config that overrides your account defaults.
+- **A test runner**, run a sample message against the unsaved instruction text before you commit it.
 
 Prompt variables are substituted at request time: `{{assistantName}}`, `{{userName}}`, `{{userProfile}}`, `{{currentDate}}`.
 
@@ -223,36 +221,31 @@ The built-in **Swarmie** assistant is a SwarmUI-savvy helper that answers how-to
 
 ## Tool calling
 
-The model can call tools, get real results back, and keep going — up to **8 rounds** per user turn before the loop is cut off with `truncated: true`.
+The model can call tools, get real results back, and keep going, up to **8 rounds** per user turn before the loop is cut off with `truncated: true`. Every chat turn runs through one loop, and the model's tool calls go through the same permission, rate limit and audit checks whichever provider served the turn.
 
 ![A tool call and its result](Assets/screenshots/tool-call.png)
 
-How the call is made depends on the provider:
+| Provider | How tools reach the model | How calls come back |
+|---|---|---|
+| **Anthropic** | Native `tools` and `tool_use` blocks | Native `tool_use` events |
+| **OpenAI-compatible** | Native `tools`; the endpoint must support them (an endpoint that does not returns an error) | Incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"` |
+| **Hartsy-local (GGUF)** | Native through the engine's [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package. The engine reads the model's chat template: a template with a tools slot renders the tools itself, and a template without one gets the Hermes tool prompt written into the conversation | The engine parses the model's own call format (Hermes JSON, Qwen3.5 and Qwen3-Coder XML, GLM-4.5 arg pairs, DeepSeek-R1 blocks, Llama 3, Gemma 4, Mistral) and emits a native call event |
 
-| Provider | Mechanism |
-|---|---|
-| **Anthropic** | Native `tools` + `tool_choice`, parsed from the real `tool_use` / `input_json_delta` SSE events. A forced tool becomes a genuine `tool_choice` constraint. |
-| **OpenAI-compatible** | Native `tools` + incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"`. Enabled by the `NativeToolCalling` setting (`auto` = `api.openai.com` only). |
-| **Hartsy-local (GGUF)**, `StructuredToolCalling` on, **and** the resolved model's own chat template instructs Hermes JSON tool calls (checked by reading its `tokenizer.chat_template` metadata directly, not by matching the model's name/filename — see `SupportsNativeToolCallingFor`) | Native too: the engine's own [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package parses `<tool_call>{...}</tool_call>` (Hermes/Qwen's convention) straight off the token stream and emits a real `NativeToolCall` event — same `native_tool_call` wire event Anthropic produces, not a text scan. Off by default; see the Local engine settings table. |
-| **Everything else** (including Hartsy-local with `StructuredToolCalling` off, or on with a model whose template doesn't instruct Hermes JSON — Llama, Mistral, Gemma, DeepSeek's R1 distillations, and GLM-4.5/Qwen3.5/Qwen3-Coder-style XML-argument templates all fall here) | A text convention: the model emits `<tool_call>{"name":"…","arguments":{…}}</tool_call>`, which the streaming layer detects with a cheap tail-window scan and executes. |
+A tool result is fed back to the model for its next round. Saved tool turns are replayed to the model on later turns, so a follow-up can refer to an earlier result. Malformed arguments are not swallowed: the model gets an error result back and can retry.
 
-The installed parser only understands one format for the whole engine instance (Hermes), so Hartsy-local's native path is gated per request on whether the resolved checkpoint's own chat template actually instructs that format, not just the setting — a template that doesn't (Llama-3.2, Mistral, Gemma, DeepSeek R1's own delimiter scheme, or an XML-argument template like GLM-4.5/Qwen3.5) keeps using the proven tag convention above even with `StructuredToolCalling` on, rather than silently losing every tool call to a filter that can't parse its native format.
+Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, so its calls run through the same loop, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. On later turns a stored reply's `<think>` blocks go back as `reasoning_content` instead of answer text, for a template that reads that field and does not split `</think>` out of the content itself (Muse Spark, Gemma 4); every other template, and a reply that is only reasoning, gets the reply as stored. The reasoning reaches the template from HartsyInference alpha.377 on.
 
-Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. On later turns a stored reply's `<think>` blocks go back as `reasoning_content` instead of answer text, for a template that reads that field and does not split `</think>` out of the content itself (Muse Spark, Gemma 4); every other template, and a reply that is only reasoning, gets the reply as stored. The reasoning reaches the template from HartsyInference alpha.377, which this extension picks up once [#44](https://github.com/HartsyAI/SwarmUI-LLMAssistant/pull/44) has it take the latest published engine; on an older engine these models see the earlier answers without their reasoning. The engine only reports that parser once the model has loaded, after this gate runs, so a Muse Spark GGUF still uses the tag convention here even with `StructuredToolCalling` on.
-
-All of these normalize to the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS` and `LLMAssistantVoiceTurn`, so nothing downstream cares which path was used. Malformed JSON isn't swallowed — the model gets an error result back and can retry, and near-valid JSON is run through a repair pass first (fence unwrapping, trailing commas, unbalanced brackets from truncation), with the repair verified by actually re-parsing.
-
-[`LLMAssistantVoiceTurnWS`](#streaming-frames) is a separate, Hartsy-local-only route with its own wire shape (`native_tool_call`/`tool_result` instead of `tool_call`/`tool_result`) — it runs the Tools package's agent loop directly against the engine instead of going through the text-tag convention, and refuses (one `error` frame) on any other provider. When native tool calling isn't available for the resolved model (the setting is off, or the template doesn't instruct Hermes JSON), it does **not** refuse: it runs the turn as a plain stream with no tool definitions sent at all (not even the tag convention — this route has no tag scanner of its own), sending one `{"notice": …}` frame first if the assistant actually had tools enabled. It exists for callers that need tool-call ids and native dispatch latency, such as the phone/voice-agent work; the ordinary chat UI keeps using `LLMAssistantSendMessageWS`. Cancelling it (closing the socket) cancels the in-flight LLM stream and any tool call it's running, not just the response — see the API reference below.
+All of these reach the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS`. The voice routes use their own shape (`native_tool_call` / `tool_result` / `done`, see [Streaming frames](#streaming-frames)), and `LLMAssistantVoiceTurnWS` runs on any provider with the same loop.
 
 ### Running a tool yourself
 
-Type `/` in the composer to get a searchable picker of every tool enabled for the current assistant. Pick one, fill in the form, and it runs directly — no model in the loop. The call is persisted into the thread exactly like a model-driven one.
+Type `/` in the composer to get a searchable picker of every tool enabled for the current assistant. Pick one, fill in the form, and it runs directly, with no model in the loop. The call is persisted into the thread exactly like a model-driven one.
 
 ![The slash tool picker](Assets/screenshots/tool-picker.png)
 
 ### Per-conversation toggle
 
-The wrench button in the composer turns tool calling on or off for *this chat*, overriding the assistant's default. With tools off, no tool descriptions are injected into the system prompt at all — small local models get reliably confused by them.
+The wrench button in the composer turns tool calling on or off for *this chat*, overriding the assistant's default. With tools off, no tools are sent at all. Small local models get reliably confused by tool descriptions, so turn tools off for a model that answers badly with them.
 
 ---
 
@@ -282,10 +275,10 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 
 ### Guardrails
 
-- **Permissions are keyed on the *handler*, not the tool id** — so defining a custom tool `{ id: "harmless", handlerId: "shell_exec" }` can't bypass the `shell_exec` gate.
+- **Permissions are keyed on the *handler*, not the tool id**, so defining a custom tool `{ id: "harmless", handlerId: "shell_exec" }` can't bypass the `shell_exec` gate.
 - **60-second execution timeout** per tool call, plus each tool's own limits.
-- **Rate limits** — a per-user, per-tool sliding hour window. Defaults: `http_request` 60/h, `web_search` 30/h, `shell_exec` 20/h, `generate_image` 100/h, `batch_caption_folder` 5/h. Override per tool in its editor; `0` means unlimited.
-- **Audit log** — an opt-in append-only JSONL trail of `shell_exec`, `file_write`, and `http_request` calls plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
+- **Rate limits**, a per-user, per-tool sliding hour window. Defaults: `http_request` 60/h, `web_search` 30/h, `shell_exec` 20/h, `generate_image` 100/h, `batch_caption_folder` 5/h. Override per tool in its editor; `0` means unlimited.
+- **Audit log**, an opt-in append-only JSONL trail of `shell_exec`, `file_write`, and `http_request` calls plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
 
 ### Custom tools
 
@@ -295,7 +288,7 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 
 ## Vision
 
-Assistants with a `vision` instruction accept image attachments. Attach with the paperclip or drag-and-drop; the image is uploaded once, downscaled to the configured long-edge cap, and stored as a URL on the message — the thread blob never carries base64.
+Assistants with a `vision` instruction accept image attachments. Attach with the paperclip or drag-and-drop; the image is uploaded once, downscaled to the configured long-edge cap, and stored as a URL on the message, the thread blob never carries base64.
 
 The same vision path backs the `caption_image` tool, `fuse_image_descriptions`, `batch_caption_folder`, the companion's "Critique my last image", and the Generate tab's magic-vision action.
 
@@ -305,7 +298,7 @@ The **Vision Image Max Size** setting (256–2048 px, default 1536) controls the
 
 ## Assets
 
-Anything worth keeping is promoted to the thread's **Assets** index in the right panel: fenced code blocks (8+ lines or 400+ bytes — smaller ones stay inline), HTML/SVG snippets, and results from `generate_image`, `file_read`, and `file_write`.
+Anything worth keeping is promoted to the thread's **Assets** index in the right panel: fenced code blocks (8+ lines or 400+ bytes, smaller ones stay inline), HTML/SVG snippets, and results from `generate_image`, `file_read`, and `file_write`.
 
 ![Chat with a promoted code asset](Assets/screenshots/chat-code-asset.png)
 
@@ -329,12 +322,12 @@ Turn it on in `Settings > Companion`.
 
 ![Companion settings](Assets/screenshots/settings-companion.png)
 
-- **Persona** — a specific assistant, or "follow my active assistant".
-- **Position** — snaps to a corner; drag for a free offset. Opacity is adjustable.
-- **Quick actions** — ask anything, critique my last image, help with my prompt, suggest a preset, explain a feature, daily tip. Each is individually toggleable.
-- **Ambient chatter** — optional unsolicited messages on session start, after a generation finishes, or when you've been idle. Every trigger has its own switch, plus **Quiet Mode** as a master mute, quiet hours, and a hard per-session cap.
+- **Persona**, a specific assistant, or "follow my active assistant".
+- **Position**, snaps to a corner; drag for a free offset. Opacity is adjustable.
+- **Quick actions**, ask anything, critique my last image, help with my prompt, suggest a preset, explain a feature, daily tip. Each is individually toggleable.
+- **Ambient chatter**, optional unsolicited messages on session start, after a generation finishes, or when you've been idle. Every trigger has its own switch, plus **Quiet Mode** as a master mute, quiet hours, and a hard per-session cap.
 
-Replies use the assistant's `companion` instruction, which asks for one short paragraph — the bubble is small on purpose.
+Replies use the assistant's `companion` instruction, which asks for one short paragraph, the bubble is small on purpose.
 
 ---
 
@@ -359,7 +352,7 @@ The extension registers a parameter group called **LLM Prompt Processing** in th
 | `LLM Use Cache` | `true` | Reuse the response for identical prompts within a batch. |
 | `LLM Generate Wildcard Seed` | `false` | Generate one shared wildcard seed per batch so `<wildcard>` picks stay consistent while the LLM is only called once. |
 | `LLM Model ID` | `default` | Override which LLM handles prompt processing. |
-| `LLM Instructions` | `prompt` | Which instruction set to use — any built-in mode or a custom instruction. |
+| `LLM Instructions` | `prompt` | Which instruction set to use, any built-in mode or a custom instruction. |
 | `LLM Assistant ID` | `default` | Pin processing to a specific assistant's persona and variants. Default = your active assistant. |
 
 ### Prompt tags
@@ -370,7 +363,7 @@ The extension registers a parameter group called **LLM Prompt Processing** in th
 | `<llmoriginal>` | Re-inject the original, pre-LLM text into the prompt. |
 | `<llmresponse:…>` | Internal marker for a cached response. |
 
-`<mpprompt>`, `<mpresponse>`, and `<mporiginal>` are accepted as aliases — prompts written for Hartsy's MagicPrompt extension work unchanged.
+`<mpprompt>`, `<mpresponse>`, and `<mporiginal>` are accepted as aliases, prompts written for Hartsy's MagicPrompt extension work unchanged.
 
 Example:
 
@@ -415,7 +408,7 @@ Per SwarmUI's extension standards, everything this extension can send over the n
 | `api.anthropic.com` (or your configured `BaseUrl`) | Only when a chat request routes to an Anthropic backend you added | Don't add the backend |
 | Your configured `Address` | Only when a chat request routes to an OpenAI-compatible backend you added | Don't add the backend |
 
-Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled — **the UI itself makes zero outbound connections.**
+Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, **the UI itself makes zero outbound connections.**
 
 ---
 
@@ -450,8 +443,8 @@ SwarmUI also auto-registers `view_extension_tab_llmassistant` (default USER) for
 
 Settings live in two layers:
 
-- **Shared** — the admin-curated baseline: shared assistants, shared tools, default instructions and parameters. Writing to it requires `llm_shared_write`.
-- **Personal** — each user's own overrides, personal assistants, personal tools, and preferred model.
+- **Shared**, the admin-curated baseline: shared assistants, shared tools, default instructions and parameters. Writing to it requires `llm_shared_write`.
+- **Personal**, each user's own overrides, personal assistants, personal tools, and preferred model.
 
 Reads return the merged view. Assistants and tools are union-merged, personal winning on id collision, and every entry is tagged with a `_scope` badge (`shared` / `personal`) so the UI shows which layer an item lives in and which layer a delete would hit.
 
@@ -478,13 +471,13 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | Route | Method | Request | Returns |
 |---|---|---|---|
 | `LLMAssistantCreateThread` | POST | `assistantId?`, `title?` | `{success, thread}` |
-| `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}` — one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
+| `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?` | streaming frames (below); `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
-| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
+| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
-| `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}` — persists nothing |
+| `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
 
 Pass a `models` array of `{model, device?, backendId?, assistantMessageId?}` with **two or more** entries to `LLMAssistantSendMessageWS` and it runs compare mode instead of a single reply.
@@ -504,27 +497,25 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
 | `{"error": "…"}` | A failure after streaming began. |
-| `{"lane": n, …}` | Compare mode — routes the frame to a column. |
+| `{"lane": n, …}` | Compare mode, routes the frame to a column. |
 
-`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above — no `iteration`, `tool_call`, `status` or `titleUpdated` frames, since it drives the Tools package's agent loop directly instead of the tag-based one:
+`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
 
 | Frame | Meaning |
 |---|---|
-| `{"notice": "…"}` | At most one tools-unavailable notice, before the first `chunk`: tools were enabled for this assistant but dropped from this turn — `StructuredToolCalling` is off, or the resolved model's chat template doesn't instruct Hermes JSON tool calls (see the settings table below). The turn still runs, as a plain stream with no tool definitions sent. No notice before the first `chunk` means either native tool calling is active, or the assistant had no tools enabled to drop in the first place. |
-| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan) and it was run. Sent immediately before that call's `tool_result`; a call that is not run (round cap, or a round that ended in an error or cancellation) is never sent. |
-| `{"tool_result": {id, name, result}}` | That tool finished — same shape as above. |
-| `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
-| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
+| `{"native_tool_call": {id, name, arguments}}` | The model made a tool call. |
+| `{"tool_result": {id, name, result}}` | That tool finished, same shape as above. |
+| `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_call"` means the 8-round cap was hit while the model still wanted another call. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
-`[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]` — a client resuming a
+`[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]`, a client resuming a
 multi-turn voice session sends this instead of `message` (which still works alone, for a single new turn;
 `messages` takes priority when both are present). The resolved system prompt is prepended as a leading system
 turn unless `messages` already opens with one, so replaying history never double-injects it. An
 `assistant`-role entry's own `toolCalls` (and a `tool`-role entry's `toolCallId`/`name`) use the same
 `{id, name, arguments}` shape a `native_tool_call` frame sent earlier in the session, so a client can echo its
 own history straight back. `enableThinking?` (bool) maps directly to the engine's `enable_thinking` chat-template
-toggle (Qwen3-family reasoning-block switch) — omit it to keep the model's own default; a voice caller sends
+toggle (Qwen3-family reasoning-block switch), omit it to keep the model's own default; a voice caller sends
 `false`, since thinking adds hundreds of tokens before the first spoken word. `conversationId?` (string) names
 the conversation a turn belongs to, so a local model reuses its prefix from one turn to the next
 (`ReuseConversationPrefix`); every turn is its own socket, so without it turns are grouped by the SwarmUI session
@@ -534,41 +525,41 @@ they were sent with.
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetThreads` | — | `{success, threads[]}` (index only) |
+| `LLMAssistantGetThreads` |, | `{success, threads[]}` (index only) |
 | `LLMAssistantGetThread` | `threadId` | `{success, thread}` |
 | `LLMAssistantDeleteThread` | `threadId` | `{success}` |
-| `LLMAssistantRenameThread` | `threadId`, `title` | `{success, thread}` — also settable with `F2` in the sidebar |
+| `LLMAssistantRenameThread` | `threadId`, `title` | `{success, thread}`, also settable with `F2` in the sidebar |
 | `LLMAssistantEditMessage` | `threadId`, `messageId`, `content` | `{success, thread}` |
 | `LLMAssistantDeleteMessage` | `threadId`, `messageId` | `{success, thread}` |
-| `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}` — switch branch |
-| `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}` — omit `enabled` to clear the override |
+| `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}`, switch branch |
+| `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`, omit `enabled` to clear the override |
 | `LLMAssistantExportThread` | `threadId`, `format` (`json` \| `markdown`) | `{success, filename, content}` |
 
 ### Assistants
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetAssistants` | — | `{success, assistants[], activeAssistantId}` |
+| `LLMAssistantGetAssistants` |, | `{success, assistants[], activeAssistantId}` |
 | `LLMAssistantGetAssistant` | `assistantId` | `{success, assistant}` |
-| `LLMAssistantGetActiveAssistant` | — | `{success, assistant}` |
+| `LLMAssistantGetActiveAssistant` |, | `{success, assistant}` |
 | `LLMAssistantSaveAssistant` | `assistant` (object), `scope?` | `{success, id, scope}` |
 | `LLMAssistantDeleteAssistant` | `assistantId`, `scope?` | `{success}` |
 | `LLMAssistantSetActiveAssistant` | `assistantId` | `{success}` |
 | `LLMAssistantUploadAssistantAvatar` | `assistantId`, `imageData` (data URI, ≤2 MB) | `{success, url, bytesWritten}` |
-| `LLMAssistantGetStarterTemplates` | — | `{success, templates[]}` |
+| `LLMAssistantGetStarterTemplates` |, | `{success, templates[]}` |
 
 ### Tools
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetTools` | — | `{success, tools[], canWriteShared}` |
+| `LLMAssistantGetTools` |, | `{success, tools[], canWriteShared}` |
 | `LLMAssistantGetTool` | `toolId` | `{success, tool}` |
 | `LLMAssistantSaveTool` | `tool` (object or JSON string), `scope?` | `{success, id, scope}` |
 | `LLMAssistantDeleteTool` | `toolId`, `scope?` | `{success}` |
 | `LLMAssistantExecuteTool` | `toolId`, `arguments` (object or JSON string), `assistantId?`, `threadId?`, `callId?` | `{success, result, callId}` |
 | `LLMAssistantGetToolConfig` | `toolId` | `{success, config}` |
 | `LLMAssistantSetToolConfig` | `toolId`, `config` (object or JSON string) | `{success, config}` |
-| `LLMAssistantGetImagePresets` | — | `{success, presets[]}` with a one-line `summary` per preset |
+| `LLMAssistantGetImagePresets` |, | `{success, presets[]}` with a one-line `summary` per preset |
 
 `LLMAssistantExecuteTool` still enforces the per-handler `llm_tool_*` permission, so exposing it at the chat permission level is not an escalation.
 
@@ -576,22 +567,22 @@ they were sent with.
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetSettings` | — | `{success, settings, canWriteShared}` |
+| `LLMAssistantGetSettings` |, | `{success, settings, canWriteShared}` |
 | `LLMAssistantSaveSettings` | `settings` (object or JSON string), `scope?` | `{success, settings, scope}` |
 | `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}` |
-| `LLMAssistantGetAuditLog` | `max?` (default 200, cap 5000) | `{success, enabled, entries[]}` — admin only |
-| `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}` — admin only |
-| `LLMAssistantGetModels` | — | `{success, models[], warnings[]}` — providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
-| `LLMAssistantUnloadModels` | — | `{success, freed, providers}` — `freed` counts providers that actually released something |
-| `LLMAssistantGetSessionState` | — | `{success, state}` |
+| `LLMAssistantGetAuditLog` | `max?` (default 200, cap 5000) | `{success, enabled, entries[]}`, admin only |
+| `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
+| `LLMAssistantGetModels` |, | `{success, models[], warnings[]}`, providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
+| `LLMAssistantUnloadModels` |, | `{success, freed, providers}`, `freed` counts providers that actually released something |
+| `LLMAssistantGetSessionState` |, | `{success, state}` |
 | `LLMAssistantSetSessionState` | `state` (patch object; `null` clears a key) | `{success, state}` |
 | `LLMAssistantGetAssets` | `threadId` | `{success, threadId, assets[]}` |
 | `LLMAssistantGetAsset` | `threadId`, `assetId` | `{success, asset}` |
 | `LLMAssistantDeleteAsset` | `threadId`, `assetId` | `{success}` |
-| `LLMAssistantGetUserProfile` | — | `{success, profile}` |
-| `LLMAssistantClearUserProfile` | — | `{success}` |
-| `LLMAssistantGetCompanionContext` | — | `{success, lastImage}` (`null` when you have no generations yet) |
-| `LLMAssistantGetInstructions` | — | `{success, instructions[]}` — legacy, kept for the T2I prompt tags |
+| `LLMAssistantGetUserProfile` |, | `{success, profile}` |
+| `LLMAssistantClearUserProfile` |, | `{success}` |
+| `LLMAssistantGetCompanionContext` |, | `{success, lastImage}` (`null` when you have no generations yet) |
+| `LLMAssistantGetInstructions` |, | `{success, instructions[]}`, legacy, kept for the T2I prompt tags |
 | `LLMAssistantSaveInstruction` | `id`, `title`, `content`, `categories?`, `tooltip?`, `scope?` | `{success, instruction}` |
 | `LLMAssistantDeleteInstruction` | `id`, `scope?` | `{success}` |
 
@@ -639,7 +630,7 @@ asyncio.run(chat("How do I use wildcards in a prompt?"))
 SwarmUI-LLMAssistant/
 ├── LLMAssistantExtension.cs   Entry point: assets, model type, tools, API, migrations, GC
 ├── Constants.cs               Instruction ids, feature keys, tool ids, roles
-├── LLMs/                      The stable seam — no concrete backend referenced here
+├── LLMs/                      The stable seam, no concrete backend referenced here
 │   ├── ILLMProvider.cs        The interface + LLMProviderRegistry
 │   ├── LLMTypes.cs            Extension-owned DTOs
 │   ├── LLMDispatcher.cs       Routes to the provider serving a model; token counting
@@ -659,17 +650,17 @@ SwarmUI-LLMAssistant/
 ├── Tools/BuiltIn/             The 13 built-in tool handlers
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
 ├── WebAPI/                    51 endpoints across 11 files + permission definitions
-├── Tabs/Text2Image/           Tab markup (`LLM Assistant.html` — the filename is the tab label)
+├── Tabs/Text2Image/           Tab markup (`LLM Assistant.html`, the filename is the tab label)
 └── Assets/                    Front-end JS/CSS, starter templates, vendored libraries
 ```
 
 ### Design notes
 
-**One seam.** The whole feature surface — chat, threads, tools, companion, T2I — talks only to `ILLMProvider` through `LLMProviderRegistry`. It never names a concrete backend and never references SwarmUI's `AbstractLLMBackend`. The runtimes live in `Backends/`, which is deliberately disposable.
+**One seam.** The whole feature surface, chat, threads, tools, companion, T2I, talks only to `ILLMProvider` through `LLMProviderRegistry`. It never names a concrete backend and never references SwarmUI's `AbstractLLMBackend`. The runtimes live in `Backends/`, which is deliberately disposable.
 
 **Server-authoritative history.** The client can't inject fake history. Your message is appended to the stored thread before the model is called; the reply is appended after the agentic loop finishes. Message edits and deletes go through their own endpoints rather than the client re-uploading the thread.
 
-**In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not fixed to the viewport — a Bootstrap modal would float over the whole SwarmUI UI and break the tab metaphor.
+**In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not fixed to the viewport, a Bootstrap modal would float over the whole SwarmUI UI and break the tab metaphor.
 
 **Zero external dependencies at runtime.** marked, highlight.js, KaTeX (with fonts), Mermaid, and DOMPurify are vendored under `Assets/vendor/` and registered by directory walk, then lazy-loaded on first use. Nothing is fetched from a CDN.
 
@@ -677,12 +668,12 @@ SwarmUI-LLMAssistant/
 
 ### Swapping or removing the runtime pack
 
-To drop the bundled backends — say, once SwarmUI ships a first-class native LLM API you'd rather use:
+To drop the bundled backends, say, once SwarmUI ships a first-class native LLM API you'd rather use:
 
 1. Delete the `Backends/` folder.
 2. Remove the `Backends.LLMBackendPack.Register();` line from `LLMAssistantExtension.OnInit`.
 3. Delete the `HartsyInference` `PackageReference` and the `ExcludeAssets` block from the csproj, and put `CopyLocalLockFileAssemblies` back to its default.
-4. Register a replacement `ILLMProvider`. A ready-made bridge to native Swarm backends ships as `LLMs/SwarmNativeLLMProvider.cs` (disabled by default) — call `SwarmNativeLLMProvider.Register()` from `OnInit` instead of the pack.
+4. Register a replacement `ILLMProvider`. A ready-made bridge to native Swarm backends ships as `LLMs/SwarmNativeLLMProvider.cs` (disabled by default), call `SwarmNativeLLMProvider.Register()` from `OnInit` instead of the pack.
 
 Nothing in chat, threads, tools, companion, or the T2I integration changes.
 
@@ -694,7 +685,7 @@ The csproj resolves `HartsyInference` from NuGet by default. To build against a 
 dotnet build src/Extensions/SwarmUI-LLMAssistant/SwarmUI-LLMAssistant.csproj -p:UseLocalHartsy=true
 ```
 
-Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin** — end users only have nuget.org.
+Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**, end users only have nuget.org.
 
 ---
 
@@ -707,22 +698,22 @@ Add one under `Server > Backends`. The quickest path is *LLM: Remote (OpenAI-Com
 Each provider is queried in parallel under a bounded timeout, and anything that times out is reported in `warnings` rather than hanging the request. Check the backend's status in `Server > Backends` and its logs.
 
 **"No Anthropic API key set" / OpenAI 401.**
-Keys are per-user. Set yours in the `User` tab — the backend config does not carry one.
+Keys are per-user. Set yours in the `User` tab, the backend config does not carry one.
 
 **Tool calls never fire.**
-Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models also follow the `<tool_call>` convention unreliably — try a larger instruct-tuned model, or a provider with native tool calling.
+Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models often call tools unreliably, try a larger instruct-tuned model, or a provider with native tool calling. A model that answers in prose instead of calling a tool is a model limit, not a broken tool path.
 
 **`<llmprompt>` tags aren't processed.**
 Toggle the **LLM Prompt Processing** group on in the Generate sidebar, make sure an LLM model resolves, and check the server log for the `[LLMAssistant]` prefix.
 
 **The chat list is empty after sending.**
-Threads persist on the first message. If nothing appears, the send failed — check the log for `ThreadStorageService` errors.
+Threads persist on the first message. If nothing appears, the send failed, check the log for `ThreadStorageService` errors.
 
 **The settings modal renders outside the tab.**
 The modal is scoped to the tab pane. If it escapes, `.llma-container` has lost `position: relative` or the tab pane has lost `position: relative; height: 100%`.
 
 **The companion never appears.**
-It's opt-in — enable it in `Settings > Companion`, and make sure you have `llm_companion`.
+It's opt-in, enable it in `Settings > Companion`, and make sure you have `llm_companion`.
 
 **"I can't see images."**
 Either the selected model isn't vision-capable or the assistant has no `vision` instruction. Switch to a vision model (a Claude model, a vision-tagged Ollama model, or a multimodal GGUF with its mmproj alongside).
@@ -731,19 +722,21 @@ Either the selected model isn't vision-capable or the assistant has no `vision` 
 
 ## Known limitations
 
-- **Compare mode doesn't auto-title** the chat — single-model turns do.
+- **Compare mode doesn't auto-title** the chat, single-model turns do.
 - **The companion bubble renders plain text**, not Markdown, by design; its instruction asks the model for one short prose paragraph.
 - **Shared assistant avatars** are served from the uploading user's output folder, so another user needs SwarmUI's `View Others Outputs` permission to see them. Personal avatars are unaffected.
 - **`GraphDecode` and `SpeculativeDecode`** only engage on greedy (temperature 0) requests, so the default chat temperature does not use them yet.
-- **`StructuredToolCalling`** is off by default — it's new and not yet verified against a broad set of local models. Turning it on does two things together, **for a model whose own chat template instructs Hermes JSON tool calls specifically** (checked by reading the resolved GGUF's `tokenizer.chat_template` metadata directly via `HartsyInference.ModelAssets.Gguf.GgufLoader` — metadata only, the multi-GB tensor data is never touched — and testing whether it references `tools` and instructs a literal `<tool_call>` tag wrapping a JSON object with `"name"`/`"arguments"` keys; everything else — Llama, Mistral, Gemma, DeepSeek's R1 distillations, and GLM-4.5/Qwen3.5/Qwen3-Coder-style templates that keep the `<tool_call>` tag but switch to XML arguments — keeps the grammar-masking but not native dispatch, since the engine installs only one parser for the whole backend): grammar-masked JSON (as before) *and* real native tool calling (`SupportsNativeToolCallingFor`) through the engine's `HartsyInference.Tools` package. This replaced an earlier version that matched the model's *filename* against a family allow-list — independent review found real false positives in that (DeepSeek's R1 distillations on both the Qwen- and Llama-architecture bases, despite "deepseek"/"qwen" matching; Qwen3.5 and GLM-4.5 keeping the tag but switching to XML arguments the installed filter can't parse), which reading the template itself eliminates as a class, not just those cases. With it on for a qualifying model, Hartsy-local's native tool calls work the same way on every route: the one-shot `LLMAssistantVoiceTurn`, the streaming `LLMAssistantSendMessageWS`, and `LLMAssistantVoiceTurnWS` all dispatch a native call and feed its result back — `Generate`'s one-shot accumulator (shared by every provider in this pack) now turns a `native_tool_call` event into the same `<tool_call>` tag text its existing scanner already parses (with every `<`/`>` JSON-escaped first, so a tool name or argument value can never masquerade as, or split, that tag), instead of silently dropping it. With it off, or on for a model whose template doesn't qualify, `LLMAssistantVoiceTurnWS` no longer refuses the turn outright: it sends one `{"notice": …}` frame (only when the assistant actually had tools enabled) and runs the turn as a plain stream with no tool definitions sent — see [Streaming frames](#streaming-frames).
+- **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
+- **`ForceToolId`** states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose.
+- **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
 - **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
 
 ---
 
 ## License & credits
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).
 
-- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva) — the platform this builds on.
-- [HartsyInference](https://www.nuget.org/packages/HartsyInference) — the pure-C# local inference engine.
-- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify) — markdown, code, math, diagrams, sanitization. All vendored locally; see [`Assets/vendor/FETCH.md`](Assets/vendor/FETCH.md).
+- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva), the platform this builds on.
+- [HartsyInference](https://www.nuget.org/packages/HartsyInference), the pure-C# local inference engine.
+- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify), markdown, code, math, diagrams, sanitization. All vendored locally; see [`Assets/vendor/FETCH.md`](Assets/vendor/FETCH.md).

@@ -106,7 +106,8 @@ public class HartsyLocalLLMProviderStreamTests
                 Assert.Equal("UTC", e["native_tool_call"]?["arguments"]?["zone"]?.ToString());
                 Assert.False(IsReasoning(e));
             });
-        Assert.StartsWith("<tool_call>", OneShotReply(events));
+        // A one-shot reply holds neither the reasoning nor the call.
+        Assert.Equal("", OneShotReply(events));
     }
 
     [Fact]

@@ -40,13 +40,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         [ConfigComment("When attempting to connect to the backend, this is the maximum time Swarm will wait before considering the connection to be failed.\nNote that depending on other configurations, it may fail faster than this.\nFor local network machines, set this to a low value (eg 5) to avoid 'Loading...' delays.")]
         public int ConnectionAttemptTimeoutSeconds = 30;
 
-        [ConfigComment("Whether to use this endpoint's native `tools`/`tool_calls` wire mechanism instead of the "
-            + "text-based <tool_call> tag convention. 'Auto' only enables it for api.openai.com (the one dialect "
-            + "guaranteed to support it correctly) — arbitrary self-hosted OpenAI-compatible servers (Ollama, "
-            + "LM Studio, vLLM, older llama.cpp builds) vary in tool_calls support and quality, so they stay on "
-            + "the safer tag convention unless you confirm your endpoint supports it and turn this on manually.")]
-        [ManualSettingsOptions(Vals = ["auto", "on", "off"], ManualNames = ["Auto (only api.openai.com)", "On (this endpoint supports tool_calls)", "Off (always use the <tool_call> tag convention)"])]
-        public string NativeToolCalling = "auto";
     }
 
     /// <summary>Shared HTTP client for all instances of this backend type.</summary>
@@ -63,14 +56,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm"];
-
-    /// <inheritdoc/>
-    public bool SupportsNativeToolCalling => Settings.NativeToolCalling switch
-    {
-        "on" => true,
-        "off" => false,
-        _ => (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase),
-    };
 
     /// <inheritdoc/>
     protected override async Task OnProviderInit()
@@ -153,10 +138,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         JArray messages = [];
         if (input.Messages.Count > 0)
         {
-            foreach (LLMMessage msg in input.Messages)
-            {
-                messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
-            }
+            messages = BuildOpenAIMessages(input.Messages);
         }
         else
         {
@@ -182,11 +164,8 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             body["seed"] = input.Seed;
         }
-        // Re-check SupportsNativeToolCalling here (not just trust the caller already gated it) — input.Tools
-        // is populated unconditionally by ChatEndpoints.ApplyToolsToInput regardless of native/legacy mode
-        // (only the tag-convention system-prompt injection is conditional), so this is the single place that
-        // actually decides whether THIS request emits a native tools field.
-        if (input.Tools is { Count: > 0 } && SupportsNativeToolCalling)
+        // The endpoint must support tools; one that does not answers with an error, which surfaces to the user.
+        if (input.Tools is { Count: > 0 })
         {
             body["tools"] = BuildOpenAITools(input.Tools);
             body["tool_choice"] = !string.IsNullOrEmpty(input.ForceToolId)
@@ -194,6 +173,47 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                 : "auto";
         }
         return body;
+    }
+
+    /// <summary>The OpenAI <c>messages</c> array for a conversation. An assistant turn that made tool calls carries
+    /// <c>tool_calls</c> (arguments as JSON text); a tool result is a <c>tool</c> message keyed by its call id.</summary>
+    internal static JArray BuildOpenAIMessages(IReadOnlyList<LLMMessage> source)
+    {
+        JArray messages = [];
+        foreach (LLMMessage msg in source)
+        {
+            if (msg.Role == LLMRoles.Tool)
+            {
+                messages.Add(new JObject() { ["role"] = LLMRoles.Tool, ["tool_call_id"] = msg.ToolCallId ?? "", ["content"] = msg.Content ?? "" });
+                continue;
+            }
+            if (msg.Role == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            {
+                JArray toolCalls = [];
+                foreach (JObject call in calls)
+                {
+                    toolCalls.Add(new JObject()
+                    {
+                        ["id"] = call["id"]?.ToString() ?? "",
+                        ["type"] = "function",
+                        ["function"] = new JObject()
+                        {
+                            ["name"] = call["name"]?.ToString() ?? "",
+                            ["arguments"] = LLMMessageMapping.ArgumentsText(call["arguments"]),
+                        },
+                    });
+                }
+                messages.Add(new JObject()
+                {
+                    ["role"] = LLMRoles.Assistant,
+                    ["content"] = string.IsNullOrWhiteSpace(msg.Content) ? null : msg.Content,
+                    ["tool_calls"] = toolCalls,
+                });
+                continue;
+            }
+            messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
+        }
+        return messages;
     }
 
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto

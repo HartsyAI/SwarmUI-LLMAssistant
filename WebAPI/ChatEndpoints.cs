@@ -278,69 +278,13 @@ public static class ChatEndpoints
             List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId: null);
+            await AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
 
-            StringBuilder spoken = new();
-            JArray deviceCalls = [];
-            bool truncated = true;
-            for (int iteration = 0; iteration < ToolConstants.MaxAgenticIterations; iteration++)
-            {
-                string round = await LLMDispatcher.Generate(input);
-                List<ToolPromptService.ParsedToolCall> calls = ToolPromptService.ParseToolCalls(round, out List<string> malformed);
-                if (calls.Count == 0 && malformed.Count == 0)
-                {
-                    spoken.Append(round);
-                    truncated = false;
-                    break;
-                }
-                // The tool-call markup itself is not speech; only prose the model produced alongside it is.
-                // Without this the device reads "<tool_call>{...}</tool_call>" out loud. Strips malformed
-                // matches too (defense in depth, not just parsed calls' RawMatch): a native tool call that
-                // failed to round-trip through AppendGenerateChunk's synthesized tag — or any model emitting
-                // the tag convention natively and getting it wrong — would otherwise leak its raw, unparsed
-                // <tool_call>…</tool_call> text straight into spoken/displayed output.
-                string prose = calls.Select(call => call.RawMatch).Concat(malformed)
-                    .Aggregate(round, (text, rawMatch) => string.IsNullOrEmpty(rawMatch) ? text : text.Replace(rawMatch, "")).Trim();
-                if (prose.Length > 0) spoken.Append(prose);
-                input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = round });
-                foreach (string _ in malformed)
-                {
-                    input.Messages.Add(new LLMMessage()
-                    {
-                        Role = LLMRoles.User,
-                        Content = ToolPromptService.FormatToolResult("tool_call", new JObject
-                        {
-                            ["success"] = false,
-                            ["error"] = "Could not parse this tool call — invalid or incomplete JSON. Re-emit it as a single well-formed <tool_call>{\"name\":\"...\",\"arguments\":{...}}</tool_call> block."
-                        })
-                    });
-                }
-                foreach (ToolPromptService.ParsedToolCall call in calls)
-                {
-                    JObject result;
-                    try
-                    {
-                        result = await ToolExecutorService.ExecuteTool(call.Name, call.Arguments, session, assistantId, threadId: null, input.Model);
-                    }
-                    catch (Exception ex)
-                    {
-                        Logs.Error($"[LLMAssistant] Voice turn tool '{call.Name}' failed: {ex.Message}");
-                        result = new JObject { ["success"] = false, ["error"] = ex.Message };
-                    }
-                    // Only surface calls the device is expected to act on, and only ones that validated —
-                    // handing back a rejected call would have the device act on arguments the server refused.
-                    if (Tools.BuiltIn.DeviceActionTool.IsDeviceAction(call.Name) && result["success"]?.Value<bool>() == true)
-                    {
-                        deviceCalls.Add(new JObject { ["name"] = call.Name, ["arguments"] = call.Arguments });
-                    }
-                    input.Messages.Add(new LLMMessage()
-                    {
-                        Role = LLMRoles.User,
-                        Content = ToolPromptService.FormatToolResult(call.Name, result)
-                    });
-                }
-            }
-            string spokenText = spoken.ToString().Trim();
+            CollectingSink collected = new();
+            ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(input, new ToolTurnContext { Session = session, AssistantId = assistantId }, collected);
+            string spokenText = (outcome.SpokenText ?? outcome.FullText).Trim();
+            JArray deviceCalls = VoiceWsSink.DeviceCalls(outcome.ToolEvents);
+            bool truncated = outcome.Truncated;
             // A turn that produced neither speech nor a device action is a failed turn, not an empty
             // success. The provider returns "" for an engine-side failure just as it would for a model
             // that genuinely said nothing, and a voice device cannot tell those apart: it would speak
@@ -393,7 +337,7 @@ public static class ChatEndpoints
     /// provider.</para>
     ///
     /// <para><b>Native tool calling being unavailable for this model is not an error.</b> When the resolved
-    /// provider is Hartsy-local but <see cref="HartsyLocalLLMProvider.SupportsNativeToolCallingFor"/> is false
+    /// provider is Hartsy-local but the model cannot run tools
     /// for <c>model</c> (<see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings.StructuredToolCalling"/>
     /// off — the default — or the resolved checkpoint's own chat template doesn't instruct Hermes JSON tool
     /// calls), the turn still runs: tools are dropped from the request entirely, with no tag-prompt fallback
@@ -497,70 +441,14 @@ public static class ChatEndpoints
             input.ConversationId = VoiceTurnWsConversationId(rawInput["conversationId"]?.ToString(), session.ID);
             ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens, loops: loops);
 
-            // Resolved before touching tools at all, unlike the other routes in this file: the non-native
-            // branch below must never call ApplyToolsToInput (it would inject the tag-based tool system prompt
-            // this route has no scanner to read back out of the plain text stream), so the provider/
-            // native-support check has to come first, not after tool enrichment.
-            ILLMProvider provider = await LLMDispatcher.GetProvider(input);
-            if (provider is not HartsyLocalLLMProvider hartsyProvider)
-            {
-                await SendAsync(new JObject
-                {
-                    ["error"] = "LLMAssistantVoiceTurnWS only runs on the Hartsy-local provider (Server > "
-                        + "Backends). Use LLMAssistantVoiceTurn or LLMAssistantSendMessageWS for other providers."
-                });
-                return null;
-            }
-
             List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            // SupportsNativeToolCallingFor(model), not the plain SupportsNativeToolCalling property: this
-            // backend serves whatever model `model` names, and the installed Hermes filter only matches
-            // checkpoints whose own chat template instructs that convention — see that method's own doc.
-            ToolRegistry registry;
-            if (hartsyProvider.SupportsNativeToolCallingFor(model))
-            {
-                await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId: null);
-                registry = BuildToolRegistry(enabledTools, session, assistantId, model);
-            }
-            else
-            {
-                // Deliberately NOT ApplyToolsToInput: its non-native branch injects the tag-based <tool_call>
-                // system prompt, which this route has no scanner to read back out of the plain text stream --
-                // input.Tools is left at its default empty list, so BuildRequestAsync's own gate
-                // (SupportsNativeToolCallingFor(input.Model) && input.Tools is {Count: >0}) leaves
-                // TextRequest.Tools null and the engine's installed Hermes filter stays inert for this turn.
-                // An empty ToolRegistry then makes StreamToolLoopAsync (via ToolLoop.RunAsync) run exactly one
-                // plain round, the same shape
-                // ToolLoopIntegrationTests.RunAsync_EmptyRegistryAndNoToolsOnTheRequest_StillStreamsPlainTextAsOneRound
-                // already proves.
-                registry = new ToolRegistry();
-                if (enabledTools.Count > 0)
-                {
-                    // Only when tools were actually configured and are about to be silently dropped: an
-                    // assistant with none configured at all would otherwise get this notice on every single
-                    // turn, which is noise, not a fallback worth flagging.
-                    string reason = hartsyProvider.DescribeNativeToolCallingUnavailability(model);
-                    await SendAsync(new JObject { ["notice"] = $"tool calling unavailable for {model}: {reason}; replying without tools" });
-                }
-            }
-
+            await AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
             JArray deviceCalls = [];
-            (string spoken, StopReason? finalStop) = await ForwardFramesAsync(
-                hartsyProvider.StreamToolLoopAsync(input, registry, ToolLoop.DefaultMaxRounds, turnCancel.Token),
-                SendAsync, () => socket.State == WebSocketState.Open, deviceCalls);
-            if (socket.State != WebSocketState.Open)
-            {
-                return null;
-            }
-            await SendAsync(new JObject
-            {
-                ["done"] = true,
-                ["full_text"] = spoken,
-                ["toolCalls"] = deviceCalls,
-                ["stopReason"] = VoiceTurnWsStopReason(finalStop)
-            });
+            await ToolTurnRunner.RunAsync(input,
+                new ToolTurnContext { Session = session, AssistantId = assistantId, MaxRounds = ToolLoop.DefaultMaxRounds },
+                new VoiceWsSink(SendAsync, () => socket.State == WebSocketState.Open, deviceCalls), turnCancel.Token);
             return null;
         }
         catch (OperationCanceledException) when (turnCancel.IsCancellationRequested)
@@ -632,35 +520,6 @@ public static class ChatEndpoints
             // Unexpected data frame: not a disconnect signal on this protocol. Loop back to ReceiveAsync
             // rather than returning, so the eventual real close (or error) is still caught.
         }
-    }
-
-    /// <summary>Adapts the assistant's enriched, per-user tool JObjects (<see cref="ToolRegistryService.GetEnabledTools"/>,
-    /// the same shape <see cref="ApplyToolsToInput"/> already put on <see cref="ExtendedLLMInput.Tools"/>) into
-    /// a <see cref="ToolRegistry"/> that dispatches through the existing <see cref="ToolExecutorService"/>.
-    /// Tool *definitions* for the model come from <see cref="TextRequest.Tools"/> (set by
-    /// <c>HartsyLocalLLMProvider.BuildRequestAsync</c> from the same list, since <see cref="ToolLoop.RunAsync"/>
-    /// prefers <c>request.Tools</c> over <paramref name="registry"/>'s own definitions when both are present) —
-    /// this registry only needs to be able to run a call once the model makes one.</summary>
-    internal static ToolRegistry BuildToolRegistry(List<JObject> enabledTools, Session session, string assistantId, string model)
-    {
-        ToolRegistry registry = new();
-        foreach (JObject tool in enabledTools)
-        {
-            // The id is what the model calls and what ToolExecutorService looks up; the display name is for people.
-            string name = tool["id"]?.ToString() ?? tool["name"]?.ToString();
-            if (string.IsNullOrEmpty(name))
-            {
-                continue;
-            }
-            string description = tool["description"]?.ToString() ?? "";
-            string jsonSchema = (tool["parameters"] as JObject ?? new JObject()).ToString();
-            registry.Add(name, description, jsonSchema, async (argsJson, ct) =>
-            {
-                JObject result = await ToolExecutorService.ExecuteTool(name, ParseJsonOrEmpty(argsJson), session, assistantId, threadId: null, model, ct);
-                return result.ToString(Newtonsoft.Json.Formatting.None);
-            });
-        }
-        return registry;
     }
 
     /// <summary>Parses a JSON object string, or returns an empty <see cref="JObject"/> for null/blank/malformed
@@ -757,128 +616,6 @@ public static class ChatEndpoints
             return $"voice-ws:{clientConversationId.Trim()}";
         }
         return string.IsNullOrWhiteSpace(sessionId) ? null : $"voice-ws-session:{sessionId}";
-    }
-
-    /// <summary>The <c>stopReason</c> of <see cref="LLMAssistantVoiceTurnWS"/>'s <c>done</c> frame for the stop
-    /// <see cref="ForwardFramesAsync"/> returned; null for a normal finish. <see cref="StopReason.ToolCall"/> is
-    /// <c>"tool_round_limit"</c>, never <c>"tool_call"</c>: on this route that stop only means ToolLoop ended
-    /// with a tool request it did not run (normally its round limit, reported in a <c>notice</c> frame; the rare
-    /// tool-call stop with no parsed call sends no notice), and a relay reads <c>"tool_call"</c> as a call it
-    /// still has to resolve.</summary>
-    internal static string VoiceTurnWsStopReason(StopReason? stop) => stop switch
-    {
-        StopReason.Length => "length",
-        StopReason.Cancelled => "cancelled",
-        StopReason.Error => "error",
-        StopReason.ToolCall => "tool_round_limit",
-        _ => null
-    };
-
-    /// <summary>Drains <paramref name="chunks"/> into wire frames via <paramref name="send"/>, exactly as
-    /// <see cref="LLMAssistantVoiceTurnWS"/> did inline before this was pulled out: the same translation serves
-    /// both its native-tool-calling branch and its no-tools-available fallback (an empty
-    /// <see cref="ToolRegistry"/> makes <see cref="ToolLoop.RunAsync"/> run exactly one plain round — see
-    /// <see cref="LLMAssistantVoiceTurnWS"/>'s own comment), so there is exactly one emission path and one
-    /// <c>done</c> shape instead of two. Pulled out for testability too: this takes a plain
-    /// <see cref="IAsyncEnumerable{TextChunk}"/>, the same contract <c>ToolLoopIntegrationTests</c> already
-    /// drives against a fake <c>ITextService</c>-backed <see cref="ToolLoop.RunAsync"/>, with no live
-    /// <see cref="WebSocket"/>/<see cref="Session"/> needed. Stops draining as soon as
-    /// <paramref name="socketOpen"/> reports false, checked before every chunk is handled, same as the inline
-    /// version's own check. <paramref name="deviceCalls"/> is appended in place (a validated device-action
-    /// result, the same rule <see cref="LLMAssistantVoiceTurn"/> applies) rather than returned, since the
-    /// caller already owns the <see cref="JArray"/> that goes on its own <c>done</c> frame.
-    ///
-    /// <para>A <c>native_tool_call</c> frame is sent only for a call <see cref="ToolLoop"/> actually ran,
-    /// immediately before that call's <c>tool_result</c>. A call ToolLoop announced but did not run (its round
-    /// limit, or a round that ended in an error or cancellation) is never sent; the round limit is reported as a
-    /// <c>notice</c> frame instead.</para></summary>
-    internal static async Task<(string FullText, StopReason? Stop)> ForwardFramesAsync(
-        IAsyncEnumerable<TextChunk> chunks, Func<JObject, Task> send, Func<bool> socketOpen, JArray deviceCalls)
-    {
-        StringBuilder spoken = new();
-        StopReason? finalStop = null;
-        // Calls the model announced but ToolLoop has not run yet, in announcement order. A call is only
-        // forwarded once its tool_result arrives (call frame first, then the result), because ToolLoop yields a
-        // NativeToolCall before it knows whether it will dispatch it: at the round limit, or when the round
-        // ends in an error or cancellation, the call is never run. A relay such as AudioLab's
-        // RemoteTextService treats a forwarded call without a result as one it must dispatch itself, so an
-        // unrun call must never reach the wire. Whatever is still pending when the stream ends is dropped.
-        List<NativeToolCall> pendingCalls = [];
-        await foreach (TextChunk chunk in chunks)
-        {
-            if (!socketOpen())
-            {
-                break;
-            }
-            switch (chunk.Kind)
-            {
-                case TextChunkKind.Chunk:
-                    spoken.Append(chunk.Text);
-                    await send(new JObject { ["chunk"] = chunk.Text });
-                    break;
-                case TextChunkKind.NativeToolCall:
-                    if (chunk.ToolCall is { } call)
-                    {
-                        pendingCalls.Add(call);
-                    }
-                    break;
-                case TextChunkKind.Status when chunk.Status?.Phase == ToolLoop.RoundLimitPhase:
-                    // ToolLoop hit its round limit with the model still asking for a tool; that last call is not
-                    // run. Said as a notice, not as a tool call the caller would have to resolve.
-                    pendingCalls.Clear();
-                    string limit = chunk.Text is { } limitText && limitText.StartsWith(ToolLoop.RoundLimitPrefix, StringComparison.Ordinal)
-                        ? limitText[ToolLoop.RoundLimitPrefix.Length..]
-                        : chunk.Text;
-                    await send(new JObject
-                    {
-                        ["notice"] = $"tool round limit reached ({limit}); the model's last tool call was not run"
-                    });
-                    break;
-                case TextChunkKind.ToolResult:
-                {
-                    int pendingIndex = pendingCalls.FindIndex(p => p.Id == chunk.ToolCall?.Id);
-                    if (pendingIndex >= 0)
-                    {
-                        NativeToolCall ran = pendingCalls[pendingIndex];
-                        pendingCalls.RemoveAt(pendingIndex);
-                        await send(new JObject
-                        {
-                            ["native_tool_call"] = new JObject
-                            {
-                                ["id"] = ran.Id,
-                                ["name"] = ran.Name,
-                                ["arguments"] = ParseJsonOrEmpty(ran.Arguments)
-                            }
-                        });
-                    }
-                    JObject result = ParseJsonOrEmpty(chunk.Text);
-                    await send(new JObject
-                    {
-                        ["tool_result"] = new JObject
-                        {
-                            ["id"] = chunk.ToolCall?.Id,
-                            ["name"] = chunk.ToolCall?.Name,
-                            ["result"] = result
-                        }
-                    });
-                    // Same "only a validated device action" rule LLMAssistantVoiceTurn applies: a rejected
-                    // call would hand the device arguments the server refused to run.
-                    if (chunk.ToolCall is { } resultCall && Tools.BuiltIn.DeviceActionTool.IsDeviceAction(resultCall.Name)
-                        && result["success"]?.Value<bool>() == true)
-                    {
-                        deviceCalls.Add(new JObject { ["name"] = resultCall.Name, ["arguments"] = ParseJsonOrEmpty(resultCall.Arguments) });
-                    }
-                    break;
-                }
-                case TextChunkKind.StopReason:
-                    finalStop = chunk.Stop;
-                    break;
-                case TextChunkKind.Reasoning:
-                    // This route feeds speech and a relay that reads only answer text, so reasoning is neither spoken nor sent.
-                    break;
-            }
-        }
-        return (spoken.ToString(), finalStop);
     }
 
     /// <summary>Stop button: cancels whatever generation is currently in flight for a thread (a single
@@ -1096,7 +833,7 @@ public static class ChatEndpoints
             List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+            await AttachTools(input, enabledTools, session, assistantId, forceToolId);
             if (cts.IsCancellationRequested)
             {
                 // Stopped during setup, before a single token was ever requested: nothing to persist.
@@ -1219,8 +956,8 @@ public static class ChatEndpoints
     /// <summary>Whether tool-calling is active for this thread: an explicit per-thread override (set via
     /// <see cref="ThreadEndpoints.LLMAssistantSetThreadToolsEnabled"/>) wins; otherwise falls back to the
     /// resolved assistant's master switch. Callers must pass an empty tools list when this is false so
-    /// <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> never runs — small local GGUF models
-    /// reliably get confused by tool descriptions in the system prompt regardless of how compact they are.</summary>
+    /// tools are never attached to the request — small local GGUF models get confused by tool descriptions
+    /// they should not see.</summary>
     private static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
     {
         if (thread["toolsEnabled"]?.Type == JTokenType.Boolean)
@@ -1230,13 +967,10 @@ public static class ChatEndpoints
         return AssistantResolver.Resolve(assistantId, user, settings).ToolsEnabled;
     }
 
-    /// <summary>Enriches the assistant's enabled tools per-user and attaches them to the request. Providers
-    /// with <see cref="ILLMProvider.SupportsNativeToolCalling"/> (eg Anthropic) get <see cref="ExtendedLLMInput.Tools"/>
-    /// / <see cref="ExtendedLLMInput.ForceToolId"/> and nothing else — their own native tools/tool_choice
-    /// wire mechanism teaches the model, so injecting the &lt;tool_call&gt; tag convention on top would
-    /// confuse it. Every other provider gets today's prompt-injected tag convention. Shared by single-model
-    /// and compare streaming.</summary>
-    private static async Task ApplyToolsToInput(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
+    /// <summary>Puts the enabled tools on the request: each tool's handler may enrich its definition for this user, and a forced tool
+    /// is kept only when it is one of the enabled tools. The model learns the tools from the request itself; the engine writes the
+    /// tool prompt for templates that have no tools slot.</summary>
+    private static async Task AttachTools(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
     {
         if (enabledTools is null || enabledTools.Count == 0)
         {
@@ -1253,41 +987,8 @@ public static class ChatEndpoints
         {
             input.ForceToolId = forceToolId;
         }
-        ILLMProvider provider = await LLMDispatcher.GetProvider(input);
-        // HartsyLocalLLMProvider needs the per-request, per-model check (SupportsNativeToolCallingFor):
-        // it serves whatever GGUF input.Model names, and the plain SupportsNativeToolCalling property can't
-        // see that model at all (it's a provider-wide yes/no, not a per-request one — see that property's
-        // own doc comment). Skipping the tag prompt for a non-Hermes model here would leave it with no way
-        // to learn about tools at all: its own Jinja template would render them in its native, non-Hermes
-        // convention, which the engine's installed Hermes-only filter cannot parse.
-        bool nativeSupported = provider is HartsyLocalLLMProvider hartsyProvider
-            ? hartsyProvider.SupportsNativeToolCallingFor(input.Model)
-            : provider?.SupportsNativeToolCalling == true;
-        if (nativeSupported)
-        {
-            return;
-        }
-        string toolPrompt = ToolPromptService.BuildToolSystemPrompt(enrichedTools);
-        input.SystemPrompt = (input.SystemPrompt ?? "") + toolPrompt;
-        if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
-        {
-            input.Messages[0].Content = input.SystemPrompt;
-        }
-        else if (!string.IsNullOrEmpty(input.SystemPrompt))
-        {
-            input.Messages.Insert(0, new LLMMessage() { Role = LLMRoles.System, Content = input.SystemPrompt });
-        }
-        if (!string.IsNullOrEmpty(input.ForceToolId))
-        {
-            string directive = $"\n\nIMPORTANT: The user has explicitly requested the `{forceToolId}` tool. You MUST respond by emitting a single <tool_call> block for `{forceToolId}` with arguments derived from the user's message — do not answer in prose and do not pick a different tool.";
-            input.SystemPrompt += directive;
-            if (input.Messages.Count > 0 && input.Messages[0].Role == LLMRoles.System)
-            {
-                input.Messages[0].Content = input.SystemPrompt;
-            }
-        }
+        await Task.CompletedTask;
     }
-
     /// <summary>Streams two-or-more models concurrently against the same user turn (side-by-side compare).
     /// Each lane builds its own input from the SAME active-branch history, streams over one shared socket
     /// (events tagged with <c>lane</c>, writes serialized), and persists its reply as a sibling child of the
@@ -1366,7 +1067,7 @@ public static class ChatEndpoints
                 input.Device = L.Device;
                 input.EnableThinking = enableThinking;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-                await ApplyToolsToInput(input, enabledTools, session, assistantId, forceToolId);
+                await AttachTools(input, enabledTools, session, assistantId, forceToolId);
                 if (cts.IsCancellationRequested)
                 {
                     return;
@@ -1451,6 +1152,14 @@ public static class ChatEndpoints
                 Role = msg["role"]?.ToString() ?? Roles.User,
                 Content = msg["content"]?.ToString() ?? ""
             };
+            if (msg["toolCalls"] is JArray savedCalls && savedCalls.Count > 0)
+            {
+                entry.ToolCalls = [.. savedCalls.OfType<JObject>()];
+            }
+            if (msg["rounds"] is JArray savedRounds && savedRounds.Count > 0)
+            {
+                entry.Rounds = [.. savedRounds.OfType<JObject>()];
+            }
             if (msg["media"] is JArray mediaArr && mediaArr.Count > 0)
             {
                 entry.Media = [];
