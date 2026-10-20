@@ -91,15 +91,15 @@ function llmaSaveThinkingMode(mode) {
 const LLMA_CONSTANTS = Object.freeze({
     // Toast auto-dismiss duration. Long enough to read, short enough not to linger.
     TOAST_DURATION_MS:  2600,
-    // Sidebar / panel width bounds — clamp ranges for the resizable split bars.
+    // Sidebar / panel width bounds; clamp ranges for the resizable split bars.
     MIN_SIDEBAR_PX:     140,
     MAX_SIDEBAR_PX:     520,
     MIN_PANEL_PX:       180,
     MAX_PANEL_PX:       560,
     SPLIT_BAR_PX:       5,
-    // Settings modal focus delay — gives the overlay layout a tick to settle before grabbing focus.
+    // Settings modal focus delay: gives the overlay layout a tick to settle before grabbing focus.
     MODAL_FOCUS_DELAY_MS: 60,
-    // Sidebar focus delay after starting a chat — input element needs to exist first.
+    // Sidebar focus delay after starting a chat: input element needs to exist first.
     INPUT_FOCUS_DELAY_MS: 80,
 });
 
@@ -140,7 +140,7 @@ function llmaLoadStyle(href) {
     LLMA_LOADED_STYLES.add(href);
 }
 
-// Base path for the vendored libraries shipped with the extension. NO CDN / external network —
+// Base path for the vendored libraries shipped with the extension. NO CDN / external network,
 // these resolve from the extension's own served assets (registered in LLMAssistantExtension.OnInit).
 // See Assets/vendor/FETCH.md. Do NOT reintroduce https://cdn... URLs here.
 const LLMA_VENDOR_BASE = '/ExtensionFile/LLMAssistantExtension/Assets/vendor';
@@ -163,7 +163,7 @@ async function llmaLoadVendoredLibs() {
             gfm:    true,
         });
     }
-    // Enhanced libs (KaTeX + Mermaid) — loaded async, non-blocking. KaTeX's CSS pulls its woff2 fonts
+    // Enhanced libs (KaTeX + Mermaid): loaded async, non-blocking. KaTeX's CSS pulls its woff2 fonts
     // from the sibling fonts/ folder (relative to the CSS URL), which are vendored alongside it.
     llmaLoadStyle(`${LLMA_VENDOR_BASE}/katex/katex.min.css`);
     llmaLoadScript(`${LLMA_VENDOR_BASE}/katex/katex.min.js`)
@@ -187,9 +187,9 @@ async function llmaLoadVendoredLibs() {
 
 /**
  * Incrementally filters `openTag...closeTag` spans (including a still-open, unclosed span) out of a
- * streamed text feed WITHOUT ever re-scanning previously-processed text — only a small tail (shorter than
+ * streamed text feed WITHOUT ever re-scanning previously-processed text; only a small tail (shorter than
  * either tag) is carried across `feed()` calls to catch a tag split across a chunk boundary. Mirrors the
- * server-side `ToolPromptService.TailWindowSentinel` technique, applied bidirectionally (open AND close).
+ * tail-window scan, applied bidirectionally (open AND close).
  * Replaces the old per-tick `streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '')`, which
  * re-scanned the entire accumulated message on every render.
  */
@@ -214,7 +214,7 @@ function llmaMakeHiddenSpanFilter(openTag, closeTag) {
             } else {
                 const idx = buf.indexOf(closeTag);
                 if (idx === -1) {
-                    // Hidden content is never shown, so there's nothing to flush — just bound the carried
+                    // Hidden content is never shown, so there's nothing to flush; just bound the carried
                     // tail so a huge streaming tool-call argument doesn't grow `buf` unboundedly.
                     const safeLen = Math.max(0, buf.length - (closeTag.length - 1));
                     buf = buf.slice(safeLen);
@@ -259,7 +259,7 @@ function llmaMakeStreamRenderer(getBubble) {
         llmaSetRenderedHtml(tc, llmaRenderMarkdown(filter.visibleText().trim(), { streaming: true }));
         lastRender = performance.now();
     };
-    // Scales up (capped) as the segment grows — re-render cost (markdown parse + sanitize) grows with
+    // Scales up (capped) as the segment grows; re-render cost (markdown parse + sanitize) grows with
     // length too, so a long reply shouldn't keep re-paying a fixed 60ms tick rate for its whole duration.
     const currentIntervalMs = () => Math.min(maxIntervalMs, Math.max(baseIntervalMs, rawText.length / 50));
     const schedule = () => {
@@ -469,7 +469,7 @@ function llmaCopyCode(btn) {
     });
 }
 
-// Delegated handler for the code-block "Copy" buttons. Registered once (CSP-clean — no inline
+// Delegated handler for the code-block "Copy" buttons. Registered once (CSP-clean; no inline
 // onclick), works for every dynamically-inserted markdown block (chat bubbles, asset viewer, …).
 document.addEventListener('click', (e) => {
     const btn = e.target.closest?.('.llma-copy-code-btn');
@@ -513,7 +513,7 @@ function llmaIsVisionModel(model) {
     const family = (model.family || '').toLowerCase();
     const provider = (model.provider || '').toLowerCase();
     const hay = `${id} ${name} ${family} ${provider}`;
-    // Known vision-capable families. Conservative — only well-attested ones.
+    // Known vision-capable families. Conservative; only well-attested ones.
     if (/claude-(opus-4|sonnet-4|haiku-4|3-5-sonnet|3-5-haiku|3-opus)/.test(hay)) return true;
     if (/(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|chatgpt-4)/.test(hay)) return true;
     if (/(gemini-1\.5|gemini-2|gemini-pro-vision|gemini-flash)/.test(hay)) return true;
@@ -533,7 +533,7 @@ function llmaShortError(err) {
 }
 
 // Maps a raw error (server string, WS transport event, or thrown exception) to a friendly
-// { title, hint, detail } triple. The goal: never show a bare opaque "WebSocket error" again —
+// { title, hint, detail } triple. The goal: never show a bare opaque "WebSocket error" again,
 // recognized failures get a plain-language title plus an actionable hint, while unrecognized ones
 // surface the raw text as the title (so we never hide real detail). `detail` is the raw string,
 // kept for a hover tooltip / console.
@@ -542,12 +542,12 @@ function llmaHumanizeError(raw) {
     const low  = text.toLowerCase();
     // Every call below passes static copy, so translate() it here. The one exception (the final
     // "unknown error" fallback, which can pass the raw dynamic error text as the title) calls
-    // make() with its own already-decided title and skips this — see `makeRaw` below.
+    // make() with its own already-decided title and skips this; see `makeRaw` below.
     const make = (title, hint) => ({ title: translate(title), hint: hint ? translate(hint) : hint, detail: text });
-    // Same shape, but does NOT translate title — for the one case where title may be raw dynamic text.
+    // Same shape, but does NOT translate title; for the one case where title may be raw dynamic text.
     const makeRaw = (title, hint) => ({ title, hint: hint ? translate(hint) : hint, detail: text });
 
-    // Empty / generic transport failures — the most common opaque case.
+    // Empty / generic transport failures; the most common opaque case.
     if (!text || low === 'websocket error' || low.includes('generic progressevent') || low.includes('did the server crash') || low.includes('failed to send request')) {
         return make('Couldn’t reach the LLM backend',
             'The connection dropped before a reply came back. Make sure SwarmUI and at least one LLM backend are running (Server > Backends), then try again.');
@@ -574,7 +574,7 @@ function llmaHumanizeError(raw) {
     }
     if (low.includes('timeout') || low.includes('timed out')) {
         return make('The request timed out',
-            'The backend took too long — it may still be loading a large model. Wait a moment and try again.');
+            'The backend took too long; it may still be loading a large model. Wait a moment and try again.');
     }
     if (low.includes('rate limit') || low.includes('429') || low.includes('quota')) {
         return make('Rate limit or quota reached',
@@ -584,7 +584,7 @@ function llmaHumanizeError(raw) {
         return make('Couldn’t connect to the backend',
             'The model server isn’t reachable. Check the backend’s address/status under Server > Backends.');
     }
-    // Unknown — surface the raw text as the title (never translate a dynamic value), no invented hint.
+    // Unknown; surface the raw text as the title (never translate a dynamic value), no invented hint.
     return makeRaw(text || translate('Something went wrong'), null);
 }
 
@@ -592,7 +592,7 @@ function llmaHumanizeError(raw) {
 // Standardizes error handling for user-initiated UI actions (save, delete, rename, send, etc.):
 // catches, surfaces a toast with the server's error message when available, logs full details
 // to the console for debugging, and returns null so callers don't have to think about exceptions.
-// Background polling / hover / race-recovery code should NOT use this — silent fail is correct
+// Background polling / hover / race-recovery code should NOT use this: silent fail is correct
 // for those paths since the user didn't ask for the action.
 async function llmaUserAction(fn, errorPrefix = 'Action failed') {
     try {
@@ -618,7 +618,7 @@ function llmaShowToast(message, type = 'info') {
     toast.className = `llma-toast ${type}`;
     // Matches core's doNoticePopover pattern (ui_improvements.js): translate() internally so every
     // call site gets automatic translation for free. NOTE: a few call sites across the extension already
-    // concatenate dynamic content (an error detail, a count, an id) into `message` before calling us —
+    // concatenate dynamic content (an error detail, a count, an id) into `message` before calling us,
     // translate() self-registers that combined string as a harmless no-op key rather than crashing, but
     // it does mean those specific messages aren't usefully translatable. See the i18n audit notes.
     toast.textContent = translate(message);
@@ -631,7 +631,7 @@ function llmaRelativeTime(isoString) {
     const now  = Date.now();
     const date = new Date(isoString).getTime();
     const diff = Math.floor((now - date) / 1000);
-    // Reassigned repeatedly as time passes — translate() the static fragment directly at each call
+    // Reassigned repeatedly as time passes; translate() the static fragment directly at each call
     // (never class="translate", which would cache a stale pretranslated value on the first sweep).
     if (diff < 60)    return translate('just now');
     if (diff < 3600)  return `${Math.floor(diff / 60)}${translate('m ago')}`;
@@ -766,7 +766,7 @@ function llmaDownloadFile(filename, content, mimeType) {
 
 // -- Default Settings --
 const LLMA_DEFAULT_SETTINGS = {
-    // Server-canonical key is "parameters" (see C# SettingsService.DefaultSettings) — must match, or the
+    // Server-canonical key is "parameters" (see C# SettingsService.DefaultSettings); it must match, or the
     // General-tab defaults silently don't apply to requests.
     parameters: {
         temperature:        0.8,
@@ -784,7 +784,7 @@ const LLMA_DEFAULT_SETTINGS = {
         enterToSend:     true,
         showTokens:      true,
     },
-    // Floating Companion overlay (Clippy-style helper). Defaults to OFF — opt-in.
+    // Floating Companion overlay (Clippy-style helper). Defaults to OFF; opt-in.
     companion: {
         enabled: false,
         // Empty = follow whichever assistant the user has marked active. Otherwise an explicit id.

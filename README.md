@@ -728,7 +728,7 @@ Either the selected model isn't vision-capable or the assistant has no `vision` 
 - **Shared assistant avatars** are served from the uploading user's output folder, so another user needs SwarmUI's `View Others Outputs` permission to see them. Personal avatars are unaffected.
 - **`GraphDecode` and `SpeculativeDecode`** only engage on greedy (temperature 0) requests, so the default chat temperature does not use them yet.
 - **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
-- **`ForceToolId`** states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose.
+- **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. Anthropic and OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field.
 - **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
 - **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
 
