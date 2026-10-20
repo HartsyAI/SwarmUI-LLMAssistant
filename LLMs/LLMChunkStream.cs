@@ -6,9 +6,10 @@ using Newtonsoft.Json.Linq;
 namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Turns a provider's JSON frame callback into the engine's <see cref="TextChunk"/> stream, so every provider can be
-/// consumed the same way. Frames map as: <c>chunk</c> to <see cref="TextChunkKind.Chunk"/>, <c>native_tool_call</c> to
-/// <see cref="TextChunkKind.NativeToolCall"/>, <c>stopReason</c> to <see cref="TextChunkKind.StopReason"/>, and <c>status</c> to
-/// <see cref="TextChunkKind.Status"/>. Other frames are not part of the chunk vocabulary and are dropped.</summary>
+/// consumed the same way. Frames map as: <c>chunk</c> to <see cref="TextChunkKind.Chunk"/>, <c>result</c> to
+/// <see cref="TextChunkKind.Result"/>, <c>native_tool_call</c> to <see cref="TextChunkKind.NativeToolCall"/>, <c>stopReason</c> to
+/// <see cref="TextChunkKind.StopReason"/>, and <c>status</c> to <see cref="TextChunkKind.Status"/>. Other frames are not part of the chunk
+/// vocabulary and are dropped.</summary>
 public static class LLMChunkStream
 {
     /// <summary>Runs <paramref name="produce"/> and streams the frames it emits. A run that ends without a stop reason ends with
@@ -63,6 +64,8 @@ public static class LLMChunkStream
     {
         if (frame is null) return null;
         if (frame["chunk"] is { } text) return new TextChunk { Kind = TextChunkKind.Chunk, Text = text.ToString() };
+        // A provider that reports its reply only as a final result (a native SwarmUI backend may) keeps that text.
+        if (frame["result"] is { } result) return new TextChunk { Kind = TextChunkKind.Result, Text = result.ToString() };
         if (frame["native_tool_call"] is JObject call)
         {
             return new TextChunk
@@ -72,7 +75,13 @@ public static class LLMChunkStream
                 {
                     Id = call["id"]?.ToString() ?? "",
                     Name = call["name"]?.ToString() ?? "",
-                    Arguments = call["arguments"] is JObject args ? args.ToString(Newtonsoft.Json.Formatting.None) : "{}",
+                    // Raw text is a call whose arguments did not parse; it reaches the tool loop as is, which answers it with an error.
+                    Arguments = call["arguments"] switch
+                    {
+                        JObject args => args.ToString(Newtonsoft.Json.Formatting.None),
+                        JValue { Type: JTokenType.String } raw => raw.ToString(),
+                        _ => "{}",
+                    },
                 },
             };
         }

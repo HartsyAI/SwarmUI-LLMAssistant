@@ -1,5 +1,8 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using Hartsy.Extensions.LLMAssistant.Backends;
+using Hartsy.Extensions.LLMAssistant.LLMs;
+using HartsyInference.Engine.Requests;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -58,5 +61,51 @@ public class LLMProviderBackendTests
         Assert.Equal("the backend reported a failure without a message", LLMProviderBackend.ErrorStopMessage(new JObject { ["stopReason"] = "error" }));
         Assert.Null(LLMProviderBackend.ErrorStopMessage(new JObject { ["stopReason"] = "length" }));
         Assert.Null(LLMProviderBackend.ErrorStopMessage(new JObject { ["chunk"] = "text" }));
+    }
+
+    /// <summary>A provider backend that answers only through <c>GenerateLive</c> frames.</summary>
+    private class FrameBackend : LLMProviderBackend
+    {
+        public override string ProviderKind => "test";
+
+        public override string DisplayName => "Test";
+
+        public override IEnumerable<string> SupportedFeatures => [];
+
+        public override Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default) => Task.FromResult(new List<LLMModelInfo>());
+
+        public override Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+            => onChunk(new JObject { ["chunk"] = "from frames" });
+
+        protected override Task OnProviderInit() => Task.CompletedTask;
+
+        protected override Task OnProviderShutdown() => Task.CompletedTask;
+    }
+
+    /// <summary>The same backend with its own chunk stream, as the local engine provider has.</summary>
+    private sealed class NativeBackend : FrameBackend
+    {
+        public override async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [EnumeratorCancellation] CancellationToken ct)
+        {
+            await Task.Yield();
+            yield return new TextChunk { Kind = TextChunkKind.Chunk, Text = "native" };
+        }
+    }
+
+    private static async Task<string> FirstText(ILLMProvider provider)
+    {
+        await foreach (TextChunk chunk in provider.StreamAsync(new ExtendedLLMInput(), CancellationToken.None))
+        {
+            return chunk.Text;
+        }
+        return null;
+    }
+
+    [Fact]
+    public async Task StreamAsync_ThroughTheInterface_ReachesTheProvidersOwnStream()
+    {
+        // Callers hold the provider as ILLMProvider; an override must win over the frame adapter.
+        Assert.Equal("native", await FirstText(new NativeBackend()));
+        Assert.Equal("from frames", await FirstText(new FrameBackend()));
     }
 }

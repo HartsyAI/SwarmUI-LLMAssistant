@@ -67,6 +67,42 @@ public static class LLMMessageMapping
         _ => HartsyInference.Engine.Requests.TextRole.User,
     };
 
+    /// <summary>A streamed call's arguments for a <c>native_tool_call</c> frame: the parsed object, an empty object for no text, or the raw
+    /// text when it is not one JSON object, so the turn answers the model with an error instead of running the tool on <c>{}</c>.</summary>
+    public static JToken StreamedArguments(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new JObject();
+        }
+        return TryParseArguments(json, out JObject parsed, out _) ? parsed : new JValue(json);
+    }
+
+    /// <summary>Parses a call's arguments as one JSON object (blank text is an empty one); false, with the problem, for anything else.</summary>
+    public static bool TryParseArguments(string json, out JObject arguments, out string problem)
+    {
+        arguments = new JObject();
+        problem = null;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return true;
+        }
+        try
+        {
+            if (JToken.Parse(json) is JObject parsed)
+            {
+                arguments = parsed;
+                return true;
+            }
+            problem = "they are not a JSON object";
+        }
+        catch (JsonException ex)
+        {
+            problem = ex.Message;
+        }
+        return false;
+    }
+
     /// <summary>A stored call's arguments as the JSON text OpenAI-shaped APIs expect.</summary>
     public static string ArgumentsText(JToken arguments)
     {

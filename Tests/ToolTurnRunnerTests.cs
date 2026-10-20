@@ -185,6 +185,49 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task AReplyReportedOnlyAsAResultIsShownAndSaved()
+    {
+        ScriptedChatProvider provider = new([new TextChunk { Kind = TextChunkKind.Result, Text = "Whole reply." }, Stop(StopReason.Stop)]);
+        RecordingChatSink sink = new();
+        List<JObject> saved = [];
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), saved), sink);
+
+        Assert.Equal(["chunk:Whole reply.", "done"], sink.Events);
+        Assert.Equal("Whole reply.", outcome.FullText);
+        Assert.Equal("Whole reply.", saved[0]["content"]!.ToString());
+    }
+
+    [Fact]
+    public async Task AResultAfterStreamedTextIsNotShownTwice()
+    {
+        ScriptedChatProvider provider = new([Text("Hi."), new TextChunk { Kind = TextChunkKind.Result, Text = "Hi." }, Stop(StopReason.Stop)]);
+        RecordingChatSink sink = new();
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), []), sink);
+
+        Assert.Equal(["chunk:Hi.", "done"], sink.Events);
+        Assert.Equal("Hi.", outcome.FullText);
+    }
+
+    [Fact]
+    public async Task MalformedArgumentsAreAnsweredWithAnErrorAndTheToolDoesNotRun()
+    {
+        ScriptedChatProvider provider = new(
+            [Call("c1", "get_time", "{\"tz\":"), Stop(StopReason.ToolCall)],
+            [Text("Let me try again."), Stop(StopReason.Stop)]);
+        int dispatched = 0;
+        RecordingChatSink sink = new();
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(GetTime()),
+            Context(provider, (_, _) => { dispatched++; return Task.FromResult(new JObject { ["ok"] = true }); }, []), sink);
+
+        Assert.Equal(0, dispatched);
+        JObject result = (JObject)outcome.ToolEvents[0]!["result"]!;
+        Assert.False(result["success"]!.Value<bool>());
+        Assert.Contains("not valid JSON", result["error"]!.ToString());
+        Assert.Equal("Let me try again.", outcome.SpokenText);
+        Assert.Equal("tool", provider.Inputs[1].Messages[^1].Role);
+    }
+
+    [Fact]
     public async Task AnErrorStopKeepsTheProvidersMessage()
     {
         ScriptedChatProvider provider = new([Text("partial"), new TextChunk { Kind = TextChunkKind.StopReason, Stop = StopReason.Error, Text = "CUDA is not available." }]);

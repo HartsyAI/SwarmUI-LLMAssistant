@@ -390,18 +390,11 @@ public class AnthropicLLMProvider : LLMProviderBackend
                     int index = parsed.Value<int?>("index") ?? 0;
                     if (pendingToolUse.Remove(index, out (string Id, string Name, StringBuilder Json) call))
                     {
-                        JObject args;
-                        try
+                        // Malformed JSON (not expected from Anthropic) stays raw text, so the turn answers the model with an error instead of running the tool on {}.
+                        JToken args = LLMMessageMapping.StreamedArguments(call.Json.ToString());
+                        if (args is not JObject)
                         {
-                            string json = call.Json.ToString();
-                            args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
-                        }
-                        catch (Exception ex)
-                        {
-                            // Genuinely shouldn't happen (Anthropic's own tool-use JSON is always
-                            // well-formed) — fail soft rather than drop the whole stream over one call.
-                            Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}: {ex.Message}");
-                            args = new JObject();
+                            Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}.");
                         }
                         await onChunk(new JObject()
                         {

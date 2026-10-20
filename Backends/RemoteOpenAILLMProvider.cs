@@ -357,16 +357,11 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     {
                         foreach ((string id, string name, StringBuilder argsBuilder) in pendingToolCalls.Values)
                         {
-                            JObject args;
-                            try
+                            // Malformed JSON stays raw text, so the turn answers the model with an error instead of running the tool on {}.
+                            JToken args = LLMMessageMapping.StreamedArguments(argsBuilder.ToString());
+                            if (args is not JObject)
                             {
-                                string json = argsBuilder.ToString();
-                                args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
-                            }
-                            catch (Exception ex)
-                            {
-                                Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}: {ex.Message}");
-                                args = new JObject();
+                                Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}.");
                             }
                             await onChunk(new JObject()
                             {

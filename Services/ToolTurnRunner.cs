@@ -127,6 +127,14 @@ public static class ToolTurnRunner
         bool pendingIteration = false;
         bool inReasoning = false;
         int round = 1;
+        bool runsTools = input.Tools is { Count: > 0 };
+        async Task AppendText(string text)
+        {
+            fullText.Append(text);
+            roundText.Append(text);
+            spokenText.Append(text);
+            await sink.Chunk(text ?? "");
+        }
         void CloseRound()
         {
             if (roundText.Length > 0 || roundCallIds.Count > 0)
@@ -138,7 +146,7 @@ public static class ToolTurnRunner
         }
         try
         {
-            IAsyncEnumerable<TextChunk> chunks = input.Tools is { Count: > 0 }
+            IAsyncEnumerable<TextChunk> chunks = runsTools
                 ? ToolLoop.Create(MakeRoundStream(input, provider), SeedRequest(input), new HostToolDispatcher(resolved, input, linked.Token), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
                 : provider.StreamAsync(input, linked.Token);
             await foreach (TextChunk chunk in chunks.WithCancellation(linked.Token))
@@ -160,10 +168,11 @@ public static class ToolTurnRunner
                 switch (chunk.Kind)
                 {
                     case TextChunkKind.Chunk:
-                        fullText.Append(chunk.Text);
-                        roundText.Append(chunk.Text);
-                        spokenText.Append(chunk.Text);
-                        await sink.Chunk(chunk.Text ?? "");
+                        await AppendText(chunk.Text);
+                        break;
+                    case TextChunkKind.Result when !runsTools && spokenText.Length == 0 && !string.IsNullOrEmpty(chunk.Text):
+                        // A reply reported only as a final result is still shown and saved; the tool loop does this for its own rounds.
+                        await AppendText(chunk.Text);
                         break;
                     case TextChunkKind.Reasoning:
                         if (!inReasoning)
@@ -398,6 +407,15 @@ public static class ToolTurnRunner
 
         public async Task<string> InvokeAsync(NativeToolCall call, CancellationToken cancel)
         {
+            if (!LLMMessageMapping.TryParseArguments(call.Arguments, out _, out string problem))
+            {
+                // A call whose arguments did not parse never runs; the model gets the error and can call again.
+                return new JObject
+                {
+                    ["success"] = false,
+                    ["error"] = $"The arguments for {call.Name} were not valid JSON ({problem}). Call the tool again with its arguments as one JSON object.",
+                }.ToString(Newtonsoft.Json.Formatting.None);
+            }
             JObject result = await ctx.Dispatch(call, cancel);
             return (result ?? new JObject()).ToString(Newtonsoft.Json.Formatting.None);
         }

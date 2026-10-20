@@ -34,6 +34,24 @@ public class LLMChunkStreamTests
     }
 
     [Fact]
+    public void AResultFrameKeepsItsText()
+    {
+        TextChunk result = LLMChunkStream.ToChunk(new JObject { ["result"] = "The whole reply." })!;
+        Assert.Equal(TextChunkKind.Result, result.Kind);
+        Assert.Equal("The whole reply.", result.Text);
+    }
+
+    [Fact]
+    public void MalformedArgumentsReachTheLoopAsTheirRawText()
+    {
+        TextChunk call = LLMChunkStream.ToChunk(new JObject
+        {
+            ["native_tool_call"] = new JObject { ["id"] = "c1", ["name"] = "get_time", ["arguments"] = "{\"tz\":" },
+        })!;
+        Assert.Equal("{\"tz\":", call.ToolCall!.Arguments);
+    }
+
+    [Fact]
     public void AnErrorStopKeepsItsMessage()
     {
         TextChunk stop = LLMChunkStream.ToChunk(new JObject { ["stopReason"] = "error", ["error"] = "CUDA is not available." })!;

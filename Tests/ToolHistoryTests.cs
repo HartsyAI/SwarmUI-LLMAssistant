@@ -148,4 +148,29 @@ public class ToolHistoryTests
         Assert.Equal("b", input.Messages[2].ToolCalls![0]["id"]!.ToString());
         Assert.Equal("Done.", input.Messages[4].Content);
     }
+
+    [Fact]
+    public void ASavedRoundsReasoningReplaysAsReasoningContent()
+    {
+        // The runner keeps a round's think block in its saved text, so a template that reads reasoning_content still gets it next turn.
+        ChatMessageData saved = new()
+        {
+            Role = "assistant",
+            Content = "<think>check the clock</think><think>it said noon</think>It is noon.",
+            ToolCalls = [SavedCall("c1", "get_time", new JObject(), new JObject { ["now"] = "noon" })],
+            Rounds =
+            [
+                new JObject { ["text"] = "<think>check the clock</think>", ["toolCallIds"] = new JArray("c1") },
+                new JObject { ["text"] = "<think>it said noon</think>It is noon.", ["toolCallIds"] = new JArray() },
+            ],
+        };
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory([saved]);
+        Assert.True(HartsyLocalLLMProvider.HasThinkReply(input.Messages));
+        List<HartsyInference.Engine.Requests.TextMessage> engine = [.. input.Messages.Select(m => HartsyLocalLLMProvider.ToTextMessage(m, m.Content, null, splitReasoning: true))];
+        Assert.Equal("check the clock", engine[0].ReasoningContent);
+        Assert.Equal("", engine[0].Content);
+        Assert.Equal("c1", engine[0].ToolCalls![0].Id);
+        Assert.Equal("it said noon", engine[2].ReasoningContent);
+        Assert.Equal("It is noon.", engine[2].Content);
+    }
 }
