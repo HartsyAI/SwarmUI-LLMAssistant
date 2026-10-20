@@ -33,9 +33,8 @@ public static class BackendCardAPI
         });
     }
 
-    /// <summary>The Default Model choices for one remote LLM backend: an OpenAI-compatible server's own list (sorted), or the
-    /// Anthropic Models API (newest first). Both ask with the viewer's own key when they have one, as the viewer's chats would.
-    /// An empty list leaves the card as it is.</summary>
+    /// <summary>Default Model choices for one remote LLM backend, asked with the viewer's own key: the server's list (sorted) or Anthropic's (newest first).</summary>
+    /// <remarks>An empty list carries its cause in <c>reason</c>, not <c>error</c>, which core would log on every Backends tab visit.</remarks>
     public static async Task<JObject> LLMAssistantListBackendModels(Session session, int backend_id)
     {
         if (!Program.Backends.AllBackends.TryGetValue(backend_id, out BackendHandler.BackendData data))
@@ -52,7 +51,8 @@ public static class BackendCardAPI
             }
             if (data.AbstractBackend is AnthropicLLMProvider anthropic)
             {
-                return ModelChoices(await anthropic.ListApiModelsAs(session, cts.Token) ?? []);
+                List<(string Id, string Name)> models = await anthropic.ListApiModelsAs(session, cts.Token);
+                return models is null ? ModelChoices([], "Set your own Anthropic key in the User tab to list Anthropic's models.") : ModelChoices(models);
             }
             return ModelChoices([]);
         }
@@ -69,7 +69,7 @@ public static class BackendCardAPI
     }
 
     /// <summary>The <c>{values, names}</c> a card dropdown takes: each model once, labeled "Name (id)" when the name differs.</summary>
-    internal static JObject ModelChoices(IEnumerable<(string Id, string Name)> models, string error = null)
+    internal static JObject ModelChoices(IEnumerable<(string Id, string Name)> models, string reason = null)
     {
         JArray values = [];
         JArray names = [];
@@ -84,9 +84,9 @@ public static class BackendCardAPI
             names.Add(string.IsNullOrWhiteSpace(name) || name == id ? id : $"{name} ({id})");
         }
         JObject result = new() { ["values"] = values, ["names"] = names };
-        if (error is not null)
+        if (reason is not null)
         {
-            result["error"] = error;
+            result["reason"] = reason;
         }
         return result;
     }

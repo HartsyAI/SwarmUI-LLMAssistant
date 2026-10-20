@@ -621,7 +621,7 @@ they were sent with.
 | `LLMAssistantSaveInstruction` | `id`, `title`, `content`, `categories?`, `tooltip?`, `scope?` | `{success, instruction}` |
 | `LLMAssistantDeleteInstruction` | `id`, `scope?` | `{success}` |
 | `LLMAssistantListGpus` | `device?` (`auto`, `cuda`, `vulkan` or `cpu`) | `{kind, values[], names[]}`: the local backend card's GPU choices for that Device and the kind it runs on. Needs SwarmUI's `View Backends List` permission |
-| `LLMAssistantListBackendModels` | `backend_id` | `{values[], names[], error?}`: Default Model choices for a remote LLM backend's card, from the server's `/v1/models` or Anthropic's Models API, asked with your own key. Empty when there is nothing to list. Needs `View Backends List` |
+| `LLMAssistantListBackendModels` | `backend_id` | `{values[], names[], reason?}`: Default Model choices for a remote LLM backend's card, from the server's `/v1/models` or Anthropic's Models API, asked with your own key. Empty, with the cause in `reason`, when there is nothing to list. Needs `View Backends List` |
 
 ### Worked example: a full chat turn
 

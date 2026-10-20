@@ -432,8 +432,8 @@ class LLMBackendCards {
         genericRequest('LLMAssistantListBackendModels', { 'backend_id': backendId }, data => {
             this.modelPending[key] = false;
             this.modelLists[key] = data;
-            if (data.error) {
-                console.log(`[LLMAssistant] Default Model list for backend ${backendId} is unavailable: ${data.error}`);
+            if (data.reason) {
+                console.log(`[LLMAssistant] Default Model list for backend ${backendId} is unavailable: ${data.reason}`);
             }
             let backend = backends_loaded[backendId];
             let cardBody = document.getElementById(`backend-card-${backendId}`)?.querySelector('.llma-card-organized');

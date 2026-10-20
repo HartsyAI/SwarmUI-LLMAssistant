@@ -186,8 +186,11 @@ public class BackendCardSettingsTests
         string[] names = ["gpt-4o", "Claude Opus 4.8 (claude-opus-4-8)"];
         Assert.Equal(values, result["values"]!.Values<string>().ToArray());
         Assert.Equal(names, result["names"]!.Values<string>().ToArray());
-        Assert.Null(result["error"]);
-        Assert.Equal("offline", BackendCardAPI.ModelChoices([], "offline")["error"]!.ToString());
+        Assert.Null(result["reason"]);
+        // "reason", not "error": core logs an error for any reply with an error key, and an empty list is an expected state.
+        JObject empty = BackendCardAPI.ModelChoices([], "offline");
+        Assert.Equal("offline", empty["reason"]!.ToString());
+        Assert.Null(empty["error"]);
     }
 
     /// <summary>The tool-calling fields keep their text until the tool-calling re-land removes them.</summary>
