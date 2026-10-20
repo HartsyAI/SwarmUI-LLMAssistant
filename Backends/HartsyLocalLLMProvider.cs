@@ -392,6 +392,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         {
             Logs.Info($"[LLMAssistant] Local LLM backend: Device Auto runs on '{DeviceKind}'.");
         }
+        else if (DeviceKind == "cuda" && !LocalDeviceChoices.Offers("cuda"))
+        {
+            // A Device saved before the dropdown existed can name CUDA on a card the engine's kernels do not run on.
+            Logs.Warning($"[LLMAssistant] Local LLM backend {AbstractBackendData?.ID} is set to CUDA, but CUDA failed the engine's check on this machine, so replies may fail. Set its Device to Auto in Server > Backends.");
+        }
         Engine = new InferenceEngine(DeviceKind, options);
         Status = BackendStatus.RUNNING; // Lazy: load on first request.
         return Task.CompletedTask;

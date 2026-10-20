@@ -40,6 +40,9 @@ public static class LocalDeviceChoices
     /// <summary>The kind Auto runs on here: "cuda", "vulkan" or "cpu".</summary>
     public static string AutoKind => _autoKind.Value;
 
+    /// <summary>Whether the Device dropdown offers <paramref name="kind"/>, which means it passed the engine's check here.</summary>
+    public static bool Offers(string kind) => _kinds.Value.Any(c => c.Value == kind);
+
     /// <summary>The Device dropdown: Auto, then each kind that works on this machine.</summary>
     public class DeviceOptions : SettingsOptionsAttribute.AbstractImpl
     {
