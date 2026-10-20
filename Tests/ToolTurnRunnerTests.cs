@@ -176,6 +176,30 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task AFailureInALaterRoundSavesTheRoundsThatRanAndIsRaised()
+    {
+        // A provider error on round 2 must not discard round 1's call: the saved reply keeps it, and the caller reports the error.
+        ScriptedChatProvider provider = new([Call("c1", "get_time"), Stop(StopReason.ToolCall)], [Text("never"), Stop(StopReason.Stop)])
+        {
+            FailRound = 2,
+            Failure = new InvalidOperationException("HTTP 529 from the provider"),
+        };
+        List<JObject> saved = [];
+        RecordingChatSink sink = new();
+        InvalidOperationException raised = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            ToolTurnRunner.RunAsync(Input(GetTime()), Context(provider, (_, _) => Task.FromResult(new JObject { ["now"] = "14:05" }), saved), sink));
+
+        Assert.Equal("HTTP 529 from the provider", raised.Message);
+        JObject message = Assert.Single(saved);
+        Assert.Equal("error", message["meta"]!["stopReason"]!.ToString());
+        Assert.Equal("HTTP 529 from the provider", message["meta"]!["error"]!.ToString());
+        JObject call = (JObject)Assert.Single(message["toolCalls"]!);
+        Assert.Equal("14:05", call["result"]!["now"]!.ToString());
+        // No done frame follows the failure: the caller's error frame is the turn's last frame.
+        Assert.Equal(["tool_call:get_time", "tool_result:get_time"], sink.Events);
+    }
+
+    [Fact]
     public async Task ASinkThatIsGoneGetsNoFramesButTheReplyIsStillSaved()
     {
         ScriptedChatProvider provider = new([Text("saved anyway."), Stop(StopReason.Stop)]);

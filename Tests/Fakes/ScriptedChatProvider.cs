@@ -9,6 +9,12 @@ internal sealed class ScriptedChatProvider(params TextChunk[][] rounds) : ILLMPr
 {
     private int _next;
 
+    /// <summary>The round (1-based) that throws <see cref="Failure"/> instead of streaming; 0 for none.</summary>
+    public int FailRound;
+
+    /// <summary>What the failing round throws.</summary>
+    public Exception Failure;
+
     public List<ExtendedLLMInput> Inputs { get; } = [];
 
     public string Id => "scripted";
@@ -28,6 +34,10 @@ internal sealed class ScriptedChatProvider(params TextChunk[][] rounds) : ILLMPr
     public async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         Inputs.Add(input);
+        if (FailRound == Inputs.Count && Failure is not null)
+        {
+            throw Failure;
+        }
         TextChunk[] script = rounds[Math.Min(_next++, rounds.Length - 1)];
         foreach (TextChunk chunk in script)
         {

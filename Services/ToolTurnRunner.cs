@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using HartsyInference.Engine.Requests;
@@ -125,6 +126,7 @@ public static class ToolTurnRunner
         bool truncated = false;
         string roundLimit = null;
         string error = null;
+        Exception failure = null;
         bool pendingIteration = false;
         bool inReasoning = false;
         int round = 1;
@@ -224,6 +226,14 @@ public static class ToolTurnRunner
             // A Stop (or the socket closing) landed mid-turn: keep what was produced rather than dropping it.
             stopReason ??= "cancelled";
         }
+        catch (Exception ex)
+        {
+            // A failure mid-turn keeps what ran: it is saved below, then rethrown for the caller to report.
+            failure = ex;
+            stopReason = "error";
+            error = ex.Message;
+            Logs.Error($"[LLMAssistant] Tool turn failed: {ex.Message}");
+        }
         if (inReasoning)
         {
             inReasoning = false;
@@ -239,7 +249,8 @@ public static class ToolTurnRunner
             JObject stub = new()
             {
                 ["success"] = false,
-                ["error"] = truncated ? "The round limit was reached before this tool could run." : "The turn was stopped before this tool finished.",
+                ["error"] = failure is not null ? "The turn failed before this tool could run."
+                    : truncated ? "The round limit was reached before this tool could run." : "The turn was stopped before this tool finished.",
             };
             entry["result"] = stub;
             await sink.ToolNotRun(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
@@ -249,6 +260,11 @@ public static class ToolTurnRunner
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
             resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, stopReason));
+        }
+        if (failure is not null)
+        {
+            // The caller sends the error frame; a done frame after it would replace that error in the chat.
+            ExceptionDispatchInfo.Throw(failure);
         }
         if (sink.IsOpen)
         {
@@ -274,6 +290,10 @@ public static class ToolTurnRunner
         if (!string.IsNullOrEmpty(ctx.DeviceLabel))
         {
             meta["device"] = ctx.DeviceLabel;
+        }
+        if (outcome.Error is not null)
+        {
+            meta["error"] = outcome.Error;
         }
         JObject message = new()
         {
