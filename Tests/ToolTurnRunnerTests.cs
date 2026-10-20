@@ -154,6 +154,28 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task AStopInsideOneCallEndsTheRoundBeforeTheNextCall()
+    {
+        using CancellationTokenSource cts = new();
+        ScriptedChatProvider provider = new([Call("c1", "get_time"), Call("c2", "get_time"), Stop(StopReason.ToolCall)]);
+        List<string> dispatched = [];
+        RecordingChatSink sink = new();
+        ToolTurnContext ctx = Context(provider, (call, _) =>
+        {
+            dispatched.Add(call.Id);
+            cts.Cancel();
+            return Task.FromResult(new JObject { ["now"] = "14:05" });
+        }, []);
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(GetTime()), ctx, sink, cts.Token);
+
+        // The second call of the round never reaches the dispatch hook; it gets a stand-in result instead.
+        Assert.Equal(["c1"], dispatched);
+        Assert.Equal("cancelled", outcome.StopReason);
+        Assert.Equal(["tool_call:get_time", "tool_call:get_time", "tool_result:get_time", "tool_not_run:get_time", "done"], sink.Events);
+        Assert.False(outcome.ToolEvents[1]!["result"]!["success"]!.Value<bool>());
+    }
+
+    [Fact]
     public async Task ASinkThatIsGoneGetsNoFramesButTheReplyIsStillSaved()
     {
         ScriptedChatProvider provider = new([Text("saved anyway."), Stop(StopReason.Stop)]);

@@ -442,6 +442,8 @@ public static class ToolTurnRunner
         /// <inheritdoc/>
         public async Task<string> InvokeAsync(NativeToolCall call, CancellationToken cancel)
         {
+            // Stopped: the calls not yet run never reach the executor, so none is dispatched or charged to its rate budget.
+            cancel.ThrowIfCancellationRequested();
             if (!LLMMessageMapping.TryParseArguments(call.Arguments, out _, out string problem))
             {
                 // A call whose arguments did not parse never runs; the model gets the error and can call again.
