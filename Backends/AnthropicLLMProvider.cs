@@ -3,8 +3,10 @@ using System.Net.Http;
 using System.Text;
 using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
+using SwarmUI.DataHolders;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
@@ -14,20 +16,23 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// per-user <c>anthropic_api</c> key (set in the User tab).</summary>
 public class AnthropicLLMProvider : LLMProviderBackend
 {
+    /// <summary>Settings saved to Data/Backends.fds by field name, so renaming or retyping a field breaks every saved backend.</summary>
+    /// <remarks>Assets/llm-backend-cards.js groups these fields into the card's sections.</remarks>
     public class AnthropicLLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("The default model to use when a request doesn't specify one. Pick from the list.")]
+        [ConfigComment("The Claude model used when a request doesn't name one.\nWith your own Anthropic key set in the User tab, this list comes from Anthropic, so new models show up.")]
         [ManualSettingsOptions(Vals = ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5", "claude-fable-5", "claude-sonnet-5", "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001"],
             ManualNames = ["Claude Fable 5.1", "Claude Opus 5.5", "Claude Sonnet 5.5", "Claude Haiku 5.5", "Claude Opus 5", "Claude Fable 5", "Claude Sonnet 5", "Claude Opus 4.8", "Claude Opus 4.7", "Claude Opus 4.6", "Claude Sonnet 4.6", "Claude Haiku 4.5", "Claude Opus 4.5", "Claude Sonnet 4.5", "Claude Haiku 4.5 (2025-10-01)"])]
         public string DefaultModel = "claude-opus-4-8";
 
-        [ConfigComment("Maximum timeout in seconds for API requests.")]
+        [ConfigComment("Longest a whole reply may take, in seconds, before it is stopped.\nRaise it if long replies get cut off.")]
         public int TimeoutSeconds = 120;
 
-        [ConfigComment("The Anthropic workspace ID, sent as the anthropic-workspace-id header.\nNeeded when the API key is not scoped to a workspace. Leave empty for a workspace-scoped key.\nA user's own workspace ID, set with their key, takes precedence over this.")]
+        [ConfigComment("Only needed when the API key is not tied to one workspace. Leave it empty otherwise.\nA user's own workspace ID, set with their key in the User tab, is used instead.")]
         public string WorkspaceId = "";
 
-        [ConfigComment("The API base URL.\nOnly change this if using a proxy or compatible endpoint.")]
+        [ConfigComment("Only change this to use a proxy or an Anthropic-compatible server.")]
+        [SuggestionPlaceholder(Text = "https://api.anthropic.com")]
         public string BaseUrl = "https://api.anthropic.com";
     }
 
@@ -134,13 +139,13 @@ public class AnthropicLLMProvider : LLMProviderBackend
                 : new JObject { ["type"] = "auto" };
         }
         // temperature / top_p were removed on the current flagship generation (Opus 4.7+, Sonnet 5, Fable 5)
-        // and return a 400 if sent — only forward them for models that still accept them. Even where accepted,
-        // Claude 4+ rejects specifying BOTH ("temperature and top_p cannot both be specified") — send only one.
+        // and return a 400 if sent, so only forward them for models that still accept them. Even where accepted,
+        // Claude 4+ rejects specifying BOTH ("temperature and top_p cannot both be specified"), so send only one.
         if (AcceptsSamplingParams(model))
         {
             if (input.Temperature >= 0)
             {
-                // Anthropic's temperature range is 0–1.0 (the UI slider goes to 2, OpenAI-style) — clamp.
+                // Anthropic's temperature range is 0 to 1.0 (the UI slider goes to 2, OpenAI-style), so clamp.
                 body["temperature"] = Math.Min(input.Temperature, 1.0);
             }
             else if (input.TopP >= 0 && input.TopP < 1.0)
@@ -152,7 +157,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Whether a model accepts the <c>temperature</c>/<c>top_p</c> sampling params. Anthropic
-    /// removed them on the current flagship generation (Opus 4.7/4.8, Sonnet 5, Fable 5) — sending them
+    /// removed them on the current flagship generation (Opus 4.7/4.8, Sonnet 5, Fable 5); sending them
     /// there returns a 400. Allowlist of older families that still accept them; unknown/new models default
     /// to OFF so a request never fails on an unrecognized model.</summary>
     private static bool AcceptsSamplingParams(string model)
@@ -167,7 +172,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     /// <summary>Builds the Anthropic-shaped <c>content</c> for one message: a plain string when
     /// there's no media, or text + image blocks otherwise. HTTPS URLs use the <c>url</c> source
     /// form; everything else uses <c>base64</c> (local paths must already be resolved to base64 by
-    /// the caller — this never touches the filesystem).</summary>
+    /// the caller; this never touches the filesystem).</summary>
     private static JToken BuildAnthropicContent(LLMMessage msg)
     {
         if (msg.Media is null || msg.Media.Count == 0)
@@ -341,7 +346,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
                 else if (currentEvent == "message_delta")
                 {
                     // stop_reason "max_tokens" means Anthropic cut the reply off at the token cap, not
-                    // because the model was done — surface that so the UI can tell the user why.
+                    // because the model was done, so surface that and the UI can tell the user why.
                     string stopReason = parsed.Value<JObject>("delta")?.Value<string>("stop_reason");
                     if (stopReason == "max_tokens")
                     {
@@ -356,11 +361,10 @@ public class AnthropicLLMProvider : LLMProviderBackend
         }
     }
 
-    /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases —
+    /// <summary>Well-known Anthropic model definitions (current as of 2026-07). Uses bare model aliases,
     /// never date-suffixed IDs. Older Claude 3.x / 4.0 models were retired and 404 if requested.</summary>
-    // TODO: Talk to mcmonkey about a better way to get the model list. For now this is hardcoded, so new
-    // Claude models stay invisible until someone edits it. Fetching /v1/models needs an API key, and
-    // ListModels gets no session to read the user's key from, so the fix needs a decision on which key to use.
+    // TODO: Talk to mcmonkey about a better way to get the model list. The backend card already lists the Models API
+    // with the viewing user's key (ListApiModelsAs), but ListModels gets no session, so the chat's list stays hardcoded.
     public static readonly List<(string Id, string Name, int ContextLength)> KnownModels =
     [
         ("claude-fable-5-1", "Claude Fable 5.1", 1000000),
@@ -396,6 +400,43 @@ public class AnthropicLLMProvider : LLMProviderBackend
                 Family = "claude",
                 IsLoaded = true
             });
+        }
+        return models;
+    }
+
+    /// <summary>The models the Anthropic Models API lists for <paramref name="session"/>'s own key, newest first, or null when
+    /// that user has no key set. For the backend card, which has the viewer's session where <see cref="ListModels"/> has none.</summary>
+    public async Task<List<(string Id, string Name)>> ListApiModelsAs(Session session, CancellationToken ct)
+    {
+        ExtendedLLMInput asUser = new() { RequestSession = session };
+        string apiKey = GetApiKey(asUser);
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return null;
+        }
+        using HttpRequestMessage request = new(HttpMethod.Get, $"{Settings.BaseUrl.TrimEnd('/')}/v1/models?limit=1000");
+        ApplyHeaders(request, apiKey, GetWorkspaceId(asUser));
+        using HttpResponseMessage response = await HttpClient.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new SwarmReadableErrorException($"Anthropic returned HTTP {(int)response.StatusCode} when listing models.");
+        }
+        return ParseModelList(JObject.Parse(await response.Content.ReadAsStringAsync(ct)));
+    }
+
+    /// <summary>(id, display name) for each entry of a Models API response's <c>data</c>, in the API's order.</summary>
+    internal static List<(string Id, string Name)> ParseModelList(JObject body)
+    {
+        List<(string Id, string Name)> models = [];
+        foreach (JObject model in (body?["data"] as JArray ?? []).OfType<JObject>())
+        {
+            string id = model.Value<string>("id");
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                continue;
+            }
+            string name = model.Value<string>("display_name");
+            models.Add((id, string.IsNullOrWhiteSpace(name) ? id : name));
         }
         return models;
     }
