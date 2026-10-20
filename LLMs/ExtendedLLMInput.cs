@@ -190,7 +190,7 @@ public class ExtendedLLMInput
             {
                 ["id"] = c["id"]?.ToString() ?? "",
                 ["name"] = c["name"]?.ToString() ?? "",
-                ["arguments"] = LLMMessageMapping.ArgumentsObject(c["arguments"]),
+                ["arguments"] = LLMMessageMapping.ArgumentsOrRaw(c["arguments"]),
             })],
         });
         foreach (JObject call in calls)

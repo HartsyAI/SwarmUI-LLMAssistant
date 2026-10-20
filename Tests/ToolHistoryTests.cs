@@ -173,4 +173,30 @@ public class ToolHistoryTests
         Assert.Equal("it said noon", engine[2].ReasoningContent);
         Assert.Equal("It is noon.", engine[2].Content);
     }
+
+    [Fact]
+    public void AMalformedSavedArgumentsStayAsWrittenInTheReplay()
+    {
+        // The local engine gets the text as written; Anthropic needs an object, so it gets {}; OpenAI takes the text as is.
+        JObject call = new()
+        {
+            ["id"] = "c1",
+            ["name"] = "get_time",
+            ["arguments"] = new JValue("{\"tz\":"),
+            ["result"] = new JObject { ["success"] = false, ["error"] = "not valid JSON" },
+        };
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory([Assistant("", call)]);
+        LLMMessage callTurn = input.Messages.Single(m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 });
+
+        Assert.Equal("{\"tz\":", callTurn.ToolCalls![0]["arguments"]!.ToString());
+        Assert.Equal("{\"tz\":", HartsyLocalLLMProvider.ToNativeToolCall(callTurn.ToolCalls[0]).Arguments);
+        JObject toolUse = AnthropicLLMProvider.BuildAnthropicMessages(input.Messages)
+            .SelectMany(m => m["content"] as JArray ?? new JArray())
+            .OfType<JObject>()
+            .Single(b => b["type"]?.ToString() == "tool_use");
+        Assert.Equal(JTokenType.Object, toolUse["input"]!.Type);
+        JArray openai = RemoteOpenAILLMProvider.BuildOpenAIMessages(input.Messages);
+        JToken openAiCall = openai.Single(m => m["tool_calls"] is not null)["tool_calls"]![0]!;
+        Assert.Equal("{\"tz\":", openAiCall["function"]!["arguments"]!.ToString());
+    }
 }

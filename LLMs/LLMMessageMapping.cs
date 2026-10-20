@@ -58,7 +58,7 @@ public static class LLMMessageMapping
         ToolCallId = message.ToolCallId,
         Name = message.Name,
         ToolCalls = message.ToolCalls is { Count: > 0 } calls
-            ? [.. calls.Select(c => new JObject { ["id"] = c.Id, ["name"] = c.Name, ["arguments"] = ArgumentsObject(new JValue(c.Arguments)) })]
+            ? [.. calls.Select(c => new JObject { ["id"] = c.Id, ["name"] = c.Name, ["arguments"] = ArgumentsOrRaw(new JValue(c.Arguments)) })]
             : null,
     };
 
@@ -70,6 +70,20 @@ public static class LLMMessageMapping
         LLMRoles.System => HartsyInference.Engine.Requests.TextRole.System,
         _ => HartsyInference.Engine.Requests.TextRole.User,
     };
+
+    /// <summary>A call's arguments as the object a provider expects, or the raw text when it is not one JSON object, so history keeps what the model wrote.</summary>
+    public static JToken ArgumentsOrRaw(JToken arguments)
+    {
+        if (arguments is JObject obj)
+        {
+            return obj;
+        }
+        if (arguments is JValue { Type: JTokenType.String } text)
+        {
+            return StreamedArguments(text.ToString());
+        }
+        return new JObject();
+    }
 
     /// <summary>A streamed call's arguments for a <c>native_tool_call</c> frame: the parsed object, an empty object for no text, or the raw
     /// text when it is not one JSON object, so the turn answers the model with an error instead of running the tool on <c>{}</c>.</summary>

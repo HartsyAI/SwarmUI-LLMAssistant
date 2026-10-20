@@ -192,7 +192,7 @@ public static class ToolTurnRunner
                         break;
                     case TextChunkKind.NativeToolCall when chunk.ToolCall is { } call:
                         roundCallIds.Add(call.Id);
-                        toolEvents.Add(new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = LLMMessageMapping.ArgumentsObject(new JValue(call.Arguments)), ["result"] = null });
+                        toolEvents.Add(new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = LLMMessageMapping.ArgumentsOrRaw(new JValue(call.Arguments)), ["result"] = null });
                         await sink.ToolCall(new JObject { ["id"] = call.Id, ["name"] = call.Name, ["arguments"] = LLMMessageMapping.ArgumentsObject(new JValue(call.Arguments)) });
                         break;
                     case TextChunkKind.ToolResult when chunk.ToolCall is { } done:

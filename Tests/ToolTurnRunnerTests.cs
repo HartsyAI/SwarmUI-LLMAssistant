@@ -309,6 +309,10 @@ public class ToolTurnRunnerTests
         Assert.Contains("not valid JSON", result["error"]!.ToString());
         Assert.Equal("Let me try again.", outcome.SpokenText);
         Assert.Equal("tool", provider.Inputs[1].Messages[^1].Role);
+        // The call as written stays in the saved turn and in the next round, not swapped for {}.
+        Assert.Equal("{\"tz\":", outcome.ToolEvents[0]!["arguments"]!.ToString());
+        LLMMessage callTurn = Assert.Single(provider.Inputs[1].Messages, m => m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 });
+        Assert.Equal("{\"tz\":", callTurn.ToolCalls![0]["arguments"]!.ToString());
     }
 
     [Fact]
