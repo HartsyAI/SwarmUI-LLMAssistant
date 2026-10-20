@@ -261,7 +261,7 @@ public static class ToolTurnRunner
             spokenText.ToString(), rounds, roundLimit, error);
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
-            resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, stopReason));
+            resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, outcome.Truncated ? "tool_round_limit" : outcome.StopReason));
         }
         if (failure is not null)
         {
