@@ -29,7 +29,7 @@ public static class LLMDispatcher
     }
 
     /// <summary>Sends a message and returns the full response. <paramref name="ct"/> is forwarded to
-    /// the provider the same way <see cref="GenerateStreaming"/> forwards it.</summary>
+    /// the provider so a Stop or a closed socket cancels the request.</summary>
     public static async Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default)
     {
         ILLMProvider provider = await GetProvider(input);
@@ -42,15 +42,6 @@ public static class LLMDispatcher
     {
         ILLMProvider provider = await GetProvider(input);
         return await provider.GenerateDetailed(input, ct);
-    }
-
-    /// <summary>Sends a message with streaming chunks via callback. <paramref name="ct"/> is
-    /// forwarded to the provider so HTTP requests and async-enumerable streams can be cancelled
-    /// when the user hits Stop or the WebSocket closes.</summary>
-    public static async Task GenerateStreaming(ExtendedLLMInput input, Func<JObject, Task> onChunk, CancellationToken ct = default)
-    {
-        ILLMProvider provider = await GetProvider(input);
-        await provider.GenerateLive(input, "0", onChunk, ct);
     }
 
     /// <summary>Counts tokens for the given text. Returns the count plus whether it's exact and the

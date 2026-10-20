@@ -7,12 +7,9 @@ using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
-/// <summary>Exercises the Tools package's <see cref="ToolLoop"/> against a scripted fake
-/// <see cref="ITextService"/> — the same contract <c>HartsyLocalLLMProvider.StreamToolLoopAsync</c> hands
-/// <see cref="ToolLoop.RunAsync"/> (<c>Engine.Text</c>), just without a real engine or GGUF weights. This is
-/// the "fake ITextService" coverage for the new streaming voice-turn route: it proves the round-trip shape
-/// (<c>NativeToolCall</c> → dispatched result → a second model turn that sees it) end to end, which is exactly
-/// what <c>ChatEndpoints.LLMAssistantVoiceTurnWS</c> depends on when it forwards chunks over the socket.</summary>
+/// <summary>Exercises the Tools package's <see cref="ToolLoop"/> against a scripted fake <see cref="ITextService"/>, without a real
+/// engine or GGUF weights: the round-trip shape (<c>NativeToolCall</c>, dispatched result, a second model turn that sees it) that
+/// <c>ToolTurnRunner</c> drives for every chat and voice turn.</summary>
 public class ToolLoopIntegrationTests
 {
     private static ModelSpec Spec() => new() { Requested = "fake-model", Modality = Modality.Text };
@@ -110,11 +107,8 @@ public class ToolLoopIntegrationTests
     [Fact]
     public async Task RunAsync_EmptyRegistryAndNoToolsOnTheRequest_StillStreamsPlainTextAsOneRound()
     {
-        // LLMAssistantVoiceTurnWS's common case: an assistant with no tools enabled at all.
-        // ChatEndpoints.BuildToolRegistry(enabledTools: []) hands this an empty ToolRegistry, and
-        // ApplyToolsToInput never sets ExtendedLLMInput.Tools, so BuildRequestAsync never sets
-        // TextRequest.Tools either -- both of ToolLoop's tool sources (request.Tools, registry.Definitions)
-        // are empty at once. This must behave like an ordinary streaming turn, not throw or hang.
+        // Both of ToolLoop's tool sources (request.Tools, registry.Definitions) empty at once must behave like an ordinary
+        // streaming turn, not throw or hang.
         ScriptedTextService fake = new(
             [
                 new TextChunk { Kind = TextChunkKind.Chunk, Text = "Sure, here's the answer." },
@@ -135,14 +129,9 @@ public class ToolLoopIntegrationTests
         Assert.Contains(emitted, c => c.Kind == TextChunkKind.StopReason && c.Stop == StopReason.Stop);
     }
 
-    // ChatEndpoints.LLMAssistantVoiceTurnWS passes a token tied to the WebSocket's own lifetime (a background
-    // ReceiveAsync cancels it on disconnect) into StreamToolLoopAsync, which hands it straight to
-    // ToolLoop.RunAsync as `cancel` -- the same parameter these two tests drive directly. They can't reach
-    // StreamToolLoopAsync itself, or BuildRequestAsync, or any other instance method on HartsyLocalLLMProvider
-    // that needs Settings/a live Engine (see HartsyLocalLLMProviderTests' own class doc, and its nested
-    // BuildRequestCoreTests for the one pure tail that's reachable instead), but they do pin the mechanism
-    // StreamToolLoopAsync relies on: a cancelled token actually stops the loop, both before and mid-stream,
-    // rather than running to completion regardless.
+    // ChatEndpoints.LLMAssistantVoiceTurnWS passes a token tied to the WebSocket's own lifetime (a background ReceiveAsync cancels it
+    // on disconnect) into ToolTurnRunner, which hands it to ToolLoop's RunAsync as `cancel`, the parameter these two tests drive
+    // directly: a cancelled token stops the loop, both before and mid-stream, rather than running to completion regardless.
 
     [Fact]
     public async Task RunAsync_PreCancelledToken_NeverYieldsAnything()

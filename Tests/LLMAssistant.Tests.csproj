@@ -49,7 +49,7 @@
   <Import Project="../HartsyLocal.props" />
 
   <ItemGroup>
-    <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
+    <!-- Real chat-template fixtures for ReasoningHistoryTests: see Fixtures/chat_templates/SOURCES.md
          for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a
          path relative to the running assembly, not the source tree. -->
     <None Include="Fixtures/chat_templates/*.jinja" CopyToOutputDirectory="PreserveNewest" />

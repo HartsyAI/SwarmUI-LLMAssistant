@@ -416,7 +416,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Resolves the GGUF path, applies the low-memory eviction check, and builds the
     /// <see cref="ModelSpec"/>/<see cref="TextRequest"/> pair every entry point into the engine needs
-    /// (<see cref="GenerateLive"/> and <see cref="StreamToolLoopAsync"/>). Throws
+    /// (<see cref="GenerateLive"/> and <see cref="StreamAsync"/>). Throws
     /// <see cref="SwarmReadableErrorException"/> when the model id doesn't resolve, same as before this was
     /// pulled out.</summary>
     private async Task<(ModelSpec Spec, TextRequest Request, string DeviceKey)> ResolveSpecAndRequestAsync(ExtendedLLMInput input, CancellationToken ct)
@@ -510,11 +510,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
                     break;
                 case TextChunkKind.NativeToolCall:
-                    // Native tool calls come from the engine's parser (see ToolCalling.ResolveFormat), which
-                    // is what makes BuildRequestAsync offer TextRequest.Tools and ToolCalling.Install's filter
-                    // active for this request in the first place. Same wire shape AnthropicLLMProvider already
-                    // emits, so LLMStreamHelper's agentic loop (ChatEndpoints' general chat path) and the Tools
-                    // package's own callers both already know how to read it.
+                    // Only for a request that offered tools; the chat's tool loop reads calls from StreamAsync, and a one-shot reply leaves them out.
                     if (chunk.ToolCall is { } nativeCall)
                     {
                         await onChunk(new JObject() { ["native_tool_call"] = NativeToolCallJson(nativeCall) });
@@ -555,12 +551,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
     }
 
-    /// <summary>Builds the <c>{id, name, arguments}</c> shape <see cref="GenerateLive"/>'s <c>native_tool_call</c>
-    /// event and <see cref="AnthropicLLMProvider"/>'s <c>tool_use</c> handling both emit — <c>arguments</c> is a
-    /// parsed <see cref="JObject"/>, not the raw JSON string, matching every existing consumer
-    /// (<see cref="Hartsy.Extensions.LLMAssistant.LLMs.LLMStreamHelper"/>'s <c>native_tool_call</c> branch reads
-    /// it as one). A call that (contrary to its contract) carries malformed arguments JSON fails soft into an
-    /// empty object rather than losing the whole chunk.</summary>
+    /// <summary>Builds the <c>{id, name, arguments}</c> shape of <see cref="GenerateLive"/>'s <c>native_tool_call</c> event, the shape
+    /// <see cref="AnthropicLLMProvider"/> emits too: <c>arguments</c> is a parsed <see cref="JObject"/>, and malformed JSON (the engine's
+    /// parser never emits it) fails soft into an empty object rather than losing the whole chunk.</summary>
     internal static JObject NativeToolCallJson(NativeToolCall call)
     {
         JObject args;
@@ -577,9 +570,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Builds the engine's native request from the extension's input: messages/roles, sampling knobs
-    /// from settings plus per-request overrides, the vision attachment (decoded only for the final user turn —
-    /// the engine's vision path only ever looks at the latest one), tool definitions when structured tool
-    /// calling is enabled, and the conversation's prefix-cache key (see <see cref="BuildRequestCore"/>).</summary>
+    /// from settings plus per-request overrides, the vision attachment (decoded only for the final user turn, as
+    /// the engine's vision path only ever looks at the latest one), the offered tools, and the conversation's
+    /// prefix-cache key (see <see cref="BuildRequestCore"/>).</summary>
     private async Task<TextRequest> BuildRequestAsync(ExtendedLLMInput input, string deviceKey, string path, CancellationToken ct)
     {
         List<LLMMessage> source = input.Messages is { Count: > 0 } ? input.Messages : SyntheticMessages(input);
@@ -613,11 +606,6 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         List<ToolDefinition> tools = null;
         // Tools are offered whenever the request names them; the engine picks the dialect from the model.
-        // model this must stay null even with the setting on, or the model's own Jinja template renders tools
-        // in ITS native (non-Hermes) convention and the engine's Hermes-only installed filter (OnProviderInit)
-        // activates on this request (it keys only on Tools being set) but can never parse what streams out —
-        // every call silently lost, with no tag-prompt fallback either (ApplyToolsToInput skips that too once
-        // it sees Tools already on the request). Gating here keeps that filter inert for this request instead.
         if (input.Tools is { Count: > 0 })
         {
             tools = [.. input.Tools.Select(t => new ToolDefinition
@@ -672,7 +660,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         {
             Messages = messages,
             // Not SystemPrompt too: ExtendedLLMInput always folds the system prompt into Messages[0] (and
-            // keeps it in sync — see ApplyToolsToInput and ExtendedLLMInput.CreateFromMessages), so setting both
+            // keeps it in sync; see ExtendedLLMInput.Create and CreateFromMessages), so setting both
             // here double-injects it into the chat template. Confirmed live: this produced garbage/off-topic
             // output from real GGUF vision models under the WS chat path (verified 2026-07-25 testing against
             // llava-v1.5-7b/Qwen2.5-VL-7B).

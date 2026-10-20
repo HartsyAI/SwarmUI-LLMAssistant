@@ -214,7 +214,7 @@ public class ConversationPrefixCacheTests
     [Fact]
     public async Task ToolLoopRounds_AllCarryTheTurnsKey()
     {
-        // LLMAssistantVoiceTurnWS: StreamToolLoopAsync builds one TextRequest per turn and ToolLoop re-issues it
+        // A tool turn: ToolTurnRunner builds each round from the same input and ToolLoop re-issues it
         // (with the tool call and its result appended) for every round.
         ExtendedLLMInput input = Turn(ChatEndpoints.VoiceTurnWsConversationId("call-1", sessionId: null), Model,
             (LLMRoles.System, "You are a phone assistant."), (LLMRoles.User, "what time is it?"));

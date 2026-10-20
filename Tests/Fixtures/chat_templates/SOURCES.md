@@ -1,14 +1,12 @@
 # Chat template fixtures
 
-Ground truth for `HartsyLocalLLMProviderTests`/`HermesTemplateDetectionTests`'s
-`InstructsHermesJsonToolCalls` coverage and `ReasoningHistoryTests`' `TakesReasoningContent`
-coverage (see the last section). Each file is the raw `tokenizer.chat_template`
-string, byte-for-byte, with no header or commentary added — so a test reading one of
-these is reading exactly what `GgufMetadata.GetString("tokenizer.chat_template")` (or
-the model's published `tokenizer_config.json`/`chat_template.jinja`) returns.
+Ground truth for `ReasoningHistoryTests`' `TakesReasoningContent` coverage (see the last section). Each file is the raw
+`tokenizer.chat_template` string, byte-for-byte, with no header or commentary added, so a test reading one of these is
+reading exactly what `GgufMetadata.GetString("tokenizer.chat_template")` (or the model's published
+`tokenizer_config.json`/`chat_template.jinja`) returns.
 
 ## Read from the local GGUF itself (`tokenizer.chat_template` metadata key, via
-`HartsyInference.ModelAssets.Gguf.GgufLoader` — the same reader the production code
+`HartsyInference.ModelAssets.Gguf.GgufLoader`, the same reader the production code
 uses), 2026-10-01:
 
 | Fixture | Source file |
@@ -26,7 +24,7 @@ uses), 2026-10-01:
 These models are not distributed with this repo; the fixture is the extracted
 template text only (a few KB), not the multi-GB checkpoint.
 
-## Not available as a local GGUF — pulled from the model's own published HF repo,
+## Not available as a local GGUF, pulled from the model's own published HF repo,
 2026-10-01:
 
 | Fixture | Source |
@@ -38,35 +36,7 @@ template text only (a few KB), not the multi-GB checkpoint.
 
 | Fixture | Source |
 |---|---|
-| `muse-spark-open.jinja` | `tests/HartsyInference.LLM.Tests/Fixtures/templates/muse-spark-open.jinja` in HartsyAI/HartsyInference at `36400d86` (the template llama.cpp's converter writes into the released Muse Spark GGUFs; the engine renders it byte-identical to transformers). Used by `ReasoningHistoryTests`, not by the Hermes coverage. |
-
-## What each one actually instructs, and why that makes it true/false
-
-See the doc comment on `HartsyLocalLLMProvider.InstructsHermesJsonToolCalls` for the
-full reasoning; summary:
-
-- **True** (references `tools`, and instructs a literal `<tool_call>` tag wrapping a
-  JSON object with `"name"`/`"arguments"` keys): `qwen3-4b`, `qwen2.5-1.5b-instruct`.
-- **False**:
-  - `qwen3.5-0.8b` — has the `<tool_call>` tag, but the body is
-    `<function=name>`/`<parameter=key>…</parameter>` XML, never `"name"`/`"arguments"`
-    as JSON keys (Qwen3-Coder's convention).
-  - `deepseek-r1-distill-qwen-1.5b`, `deepseek-r1-distill-llama-8b` — DeepSeek's R1
-    distillation overwrites the base template with its own
-    `<｜tool▁calls▁begin｜>…` delimiters (note the fullwidth `｜`, not ASCII `|`);
-    no `tools` reference, no `<tool_call>` tag, on either base architecture.
-  - `glm-4-9b-0414` — references `tools`, but describes each one as a raw JSON
-    schema dump in prose (Chinese-language instructions), never a `<tool_call>` tag.
-  - `glm-4.5` — has the `<tool_call>` tag, but the body is
-    `<arg_key>…</arg_key><arg_value>…</arg_value>` XML pairs.
-  - `llama-3.2-1b-instruct` — references `tools`, instructs a bare
-    `{"name": ..., "parameters": ...}` object (note `"parameters"`, not
-    `"arguments"`) with no tag at all.
-  - `mistral-7b-instruct-v0.3`, `phi-3-mini-4k-instruct` — no tool-calling
-    instructions whatsoever (no `tools` reference).
-  - `gemma-4-e2b-it` — references `tools`, but its tag is `<|tool_call>` (leading
-    pipe) / `<tool_call|>` (trailing pipe), neither of which contains the literal
-    substring `<tool_call>`.
+| `muse-spark-open.jinja` | `tests/HartsyInference.LLM.Tests/Fixtures/templates/muse-spark-open.jinja` in HartsyAI/HartsyInference at `36400d86` (the template llama.cpp's converter writes into the released Muse Spark GGUFs; the engine renders it byte-identical to transformers). Used by `ReasoningHistoryTests`. |
 
 ## Reasoning history (`TakesReasoningContent`, `ReasoningHistoryTests`)
 

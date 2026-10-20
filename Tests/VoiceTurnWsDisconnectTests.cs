@@ -26,10 +26,9 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once" — the original bug was intermittent,
 /// so one passing iteration proves nothing); (b) an ungraceful client abort mid-turn cancels the turn's own
 /// cancellation token promptly; (c) the same abort, while something is actively awaiting that exact token
-/// (standing in for a long-running tool handler — <c>ChatEndpoints.cs:514</c> hands <c>turnCancel.Token</c>
-/// straight into <c>StreamToolLoopAsync</c>, which forwards it hop by hop into every dispatched tool call; see
-/// that test's own comment for the full chain), also observes cancellation. All three run in well under the
-/// 10-second budget — see each test's own timing notes.</para></summary>
+/// (standing in for a long-running tool handler: the route hands <c>turnCancel.Token</c> to <c>ToolTurnRunner</c>,
+/// which forwards it into every dispatched tool call; see that test's own comment), also observes cancellation.
+/// All three run in well under the 10-second budget; see each test's own timing notes.</para></summary>
 public class VoiceTurnWsDisconnectTests : IDisposable
 {
     private readonly HttpListener _listener;
@@ -186,16 +185,11 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     [Fact]
     public async Task ClientAbortsWhileToolHandlerRuns_CancelsTheHandlersOwnToken()
     {
-        // (c) ChatEndpoints.cs:514 hands turnCancel.Token to StreamToolLoopAsync; HartsyLocalLLMProvider.cs's
-        // StreamToolLoopAsync forwards that exact token, unchanged, into ToolLoop.RunAsync (HartsyInference.Tools'
-        // ToolLoop.cs:30-31, forwarded again at :97 into registry.InvokeAsync), through to the per-tool lambda
-        // registered at ChatEndpoints.cs:628 -- confirmed hop by hop, not assumed. One hop past that lambda,
-        // ToolExecutorService.ExecuteTool (ToolExecutorService.cs:104/113) links it into a *new*, timeout-bearing
-        // CancellationTokenSource before a concrete shell/http ToolHandler ever sees it, so the literal token
-        // object does change there -- but that derived token still cancels whenever this one does, which is all
-        // this test needs: it models a handler awaiting turnCancel.Token directly, standing in for the whole
-        // chain, since the scope of this fix is the socket-to-token wiring, not the tool loop itself (which has
-        // its own coverage in ToolLoopIntegrationTests.cs).
+        // (c) The route hands turnCancel.Token to ToolTurnRunner, which links it into the token ToolLoop passes to every
+        // dispatched call and on to ToolExecutorService.ExecuteTool. ExecuteTool links it again into a timeout-bearing source
+        // before a shell/http ToolHandler sees it; that derived token still cancels whenever this one does, which is all this
+        // test needs: it models a handler awaiting turnCancel.Token directly, since the scope here is the socket-to-token
+        // wiring, not the tool loop itself (ToolLoopIntegrationTests and ToolTurnRunnerTests cover that).
         (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
         try
         {

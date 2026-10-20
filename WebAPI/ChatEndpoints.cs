@@ -507,27 +507,6 @@ public static class ChatEndpoints
         }
     }
 
-    /// <summary>Parses a JSON object string, or returns an empty <see cref="JObject"/> for null/blank/malformed
-    /// input rather than throwing — every caller here is reading a model's tool-call arguments or a tool's own
-    /// result text, neither of which this route controls closely enough to treat a parse failure as fatal to
-    /// the whole turn.</summary>
-    internal static JObject ParseJsonOrEmpty(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new JObject();
-        }
-        try
-        {
-            return JObject.Parse(json);
-        }
-        catch (Exception ex)
-        {
-            Logs.Debug($"[LLMAssistant] Could not parse '{json}' as a JSON object: {ex.Message}");
-            return new JObject();
-        }
-    }
-
     /// <summary>Parses <see cref="LLMAssistantVoiceTurnWS"/>'s optional <c>messages</c> request field —
     /// <c>[{role, content, toolCallId?, name?, toolCalls?}, …]</c> — into the extension's own
     /// <see cref="LLMMessage"/> shape. An entry's <c>toolCalls</c> is expected in the same <c>{id, name,
@@ -813,8 +792,8 @@ public static class ChatEndpoints
             input.EnableThinking = enableThinking;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-            // Load tools enabled for this assistant and inject their descriptions into the system prompt —
-            // unless tool-calling is switched off for this thread/assistant (see EffectiveToolsEnabled).
+            // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant
+            // (see EffectiveToolsEnabled).
             List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
@@ -1006,7 +985,7 @@ public static class ChatEndpoints
         int loops = ReadPositiveInt(rawInput, "loops");
         bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
         // Build the active-branch history ONCE — it's identical for every lane (same prompt, same context).
-        // Each lane gets its own ExtendedLLMInput (the agentic loop mutates input.Messages per-lane).
+        // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)

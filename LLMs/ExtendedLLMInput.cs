@@ -50,13 +50,12 @@ public class ExtendedLLMInput
     /// different devices generate concurrently. Ignored by backends that don't do local device placement.</summary>
     public string Device;
 
-    /// <summary>Tools available to the LLM for this request (prompt-injected for legacy/tag-convention
-    /// providers, sent as a native <c>tools</c> field for providers with
-    /// the provider stream).</summary>
+    /// <summary>Tools offered to the model for this request; every provider sends them natively (the local engine renders them with the
+    /// model's own chat template, or writes the Hermes tool prompt for a template without a tools slot).</summary>
     public List<JObject> Tools { get; set; } = [];
 
-    /// <summary>When set, the user explicitly requested this specific tool id — a native provider maps
-    /// this to a forced <c>tool_choice</c>; a legacy provider gets an extra system-prompt directive.</summary>
+    /// <summary>When set, the user explicitly requested this tool id: Anthropic and OpenAI-compatible endpoints get a forced
+    /// <c>tool_choice</c>, and the local engine states the choice in the prompt and restricts its parser to that tool. Round one only.</summary>
     public string ForceToolId;
 
     /// <summary>Sets the model's chat-template <c>enable_thinking</c> variable (Qwen3-family reasoning-block
