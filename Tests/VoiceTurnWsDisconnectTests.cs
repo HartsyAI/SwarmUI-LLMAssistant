@@ -257,4 +257,55 @@ public class VoiceTurnWsDisconnectTests : IDisposable
             client.Dispose();
         }
     }
+
+
+    /// <summary>Polls until <paramref name="condition"/> holds or the budget runs out; a closed tab reaches the watcher asynchronously.</summary>
+    private static async Task WaitForAsync(Func<bool> condition, TimeSpan budget)
+    {
+        Stopwatch elapsed = Stopwatch.StartNew();
+        while (!condition() && elapsed.Elapsed < budget)
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    [Fact]
+    public async Task AChatToolTurnIsCancelledWhenItsTabCloses()
+    {
+        // The chat route hands its turn's source to CancelToolTurnOnClose; a closed tab must cancel it, so no later call starts.
+        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        try
+        {
+            using CancellationTokenSource turn = new();
+            ChatEndpoints.CancelToolTurnOnClose(server, turn, runsTools: true);
+            client.Abort();
+            await WaitForAsync(() => turn.IsCancellationRequested, TimeSpan.FromSeconds(5));
+            Assert.True(turn.IsCancellationRequested);
+        }
+        finally
+        {
+            server.Dispose();
+            client.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task AChatTurnWithoutToolsIsLeftToFinishWhenItsTabCloses()
+    {
+        // Nothing runs after a reply without tools, so its generation keeps running and is saved, as on main.
+        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        try
+        {
+            using CancellationTokenSource turn = new();
+            ChatEndpoints.CancelToolTurnOnClose(server, turn, runsTools: false);
+            client.Abort();
+            await Task.Delay(500);
+            Assert.False(turn.IsCancellationRequested);
+        }
+        finally
+        {
+            server.Dispose();
+            client.Dispose();
+        }
+    }
 }

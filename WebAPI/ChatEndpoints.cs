@@ -507,6 +507,27 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Cancels a chat turn that runs tools when its tab closes, so no later call starts and what ran is saved. A turn without
+    /// tools is left to finish as before, since nothing runs after its reply.</summary>
+    internal static void CancelToolTurnOnClose(WebSocket socket, CancellationTokenSource turn, bool runsTools)
+    {
+        _ = WatchForDisconnectAsync(socket, () =>
+        {
+            if (!runsTools)
+            {
+                return;
+            }
+            // The turn may already be over and its source disposed by then; there is nothing left to stop.
+            try
+            {
+                turn.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        });
+    }
+
     /// <summary>Parses <see cref="LLMAssistantVoiceTurnWS"/>'s optional <c>messages</c> request field,
     /// <c>[{role, content, toolCallId?, name?, toolCalls?}, …]</c>, into the extension's own
     /// <see cref="LLMMessage"/> shape. An entry's <c>toolCalls</c> is expected in the same <c>{id, name,
@@ -803,6 +824,7 @@ public static class ChatEndpoints
                 // Stopped during setup, before a single token was ever requested: nothing to persist.
                 return;
             }
+            CancelToolTurnOnClose(socket, cts, enabledTools.Count > 0);
             await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
         }
         finally
@@ -1057,6 +1079,7 @@ public static class ChatEndpoints
             }
         }
 
+        CancelToolTurnOnClose(socket, cts, enabledTools.Count > 0);
         try
         {
             await Task.WhenAll(Enumerable.Range(0, lanes.Count).Select(RunLane));
