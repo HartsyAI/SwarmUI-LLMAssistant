@@ -25,7 +25,10 @@ public static class LLMChunkStream
             {
                 await produce(async frame =>
                 {
-                    if (ToChunk(frame) is { } chunk) await channel.Writer.WriteAsync(chunk, stop.Token).ConfigureAwait(false);
+                    if (ToChunk(frame) is { } chunk)
+                    {
+                        await channel.Writer.WriteAsync(chunk, stop.Token).ConfigureAwait(false);
+                    }
                 }, stop.Token).ConfigureAwait(false);
                 channel.Writer.TryComplete();
             }
@@ -44,8 +47,8 @@ public static class LLMChunkStream
         {
             await foreach (TextChunk chunk in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
             {
-                if (chunk.Kind == TextChunkKind.StopReason) sawStop = true;
-                if (chunk.Kind == TextChunkKind.NativeToolCall) sawToolCall = true;
+                sawStop |= chunk.Kind == TextChunkKind.StopReason;
+                sawToolCall |= chunk.Kind == TextChunkKind.NativeToolCall;
                 yield return chunk;
             }
         }
@@ -56,16 +59,28 @@ public static class LLMChunkStream
             await producer.ConfigureAwait(false);
         }
         // A turn that asked for a tool ends as ToolCall, not as a plain Stop, even when the provider sent no stop reason.
-        if (!sawStop) yield return new TextChunk { Kind = TextChunkKind.StopReason, Stop = sawToolCall ? StopReason.ToolCall : StopReason.Stop };
+        if (!sawStop)
+        {
+            yield return new TextChunk { Kind = TextChunkKind.StopReason, Stop = sawToolCall ? StopReason.ToolCall : StopReason.Stop };
+        }
     }
 
     /// <summary>The chunk a JSON frame stands for, or null when the frame is not part of the chunk vocabulary.</summary>
-    public static TextChunk? ToChunk(JObject frame)
+    public static TextChunk ToChunk(JObject frame)
     {
-        if (frame is null) return null;
-        if (frame["chunk"] is { } text) return new TextChunk { Kind = TextChunkKind.Chunk, Text = text.ToString() };
+        if (frame is null)
+        {
+            return null;
+        }
+        if (frame["chunk"] is { } text)
+        {
+            return new TextChunk { Kind = TextChunkKind.Chunk, Text = text.ToString() };
+        }
         // A provider that reports its reply only as a final result (a native SwarmUI backend may) keeps that text.
-        if (frame["result"] is { } result) return new TextChunk { Kind = TextChunkKind.Result, Text = result.ToString() };
+        if (frame["result"] is { } result)
+        {
+            return new TextChunk { Kind = TextChunkKind.Result, Text = result.ToString() };
+        }
         if (frame["native_tool_call"] is JObject call)
         {
             return new TextChunk
@@ -85,12 +100,19 @@ public static class LLMChunkStream
                 },
             };
         }
-        // An error stop keeps the provider's message, as the one-shot path reports it.
-        if (frame["stopReason"] is { } reason) return new TextChunk { Kind = TextChunkKind.StopReason, Stop = ToStop(reason.ToString()), Text = frame["error"]?.ToString() };
-        if (frame["status"] is { } status) return new TextChunk { Kind = TextChunkKind.Status, Status = new TextStatus(status.ToString()) };
+        if (frame["stopReason"] is { } reason)
+        {
+            // An error stop keeps the provider's message, as the one-shot path reports it.
+            return new TextChunk { Kind = TextChunkKind.StopReason, Stop = ToStop(reason.ToString()), Text = frame["error"]?.ToString() };
+        }
+        if (frame["status"] is { } status)
+        {
+            return new TextChunk { Kind = TextChunkKind.Status, Status = new TextStatus(status.ToString()) };
+        }
         return null;
     }
 
+    /// <summary>The engine stop reason for a frame's <c>stopReason</c> text.</summary>
     private static StopReason ToStop(string reason) => reason switch
     {
         "length" => StopReason.Length,

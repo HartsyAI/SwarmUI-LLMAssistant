@@ -12,7 +12,10 @@ public class LLMChunkStreamTests
     private static async Task<List<TextChunk>> Collect(IAsyncEnumerable<TextChunk> stream)
     {
         List<TextChunk> chunks = [];
-        await foreach (TextChunk chunk in stream) chunks.Add(chunk);
+        await foreach (TextChunk chunk in stream)
+        {
+            chunks.Add(chunk);
+        }
         return chunks;
     }
 
@@ -120,11 +123,17 @@ public class LLMChunkStreamTests
         {
             await foreach (TextChunk _ in stream)
             {
-                if (++seen == 1) cts.Cancel();
+                if (++seen == 1)
+                {
+                    cts.Cancel();
+                }
             }
         });
         Assert.Equal(1, seen);
-        for (int i = 0; i < 50 && !producerSawCancel; i++) await Task.Delay(10);
+        for (int i = 0; i < 50 && !producerSawCancel; i++)
+        {
+            await Task.Delay(10);
+        }
         Assert.True(producerSawCancel);
     }
 

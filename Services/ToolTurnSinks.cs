@@ -11,6 +11,7 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     /// <inheritdoc/>
     public bool IsOpen => socket.State == WebSocketState.Open;
 
+    /// <summary>Whether a <c>&lt;think&gt;</c> block is open on the socket.</summary>
     private bool _inThink;
 
     /// <inheritdoc/>
@@ -30,7 +31,10 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     /// <inheritdoc/>
     public async Task ReasoningEnd()
     {
-        if (!_inThink) return;
+        if (!_inThink)
+        {
+            return;
+        }
         _inThink = false;
         await Send(new JObject { ["chunk"] = "</think>" });
     }
@@ -60,15 +64,25 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
         return Send(frame);
     }
 
+    /// <summary>Sends one frame, lane-tagged and serialized with the other lanes.</summary>
     private Task Send(JObject data) => SendJson(socket, data, lane, sendLock);
 
     /// <summary>Serializes one event to the socket; a lane tags it and writes are serialized through <paramref name="sendLock"/>.</summary>
     public static async Task SendJson(WebSocket socket, JObject data, int lane = -1, SemaphoreSlim sendLock = null)
     {
-        if (socket.State != WebSocketState.Open) return;
-        if (lane >= 0) data["lane"] = lane;
+        if (socket.State != WebSocketState.Open)
+        {
+            return;
+        }
+        if (lane >= 0)
+        {
+            data["lane"] = lane;
+        }
         byte[] bytes = System.Text.Encoding.UTF8.GetBytes(data.ToString(Newtonsoft.Json.Formatting.None));
-        if (sendLock is not null) await sendLock.WaitAsync();
+        if (sendLock is not null)
+        {
+            await sendLock.WaitAsync();
+        }
         try
         {
             if (socket.State == WebSocketState.Open)
@@ -188,13 +202,13 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
 public sealed class CollectingSink : IToolTurnSink
 {
     /// <summary>Every tool call, in order.</summary>
-    public List<JObject> Calls { get; } = [];
+    public readonly List<JObject> Calls = [];
 
-    /// <summary>Every tool result, in order.</summary>
-    public List<JObject> Results { get; } = [];
+    /// <summary>Every tool result, including the stand-ins for calls that never ran, in order.</summary>
+    public readonly List<JObject> Results = [];
 
     /// <summary>The outcome, once the turn is done.</summary>
-    public ToolTurnOutcome Outcome { get; private set; }
+    public ToolTurnOutcome Outcome;
 
     /// <inheritdoc/>
     public bool IsOpen => true;

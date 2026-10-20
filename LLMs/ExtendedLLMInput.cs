@@ -156,7 +156,10 @@ public class ExtendedLLMInput
                 List<JObject> roundCalls = [];
                 foreach (JToken id in round["toolCallIds"] as JArray ?? [])
                 {
-                    if (calls.TryGetValue(id?.ToString() ?? "", out JObject call)) roundCalls.Add(call);
+                    if (calls.TryGetValue(id?.ToString() ?? "", out JObject call))
+                    {
+                        roundCalls.Add(call);
+                    }
                 }
                 if (roundCalls.Count > 0)
                 {

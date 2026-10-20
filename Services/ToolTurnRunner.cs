@@ -16,43 +16,43 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 public sealed class ToolTurnContext
 {
     /// <summary>The caller, for tool permissions and the thread.</summary>
-    public Session Session { get; init; }
+    public Session Session;
 
     /// <summary>The thread the reply belongs to; null for a turn that is not saved (voice).</summary>
-    public string ThreadId { get; init; }
+    public string ThreadId;
 
     /// <summary>The assistant whose tool allowlist applies.</summary>
-    public string AssistantId { get; init; }
+    public string AssistantId;
 
     /// <summary>The client's id for the reply message, when it chose one.</summary>
-    public string ClientMessageId { get; init; }
+    public string ClientMessageId;
 
     /// <summary>Compare-mode column index; -1 for a single reply.</summary>
-    public int Lane { get; init; } = -1;
+    public int Lane = -1;
 
     /// <summary>The user turn a compare reply hangs off, so lanes are siblings.</summary>
-    public string ParentMessageId { get; init; }
+    public string ParentMessageId;
 
     /// <summary>Tags the reply as part of a compare group.</summary>
-    public string CompareGroupId { get; init; }
+    public string CompareGroupId;
 
     /// <summary>The compute device the model ran on, stored in the reply's meta.</summary>
-    public string DeviceLabel { get; init; }
+    public string DeviceLabel;
 
     /// <summary>Whether the reply becomes the thread's active leaf (only lane 0 does in compare mode).</summary>
-    public bool SetActiveLeaf { get; init; } = true;
+    public bool SetActiveLeaf = true;
 
     /// <summary>Model rounds allowed for one turn.</summary>
-    public int MaxRounds { get; init; } = ToolLoop.DefaultMaxRounds;
+    public int MaxRounds = ToolLoop.DefaultMaxRounds;
 
     /// <summary>Provider lookup for the request (defaults to <see cref="LLMDispatcher.GetProvider"/>).</summary>
-    public Func<ExtendedLLMInput, Task<ILLMProvider>> ResolveProvider { get; init; }
+    public Func<ExtendedLLMInput, Task<ILLMProvider>> ResolveProvider;
 
     /// <summary>Runs one tool call and returns its result object (defaults to <see cref="ToolExecutorService.ExecuteTool"/>).</summary>
-    public Func<NativeToolCall, CancellationToken, Task<JObject>> Dispatch { get; init; }
+    public Func<NativeToolCall, CancellationToken, Task<JObject>> Dispatch;
 
     /// <summary>Saves the finished reply (defaults to the thread store; a turn without a thread saves nothing).</summary>
-    public Action<JObject> Persist { get; init; }
+    public Action<JObject> Persist;
 }
 
 /// <summary>What a finished turn produced: its visible text, why it ended, whether the round limit cut it, and its tool events.</summary>
@@ -101,6 +101,7 @@ public interface IToolTurnSink
 /// <see cref="ToolLoop"/>, forwards events to a sink and saves the reply. A turn with no tools is a single round with the same events.</summary>
 public static class ToolTurnRunner
 {
+    /// <summary>Tool markup a model may still write as text; stripped from the saved reply's <c>content</c>.</summary>
     private static readonly Regex ToolTagRegex = new(@"<tool_call>[\s\S]*?</tool_call>|<tool_result\b[^>]*>[\s\S]*?</tool_result>", RegexOptions.Compiled);
 
     /// <summary>Runs one turn and returns its outcome. Sends the sink's events as they happen and saves the reply, including a partial
@@ -147,7 +148,7 @@ public static class ToolTurnRunner
         try
         {
             IAsyncEnumerable<TextChunk> chunks = runsTools
-                ? ToolLoop.Create(MakeRoundStream(input, provider), SeedRequest(input), new HostToolDispatcher(resolved, input, linked.Token), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
+                ? ToolLoop.Create(MakeRoundStream(input, provider), SeedRequest(input), new HostToolDispatcher(resolved, input), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
                 : provider.StreamAsync(input, linked.Token);
             await foreach (TextChunk chunk in chunks.WithCancellation(linked.Token))
             {
@@ -270,7 +271,10 @@ public static class ToolTurnRunner
             // "length" = the provider cut the reply off at the max-tokens cap rather than a natural stop.
             ["stopReason"] = stopReason,
         };
-        if (!string.IsNullOrEmpty(ctx.DeviceLabel)) meta["device"] = ctx.DeviceLabel;
+        if (!string.IsNullOrEmpty(ctx.DeviceLabel))
+        {
+            meta["device"] = ctx.DeviceLabel;
+        }
         JObject message = new()
         {
             ["role"] = "assistant",
@@ -280,9 +284,18 @@ public static class ToolTurnRunner
             ["rounds"] = outcome.Rounds ?? [],
             ["meta"] = meta,
         };
-        if (!string.IsNullOrEmpty(ctx.ClientMessageId)) message["id"] = ctx.ClientMessageId;
-        if (!string.IsNullOrEmpty(ctx.CompareGroupId)) message["groupId"] = ctx.CompareGroupId;
-        if (ctx.Lane >= 0) message["lane"] = ctx.Lane;
+        if (!string.IsNullOrEmpty(ctx.ClientMessageId))
+        {
+            message["id"] = ctx.ClientMessageId;
+        }
+        if (!string.IsNullOrEmpty(ctx.CompareGroupId))
+        {
+            message["groupId"] = ctx.CompareGroupId;
+        }
+        if (ctx.Lane >= 0)
+        {
+            message["lane"] = ctx.Lane;
+        }
         return message;
     }
 
@@ -290,7 +303,10 @@ public static class ToolTurnRunner
     /// active leaf. A turn with no thread saves nothing.</summary>
     public static void SaveToThread(Session session, string threadId, ToolTurnContext ctx, JObject message)
     {
-        if (session?.User is null || string.IsNullOrEmpty(threadId)) return;
+        if (session?.User is null || string.IsNullOrEmpty(threadId))
+        {
+            return;
+        }
         try
         {
             if (!string.IsNullOrEmpty(ctx.ParentMessageId))
@@ -308,6 +324,7 @@ public static class ToolTurnRunner
         }
     }
 
+    /// <summary>A copy of <paramref name="ctx"/> with the live host's dispatch and save filled in where the caller set none.</summary>
     private static ToolTurnContext WithDefaults(ToolTurnContext ctx, string model) => new()
     {
         Session = ctx.Session,
@@ -325,6 +342,7 @@ public static class ToolTurnRunner
         Persist = ctx.Persist ?? (message => SaveToThread(ctx.Session, ctx.ThreadId, ctx, message)),
     };
 
+    /// <summary>Runs a call through <see cref="ToolExecutorService"/>; a handler failure becomes the call's error result.</summary>
     private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model) => async (call, cancel) =>
     {
         try
@@ -359,6 +377,7 @@ public static class ToolTurnRunner
         };
     }
 
+    /// <summary>The wire name of a stop reason; null for a natural stop.</summary>
     private static string ToStopReason(StopReason? stop) => stop switch
     {
         StopReason.Length => "length",
@@ -368,9 +387,13 @@ public static class ToolTurnRunner
         _ => null,
     };
 
+    /// <summary>Parses a JSON object, or an empty one for blank or malformed text.</summary>
     private static JObject ParseObject(string json)
     {
-        if (string.IsNullOrWhiteSpace(json)) return new JObject();
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new JObject();
+        }
         try
         {
             return JObject.Parse(json);
@@ -384,27 +407,39 @@ public static class ToolTurnRunner
     /// <summary>Removes unpaired UTF-16 surrogates that would fail to encode when the thread is saved; valid pairs are kept.</summary>
     private static string StripLoneSurrogates(string text)
     {
-        if (string.IsNullOrEmpty(text)) return text;
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
         StringBuilder sb = new(text.Length);
         for (int i = 0; i < text.Length; i++)
         {
             char c = text[i];
             if (char.IsHighSurrogate(c))
             {
-                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) { sb.Append(c).Append(text[i + 1]); i++; }
+                if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                {
+                    sb.Append(c).Append(text[i + 1]);
+                    i++;
+                }
                 continue;
             }
-            if (char.IsLowSurrogate(c)) continue;
+            if (char.IsLowSurrogate(c))
+            {
+                continue;
+            }
             sb.Append(c);
         }
         return sb.ToString();
     }
 
     /// <summary>Runs the engine's tool calls through the host: the dispatch hook when set, else the executor.</summary>
-    private sealed class HostToolDispatcher(ToolTurnContext ctx, ExtendedLLMInput input, CancellationToken linked) : IToolDispatcher
+    private sealed class HostToolDispatcher(ToolTurnContext ctx, ExtendedLLMInput input) : IToolDispatcher
     {
+        /// <inheritdoc/>
         public IReadOnlyList<ToolDefinition> Definitions { get; } = LLMMessageMapping.ToEngineTools(input.Tools);
 
+        /// <inheritdoc/>
         public async Task<string> InvokeAsync(NativeToolCall call, CancellationToken cancel)
         {
             if (!LLMMessageMapping.TryParseArguments(call.Arguments, out _, out string problem))

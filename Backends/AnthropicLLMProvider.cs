@@ -220,7 +220,10 @@ public class AnthropicLLMProvider : LLMProviderBackend
             if (merged.Count > 0 && merged[^1] is JObject previous && string.Equals(previous["role"]?.ToString(), current["role"]?.ToString(), StringComparison.Ordinal))
             {
                 JArray blocks = ContentBlocks(previous["content"]);
-                foreach (JToken block in ContentBlocks(current["content"])) blocks.Add(block);
+                foreach (JToken block in ContentBlocks(current["content"]))
+                {
+                    blocks.Add(block);
+                }
                 previous["content"] = blocks;
                 continue;
             }
@@ -229,9 +232,13 @@ public class AnthropicLLMProvider : LLMProviderBackend
         return merged;
     }
 
+    /// <summary>A message's content as content blocks: a copy of an array, or one text block for non-empty string content.</summary>
     private static JArray ContentBlocks(JToken content)
     {
-        if (content is JArray array) return [.. array.Select(b => b.DeepClone())];
+        if (content is JArray array)
+        {
+            return [.. array.Select(b => b.DeepClone())];
+        }
         string text = content?.ToString() ?? "";
         return string.IsNullOrEmpty(text) ? [] : [new JObject() { ["type"] = "text", ["text"] = text }];
     }

@@ -278,7 +278,7 @@ public static class ChatEndpoints
             List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            await AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
+            AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
 
             CollectingSink collected = new();
             ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(input, new ToolTurnContext { Session = session, AssistantId = assistantId }, collected);
@@ -429,7 +429,7 @@ public static class ChatEndpoints
             List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            await AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
+            AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
             JArray deviceCalls = [];
             await ToolTurnRunner.RunAsync(input,
                 new ToolTurnContext { Session = session, AssistantId = assistantId, MaxRounds = ToolLoop.DefaultMaxRounds },
@@ -797,7 +797,7 @@ public static class ChatEndpoints
             List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
-            await AttachTools(input, enabledTools, session, assistantId, forceToolId);
+            AttachTools(input, enabledTools, session, assistantId, forceToolId);
             if (cts.IsCancellationRequested)
             {
                 // Stopped during setup, before a single token was ever requested: nothing to persist.
@@ -934,7 +934,7 @@ public static class ChatEndpoints
     /// <summary>Puts the enabled tools on the request: each tool's handler may enrich its definition for this user, and a forced tool
     /// is kept only when it is one of the enabled tools. The model learns the tools from the request itself; the engine writes the
     /// tool prompt for templates that have no tools slot.</summary>
-    private static async Task AttachTools(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
+    private static void AttachTools(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
     {
         if (enabledTools is null || enabledTools.Count == 0)
         {
@@ -954,8 +954,8 @@ public static class ChatEndpoints
         {
             input.ForceToolId = forcedId;
         }
-        await Task.CompletedTask;
     }
+
     /// <summary>Streams two-or-more models concurrently against the same user turn (side-by-side compare).
     /// Each lane builds its own input from the SAME active-branch history, streams over one shared socket
     /// (events tagged with <c>lane</c>, writes serialized), and persists its reply as a sibling child of the
@@ -1034,7 +1034,7 @@ public static class ChatEndpoints
                 input.Device = L.Device;
                 input.EnableThinking = enableThinking;
                 ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-                await AttachTools(input, enabledTools, session, assistantId, forceToolId);
+                AttachTools(input, enabledTools, session, assistantId, forceToolId);
                 if (cts.IsCancellationRequested)
                 {
                     return;

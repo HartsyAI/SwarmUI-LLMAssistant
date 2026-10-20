@@ -1,4 +1,5 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using HartsyInference.Engine.Requests;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -18,7 +19,7 @@ public class ChatEndpointsToolRegistryTests
     [Fact]
     public void EngineToolsAreNamedByIdNotDisplayName()
     {
-        var defs = LLMMessageMapping.ToEngineTools([Tool("generate_image")]);
+        List<ToolDefinition> defs = LLMMessageMapping.ToEngineTools([Tool("generate_image")]);
         Assert.Equal(["generate_image"], defs.Select(d => d.Name));
     }
 

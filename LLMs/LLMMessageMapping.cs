@@ -9,7 +9,10 @@ public static class LLMMessageMapping
     /// <summary>A stored call's arguments as a JSON object; a string holding JSON is parsed, anything else is an empty object.</summary>
     public static JObject ArgumentsObject(JToken arguments)
     {
-        if (arguments is JObject obj) return obj;
+        if (arguments is JObject obj)
+        {
+            return obj;
+        }
         if (arguments is JValue value && value.Type == JTokenType.String)
         {
             try
@@ -59,6 +62,7 @@ public static class LLMMessageMapping
             : null,
     };
 
+    /// <summary>The engine role for an extension role; anything unknown is a user turn.</summary>
     private static HartsyInference.Engine.Requests.TextRole ToTextRole(string role) => role switch
     {
         LLMRoles.Assistant => HartsyInference.Engine.Requests.TextRole.Assistant,
