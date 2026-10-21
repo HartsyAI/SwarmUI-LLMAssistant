@@ -74,7 +74,7 @@ public class ChatWsSinkTests
         Assert.True(only["done"]?.Value<bool>());
         Assert.Equal("Partial.", only["full_text"]?.ToString());
         Assert.Equal("error", only["stopReason"]?.ToString());
-        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Equal("boom", only["failure"]?.ToString());
     }
 
     [Fact]

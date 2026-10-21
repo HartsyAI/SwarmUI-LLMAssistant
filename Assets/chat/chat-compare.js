@@ -315,10 +315,10 @@
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];
                 if (!ctl || ctl.isDone()) {
-                    if (data.error && !data.done) ctl && ctl.fail(data.error);
+                    if (data.error) ctl && ctl.fail(data.error);
                     return;
                 }
-                if (data.error && !data.done) { ctl.fail(data.error); if (++doneCount >= ctls.length) finalizeGroup(); return; }
+                if (data.error) { ctl.fail(data.error); if (++doneCount >= ctls.length) finalizeGroup(); return; }
                 if (data.status) { ctl.status(data); return; }
                 if (data.chunk)  { ctl.chunk(data.chunk); }
                 if (data.iteration !== undefined) ctl.newIteration();
@@ -389,7 +389,7 @@
                 if (data.truncated) L.node.meta.truncated = true;
                 if (data.reason) L.node.meta.reason = data.reason;
                 if (data.stopReason) L.node.meta.stopReason = data.stopReason;
-                if (data.error) L.node.meta.error = data.error;
+                if (data.failure) L.node.meta.error = data.failure;
                 const tc = renderer.ensureTextContainer();
                 if (tc) {
                     llmaSetRenderedHtml(tc, (typeof llmaRenderAssistantContent === 'function')
@@ -398,7 +398,7 @@
                     if (typeof llmaPostRenderMermaid === 'function') llmaPostRenderMermaid(tc);
                 }
                 bubble && bubble.querySelector('.llma-typing')?.remove();
-                if (data.error && typeof llmaAppendErrorToBubble === 'function') llmaAppendErrorToBubble(bubble, data.error);
+                if (data.failure && typeof llmaAppendErrorToBubble === 'function') llmaAppendErrorToBubble(bubble, data.failure);
                 const metaEl = L.col && L.col.querySelector('.llma-msg-meta');
                 if (metaEl) {
                     const devLabel = (L.device && L.device !== 'cloud') ? `${L.device} · ` : '';

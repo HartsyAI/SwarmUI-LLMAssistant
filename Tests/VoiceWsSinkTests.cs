@@ -64,7 +64,7 @@ public class VoiceWsSinkTests
         JObject only = Assert.Single(frames);
         Assert.True(only["done"]?.Value<bool>());
         Assert.Equal("Partial.", only["full_text"]?.ToString());
-        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Equal("boom", only["failure"]?.ToString());
     }
 
     [Fact]

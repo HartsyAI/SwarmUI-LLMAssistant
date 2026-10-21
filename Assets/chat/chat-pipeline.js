@@ -161,12 +161,9 @@
 
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
-                if (data.error && !data.done) {
+                if (data.error) {
                     renderer.cancelPendingRender();
-                    bubble?.querySelector('.llma-typing')?.remove();
-                    // Text already on screen stays, and the message goes under it.
-                    if ((bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, data.error);
-                    else llmaShowErrorInBubble(bubble, data.error);
+                    llmaShowErrorInBubble(bubble, data.error);
                     llmaFinishStreamState();
                     return;
                 }
@@ -263,7 +260,7 @@
                         if (data.truncated) msg.meta.truncated = true;
                         if (data.reason) msg.meta.reason = data.reason;
                         if (data.stopReason) msg.meta.stopReason = data.stopReason;
-                        if (data.error) msg.meta.error = data.error;
+                        if (data.failure) msg.meta.error = data.failure;
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;
@@ -276,7 +273,7 @@
                         llmaPostRenderMermaid(tc);
                     }
                     // A reply that failed after some text: its message goes under the text.
-                    if (data.error) llmaAppendErrorToBubble(bubble, data.error);
+                    if (data.failure) llmaAppendErrorToBubble(bubble, data.failure);
 
                     // Rebuild the asset index for this thread and update the sidebar
                     llmaRebuildAssetsForThread();
@@ -301,7 +298,12 @@
             }, 0, err => {
                 // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
                 // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
-                llmaShowErrorInBubble(bubble, err || translate('WebSocket error'));
+                // A failure after some text keeps the text; any pending render is dropped so it cannot bring the text back.
+                renderer.cancelPendingRender();
+                bubble?.querySelector('.llma-typing')?.remove();
+                const message = err || translate('WebSocket error');
+                if ((bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, message);
+                else llmaShowErrorInBubble(bubble, message);
                 LLMAState._activeSocket = null;
                 LLMAState._streamingMsgId = null;
                 llmaSetStreaming(false);
