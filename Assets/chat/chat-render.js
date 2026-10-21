@@ -332,7 +332,6 @@
         document.getElementById('llma-scroll-bottom-btn')?.addEventListener('click', llmaResumeAutoFollow);
     }
 
-    /** Replace a bubble's contents with a friendly, informative inline error card. */
     /** The error block for a failed reply: the humanized message, its hint, and the raw detail as a tooltip. */
     function llmaErrorBlockHtml(error) {
         const info = (typeof llmaHumanizeError === 'function')

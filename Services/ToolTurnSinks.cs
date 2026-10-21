@@ -81,8 +81,7 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
         JObject frame = outcome.Truncated
             ? new JObject { ["done"] = true, ["truncated"] = true, ["reason"] = outcome.Reason, ["full_text"] = outcome.FullText }
             : new JObject { ["done"] = true, ["full_text"] = outcome.FullText, ["stopReason"] = outcome.StopReason };
-        // The text before a failure stays on screen; the message rides along for the bubble to show under it. The key is not
-        // `error`: the shared WebSocket helper hands any `error` message to its failure callback instead of the reply.
+        // Not `error`: the shared WebSocket helper routes any `error` message to its failure callback, not the reply.
         if (!string.IsNullOrEmpty(outcome.Error))
         {
             frame["failure"] = outcome.Error;
