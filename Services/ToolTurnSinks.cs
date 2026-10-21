@@ -6,10 +6,14 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>The chat socket's events: text, rounds, status, tool calls and results, and the done frame. In compare mode every frame is tagged
 /// with its lane and writes go through the shared lock.</summary>
-public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLock) : IToolTurnSink
+public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IToolTurnSink
 {
+    /// <summary>The sink for one chat socket and lane: frames are lane-tagged and written under the shared lock.</summary>
+    public static ChatWsSink ForSocket(WebSocket socket, int lane, SemaphoreSlim sendLock)
+        => new(data => SendJson(socket, data, lane, sendLock), () => socket.State == WebSocketState.Open);
+
     /// <inheritdoc/>
-    public bool IsOpen => socket.State == WebSocketState.Open;
+    public bool IsOpen => isOpen();
 
     /// <summary>Whether a <c>&lt;think&gt;</c> block is open on the socket.</summary>
     private bool _inThink;
@@ -58,14 +62,23 @@ public sealed class ChatWsSink(WebSocket socket, int lane, SemaphoreSlim sendLoc
     /// <inheritdoc/>
     public Task Done(ToolTurnOutcome outcome)
     {
+        if (IsEngineFailure(outcome))
+        {
+            // The message is the whole reply, and a done frame after it would replace it in the bubble.
+            return Send(new JObject { ["error"] = outcome.Error });
+        }
         JObject frame = outcome.Truncated
             ? new JObject { ["done"] = true, ["truncated"] = true, ["reason"] = outcome.Reason, ["full_text"] = outcome.FullText }
             : new JObject { ["done"] = true, ["full_text"] = outcome.FullText, ["stopReason"] = outcome.StopReason };
         return Send(frame);
     }
 
+    /// <summary>Whether the engine stopped on an error before any text or tool call, so its message is all there is to show.</summary>
+    internal static bool IsEngineFailure(ToolTurnOutcome outcome)
+        => outcome.StopReason == "error" && outcome.FullText.Length == 0 && outcome.ToolEvents.Count == 0 && !string.IsNullOrEmpty(outcome.Error);
+
     /// <summary>Sends one frame, lane-tagged and serialized with the other lanes.</summary>
-    private Task Send(JObject data) => SendJson(socket, data, lane, sendLock);
+    private Task Send(JObject data) => send(data);
 
     /// <summary>Serializes one event to the socket; a lane tags it and writes are serialized through <paramref name="sendLock"/>.</summary>
     public static async Task SendJson(WebSocket socket, JObject data, int lane = -1, SemaphoreSlim sendLock = null)
