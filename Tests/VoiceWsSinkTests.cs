@@ -17,6 +17,18 @@ public class VoiceWsSinkTests
     }
 
     [Fact]
+    public async Task EngineFailureBeforeAnyTextIsSentAsOneErrorFrame()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+
+        await sink.Done(new ToolTurnOutcome("", "error", false, null, [], Error: "boom"));
+
+        JObject only = Assert.Single(frames);
+        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Null(only["done"]);
+    }
+
+    [Fact]
     public async Task ToolCallAndResultUseTheVoiceFrameShapes()
     {
         (VoiceWsSink sink, List<JObject> frames, _) = Make();
