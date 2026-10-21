@@ -164,7 +164,7 @@
                 if (data.error) {
                     renderer.cancelPendingRender();
                     llmaShowErrorInBubble(bubble, data.error);
-                    llmaSetStreaming(false);
+                    llmaFinishStreamState();
                     return;
                 }
                 // Backend status events, eg LlamaSharp's "loading_model" before the disk read kicks
@@ -289,16 +289,7 @@
                         llmaShowToast('Reply cut off at the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
-                    LLMAState._activeSocket = null;
-                    LLMAState._streamingMsgId = null;
-                    LLMAState._streamingText = '';
-                    llmaSetStreaming(false);
-                    llmaSaveActiveThread();
-                    llmaUpdateContextBar();
-                    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
-                    // Fire-and-forget exact-count refresh: lands async and patches the
-                    // sidebar/context bar once the server responds.
-                    if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
+                    llmaFinishStreamState();
                     if (onComplete) onComplete(cleanFinal);
                 }
             }, 0, err => {
@@ -348,6 +339,20 @@
     }
 
     /** Toggle the generating UI state (send/stop buttons, input disabled). File-private. */
+    /** Terminal state of a chat stream, shared by a finished reply and a failed one: detaches the socket and refreshes the
+     *  thread list, context bar and token counts. The caller keeps its own bubble and completion callback. */
+    function llmaFinishStreamState() {
+        LLMAState._activeSocket = null;
+        LLMAState._streamingMsgId = null;
+        LLMAState._streamingText = '';
+        llmaSetStreaming(false);
+        llmaSaveActiveThread();
+        llmaUpdateContextBar();
+        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+        // Fire-and-forget exact-count refresh: lands async and patches the sidebar/context bar once the server responds.
+        if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
+    }
+
     function llmaSetStreaming(active) {
         LLMAState.isGenerating = active;
         const sendBtn = document.getElementById('llma-send-btn');
