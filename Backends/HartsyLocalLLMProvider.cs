@@ -33,61 +33,80 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// code lives here; see HartsyInference's <c>TextService</c> for that orchestration.</summary>
 public class HartsyLocalLLMProvider : LLMProviderBackend
 {
+    /// <summary>Settings saved to Data/Backends.fds by field name, so renaming or retyping a field breaks every saved backend.</summary>
+    /// <remarks>Assets/llm-backend-cards.js groups these fields into the card's sections.</remarks>
     public class HartsyLocalLLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("Compute device to run inference on.\nCUDA = NVIDIA GPU (fast, recommended). CPU = no GPU needed (much slower).\nMore devices (Vulkan, etc.) will be added later. The GPU kernels ship with the engine — nothing to configure.")]
-        [ManualSettingsOptions(Vals = ["cuda", "cpu"], ManualNames = ["CUDA (NVIDIA GPU)", "CPU"])]
-        public string Device = "cuda";
+        [ConfigComment("Which hardware runs the model. Auto picks the best one this machine supports.\nVulkan runs AMD, Intel and older NVIDIA cards. Only choices that work here are listed. Restart SwarmUI after changing a GPU or driver.")]
+        [SettingsOptions(Impl = typeof(LocalDeviceChoices.DeviceOptions))]
+        public string Device = "auto";
 
-        [ConfigComment("Which CUDA device ordinal to use (only when Device = CUDA).")]
+        [ConfigComment("Which GPU runs the model. Not used on CPU.\nTo use more than one GPU, add one backend per GPU.")]
+        [SettingsOptions(Impl = typeof(LocalDeviceChoices.GpuOptions))]
         public int GPUDeviceId = 0;
 
-        [ConfigComment("How hard the engine should work to fit models in VRAM.\n\n'Auto' (default) reads the card's size for a starting posture, then measures free VRAM. Right for almost everyone.\n\n'Performance' keeps the model loaded and never auto-evicts — fastest for repeated chats, but leaves the card occupied.\n\n'Balanced' and 'Aggressive' progressively free more between requests, for sharing a card with image generation.\n\n'Maximum' also turns on quantized compute (the same lever as the separate setting below) and frees the model after every request.")]
+        [ConfigComment("How hard the engine works to fit models into GPU memory. Auto is right for almost everyone.\nPerformance keeps the model loaded. Balanced, Aggressive and Maximum free more memory between replies, to share the GPU with image generation.")]
         [ManualSettingsOptions(Impl = null, Vals = ["Auto", "Performance", "Balanced", "Aggressive", "Maximum"],
-            ManualNames = ["Auto (recommended)", "Performance (stay loaded)", "Balanced", "Aggressive", "Maximum (free after every request)"])]
+            ManualNames = ["Auto (recommended)", "Performance (stay loaded)", "Balanced", "Aggressive", "Maximum (free after every reply)"])]
         public string VramMode = "Auto";
 
-        [ConfigComment("Where a model's weights go when it loads (GGUF on CUDA).\n\n'Auto' (recommended) picks the fastest placement that fits: everything on this backend's GPU; if it does not fit, its layers split across every GPU; if that does not fit either and the model is a mixture-of-experts, expert offload.\n\n'GPU only' refuses a model that does not fit this backend's GPU instead of falling back.\n\n'Split across GPUs' always splits the layers across every GPU.\n\n'Offload experts' keeps the dense weights and the most-used experts on this GPU and runs the rest on the CPU, so a large mixture-of-experts model runs on a small card, at a lower speed. The engine reports what it chose next to the model.")]
+        [ConfigComment("Where a model goes when it is too big for this GPU. NVIDIA (CUDA) only.\nAuto tries this GPU, then splitting the model across your GPUs, then moving mixture-of-experts layers to the CPU.")]
         [ManualSettingsOptions(Impl = null, Vals = ["auto", "gpu", "split", "offload"],
             ManualNames = ["Auto (recommended)", "GPU only", "Split across GPUs", "Offload experts to CPU"])]
         public string Placement = "auto";
 
-        [ConfigComment("Keep quantized weights compressed on-device (lower VRAM, slower decode) instead of caching dequantized F16 weights.\n\nNOT the same thing as VRAM Mode above, despite both being about VRAM: this changes HOW a quantized weight is multiplied (compressed with a transient dequant per call, vs. one cached F16 copy), while VRAM Mode decides what stays loaded and when. They compose — 'Maximum' turns this on for you.\nOnly does anything for a quantized (GGUF) checkpoint; on an unquantized one it is inert, and the lever that helps there is splitting layers across GPUs.")]
+        [ConfigComment("Keeps quantized GGUF weights compressed on the GPU: less VRAM, slower replies. NVIDIA (CUDA) only.\nVRAM Mode Maximum turns this on too.")]
         public bool LowVramQuant = false;
 
-        [ConfigComment("Repetition penalty on already-generated tokens (1.0 = off), applied once per distinct token as Hugging Face and llama.cpp apply it.\nSmall models (eg 0.5B) loop/repeat without this — ~1.1 is a good default. It also applies at temperature 0 (greedy), where it is what keeps a long reasoning trace from looping.")]
+        [ConfigComment("Makes words the model already used less likely, so small models don't loop.\n1.0 turns it off. 1.1 is a good default.")]
         public double RepetitionPenalty = 1.1;
 
-        [ConfigComment("Top-K sampling: keep only the K highest-probability tokens each step (0 = off).\n~40 is a sane default that curbs small-model gibberish.")]
+        [ConfigComment("Each step, keeps only the K most likely next words. 0 turns it off.\n40 is a good default.")]
         public int TopK = 40;
 
-        [ConfigComment("Min-P sampling: drop tokens below this fraction of the top token's probability (0 = off).")]
+        [ConfigComment("Drops unlikely words: any with less than this fraction of the top word's chance. 0 turns it off.\nTry 0.05 if replies wander.")]
         public double MinP = 0.0;
 
-        [ConfigComment("If enabled, the model is unloaded immediately after each generation completes.\nIf false, it stays resident for faster subsequent requests.")]
+        [ConfigComment("Unloads the model after every reply to free its memory. The next reply loads it again, which is slower.\nVRAM Mode Maximum does this too.")]
         public bool AlwaysFreeMemory = false;
 
-        [ConfigComment("Free host RAM, in GB, below which loading a new local model first unloads the currently resident one.\n\nUnlike AudioLab's equivalent setting, this is enforced entirely by the extension itself: the LLM engine has no built-in host-RAM eviction of its own to delegate to. 0 disables the check (default), matching today's behavior where a resident model stays loaded regardless of free RAM.")]
+        [ConfigComment("Before each reply, unloads the current model first if free system RAM is below this many GB. 0 turns it off.\nSet it too high and every reply reloads the model.")]
         public int EvictBelowGb = 0;
 
-        [ConfigComment("Use CUDA-graph decode when eligible (plain dense Llama/Qwen/Mistral-shape models, CUDA backend only).\nRemoves per-token kernel-launch overhead for faster decode, but only kicks in when the request ends up greedy\n(Temperature = 0) — normal temperature sampling on the chat UI still uses the regular decode path for now.")]
+        [ConfigComment("Faster replies on NVIDIA (CUDA) for common model types. Normal chats need Top K between 1 and 64.\nIf a reply fails with a graph error, turn this off. Vulkan does this by itself.")]
         public bool GraphDecode = false;
 
-        [ConfigComment("Use prompt-lookup speculative decoding when eligible (no draft model — drafts from repeated n-grams in the\nprompt/response so far). Same eligibility as GraphDecode (greedy / Temperature = 0 only) plus JSON mode must be off.\nBiggest win on repetitive output (regenerating similar structure, quoting earlier text); costs nothing extra otherwise.")]
+        [ConfigComment("Faster replies at Temperature 0 when the reply repeats earlier text, such as code edits or quotes.\nNeeds no extra model.")]
         public bool SpeculativeDecode = false;
 
-        [ConfigComment("Keep each conversation's prompt prefix (system prompt, tool definitions, the history so far) cached on the device between turns, so a chat thread or voice session only processes its new tokens from the second turn on — a much shorter wait for the first word on a long conversation. Replies are equivalent (byte-identical on CPU; on a GPU the reused cache can round slightly differently).\n\nThe engine bounds what this holds. After each turn a conversation's cache shrinks to its length plus vram.prefixCacheHeadroomTokens (256 tokens), about 0.34 GiB for a 1,000-token Qwen3-4B chat, and grows again by an on-device copy when the next turn needs room. A conversation that would need more than vram.prefixCacheMaxBytes (1.5 GiB) is not kept, so a very long thread runs uncached. Each GPU keeps at most vram.prefixCacheMaxEntries (4) conversations within that same budget, least recently used first. Free Memory (including Swarm's idle VRAM clear), switching models or editing this backend releases them.\n\nHas no effect while 'Always Free Memory' is on, or with VRAM Mode 'Aggressive' or 'Maximum'.")]
+        [ConfigComment("Keeps each chat's earlier messages ready in memory between turns, so long chats start answering sooner.\nNot used while Always Free Memory is on, or with VRAM Mode Aggressive or Maximum.")]
         public bool ReuseConversationPrefix = true;
 
-        [ConfigComment("Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one.\n1 = lowest latency up to 4 = highest accuracy, all from the same weights; above 4 is ignored with a warning.\n0 = the checkpoint's own default. Ignored by every other model.")]
+        [ConfigComment("How many passes a looped model (such as NVIDIA Nemotron Dory) runs when the chat does not set Loops.\nMore passes are slower but more accurate. Other models ignore this.")]
+        [SettingsOptions(Impl = typeof(LoopOptions))]
         public int RecurrentLoops = 0;
     }
+
+    /// <summary>The Default Loops dropdown: the model's own default, then 1 up to the most passes a looped model runs.</summary>
+    public class LoopOptions : SettingsOptionsAttribute.AbstractImpl
+    {
+        public override string[] GetOptions => [.. Enumerable.Range(0, LoopedTransformerConfig.DefaultMaxLoops + 1).Select(i => $"{i}")];
+
+        public override string[] Names => LoopNames(LoopedTransformerConfig.DefaultMaxLoops);
+    }
+
+    /// <summary>Labels for 0 (the model's default) through <paramref name="max"/> loop passes.</summary>
+    internal static string[] LoopNames(int max)
+        => ["Model default", .. Enumerable.Range(1, max).Select(i => i == 1 ? "1 (fastest)" : i == max ? $"{i} (most accurate)" : $"{i}")];
 
     /// <summary>The settings for this backend.</summary>
     public HartsyLocalLLMProviderSettings Settings => SettingsRaw as HartsyLocalLLMProviderSettings;
 
     /// <summary>The engine instance backing this backend's requests. One per backend instance, disposed on shutdown.</summary>
     private InferenceEngine Engine;
+
+    /// <summary>The kind this backend runs on ("cuda", "vulkan" or "cpu"), resolved from Device at Init. Null before the first Init.</summary>
+    private string DeviceKind;
 
     /// <inheritdoc/>
     public override string ProviderKind => "hartsy-local";
@@ -235,9 +254,17 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         ToolCalling.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key; without that it would only govern this shell engine's own unused backend.
-        Engine = new InferenceEngine(
-            string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : "cuda",
-            options);
+        DeviceKind = LocalDeviceChoices.ResolveKind(Settings.Device, Settings.GPUDeviceId);
+        if (LocalDeviceChoices.RequestedKind(Settings.Device) == "auto")
+        {
+            Logs.Info($"[LLMAssistant] Local LLM backend: Device Auto runs on '{DeviceKind}'.");
+        }
+        else if (DeviceKind == "cuda" && !LocalDeviceChoices.Offers("cuda"))
+        {
+            // A Device saved before the dropdown existed can name CUDA on a card the engine's kernels do not run on.
+            Logs.Warning($"[LLMAssistant] Local LLM backend {AbstractBackendData?.ID} is set to CUDA, but CUDA failed the engine's check on this machine, so replies may fail. Set its Device to Auto in Server > Backends.");
+        }
+        Engine = new InferenceEngine(DeviceKind, options);
         Status = BackendStatus.RUNNING; // Lazy: load on first request.
         return Task.CompletedTask;
     }
@@ -267,11 +294,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return Task.CompletedTask;
     }
 
-    /// <summary>This backend's configured/default device key ("cpu" or "cuda:{ordinal}").</summary>
+    /// <summary>This backend's device key: "cpu", "cuda:{ordinal}", or "vulkan" (the engine picks) / "vulkan:{index}".</summary>
     private string PrimaryDeviceKey()
-        => string.Equals(Settings.Device, "cpu", StringComparison.OrdinalIgnoreCase) ? "cpu" : $"cuda:{Settings.GPUDeviceId}";
+        => LocalDeviceChoices.DeviceKeyFor(DeviceKind ?? LocalDeviceChoices.ResolveKind(Settings.Device, Settings.GPUDeviceId), Settings.GPUDeviceId);
 
-    /// <summary>The devices this backend can run a model on. A CUDA backend can also fall back to the CPU,
+    /// <summary>The devices this backend can run a model on. A GPU backend can also fall back to the CPU,
     /// so it offers both, letting compare mode place one lane on the GPU and one on the CPU to run at once.</summary>
     private List<string> SupportedDevices()
     {
@@ -538,7 +565,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                         // the default Device=cuda that could not actually run.
                         Logs.Warning($"[LLMAssistant] Local LLM '{model}' stopped with an engine error on "
                             + $"device '{deviceKey}', so no text was produced: {chunk.Text}. If this device is not usable, "
-                            + "switch the backend's Device setting (cpu/cuda) in Server > Backends.");
+                            + "set the backend's Device to Auto in Server > Backends.");
                         // The engine's message rides along so the one-shot accumulator can fail the request with it.
                         await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = chunk.Text ?? "" });
                     }
@@ -682,7 +709,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             Tools = tools,
             // The engine refuses a name that is not one of the offered tools; the tool loop clears it after round one.
             ForceToolId = input.ForceToolId,
-            GraphDecode = settings.GraphDecode ? true : null,
+            // Vulkan decides graph decode itself; forcing it there fails Gemma-2/3 instead of decoding eagerly.
+            GraphDecode = settings.GraphDecode && BackendFactory.Kind(deviceKey) != "vulkan" ? true : null,
             SpeculativeDecode = settings.SpeculativeDecode ? true : null,
             LowVramQuant = settings.LowVramQuant ? "true" : null,
             Placement = PlacementFor(settings.Placement),

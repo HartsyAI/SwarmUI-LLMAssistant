@@ -1,6 +1,6 @@
 # SwarmUI LLM Assistant
 
-A full LLM workspace inside [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI), persistent chats, custom assistants, agentic tool calling, vision, side-by-side model comparison, a floating in-page companion, and deep Generate-tab prompt integration.
+A full LLM workspace inside [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI): persistent chats, custom assistants, agentic tool calling, vision, side-by-side model comparison, a floating in-page companion, and deep Generate-tab prompt integration.
 
 ![The LLM Assistant tab](Assets/screenshots/chat-overview.png)
 
@@ -45,11 +45,11 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 ## Highlights
 
 - **Real chats, stored on the server.** Threads are grouped by date, searchable, renameable, exportable (JSON / Markdown / plain text), and auto-titled from the first exchange. Your message is saved *before* the model is called, so a disconnect never loses it.
-- **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, no destructive edits.
+- **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, so no edit is destructive.
 - **Side-by-side comparison.** Run the same prompt through two models at once, in parallel, then keep the winner.
 - **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and Anthropic and OpenAI-compatible endpoints use their native tool APIs.
 - **Custom assistants.** Per-mode system prompts, inheritance, per-model prompt variants, parameter overrides, avatars, and a per-assistant tool allowlist.
-- **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify, all served locally. **No CDN, no outbound requests.**
+- **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify and all served locally. **No CDN, no outbound requests.**
 - **Floating companion.** An opt-in in-page helper that can critique your last render, suggest a preset, or explain a SwarmUI feature from the bundled docs.
 - **Prompt integration.** `<llmprompt:…>` tags in the Generate tab are expanded by the LLM at generation time.
 
@@ -59,7 +59,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 
 - A working SwarmUI install.
 - At least one LLM backend added under `Server > Backends` (see below).
-- For the local engine: `.gguf` weights in `Models/llm/` and, ideally, an NVIDIA GPU (CPU works, slowly).
+- For the local engine: `.gguf` weights in `Models/llm/` and, ideally, a GPU: an NVIDIA RTX 30-series or newer through CUDA, or any other GPU through Vulkan (CPU works, slowly).
 - For Anthropic / OpenAI: each user sets their **own** API key in the `User` tab. No key is stored server-wide.
 
 ---
@@ -73,47 +73,55 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
    git clone https://github.com/HartsyAI/SwarmUI-LLMAssistant.git
    ```
 
-2. Rebuild SwarmUI, run `update-windows.bat` or `update-linuxmac.sh` from the SwarmUI root. This restores the `HartsyInference` NuGet package the local engine needs.
+2. Rebuild SwarmUI: run `update-windows.bat` or `update-linuxmac.sh` from the SwarmUI root. This restores the `HartsyInference` NuGet package the local engine needs.
 
 3. Restart SwarmUI. An **LLM Assistant** tab appears in the main tab strip.
 
-4. (Local engine only) Drop GGUF weights into `Models/llm/`. They show up in SwarmUI's model browser too, the extension registers `LLM` as a first-class model type.
+4. (Local engine only) Drop GGUF weights into `Models/llm/`. They show up in SwarmUI's model browser too, since the extension registers `LLM` as a first-class model type.
 
 ---
 
 ## Adding an LLM backend
 
-Go to `Server > Backends`, the three LLM backend types appear directly in the "Add new backend" row.
+Go to `Server > Backends`. The three LLM backend types appear directly in the "Add new backend" row.
 
 ![LLM backend types](Assets/screenshots/backend-types.png)
 
 | Backend type | What it is |
 |---|---|
-| **LLM: Local (HartsyInference GGUF)** | Pure-C# GGUF inference. No llama.cpp, no Python, no external process. Reads from `Models/llm/`. |
+| **LLM: Local (HartsyInference GGUF)** | Runs GGUF models on this machine with the built-in pure-C# engine. No llama.cpp, no Python, no external process. Reads from `Models/llm/`. |
 | **LLM: Anthropic Claude** | Anthropic's Messages API, using each user's own `anthropic_api` key. Native `tools` / `tool_choice` support. |
-| **LLM: Remote (OpenAI-Compatible)** | Any OpenAI-compatible HTTP endpoint. Each user's own `openai_api` key overrides the configured `Authorization` header. |
+| **LLM: Remote (OpenAI-Compatible)** | Any OpenAI-compatible server, such as OpenAI, Ollama, LM Studio, vLLM or OpenRouter. Each user's own `openai_api` key overrides the configured `Authorization` header. |
+
+Each card groups its settings into sections. **Basics** starts open; **Memory** and **Advanced** open by themselves when a setting in them is changed from its default. Each section header has a **Guide** link, and each `?` tooltip ends with a link to the part of this README that explains the setting. The tables below name each setting by its label on the card, with the name it is saved under (and shown in the logs) in brackets.
+
+Dropdowns list only what works here: the local card's **Device** and **GPU** come from the engine's own device check, and **Default Model** comes from the server or from Anthropic. A saved value that a dropdown no longer lists stays selected, marked *(saved value)*, so saving the card never changes it behind your back. The device lists are built once per SwarmUI start, so restart SwarmUI after changing a GPU or driver.
 
 ### Local engine settings
 
 ![Local LLM backend settings](Assets/screenshots/backend-local.png)
 
+The local card has three sections: Basics, Memory and Advanced. A backend you already have keeps every saved value; only a new backend starts on **Device: Auto**.
+
+#### Local engine basics
+
 | Setting | Default | Notes |
 |---|---|---|
-| `Device` | `cuda` | `cuda` (NVIDIA GPU) or `cpu`. |
-| `GPUDeviceId` | `0` | CUDA ordinal. One backend instance per GPU for multi-GPU. |
-| `LowVramQuant` | `false` | Keep quantized weights compressed on-device, lower VRAM, slower decode. |
-| `RepetitionPenalty` | `1.1` | Small models loop without this. Ignored at temperature 0. |
-| `TopK` | `40` | `0` disables. |
-| `MinP` | `0.0` | `0` disables. |
-| `AlwaysFreeMemory` | `false` | Unload the model after every generation instead of keeping it resident. |
-| `GraphDecode` | `false` | CUDA-graph decode for plain dense Llama/Qwen/Mistral shapes. Requires the request to end up greedy (temperature 0). |
-| `SpeculativeDecode` | `false` | Prompt-lookup speculative decoding, no draft model. Same greedy-only eligibility; biggest win on repetitive output. |
-| `ReuseConversationPrefix` | `true` | Keep each conversation's prompt prefix cached on the device between turns (see below). No effect while `AlwaysFreeMemory` is on or with `VramMode` Aggressive or Maximum. |
-| `RecurrentLoops` | `0` | Default number of recurrent-block passes for a looped (latent-recurrent) model such as NVIDIA Nemotron Dory, when a request does not choose one: 1 = lowest latency up to 4 = highest accuracy, all from the same weights; above 4 is ignored with a warning. 0 = the checkpoint's own default. Ignored by every other model. See [looped models](#looped-models-dory). |
+| **Device** (`Device`) | `auto` | Which hardware runs the model. **Auto** tries CUDA, then Vulkan, then the CPU, and takes the first one that passes the engine's test computation. **CUDA** is the fast path for NVIDIA RTX 30-series cards and newer. **Vulkan** runs AMD, Intel and older NVIDIA cards (RTX 20-series, GTX 16-series). **CPU** needs no GPU but is slow. Only the choices that work on this machine are listed. |
+| **GPU** (`GPUDeviceId`) | `0` | Each GPU by number and name, for example `GPU 0: NVIDIA GeForce RTX 3060 (12 GB)`. Under CUDA the number is the CUDA ordinal, which is fastest-first and can differ from `nvidia-smi`'s order. Under Vulkan, `0` lets the engine pick the best GPU and any other number is the Vulkan device list's own. The list follows **Device**. To use more than one GPU, add one backend per GPU. |
+| **VRAM Mode** (`VramMode`) | `Auto` | How hard the engine works to fit models into GPU memory. **Auto** reads the card's size, then measures free memory, and is right for almost everyone. **Performance** keeps the model loaded and never frees it on its own. **Balanced** and **Aggressive** free more between replies, for sharing the GPU with image generation. **Maximum** also turns on **Keep Weights Compressed** and frees the model after every reply. |
 
-**Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's `RecurrentLoops` default when neither is set; a request's own value wins. The chat and voice routes take it as `loops` (1 to 4); the engine rejects a count above the model's maximum. Calls the extension makes on its own (chat titles, `<llm:…>` prompt enhancement, the caption tools) use the backend default. The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
+#### Local engine memory
 
-**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation, a chat thread, a voice session, keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. The engine bounds what this holds, with settings in `~/.config/hartsyinference/settings.json`:
+| Setting | Default | Notes |
+|---|---|---|
+| **Placement** (`Placement`) | `auto` | Where a GGUF model goes when it is too big for this GPU. CUDA only. **Auto** puts the whole model on this GPU when it fits, else splits its layers across every GPU, else (for a mixture-of-experts model) keeps the most-used experts on this GPU and runs the rest on the CPU. **GPU only** refuses a model that does not fit instead. **Split across GPUs** always splits. **Offload experts to CPU** always offloads, which runs a large mixture-of-experts model on a small card, more slowly. The model list shows where the engine put each loaded model. |
+| **Keep Weights Compressed** (`LowVramQuant`) | `false` | Keeps quantized GGUF weights compressed on the GPU instead of caching a wider copy: less VRAM, slower replies. CUDA only. **VRAM Mode** Maximum turns it on too. |
+| **Unload After Each Reply** (`AlwaysFreeMemory`) | `false` | Unloads the model after every reply, so the next reply loads it again. Unlike **VRAM Mode** Maximum, it changes nothing else. |
+| **Free RAM Floor (GB)** (`EvictBelowGb`) | `0` | Before each reply, unloads the loaded model first when free system RAM is below this many GB. `0` turns it off. Set it too high and every reply reloads the model. |
+| **Reuse Chat Memory** (`ReuseConversationPrefix`) | `true` | Keeps each conversation's processed prompt between turns, so long chats start answering sooner (see below). Not used while **Unload After Each Reply** is on, or with **VRAM Mode** Aggressive or Maximum. |
+
+**Conversation prefix reuse** (`ReuseConversationPrefix`). Each conversation (a chat thread, a voice session) keeps its KV cache on the device between turns, so from turn 2 on the engine only processes the tokens added since, and time to first token stops growing with the history. Replies are equivalent: byte-identical on CPU; on a GPU the reused cache can round slightly differently. The engine bounds what this holds, with settings in `~/.config/hartsyinference/settings.json`:
 
 - **Shrink to fit.** After each turn a conversation's cache shrinks to its length plus `vram.prefixCacheHeadroomTokens` (default 256), and grows again by an on-device copy when the next turn needs room. A 1,000-token Qwen3-4B chat holds about 0.34 GiB between turns.
 - **Per-conversation cap.** A conversation that would need more than `vram.prefixCacheMaxBytes` (default 1.5 GiB: about 5,200 tokens of conversation for Qwen3-4B, 24,300 for Llama-3.2-1B) is not kept at all, so a very long thread runs uncached, as every turn did before this setting existed.
@@ -121,25 +129,43 @@ Go to `Server > Backends`, the three LLM backend types appear directly in the "A
 
 Free Memory (including Swarm's idle VRAM clear), switching models or editing the backend releases them all.
 
-### Remote (OpenAI-compatible) settings
+#### Local engine advanced
 
 | Setting | Default | Notes |
 |---|---|---|
-| `Address` | *(empty)* | e.g. `http://localhost:11434` (Ollama) or `https://api.openai.com`. |
-| `AllowIdle` | `false` | Let the backend sit idle instead of erroring when the endpoint is unreachable. |
-| `AuthorizationHeader` | *(empty)* | Overridden per-request by the calling user's `openai_api` key when they have one set. |
-| `OtherHeaders` | *(empty)* | Newline-separated `Header: value` pairs. |
-| `DefaultModel` | *(empty)* | Used when a request doesn't name a model. |
-| `TokenLimitParameter` | `auto` | `auto` picks `max_completion_tokens` for `api.openai.com` and `max_tokens` everywhere else. |
-| `ConnectionAttemptTimeoutSeconds` | `30` | Lower this (e.g. `5`) for LAN endpoints. |
+| **Repetition Penalty** (`RepetitionPenalty`) | `1.1` | Makes tokens the model already used less likely, so small models don't loop. `1.0` turns it off. It applies at temperature 0 too, where it keeps a long reasoning trace from looping. The chat has no override for it, so this is the only place to set it. |
+| **Top K** (`TopK`) | `40` | Each step, keeps only the K most likely tokens. `0` turns it off. Values from 1 to 64 let **Graph Decode** run normal chats. |
+| **Min P** (`MinP`) | `0` | Drops tokens below this fraction of the top token's probability. `0` turns it off; `0.05` is a common choice. |
+| **Graph Decode** (`GraphDecode`) | `false` | Records each decode step once as a CUDA graph and replays it, for faster replies on common dense models (Llama, Qwen, Mistral, Gemma). Works for greedy requests and, while **Top K** is 1 to 64, for normal chats. CUDA only: Vulkan turns graph decode on by itself for longer greedy replies, so this setting is not sent there. When it is on and a capture fails, the request fails instead of decoding the normal way, so turn it off if replies fail with a graph error. |
+| **Speculative Decode** (`SpeculativeDecode`) | `false` | Prompt-lookup speculative decoding, with no draft model. Only for greedy (temperature 0) requests without JSON mode, and only when **Graph Decode** does not take the request. Biggest win on output that repeats earlier text. |
+| **Default Loops** (`RecurrentLoops`) | `0` | For a looped model such as NVIDIA Nemotron Dory: how many passes to run when the chat sets no **Loops**. **Model default** keeps the checkpoint's own count; `1` is fastest and `4` most accurate. Every other model ignores it. See [looped models](#looped-models-dory). |
+
+**Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's **Default Loops** (`RecurrentLoops`) when neither is set; a request's own value wins. The chat and voice routes take it as `loops` (1 to 4); the engine rejects a count above the model's maximum. Calls the extension makes on its own (chat titles, `<llm:…>` prompt enhancement, the caption tools) use the backend default. The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
+
+### Remote (OpenAI-compatible) settings
+
+**Basics** holds Address, Authorization Header and Default Model; the rest is under **Advanced**.
+
+| Setting | Default | Notes |
+|---|---|---|
+| **Address** (`Address`) | *(empty)* | The server's address, for example `http://localhost:11434` (Ollama), `http://localhost:1234` (LM Studio) or `https://api.openai.com`. The backend stays disabled until this is set. |
+| **Authorization Header** (`AuthorizationHeader`) | *(empty)* | Only for a server that needs a key, for example `Bearer sk-abc123`. A user's own `openai_api` key from the `User` tab replaces it on that user's requests. |
+| **Default Model** (`DefaultModel`) | *(empty)* | The model used when a request doesn't name one. Once the backend is saved with a working **Address**, the box suggests the server's models (from its `/v1/models`, asked with your own key when you have one), and you can still type any name. |
+| **Allow Idle** (`AllowIdle`) | `false` | When the server is offline at startup, the backend waits as *idle* instead of showing an error, and switches to running after its next successful reply. |
+| **Connect Timeout (seconds)** (`ConnectionAttemptTimeoutSeconds`) | `30` | How long to wait for the server when connecting and listing models. Lower it (e.g. `5`) for a server on your own network. |
+| **Other Headers** (`OtherHeaders`) | *(empty)* | Extra headers, one `Header: value` per line. |
+| **Token Limit Field** (`TokenLimitParameter`) | `auto` | `auto` picks `max_completion_tokens` for `api.openai.com` and `max_tokens` everywhere else. Change it only if the server rejects the auto choice. |
 
 ### Anthropic settings
 
-| Setting | Default |
-|---|---|
-| `DefaultModel` | `claude-opus-4-8` |
-| `TimeoutSeconds` | `120` |
-| `BaseUrl` | `https://api.anthropic.com` |
+**Basics** holds Default Model; the rest is under **Advanced**.
+
+| Setting | Default | Notes |
+|---|---|---|
+| **Default Model** (`DefaultModel`) | `claude-opus-4-8` | The Claude model used when a request doesn't name one. When you have your own Anthropic key set in the `User` tab, the dropdown lists the models Anthropic's Models API offers that key, so new models show up without an update. Without a key it shows the built-in list. |
+| **Reply Timeout (seconds)** (`TimeoutSeconds`) | `120` | The longest a whole reply may take, from the request to the last word, before it is stopped. Raise it if long replies get cut off. |
+| **Workspace ID** (`WorkspaceId`) | *(empty)* | Sent as the `anthropic-workspace-id` header. Only needed when the API key is not tied to one workspace. A user's own workspace ID, set with their key, is used instead. |
+| **Base URL** (`BaseUrl`) | `https://api.anthropic.com` | Only change this to use a proxy or an Anthropic-compatible server. |
 
 Anthropic's tool API is always on, there's no toggle, because it's one stable contract. Set your key in the `User` tab.
 
@@ -153,17 +179,17 @@ Anthropic's tool API is always on, there's no toggle, because it's one stable co
 
 2. Pick a model from the dropdown in the top bar.
 3. Type. `Enter` sends, `Shift+Enter` makes a newline, `/` opens the tool picker, and the paperclip (or a drag-and-drop) attaches an image.
-4. Everything else, parameters, export, settings, the assistant panel, hangs off the top bar and the right-hand panel.
+4. Everything else (parameters, export, settings, the assistant panel) hangs off the top bar and the right-hand panel.
 
 ---
 
 ## The interface
 
-**Left sidebar**, chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
+**Left sidebar**: chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
 
-**Top bar**, thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings.
+**Top bar**: thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings.
 
-**Right panel**, the active assistant (with capability badges), live message/token counters, and the thread's Assets index.
+**Right panel**: the active assistant (with capability badges), live message/token counters, and the thread's Assets index.
 
 Both split bars are draggable and remember their width; double-click resets them.
 
@@ -205,13 +231,13 @@ Open `Settings > Assistants` to create one from scratch, or clone one of the bun
 
 Each assistant has:
 
-- **Identity**, name, category, description, color, and an uploaded avatar.
-- **Seven instruction modes**, `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
-- **Per-model variants**, any instruction can carry alternates keyed on the model's `Exact` id, `Family`, `Provider`, `Tag`, or a `Glob` pattern. Specificity order: `Exact > Family > Provider > Tag > Glob`.
-- **Inheritance (`extends`)**, inherit instructions, parameters, and enabled tools from another assistant, then override selectively. Cycle-safe.
-- **Parameter overrides**, temperature / max tokens / top-p, blank to fall back to your global defaults.
-- **Tool allowlist**, a master on/off plus a per-tool checklist, and per-assistant tool config that overrides your account defaults.
-- **A test runner**, run a sample message against the unsaved instruction text before you commit it.
+- **Identity**: name, category, description, color, and an uploaded avatar.
+- **Seven instruction modes**: `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
+- **Per-model variants**: any instruction can carry alternates keyed on the model's `Exact` id, `Family`, `Provider`, `Tag`, or a `Glob` pattern. Specificity order: `Exact > Family > Provider > Tag > Glob`.
+- **Inheritance (`extends`)**: inherit instructions, parameters, and enabled tools from another assistant, then override selectively. Cycle-safe.
+- **Parameter overrides**: temperature / max tokens / top-p, blank to fall back to your global defaults.
+- **Tool allowlist**: a master on/off plus a per-tool checklist, and per-assistant tool config that overrides your account defaults.
+- **A test runner**: run a sample message against the unsaved instruction text before you commit it.
 
 Prompt variables are substituted at request time: `{{assistantName}}`, `{{userName}}`, `{{userProfile}}`, `{{currentDate}}`.
 
@@ -277,8 +303,8 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 
 - **Permissions are keyed on the *handler*, not the tool id**, so defining a custom tool `{ id: "harmless", handlerId: "shell_exec" }` can't bypass the `shell_exec` gate.
 - **60-second execution timeout** per tool call, plus each tool's own limits.
-- **Rate limits**, a per-user, per-tool sliding hour window. Defaults: `http_request` 60/h, `web_search` 30/h, `shell_exec` 20/h, `generate_image` 100/h, `batch_caption_folder` 5/h. Override per tool in its editor; `0` means unlimited.
-- **Audit log**, an opt-in append-only JSONL trail of `shell_exec`, `file_write`, and `http_request` calls plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
+- **Rate limits**: a per-user, per-tool sliding hour window. Defaults: `http_request` 60/h, `web_search` 30/h, `shell_exec` 20/h, `generate_image` 100/h, `batch_caption_folder` 5/h. Override per tool in its editor; `0` means unlimited.
+- **Audit log**: an opt-in append-only JSONL trail of `shell_exec`, `file_write`, and `http_request` calls plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
 
 ### Custom tools
 
@@ -288,7 +314,7 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 
 ## Vision
 
-Assistants with a `vision` instruction accept image attachments. Attach with the paperclip or drag-and-drop; the image is uploaded once, downscaled to the configured long-edge cap, and stored as a URL on the message, the thread blob never carries base64.
+Assistants with a `vision` instruction accept image attachments. Attach with the paperclip or drag-and-drop; the image is uploaded once, downscaled to the configured long-edge cap, and stored as a URL on the message, so the thread blob never carries base64.
 
 The same vision path backs the `caption_image` tool, `fuse_image_descriptions`, `batch_caption_folder`, the companion's "Critique my last image", and the Generate tab's magic-vision action.
 
@@ -298,7 +324,7 @@ The **Vision Image Max Size** setting (256–2048 px, default 1536) controls the
 
 ## Assets
 
-Anything worth keeping is promoted to the thread's **Assets** index in the right panel: fenced code blocks (8+ lines or 400+ bytes, smaller ones stay inline), HTML/SVG snippets, and results from `generate_image`, `file_read`, and `file_write`.
+Anything worth keeping is promoted to the thread's **Assets** index in the right panel: fenced code blocks (8+ lines or 400+ bytes; smaller ones stay inline), HTML/SVG snippets, and results from `generate_image`, `file_read`, and `file_write`.
 
 ![Chat with a promoted code asset](Assets/screenshots/chat-code-asset.png)
 
@@ -322,12 +348,12 @@ Turn it on in `Settings > Companion`.
 
 ![Companion settings](Assets/screenshots/settings-companion.png)
 
-- **Persona**, a specific assistant, or "follow my active assistant".
-- **Position**, snaps to a corner; drag for a free offset. Opacity is adjustable.
-- **Quick actions**, ask anything, critique my last image, help with my prompt, suggest a preset, explain a feature, daily tip. Each is individually toggleable.
-- **Ambient chatter**, optional unsolicited messages on session start, after a generation finishes, or when you've been idle. Every trigger has its own switch, plus **Quiet Mode** as a master mute, quiet hours, and a hard per-session cap.
+- **Persona**: a specific assistant, or "follow my active assistant".
+- **Position**: snaps to a corner; drag for a free offset. Opacity is adjustable.
+- **Quick actions**: ask anything, critique my last image, help with my prompt, suggest a preset, explain a feature, daily tip. Each is individually toggleable.
+- **Ambient chatter**: optional unsolicited messages on session start, after a generation finishes, or when you've been idle. Every trigger has its own switch, plus **Quiet Mode** as a master mute, quiet hours, and a hard per-session cap.
 
-Replies use the assistant's `companion` instruction, which asks for one short paragraph, the bubble is small on purpose.
+Replies use the assistant's `companion` instruction, which asks for one short paragraph; the bubble is small on purpose.
 
 ---
 
@@ -352,7 +378,7 @@ The extension registers a parameter group called **LLM Prompt Processing** in th
 | `LLM Use Cache` | `true` | Reuse the response for identical prompts within a batch. |
 | `LLM Generate Wildcard Seed` | `false` | Generate one shared wildcard seed per batch so `<wildcard>` picks stay consistent while the LLM is only called once. |
 | `LLM Model ID` | `default` | Override which LLM handles prompt processing. |
-| `LLM Instructions` | `prompt` | Which instruction set to use, any built-in mode or a custom instruction. |
+| `LLM Instructions` | `prompt` | Which instruction set to use: any built-in mode or a custom instruction. |
 | `LLM Assistant ID` | `default` | Pin processing to a specific assistant's persona and variants. Default = your active assistant. |
 
 ### Prompt tags
@@ -363,7 +389,7 @@ The extension registers a parameter group called **LLM Prompt Processing** in th
 | `<llmoriginal>` | Re-inject the original, pre-LLM text into the prompt. |
 | `<llmresponse:…>` | Internal marker for a cached response. |
 
-`<mpprompt>`, `<mpresponse>`, and `<mporiginal>` are accepted as aliases, prompts written for Hartsy's MagicPrompt extension work unchanged.
+`<mpprompt>`, `<mpresponse>`, and `<mporiginal>` are accepted as aliases, so prompts written for Hartsy's MagicPrompt extension work unchanged.
 
 Example:
 
@@ -385,7 +411,7 @@ Example:
 | Max Tokens | `4096` | Response length cap. |
 | Top P | `0.9` | Nucleus sampling cutoff. |
 | Seed | `-1` | `-1` = random. Only providers that honor a seed use it. |
-| Loops | `0` | Recurrent-block passes for a looped model such as Nemotron Dory, 1 to 4; `0` = not set (the local backend's `RecurrentLoops` default applies). Other models ignore it. |
+| Loops | `0` | Recurrent-block passes for a looped model such as Nemotron Dory, 1 to 4; `0` = not set (the local backend's **Default Loops**, `RecurrentLoops`, applies). Other models ignore it. |
 | Context Messages | `0` | Prior messages included per request; `0` = all. |
 | Stream | `true` | WebSocket streaming. |
 | Vision Image Max Size | `1536` | Long-edge cap in px, clamped to 256–2048. |
@@ -405,10 +431,10 @@ Per SwarmUI's extension standards, everything this extension can send over the n
 |---|---|---|
 | `html.duckduckgo.com` | Only when the model (or you, via `/`) calls the `web_search` tool | Disable the tool, or deny `llm_tool_web_search` |
 | Any public URL | Only when the `http_request` tool is called (SSRF-guarded: loopback/private/link-local/metadata addresses are blocked) | Disable the tool, or deny `llm_tool_http_request` |
-| `api.anthropic.com` (or your configured `BaseUrl`) | Only when a chat request routes to an Anthropic backend you added | Don't add the backend |
-| Your configured `Address` | Only when a chat request routes to an OpenAI-compatible backend you added | Don't add the backend |
+| `api.anthropic.com` (or your configured `BaseUrl`) | When a chat request routes to an Anthropic backend you added, and when someone with their own Anthropic key opens `Server > Backends`, to list models for the card's Default Model | Don't add the backend |
+| Your configured `Address` | When an OpenAI-compatible backend you added starts, serves a chat request or lists its models (for the model picker, and for the card's Default Model when `Server > Backends` opens) | Don't add the backend |
 
-Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, **the UI itself makes zero outbound connections.**
+Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, so **the UI itself makes zero outbound connections.**
 
 ---
 
@@ -443,8 +469,8 @@ SwarmUI also auto-registers `view_extension_tab_llmassistant` (default USER) for
 
 Settings live in two layers:
 
-- **Shared**, the admin-curated baseline: shared assistants, shared tools, default instructions and parameters. Writing to it requires `llm_shared_write`.
-- **Personal**, each user's own overrides, personal assistants, personal tools, and preferred model.
+- **Shared**: the admin-curated baseline: shared assistants, shared tools, default instructions and parameters. Writing to it requires `llm_shared_write`.
+- **Personal**: each user's own overrides, personal assistants, personal tools, and preferred model.
 
 Reads return the merged view. Assistants and tools are union-merged, personal winning on id collision, and every entry is tagged with a `_scope` badge (`shared` / `personal`) so the UI shows which layer an item lives in and which layer a delete would hit.
 
@@ -497,7 +523,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
 | `{"error": "…"}` | A failure after streaming began. |
-| `{"lane": n, …}` | Compare mode, routes the frame to a column. |
+| `{"lane": n, …}` | Compare mode: routes the frame to a column. |
 
 `LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames and one frame of its own, the round-limit `notice`. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
 
@@ -526,41 +552,41 @@ they were sent with.
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetThreads` |, | `{success, threads[]}` (index only) |
+| `LLMAssistantGetThreads` | none | `{success, threads[]}` (index only) |
 | `LLMAssistantGetThread` | `threadId` | `{success, thread}` |
 | `LLMAssistantDeleteThread` | `threadId` | `{success}` |
 | `LLMAssistantRenameThread` | `threadId`, `title` | `{success, thread}`, also settable with `F2` in the sidebar |
 | `LLMAssistantEditMessage` | `threadId`, `messageId`, `content` | `{success, thread}` |
 | `LLMAssistantDeleteMessage` | `threadId`, `messageId` | `{success, thread}` |
 | `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}`, switch branch |
-| `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`, omit `enabled` to clear the override |
+| `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
 | `LLMAssistantExportThread` | `threadId`, `format` (`json` \| `markdown`) | `{success, filename, content}` |
 
 ### Assistants
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetAssistants` |, | `{success, assistants[], activeAssistantId}` |
+| `LLMAssistantGetAssistants` | none | `{success, assistants[], activeAssistantId}` |
 | `LLMAssistantGetAssistant` | `assistantId` | `{success, assistant}` |
-| `LLMAssistantGetActiveAssistant` |, | `{success, assistant}` |
+| `LLMAssistantGetActiveAssistant` | none | `{success, assistant}` |
 | `LLMAssistantSaveAssistant` | `assistant` (object), `scope?` | `{success, id, scope}` |
 | `LLMAssistantDeleteAssistant` | `assistantId`, `scope?` | `{success}` |
 | `LLMAssistantSetActiveAssistant` | `assistantId` | `{success}` |
 | `LLMAssistantUploadAssistantAvatar` | `assistantId`, `imageData` (data URI, ≤2 MB) | `{success, url, bytesWritten}` |
-| `LLMAssistantGetStarterTemplates` |, | `{success, templates[]}` |
+| `LLMAssistantGetStarterTemplates` | none | `{success, templates[]}` |
 
 ### Tools
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetTools` |, | `{success, tools[], canWriteShared}` |
+| `LLMAssistantGetTools` | none | `{success, tools[], canWriteShared}` |
 | `LLMAssistantGetTool` | `toolId` | `{success, tool}` |
 | `LLMAssistantSaveTool` | `tool` (object or JSON string), `scope?` | `{success, id, scope}` |
 | `LLMAssistantDeleteTool` | `toolId`, `scope?` | `{success}` |
 | `LLMAssistantExecuteTool` | `toolId`, `arguments` (object or JSON string), `assistantId?`, `threadId?`, `callId?` | `{success, result, callId}` |
 | `LLMAssistantGetToolConfig` | `toolId` | `{success, config}` |
 | `LLMAssistantSetToolConfig` | `toolId`, `config` (object or JSON string) | `{success, config}` |
-| `LLMAssistantGetImagePresets` |, | `{success, presets[]}` with a one-line `summary` per preset |
+| `LLMAssistantGetImagePresets` | none | `{success, presets[]}` with a one-line `summary` per preset |
 
 `LLMAssistantExecuteTool` still enforces the per-handler `llm_tool_*` permission, so exposing it at the chat permission level is not an escalation.
 
@@ -568,24 +594,26 @@ they were sent with.
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetSettings` |, | `{success, settings, canWriteShared}` |
+| `LLMAssistantGetSettings` | none | `{success, settings, canWriteShared}` |
 | `LLMAssistantSaveSettings` | `settings` (object or JSON string), `scope?` | `{success, settings, scope}` |
 | `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}` |
 | `LLMAssistantGetAuditLog` | `max?` (default 200, cap 5000) | `{success, enabled, entries[]}`, admin only |
 | `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
-| `LLMAssistantGetModels` |, | `{success, models[], warnings[]}`, providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
-| `LLMAssistantUnloadModels` |, | `{success, freed, providers}`, `freed` counts providers that actually released something |
-| `LLMAssistantGetSessionState` |, | `{success, state}` |
+| `LLMAssistantGetModels` | none | `{success, models[], warnings[]}`; providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
+| `LLMAssistantUnloadModels` | none | `{success, freed, providers}`; `freed` counts providers that actually released something |
+| `LLMAssistantGetSessionState` | none | `{success, state}` |
 | `LLMAssistantSetSessionState` | `state` (patch object; `null` clears a key) | `{success, state}` |
 | `LLMAssistantGetAssets` | `threadId` | `{success, threadId, assets[]}` |
 | `LLMAssistantGetAsset` | `threadId`, `assetId` | `{success, asset}` |
 | `LLMAssistantDeleteAsset` | `threadId`, `assetId` | `{success}` |
-| `LLMAssistantGetUserProfile` |, | `{success, profile}` |
-| `LLMAssistantClearUserProfile` |, | `{success}` |
-| `LLMAssistantGetCompanionContext` |, | `{success, lastImage}` (`null` when you have no generations yet) |
-| `LLMAssistantGetInstructions` |, | `{success, instructions[]}`, legacy, kept for the T2I prompt tags |
+| `LLMAssistantGetUserProfile` | none | `{success, profile}` |
+| `LLMAssistantClearUserProfile` | none | `{success}` |
+| `LLMAssistantGetCompanionContext` | none | `{success, lastImage}` (`null` when you have no generations yet) |
+| `LLMAssistantGetInstructions` | none | `{success, instructions[]}`, legacy, kept for the T2I prompt tags |
 | `LLMAssistantSaveInstruction` | `id`, `title`, `content`, `categories?`, `tooltip?`, `scope?` | `{success, instruction}` |
 | `LLMAssistantDeleteInstruction` | `id`, `scope?` | `{success}` |
+| `LLMAssistantListGpus` | `device?` (`auto`, `cuda`, `vulkan` or `cpu`) | `{kind, values[], names[]}`: the local backend card's GPU choices for that Device and the kind it runs on. Needs SwarmUI's `View Backends List` permission |
+| `LLMAssistantListBackendModels` | `backend_id` | `{values[], names[], reason?}`: Default Model choices for a remote LLM backend's card, from the server's `/v1/models` or Anthropic's Models API, asked with your own key. Empty, with the cause in `reason`, when there is nothing to list. Needs `View Backends List` |
 
 ### Worked example: a full chat turn
 
@@ -631,37 +659,39 @@ asyncio.run(chat("How do I use wildcards in a prompt?"))
 SwarmUI-LLMAssistant/
 ├── LLMAssistantExtension.cs   Entry point: assets, model type, tools, API, migrations, GC
 ├── Constants.cs               Instruction ids, feature keys, tool ids, roles
-├── LLMs/                      The stable seam, no concrete backend referenced here
+├── LLMs/                      The stable seam: no concrete backend referenced here
 │   ├── ILLMProvider.cs        The interface + LLMProviderRegistry
 │   ├── LLMTypes.cs            Extension-owned DTOs
 │   ├── LLMDispatcher.cs       Routes to the provider serving a model; token counting
 │   ├── LLMModelLookup.cs      Cached ListModels() with a 5-minute TTL
 │   ├── LLMModelMatcher.cs     Exact / Family / Provider / Tag / Glob / Default matching
 │   ├── ExtendedLLMInput.cs    Request shape (messages, params, media, tools)
-│   ├── LLMStreamHelper.cs     Agentic loop, WS framing, server-side persistence
+│   ├── LLMStreamHelper.cs     Chat entry point: builds the turn context for ToolTurnRunner
 │   └── SwarmNativeLLMProvider.cs   Optional bridge to native Swarm backends (off)
 ├── Backends/                  REMOVABLE runtime pack
 │   ├── LLMProviderBackend.cs  AbstractLLMBackend + ILLMProvider base; self-registers
 │   ├── HartsyLocalLLMProvider.cs   Pure-C# GGUF via HartsyInference.Engine
 │   ├── AnthropicLLMProvider.cs     Anthropic Messages API
 │   ├── RemoteOpenAILLMProvider.cs  Any OpenAI-compatible endpoint
+│   ├── LocalDeviceChoices.cs  Device and GPU dropdowns for the local card, from the engine's device check
+│   ├── BackendCardAPI.cs      The two routes the backend cards fill their dropdowns from
 │   └── LLMBackendPack.cs      One Register() call
 ├── Services/                  Assistants, instructions, threads, tools, media, memory,
-│                              settings layers, rate limits, audit log, JSON repair, GC
+│                              settings layers, rate limits, audit log, GC, the one tool loop (ToolTurnRunner, ToolTurnSinks)
 ├── Tools/BuiltIn/             The 13 built-in tool handlers
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
 ├── WebAPI/                    51 endpoints across 11 files + permission definitions
-├── Tabs/Text2Image/           Tab markup (`LLM Assistant.html`, the filename is the tab label)
-└── Assets/                    Front-end JS/CSS, starter templates, vendored libraries
+├── Tabs/Text2Image/           Tab markup (`LLM Assistant.html`; the filename is the tab label)
+└── Assets/                    Front-end JS/CSS (llm-backend-cards.js organizes the backend cards), starter templates, vendored libraries
 ```
 
 ### Design notes
 
-**One seam.** The whole feature surface, chat, threads, tools, companion, T2I, talks only to `ILLMProvider` through `LLMProviderRegistry`. It never names a concrete backend and never references SwarmUI's `AbstractLLMBackend`. The runtimes live in `Backends/`, which is deliberately disposable.
+**One seam.** The whole feature surface (chat, threads, tools, companion, T2I) talks only to `ILLMProvider` through `LLMProviderRegistry`. It never names a concrete backend and never references SwarmUI's `AbstractLLMBackend`. The runtimes live in `Backends/`, which is deliberately disposable.
 
 **Server-authoritative history.** The client can't inject fake history. Your message is appended to the stored thread before the model is called; the reply is appended after the agentic loop finishes. Message edits and deletes go through their own endpoints rather than the client re-uploading the thread.
 
-**In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not fixed to the viewport, a Bootstrap modal would float over the whole SwarmUI UI and break the tab metaphor.
+**In-tab modal.** The settings dialog is `position: absolute; inset: 0` inside the tab pane, not fixed to the viewport; a Bootstrap modal would float over the whole SwarmUI UI and break the tab metaphor.
 
 **Zero external dependencies at runtime.** marked, highlight.js, KaTeX (with fonts), Mermaid, and DOMPurify are vendored under `Assets/vendor/` and registered by directory walk, then lazy-loaded on first use. Nothing is fetched from a CDN.
 
@@ -669,12 +699,12 @@ SwarmUI-LLMAssistant/
 
 ### Swapping or removing the runtime pack
 
-To drop the bundled backends, say, once SwarmUI ships a first-class native LLM API you'd rather use:
+To drop the bundled backends (say, once SwarmUI ships a first-class native LLM API you'd rather use):
 
 1. Delete the `Backends/` folder.
 2. Remove the `Backends.LLMBackendPack.Register();` line from `LLMAssistantExtension.OnInit`.
 3. Delete the `HartsyInference` `PackageReference` and the `ExcludeAssets` block from the csproj, and put `CopyLocalLockFileAssemblies` back to its default.
-4. Register a replacement `ILLMProvider`. A ready-made bridge to native Swarm backends ships as `LLMs/SwarmNativeLLMProvider.cs` (disabled by default), call `SwarmNativeLLMProvider.Register()` from `OnInit` instead of the pack.
+4. Register a replacement `ILLMProvider`. A ready-made bridge to native Swarm backends ships as `LLMs/SwarmNativeLLMProvider.cs` (disabled by default); call `SwarmNativeLLMProvider.Register()` from `OnInit` instead of the pack.
 
 Nothing in chat, threads, tools, companion, or the T2I integration changes.
 
@@ -686,7 +716,7 @@ The csproj resolves `HartsyInference` from NuGet by default. To build against a 
 dotnet build src/Extensions/SwarmUI-LLMAssistant/SwarmUI-LLMAssistant.csproj -p:UseLocalHartsy=true
 ```
 
-Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**, end users only have nuget.org.
+Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**: end users only have nuget.org.
 
 ---
 
@@ -699,7 +729,7 @@ Add one under `Server > Backends`. The quickest path is *LLM: Remote (OpenAI-Com
 Each provider is queried in parallel under a bounded timeout, and anything that times out is reported in `warnings` rather than hanging the request. Check the backend's status in `Server > Backends` and its logs.
 
 **"No Anthropic API key set" / OpenAI 401.**
-Keys are per-user. Set yours in the `User` tab, the backend config does not carry one.
+Keys are per-user. Set yours in the `User` tab; the backend config does not carry one.
 
 **Tool calls never fire.**
 Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models often call tools unreliably, try a larger instruct-tuned model, or a provider with native tool calling. A model that answers in prose instead of calling a tool is a model limit, not a broken tool path.
@@ -708,25 +738,35 @@ Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked
 Toggle the **LLM Prompt Processing** group on in the Generate sidebar, make sure an LLM model resolves, and check the server log for the `[LLMAssistant]` prefix.
 
 **The chat list is empty after sending.**
-Threads persist on the first message. If nothing appears, the send failed, check the log for `ThreadStorageService` errors.
+Threads persist on the first message. If nothing appears, the send failed; check the log for `ThreadStorageService` errors.
 
 **The settings modal renders outside the tab.**
 The modal is scoped to the tab pane. If it escapes, `.llma-container` has lost `position: relative` or the tab pane has lost `position: relative; height: 100%`.
 
 **The companion never appears.**
-It's opt-in, enable it in `Settings > Companion`, and make sure you have `llm_companion`.
+It's opt-in: enable it in `Settings > Companion`, and make sure you have `llm_companion`.
 
 **"I can't see images."**
 Either the selected model isn't vision-capable or the assistant has no `vision` instruction. Switch to a vision model (a Claude model, a vision-tagged Ollama model, or a multimodal GGUF with its mmproj alongside).
+
+**The local LLM stops with an engine error, or CUDA is missing from Device.**
+The engine's CUDA kernels need an NVIDIA RTX 30-series card or newer. Set **Device** to **Auto**: on an older NVIDIA card (RTX 20-series, GTX 16-series), or an AMD or Intel GPU, Auto picks Vulkan. The server log says why CUDA was left out. After changing a GPU or driver, restart SwarmUI so the card lists it.
+
+**A dropdown on a backend card shows *(saved value)*.**
+The value saved for that backend is not in the list this machine offers, for example a GPU that is gone or CUDA on a card that fails the CUDA check. The backend still uses it. Pick another entry and Save to change it.
+
+**Default Model doesn't list any models.**
+For an OpenAI-compatible server the list appears once the backend is saved with an **Address** that answers; for Anthropic it needs your own key in the `User` tab, and the list is asked again each time you open `Server > Backends`. Until then the field works as before. For an OpenAI-compatible server the SwarmUI log says why the list is empty; for Anthropic the browser console does.
 
 ---
 
 ## Known limitations
 
-- **Compare mode doesn't auto-title** the chat, single-model turns do.
+- **Compare mode doesn't auto-title** the chat; single-model turns do.
 - **The companion bubble renders plain text**, not Markdown, by design; its instruction asks the model for one short prose paragraph.
 - **Shared assistant avatars** are served from the uploading user's output folder, so another user needs SwarmUI's `View Others Outputs` permission to see them. Personal avatars are unaffected.
-- **`GraphDecode` and `SpeculativeDecode`** only engage on greedy (temperature 0) requests, so the default chat temperature does not use them yet.
+- **Speculative Decode** only engages on greedy (temperature 0) requests, so the default chat temperature does not use it. **Graph Decode** covers normal chats on CUDA only while **Top K** is 1 to 64.
+- **The backend cards' device lists** are built once per SwarmUI start. Restart after changing a GPU or driver.
 - **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
 - **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. Anthropic and OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field.
 - **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
@@ -736,8 +776,8 @@ Either the selected model isn't vision-capable or the assistant has no `vision` 
 
 ## License & credits
 
-MIT, see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
-- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva), the platform this builds on.
-- [HartsyInference](https://www.nuget.org/packages/HartsyInference), the pure-C# local inference engine.
-- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify), markdown, code, math, diagrams, sanitization. All vendored locally; see [`Assets/vendor/FETCH.md`](Assets/vendor/FETCH.md).
+- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) and [mcmonkey](https://github.com/mcmonkey4eva): the platform this builds on.
+- [HartsyInference](https://www.nuget.org/packages/HartsyInference): the pure-C# local inference engine.
+- [marked](https://marked.js.org/), [highlight.js](https://highlightjs.org/), [KaTeX](https://katex.org/), [Mermaid](https://mermaid.js.org/), [DOMPurify](https://github.com/cure53/DOMPurify): markdown, code, math, diagrams, sanitization. All vendored locally; see [`Assets/vendor/FETCH.md`](Assets/vendor/FETCH.md).
