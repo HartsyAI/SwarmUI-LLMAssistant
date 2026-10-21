@@ -235,8 +235,6 @@
             } else if (!(meta && meta.error)) {
                 bubble.innerHTML = '<div class="llma-typing"><span></span><span></span><span></span></div>';
             }
-            // A reply that failed keeps its text, and the message goes under it.
-            if (meta && meta.error) bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(meta.error));
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'llma-msg-meta';
@@ -262,6 +260,8 @@
             actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
 
             body.appendChild(bubble);
+            // A reply that failed keeps its text, and the message goes under it.
+            if (meta && meta.error) bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(meta.error));
             body.appendChild(metaDiv);
             body.appendChild(actions);
             // Pager outside the hover-faded actions so it stays visible as a branch indicator.
