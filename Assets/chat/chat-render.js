@@ -396,5 +396,6 @@
     window.llmaSetupScroll            = llmaSetupScroll;
     window.llmaShowErrorInBubble      = llmaShowErrorInBubble;
     window.llmaAppendErrorToBubble    = llmaAppendErrorToBubble;
+    window.llmaErrorBlockHtml         = llmaErrorBlockHtml;
     window.llmaShowLoadStatusInBubble = llmaShowLoadStatusInBubble;
 })();

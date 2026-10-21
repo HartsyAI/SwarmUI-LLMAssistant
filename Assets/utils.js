@@ -272,6 +272,8 @@ function llmaMakeStreamRenderer(getBubble) {
         appendChunk(text) { rawText += text; filter.feed(text); schedule(); },
         breakSegment() { clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
         cancelPendingRender: clearPendingRender,
+        // Renders all the text received so far now, so a failing stream shows what it already has.
+        flushRender() { clearPendingRender(); if (rawText) renderNow(); },
         ensureTextContainer,
         getRawText: () => rawText,
     };

@@ -152,6 +152,8 @@
         const bubble = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-bubble`);
         const startTime = performance.now();
         let firstChunk = true;
+        // Every chunk of the reply across tool iterations (the renderer's own text restarts at each one).
+        let streamedRaw = '';
         // Text content containers per iteration; tool call/result bubbles sit between them. Owns the
         // accumulated text, the <tool_call> hide filter, and the throttled render (see utils.js).
         const renderer = llmaMakeStreamRenderer(() => bubble);
@@ -205,6 +207,7 @@
                         llmaShowLoadStatusInBubble(bubble, null);
                     }
                     renderer.appendChunk(data.chunk);
+                    streamedRaw += data.chunk;
                     LLMAState._streamingText = renderer.getRawText();
                     llmaScrollToBottom();
                 }
@@ -298,15 +301,21 @@
             }, 0, err => {
                 // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
                 // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
-                // A failure after some text keeps the text; any pending render is dropped so it cannot bring the text back.
-                renderer.cancelPendingRender();
+                // A failure after some text keeps the text: text still waiting for its render is drawn first.
+                renderer.flushRender();
                 bubble?.querySelector('.llma-typing')?.remove();
                 const message = err || translate('WebSocket error');
                 if ((bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, message);
                 else llmaShowErrorInBubble(bubble, message);
-                LLMAState._activeSocket = null;
-                LLMAState._streamingMsgId = null;
-                llmaSetStreaming(false);
+                // The stored reply keeps what streamed and its error, as the server's copy does.
+                const msg = LLMAState.messages.find(m => m.id === assistantMsgId);
+                if (msg && (streamedRaw || (msg.toolCalls || []).length)) {
+                    msg.content = llmaStripToolTags(streamedRaw);
+                    msg.rawContent = streamedRaw;
+                    msg.meta = Object.assign({}, msg.meta, { error: message });
+                    LLMAState.activeLeafId = assistantMsgId;
+                }
+                llmaFinishStreamState();
             });
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);

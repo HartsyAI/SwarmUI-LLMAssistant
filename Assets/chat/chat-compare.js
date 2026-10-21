@@ -344,6 +344,8 @@
         const bubble = L.bubble;
         let firstChunk = true;
         let done = false;
+        // Every chunk of this lane's reply across tool iterations (the renderer's own text restarts at each one).
+        let streamedRaw = '';
         const renderer = llmaMakeStreamRenderer(() => bubble);
 
         return {
@@ -360,6 +362,7 @@
                     llmaShowLoadStatusInBubble(bubble, null);
                 }
                 renderer.appendChunk(text);
+                streamedRaw += text;
                 L.node.content = renderer.getRawText();
                 if (typeof llmaScrollToBottom === 'function') llmaScrollToBottom();
             },
@@ -409,10 +412,15 @@
             fail(err) {
                 if (done) return;
                 done = true;
-                renderer.cancelPendingRender();
+                renderer.flushRender();
                 bubble && bubble.querySelector('.llma-typing')?.remove();
                 if (typeof llmaAppendErrorToBubble === 'function' && (bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, err);
                 else if (typeof llmaShowErrorInBubble === 'function') llmaShowErrorInBubble(bubble, err);
+                if (streamedRaw || (L.node.toolCalls || []).length) {
+                    L.node.content = (typeof llmaStripToolTags === 'function') ? llmaStripToolTags(streamedRaw) : streamedRaw;
+                    L.node.rawContent = streamedRaw;
+                    L.node.meta = Object.assign({}, L.node.meta, { error: err });
+                }
             },
         };
     }
@@ -541,6 +549,8 @@
                 ? llmaRenderAssistantContent(node.content || '', node.id)
                 : llmaRenderMarkdown(node.content || '');
             if (typeof llmaPostRenderMermaid === 'function') llmaPostRenderMermaid(bubble);
+            // A lane that failed keeps its text, with the error under it, as it showed while streaming.
+            if (node.meta && node.meta.error && typeof llmaErrorBlockHtml === 'function') bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(node.meta.error));
             if (Array.isArray(node.toolCalls) && node.toolCalls.length && typeof llmaReplayToolCalls === 'function') {
                 llmaReplayToolCalls(bubble, node.toolCalls);
             }
