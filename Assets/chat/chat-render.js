@@ -236,7 +236,7 @@
                 bubble.innerHTML = '<div class="llma-typing"><span></span><span></span><span></span></div>';
             }
             // A reply that failed keeps its text, and the message goes under it.
-            if (meta && meta.error) bubble.insertAdjacentHTML('beforeend', llmaErrorBlockHtml(meta.error));
+            if (meta && meta.error) bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(meta.error));
 
             const metaDiv = document.createElement('div');
             metaDiv.className = 'llma-msg-meta';
@@ -355,11 +355,11 @@
         bubble.innerHTML = llmaErrorBlockHtml(error);
     }
 
-    /** Adds an error block under what the bubble already shows, so a partial reply stays on screen. */
+    /** Adds an error block right after the bubble, under the text it shows, so a partial reply stays on screen. */
     function llmaAppendErrorToBubble(bubble, error) {
         if (!bubble) return;
         console.error('[LLMAssistant] chat error:', error);
-        bubble.insertAdjacentHTML('beforeend', llmaErrorBlockHtml(error));
+        bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(error));
     }
 
     /**
