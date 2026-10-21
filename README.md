@@ -522,7 +522,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. |
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
-| `{"error": "…"}` | A failure after streaming began. |
+| `{"error": "…"}` | A failure after streaming began, or an engine failure with no answer text and no tool result shown (no `done` frame follows it). |
 | `{"lane": n, …}` | Compare mode: routes the frame to a column. |
 
 `LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames and one frame of its own, the round-limit `notice`. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
@@ -533,6 +533,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"tool_result": {id, name, result}}` | That tool finished, same shape as above. |
 | `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
 | `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
+| `{"error": "…"}` | An engine failure with no spoken answer and no tool result sent: the message, and no `done` frame follows it. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
 `[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]`, a client resuming a
@@ -716,7 +717,7 @@ The csproj resolves `HartsyInference` from NuGet by default. To build against a 
 dotnet build src/Extensions/SwarmUI-LLMAssistant/SwarmUI-LLMAssistant.csproj -p:UseLocalHartsy=true
 ```
 
-Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**: end users only have nuget.org.
+Build the engine first (`HartsyInference.{LLM,Cpu,Cuda,Vulkan}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**: end users only have nuget.org.
 
 ---
 

@@ -17,6 +17,44 @@ public class VoiceWsSinkTests
     }
 
     [Fact]
+    public async Task EngineFailureBeforeAnyTextIsSentAsOneErrorFrame()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+
+        await sink.Done(new ToolTurnOutcome("", "error", false, null, [], Error: "boom"));
+
+        JObject only = Assert.Single(frames);
+        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Null(only["done"]);
+    }
+
+    [Fact]
+    public async Task ReasoningOnlyEngineFailureIsAnErrorFrame()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+
+        await sink.Done(new ToolTurnOutcome("<think>Hmm.</think>", "error", false, null, [], SpokenText: "", Error: "boom"));
+
+        JObject only = Assert.Single(frames);
+        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Null(only["done"]);
+    }
+
+    [Fact]
+    public async Task UnrunCallEngineFailureIsAnErrorFrame()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+
+        await sink.ToolCall(new JObject { ["id"] = "c1", ["name"] = "set_volume", ["arguments"] = new JObject() });
+        await sink.ToolNotRun(new JObject { ["id"] = "c1", ["name"] = "set_volume", ["result"] = new JObject { ["success"] = false } });
+        await sink.Done(new ToolTurnOutcome("", "error", false, null, [new JObject { ["id"] = "c1" }], SpokenText: "", Error: "boom"));
+
+        JObject only = frames.Last();
+        Assert.Equal("boom", only["error"]?.ToString());
+        Assert.Null(only["done"]);
+    }
+
+    [Fact]
     public async Task ToolCallAndResultUseTheVoiceFrameShapes()
     {
         (VoiceWsSink sink, List<JObject> frames, _) = Make();

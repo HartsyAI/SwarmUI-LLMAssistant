@@ -18,6 +18,9 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
     /// <summary>Whether a <c>&lt;think&gt;</c> block is open on the socket.</summary>
     private bool _inThink;
 
+    /// <summary>Whether a tool result has been shown in the bubble, which an error frame would replace.</summary>
+    private bool _showedToolResult;
+
     /// <inheritdoc/>
     public Task Chunk(string text) => Send(new JObject { ["chunk"] = text });
 
@@ -53,16 +56,24 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
     public Task ToolCall(JObject call) => Send(new JObject { ["tool_call"] = call });
 
     /// <inheritdoc/>
-    public Task ToolResult(JObject result) => Send(new JObject { ["tool_result"] = result });
+    public Task ToolResult(JObject result)
+    {
+        _showedToolResult = true;
+        return Send(new JObject { ["tool_result"] = result });
+    }
 
     /// <inheritdoc/>
     /// <remarks>Sent as an ordinary <c>tool_result</c>, so the chat closes the call's bubble with the stand-in result.</remarks>
-    public Task ToolNotRun(JObject result) => Send(new JObject { ["tool_result"] = result });
+    public Task ToolNotRun(JObject result)
+    {
+        _showedToolResult = true;
+        return Send(new JObject { ["tool_result"] = result });
+    }
 
     /// <inheritdoc/>
     public Task Done(ToolTurnOutcome outcome)
     {
-        if (IsEngineFailure(outcome))
+        if (outcome.SilentFailure && !_showedToolResult)
         {
             // The message is the whole reply, and a done frame after it would replace it in the bubble.
             return Send(new JObject { ["error"] = outcome.Error });
@@ -72,10 +83,6 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
             : new JObject { ["done"] = true, ["full_text"] = outcome.FullText, ["stopReason"] = outcome.StopReason };
         return Send(frame);
     }
-
-    /// <summary>Whether the engine stopped on an error before any text or tool call, so its message is all there is to show.</summary>
-    internal static bool IsEngineFailure(ToolTurnOutcome outcome)
-        => outcome.StopReason == "error" && outcome.FullText.Length == 0 && outcome.ToolEvents.Count == 0 && !string.IsNullOrEmpty(outcome.Error);
 
     /// <summary>Sends one frame, lane-tagged and serialized with the other lanes.</summary>
     private Task Send(JObject data) => send(data);
@@ -119,6 +126,9 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     /// <summary>Calls the model made that have no result yet, by id.</summary>
     private readonly Dictionary<string, JObject> _pendingCalls = new(StringComparer.Ordinal);
 
+    /// <summary>Whether a tool result has been forwarded, so the turn is not silent.</summary>
+    private bool _forwardedResult;
+
     /// <summary>Strips inline think spans from the chunk text, so a passthrough reasoning trace is not spoken.</summary>
     private readonly ThinkSpanFilter _speech = new();
 
@@ -154,6 +164,7 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     /// <inheritdoc/>
     public async Task ToolResult(JObject result)
     {
+        _forwardedResult = true;
         string id = result["id"]?.ToString() ?? "";
         string name = result["name"]?.ToString();
         JObject arguments = new();
@@ -194,6 +205,13 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
     /// <inheritdoc/>
     public async Task Done(ToolTurnOutcome outcome)
     {
+        if (outcome.SilentFailure && !_forwardedResult)
+        {
+            // As on the chat socket: the message is the whole reply, and no done frame follows it.
+            _pendingCalls.Clear();
+            await Send(new JObject { ["error"] = outcome.Error });
+            return;
+        }
         _pendingCalls.Clear();
         string held = _speech.Flush();
         if (held.Length > 0)

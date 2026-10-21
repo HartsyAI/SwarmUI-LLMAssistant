@@ -61,7 +61,11 @@ public sealed class ToolTurnContext
 /// <c>{text, toolCallIds}</c>, in order; <see cref="RoundLimit"/> is the loop's limit detail (<c>max_rounds=8</c>) when it cut the turn;
 /// <see cref="Error"/> is the provider's message when the turn stopped on an error.</remarks>
 public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null,
-    string RoundLimit = null, string Error = null);
+    string RoundLimit = null, string Error = null)
+{
+    /// <summary>The engine stopped on an error and nothing was said aloud or written: its message is what the user gets.</summary>
+    public bool SilentFailure => StopReason == "error" && string.IsNullOrWhiteSpace(SpokenText) && !string.IsNullOrEmpty(Error);
+}
 
 /// <summary>Where a turn's events go: a chat socket, a voice socket, or a collector. <see cref="IsOpen"/> stops forwarding when the
 /// client has gone; the turn still finishes and saves.</summary>
