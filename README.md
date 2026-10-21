@@ -717,7 +717,7 @@ The csproj resolves `HartsyInference` from NuGet by default. To build against a 
 dotnet build src/Extensions/SwarmUI-LLMAssistant/SwarmUI-LLMAssistant.csproj -p:UseLocalHartsy=true
 ```
 
-Build the engine first (`HartsyInference.{LLM,Cpu,Cuda}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**: end users only have nuget.org.
+Build the engine first (`HartsyInference.{LLM,Cpu,Cuda,Vulkan}` at `net8.0`), and override `HartsyRepo` if your checkout isn't a sibling of the SwarmUI folder. **Never commit a `-local` version pin**: end users only have nuget.org.
 
 ---
 
