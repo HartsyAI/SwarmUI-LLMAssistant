@@ -26,6 +26,6 @@ public static class LLMStreamHelper
             DeviceLabel = deviceLabel,
             SetActiveLeaf = setActiveLeaf,
         };
-        return ToolTurnRunner.RunAsync(input, context, new ChatWsSink(socket, lane, sendLock), ct);
+        return ToolTurnRunner.RunAsync(input, context, ChatWsSink.ForSocket(socket, lane, sendLock), ct);
     }
 }
