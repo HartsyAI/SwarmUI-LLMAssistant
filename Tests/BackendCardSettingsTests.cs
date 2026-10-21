@@ -65,6 +65,16 @@ public class BackendCardSettingsTests
     }
 
     [Fact]
+    public void LocalSettings_SavedBackendFromFile_IgnoresStructuredToolCalling()
+    {
+        // A backend saved before StructuredToolCalling was removed still sets it; the unknown key is ignored.
+        LocalSettings settings = new();
+        settings.Load(new FDSSection("Device: cpu\nVramMode: Balanced\nStructuredToolCalling: true\n"));
+        Assert.Equal("cpu", settings.Device);
+        Assert.Equal("Balanced", settings.VramMode);
+    }
+
+    [Fact]
     public void RemoteAndAnthropicSettings_SavedBackendFromFile_LoadsUnchanged()
     {
         RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings remote = new();
