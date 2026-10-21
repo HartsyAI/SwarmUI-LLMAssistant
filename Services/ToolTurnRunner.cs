@@ -63,8 +63,8 @@ public sealed class ToolTurnContext
 public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null,
     string RoundLimit = null, string Error = null)
 {
-    /// <summary>Whether the engine stopped on an error before any text or tool call: its message is then the whole reply.</summary>
-    public bool IsEngineFailure => StopReason == "error" && FullText.Length == 0 && ToolEvents.Count == 0 && !string.IsNullOrEmpty(Error);
+    /// <summary>The engine stopped on an error and nothing was said aloud or written: its message is what the user gets.</summary>
+    public bool SilentFailure => StopReason == "error" && string.IsNullOrWhiteSpace(SpokenText) && !string.IsNullOrEmpty(Error);
 }
 
 /// <summary>Where a turn's events go: a chat socket, a voice socket, or a collector. <see cref="IsOpen"/> stops forwarding when the
