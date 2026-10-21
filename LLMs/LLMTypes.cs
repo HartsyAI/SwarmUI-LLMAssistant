@@ -4,19 +4,16 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Standard chat role identifiers.
 /// <para>These used to live in SwarmUI core (a branch that expanded the native LLM API). The
-/// extension now owns them so it builds against the upstream skeleton — the actual backends live
+/// extension now owns them so it builds against the upstream skeleton; the actual backends live
 /// in the removable <c>Backends/</c> pack behind <see cref="ILLMProvider"/>.</para></summary>
 public static class LLMRoles
 {
     public const string System = "system";
     public const string User = "user";
     public const string Assistant = "assistant";
-    /// <summary>A tool-call result turn. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently maps this
-    /// onto a real wire role (<c>TextRole.Tool</c>, carrying <see cref="LLMMessage.ToolCallId"/>/<see cref="LLMMessage.Name"/>);
-    /// nothing in this extension constructs one yet — the general chat loop still feeds tool results back as
-    /// <see cref="User"/> turns formatted by <c>ToolPromptService.FormatToolResult</c>, which works for every
-    /// provider including ones that only understand the text-based <c>&lt;tool_call&gt;</c> convention. This
-    /// exists so a native-tool-calling caller (eg a <c>ToolLoop</c>-driven turn) has a correct role to ask for.</summary>
+    /// <summary>A tool-call result turn. Every provider maps it to its own wire shape (the local engine's tool role,
+    /// Anthropic's <c>tool_result</c> block, OpenAI's <c>tool</c> message), carrying <see cref="LLMMessage.ToolCallId"/>
+    /// and <see cref="LLMMessage.Name"/>. A saved tool turn is replayed with this role.</summary>
     public const string Tool = "tool";
 }
 
@@ -27,7 +24,7 @@ public class LLMMediaAttachment
     public string Type;
     /// <summary>The URL or raw base64 payload, per <see cref="Type"/>.</summary>
     public string Data;
-    /// <summary>MIME type (eg <c>image/png</c>) — used when <see cref="Type"/> is <c>"base64"</c>.</summary>
+    /// <summary>MIME type (eg <c>image/png</c>); used when <see cref="Type"/> is <c>"base64"</c>.</summary>
     public string MediaType;
 }
 
@@ -49,7 +46,7 @@ public class LLMMessage
     /// <summary>Tool calls this turn made, each in the same <c>{id, name, arguments}</c> shape a
     /// <c>native_tool_call</c> wire frame carries (<c>arguments</c> a parsed object, not a JSON string). Only
     /// meaningful when <see cref="Role"/> is <see cref="LLMRoles.Assistant"/>; null/empty otherwise. Deliberately
-    /// <see cref="JObject"/>, not an engine <c>NativeToolCall</c> — this type stays provider-agnostic (see this
+    /// <see cref="JObject"/>, not an engine <c>NativeToolCall</c>; this type stays provider-agnostic (see this
     /// file's own doc comment) and maps onto the engine shape only inside
     /// <see cref="Backends.HartsyLocalLLMProvider.ToTextMessage"/>. Lets a caller replay a conversation that
     /// already contains a native tool call/result pair as history (eg

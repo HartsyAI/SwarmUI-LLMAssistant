@@ -65,16 +65,26 @@ public class BackendCardSettingsTests
     }
 
     [Fact]
+    public void LocalSettings_SavedBackendFromFile_IgnoresStructuredToolCalling()
+    {
+        // A backend saved before StructuredToolCalling was removed still sets it; the unknown key is ignored.
+        LocalSettings settings = new();
+        settings.Load(new FDSSection("Device: cpu\nVramMode: Balanced\nStructuredToolCalling: true\n"));
+        Assert.Equal("cpu", settings.Device);
+        Assert.Equal("Balanced", settings.VramMode);
+    }
+
+    [Fact]
     public void RemoteAndAnthropicSettings_SavedBackendFromFile_LoadsUnchanged()
     {
         RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings remote = new();
+        // A backend saved before NativeToolCalling was removed still sets it; the unknown key is ignored.
         remote.Load(new FDSSection("Address: http://localhost:11434\nDefaultModel: llama3.2\nTokenLimitParameter: max_tokens\n"
             + "ConnectionAttemptTimeoutSeconds: 5\nNativeToolCalling: on\nAllowIdle: true\n"));
         Assert.Equal("http://localhost:11434", remote.Address);
         Assert.Equal("llama3.2", remote.DefaultModel);
         Assert.Equal("max_tokens", remote.TokenLimitParameter);
         Assert.Equal(5, remote.ConnectionAttemptTimeoutSeconds);
-        Assert.Equal("on", remote.NativeToolCalling);
         Assert.True(remote.AllowIdle);
         AnthropicLLMProvider.AnthropicLLMProviderSettings anthropic = new();
         anthropic.Load(new FDSSection("DefaultModel: claude-sonnet-4-6\nTimeoutSeconds: 300\nWorkspaceId: wrkspc_1\n"));
@@ -193,9 +203,6 @@ public class BackendCardSettingsTests
         Assert.Null(empty["error"]);
     }
 
-    /// <summary>The tool-calling fields keep their text until the tool-calling re-land removes them.</summary>
-    private static readonly HashSet<string> PendingReland = ["StructuredToolCalling", "NativeToolCalling"];
-
     /// <summary>The three settings classes, by the backend type id their card renders for.</summary>
     private static readonly Dictionary<string, Type> SettingsByType = new()
     {
@@ -210,7 +217,7 @@ public class BackendCardSettingsTests
     {
         foreach (Type settings in SettingsByType.Values)
         {
-            foreach (FieldInfo field in SettingFields(settings).Where(f => !PendingReland.Contains(f.Name)))
+            foreach (FieldInfo field in SettingFields(settings))
             {
                 string comment = field.GetCustomAttribute<AutoConfiguration.ConfigComment>()?.Comments;
                 Assert.False(string.IsNullOrWhiteSpace(comment), $"{field.Name} has no tooltip");

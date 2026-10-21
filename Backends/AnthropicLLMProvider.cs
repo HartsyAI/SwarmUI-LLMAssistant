@@ -52,9 +52,6 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm", "anthropic"];
 
     /// <inheritdoc/>
-    public bool SupportsNativeToolCalling => true;
-
-    /// <inheritdoc/>
     protected override async Task OnProviderInit() => Status = BackendStatus.RUNNING;
 
     /// <inheritdoc/>
@@ -93,15 +90,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
     public JObject BuildRequestBody(ExtendedLLMInput input, bool stream)
     {
         string model = !string.IsNullOrEmpty(input.Model) ? input.Model : Settings.DefaultModel;
-        JArray messages = [];
-        foreach (LLMMessage msg in input.Messages)
-        {
-            if (msg.Role == LLMRoles.System)
-            {
-                continue;
-            }
-            messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildAnthropicContent(msg) });
-        }
+        JArray messages = BuildAnthropicMessages(input.Messages);
         if (messages.Count == 0 && !string.IsNullOrEmpty(input.UserMessage))
         {
             messages.Add(new JObject() { ["role"] = LLMRoles.User, ["content"] = input.UserMessage });
@@ -169,6 +158,96 @@ public class AnthropicLLMProvider : LLMProviderBackend
             || m.Contains("haiku-4-5");
     }
 
+    /// <summary>The Anthropic <c>messages</c> array for a conversation. System turns are left out (they go in the top-level
+    /// <c>system</c> field). An assistant turn that made tool calls becomes <c>text</c> and <c>tool_use</c> blocks; a tool
+    /// result becomes a <c>tool_result</c> block inside a user turn. Blank assistant turns are dropped (Anthropic rejects empty
+    /// text), and consecutive turns of one role are merged so tool results and the user's next message share one turn.</summary>
+    internal static JArray BuildAnthropicMessages(IReadOnlyList<LLMMessage> source)
+    {
+        JArray messages = [];
+        foreach (LLMMessage msg in source)
+        {
+            if (msg.Role == LLMRoles.System)
+            {
+                continue;
+            }
+            if (msg.Role == LLMRoles.Tool)
+            {
+                messages.Add(new JObject()
+                {
+                    ["role"] = LLMRoles.User,
+                    ["content"] = new JArray(new JObject()
+                    {
+                        ["type"] = "tool_result",
+                        ["tool_use_id"] = msg.ToolCallId ?? "",
+                        ["content"] = msg.Content ?? "",
+                    }),
+                });
+                continue;
+            }
+            if (msg.Role == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            {
+                JArray blocks = [];
+                if (!string.IsNullOrWhiteSpace(msg.Content))
+                {
+                    blocks.Add(new JObject() { ["type"] = "text", ["text"] = msg.Content });
+                }
+                foreach (JObject call in calls)
+                {
+                    blocks.Add(new JObject()
+                    {
+                        ["type"] = "tool_use",
+                        ["id"] = call["id"]?.ToString() ?? "",
+                        ["name"] = call["name"]?.ToString() ?? "",
+                        ["input"] = LLMMessageMapping.ArgumentsObject(call["arguments"]),
+                    });
+                }
+                messages.Add(new JObject() { ["role"] = LLMRoles.Assistant, ["content"] = blocks });
+                continue;
+            }
+            if (msg.Role == LLMRoles.Assistant && string.IsNullOrWhiteSpace(msg.Content) && (msg.Media is null || msg.Media.Count == 0))
+            {
+                continue;
+            }
+            messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildAnthropicContent(msg) });
+        }
+        return MergeSameRole(messages);
+    }
+
+    /// <summary>Joins consecutive turns of one role into one turn, converting string content to text blocks, so the API sees
+    /// strict user/assistant alternation.</summary>
+    private static JArray MergeSameRole(JArray messages)
+    {
+        JArray merged = [];
+        foreach (JToken token in messages)
+        {
+            JObject current = (JObject)token;
+            if (merged.Count > 0 && merged[^1] is JObject previous && string.Equals(previous["role"]?.ToString(), current["role"]?.ToString(), StringComparison.Ordinal))
+            {
+                JArray blocks = ContentBlocks(previous["content"]);
+                foreach (JToken block in ContentBlocks(current["content"]))
+                {
+                    blocks.Add(block);
+                }
+                previous["content"] = blocks;
+                continue;
+            }
+            merged.Add(current.DeepClone());
+        }
+        return merged;
+    }
+
+    /// <summary>A message's content as content blocks: a copy of an array, or one text block for non-empty string content.</summary>
+    private static JArray ContentBlocks(JToken content)
+    {
+        if (content is JArray array)
+        {
+            return [.. array.Select(b => b.DeepClone())];
+        }
+        string text = content?.ToString() ?? "";
+        return string.IsNullOrEmpty(text) ? [] : [new JObject() { ["type"] = "text", ["text"] = text }];
+    }
+
     /// <summary>Builds the Anthropic-shaped <c>content</c> for one message: a plain string when
     /// there's no media, or text + image blocks otherwise. HTTPS URLs use the <c>url</c> source
     /// form; everything else uses <c>base64</c> (local paths must already be resolved to base64 by
@@ -205,10 +284,9 @@ public class AnthropicLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>, the
-    /// same shape <see cref="Services.ToolPromptService.BuildToolSystemPrompt"/> reads for the legacy
-    /// convention) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
-    /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c> —
-    /// not the human display <c>name</c> field — since that's what <c>ToolExecutorService.ExecuteTool</c>
+    /// same shape the engine's tool definitions are built from) onto Anthropic's native tool definition (<c>{name, description, input_schema}</c>).
+    /// <c>id</c> (the snake_case identifier, eg <c>generate_image</c>) is used as Anthropic's <c>name</c>,
+    /// not the human display <c>name</c> field, since that's what <c>ToolExecutorService.ExecuteTool</c>
     /// dispatches on for the returned tool_use block.</summary>
     private static JArray BuildAnthropicTools(List<JObject> tools)
     {
@@ -258,7 +336,7 @@ public class AnthropicLLMProvider : LLMProviderBackend
         using Stream stream = await response.Content.ReadAsStreamAsync(linked.Token);
         using StreamReader reader = new(stream, Encoding.UTF8);
         string currentEvent = "";
-        // Tracks in-progress native tool_use blocks by their content-block index — Anthropic streams a
+        // Tracks in-progress native tool_use blocks by their content-block index: Anthropic streams a
         // block's `input` as incremental `input_json_delta.partial_json` fragments (never mid-stream
         // parseable on their own), only complete/valid once the block's content_block_stop arrives.
         Dictionary<int, (string Id, string Name, StringBuilder Json)> pendingToolUse = [];
@@ -324,18 +402,11 @@ public class AnthropicLLMProvider : LLMProviderBackend
                     int index = parsed.Value<int?>("index") ?? 0;
                     if (pendingToolUse.Remove(index, out (string Id, string Name, StringBuilder Json) call))
                     {
-                        JObject args;
-                        try
+                        // Malformed JSON (not expected from Anthropic) stays raw text, so the turn answers the model with an error instead of running the tool on {}.
+                        JToken args = LLMMessageMapping.StreamedArguments(call.Json.ToString());
+                        if (args is not JObject)
                         {
-                            string json = call.Json.ToString();
-                            args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
-                        }
-                        catch (Exception ex)
-                        {
-                            // Genuinely shouldn't happen (Anthropic's own tool-use JSON is always
-                            // well-formed) — fail soft rather than drop the whole stream over one call.
-                            Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}: {ex.Message}");
-                            args = new JObject();
+                            Logs.Debug($"[AnthropicLLMProvider] Malformed tool_use input JSON for {call.Name}.");
                         }
                         await onChunk(new JObject()
                         {

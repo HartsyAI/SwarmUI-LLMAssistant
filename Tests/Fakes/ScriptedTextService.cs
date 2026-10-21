@@ -7,10 +7,9 @@ using Xunit;
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>A scripted fake <see cref="ITextService"/>: replays one <see cref="TextChunk"/> sequence per call to
-/// <see cref="StreamAsync"/>, in order, and records every request it was handed — the contract
-/// <c>HartsyLocalLLMProvider.StreamToolLoopAsync</c> gives <see cref="HartsyInference.Tools.ToolLoop.RunAsync"/>
-/// (<c>Engine.Text</c>), without a real engine or GGUF weights. A call past the scripted rounds is a test bug,
-/// not a silent empty stream.</summary>
+/// <see cref="StreamAsync"/>, in order, and records every request it was handed: the contract the engine's text service gives
+/// <see cref="HartsyInference.Tools.ToolLoop.RunAsync"/>, without a real engine or GGUF weights. A call past the scripted rounds is a
+/// test bug, not a silent empty stream.</summary>
 internal sealed class ScriptedTextService : ITextService
 {
     private readonly List<IReadOnlyList<TextChunk>> _rounds;

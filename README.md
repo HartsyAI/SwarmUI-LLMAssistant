@@ -47,7 +47,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - **Real chats, stored on the server.** Threads are grouped by date, searchable, renameable, exportable (JSON / Markdown / plain text), and auto-titled from the first exchange. Your message is saved *before* the model is called, so a disconnect never loses it.
 - **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, so no edit is destructive.
 - **Side-by-side comparison.** Run the same prompt through two models at once, in parallel, then keep the winner.
-- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Providers with a native tool API (Anthropic, OpenAI) use it; everything else uses a text tag convention that works on any model that can stream text.
+- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and Anthropic and OpenAI-compatible endpoints use their native tool APIs.
 - **Custom assistants.** Per-mode system prompts, inheritance, per-model prompt variants, parameter overrides, avatars, and a per-assistant tool allowlist.
 - **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify and all served locally. **No CDN, no outbound requests.**
 - **Floating companion.** An opt-in in-page helper that can critique your last render, suggest a preset, or explain a SwarmUI feature from the bundled docs.
@@ -139,7 +139,6 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | **Graph Decode** (`GraphDecode`) | `false` | Records each decode step once as a CUDA graph and replays it, for faster replies on common dense models (Llama, Qwen, Mistral, Gemma). Works for greedy requests and, while **Top K** is 1 to 64, for normal chats. CUDA only: Vulkan turns graph decode on by itself for longer greedy replies, so this setting is not sent there. When it is on and a capture fails, the request fails instead of decoding the normal way, so turn it off if replies fail with a graph error. |
 | **Speculative Decode** (`SpeculativeDecode`) | `false` | Prompt-lookup speculative decoding, with no draft model. Only for greedy (temperature 0) requests without JSON mode, and only when **Graph Decode** does not take the request. Biggest win on output that repeats earlier text. |
 | **Default Loops** (`RecurrentLoops`) | `0` | For a looped model such as NVIDIA Nemotron Dory: how many passes to run when the chat sets no **Loops**. **Model default** keeps the checkpoint's own count; `1` is fastest and `4` most accurate. Every other model ignores it. See [looped models](#looped-models-dory). |
-| `StructuredToolCalling` | `false` | Grammar-mask the JSON between `<tool_call>` and `</tool_call>` so a tool call is always valid JSON, **and**, for a model whose own chat template instructs Hermes JSON tool calls specifically (checked by reading its `tokenizer.chat_template` metadata, not its name), turn on real native tool calling instead of just the text-tag convention: tool calls are parsed server-side and dispatched through the engine's own `NativeToolCall` events rather than scanned for out of generated text. A model whose template doesn't instruct that format (Llama, Mistral, Gemma, DeepSeek R1's distillations, GLM-4.5/Qwen3.5-style XML-argument templates, or anything with no template at all) keeps using the tag convention regardless of this setting — the engine only installs one parser (Hermes) for the whole backend. [`LLMAssistantVoiceTurnWS`](#streaming-frames) runs without it too now (a `{"notice": …}` frame then a plain stream, no hard error), but still needs it for native tool dispatch specifically. |
 
 **Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's **Default Loops** (`RecurrentLoops`) when neither is set; a request's own value wins. The chat and voice routes take it as `loops` (1 to 4); the engine rejects a count above the model's maximum. Calls the extension makes on its own (chat titles, `<llm:…>` prompt enhancement, the caption tools) use the backend default. The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
 
@@ -156,7 +155,6 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | **Connect Timeout (seconds)** (`ConnectionAttemptTimeoutSeconds`) | `30` | How long to wait for the server when connecting and listing models. Lower it (e.g. `5`) for a server on your own network. |
 | **Other Headers** (`OtherHeaders`) | *(empty)* | Extra headers, one `Header: value` per line. |
 | **Token Limit Field** (`TokenLimitParameter`) | `auto` | `auto` picks `max_completion_tokens` for `api.openai.com` and `max_tokens` everywhere else. Change it only if the server rejects the auto choice. |
-| `NativeToolCalling` | `auto` | `auto` enables native `tools`/`tool_calls` only for `api.openai.com`. Self-hosted servers vary in quality here, so they stay on the tag convention unless you set `on`. |
 
 ### Anthropic settings
 
@@ -169,7 +167,7 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | **Workspace ID** (`WorkspaceId`) | *(empty)* | Sent as the `anthropic-workspace-id` header. Only needed when the API key is not tied to one workspace. A user's own workspace ID, set with their key, is used instead. |
 | **Base URL** (`BaseUrl`) | `https://api.anthropic.com` | Only change this to use a proxy or an Anthropic-compatible server. |
 
-Anthropic's tool API is always on — there's no toggle, because it's one stable contract. Set your key in the `User` tab.
+Anthropic's tool API is always on, there's no toggle, because it's one stable contract. Set your key in the `User` tab.
 
 ---
 
@@ -249,36 +247,31 @@ The built-in **Swarmie** assistant is a SwarmUI-savvy helper that answers how-to
 
 ## Tool calling
 
-The model can call tools, get real results back, and keep going — up to **8 rounds** per user turn before the loop is cut off with `truncated: true`.
+The model can call tools, get real results back, and keep going, up to **8 rounds** per user turn before the loop is cut off with `truncated: true`. Every chat turn runs through one loop, and the model's tool calls go through the same permission, rate limit and audit checks whichever provider served the turn.
 
 ![A tool call and its result](Assets/screenshots/tool-call.png)
 
-How the call is made depends on the provider:
+| Provider | How tools reach the model | How calls come back |
+|---|---|---|
+| **Anthropic** | Native `tools` and `tool_use` blocks | Native `tool_use` events |
+| **OpenAI-compatible** | Native `tools`, always sent when tools are on, along with saved tool turns as `tool_calls` and `tool` messages; the endpoint must support them (an endpoint that does not returns an error, and turning tools off for the chat avoids it) | Incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"` |
+| **Hartsy-local (GGUF)** | Native through the engine's [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package. The engine reads the model's chat template: a template with a tools slot renders the tools itself, and a template without one gets the Hermes tool prompt written into the conversation | The engine parses the model's own call format (Hermes JSON, Qwen3.5 and Qwen3-Coder XML, GLM-4.5 arg pairs, DeepSeek-R1 blocks, Llama 3, Gemma 4, Mistral) and emits a native call event |
 
-| Provider | Mechanism |
-|---|---|
-| **Anthropic** | Native `tools` + `tool_choice`, parsed from the real `tool_use` / `input_json_delta` SSE events. A forced tool becomes a genuine `tool_choice` constraint. |
-| **OpenAI-compatible** | Native `tools` + incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"`. Enabled by the `NativeToolCalling` setting (`auto` = `api.openai.com` only). |
-| **Hartsy-local (GGUF)**, `StructuredToolCalling` on, **and** the resolved model's own chat template instructs Hermes JSON tool calls (checked by reading its `tokenizer.chat_template` metadata directly, not by matching the model's name/filename — see `SupportsNativeToolCallingFor`) | Native too: the engine's own [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package parses `<tool_call>{...}</tool_call>` (Hermes/Qwen's convention) straight off the token stream and emits a real `NativeToolCall` event — same `native_tool_call` wire event Anthropic produces, not a text scan. Off by default; see the Local engine settings table. |
-| **Everything else** (including Hartsy-local with `StructuredToolCalling` off, or on with a model whose template doesn't instruct Hermes JSON — Llama, Mistral, Gemma, DeepSeek's R1 distillations, and GLM-4.5/Qwen3.5/Qwen3-Coder-style XML-argument templates all fall here) | A text convention: the model emits `<tool_call>{"name":"…","arguments":{…}}</tool_call>`, which the streaming layer detects with a cheap tail-window scan and executes. |
+A tool result is fed back to the model for its next round, along with the reasoning of the round that made the call, in the same `<think>` form a stored reply uses (see Muse Spark below), so a template that reads reasoning fields sees it. Saved tool turns are replayed to the model on later turns, so a follow-up can refer to an earlier result. Malformed arguments are not swallowed: when Anthropic or an OpenAI-compatible endpoint sends a call whose arguments are not valid JSON, the tool does not run and the model gets an error result back and can retry. The local engine cannot parse such a call at all, so it stays in the reply as text.
 
-The installed parser only understands one format for the whole engine instance (Hermes), so Hartsy-local's native path is gated per request on whether the resolved checkpoint's own chat template actually instructs that format, not just the setting — a template that doesn't (Llama-3.2, Mistral, Gemma, DeepSeek R1's own delimiter scheme, or an XML-argument template like GLM-4.5/Qwen3.5) keeps using the proven tag convention above even with `StructuredToolCalling` on, rather than silently losing every tool call to a filter that can't parse its native format.
+Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, so its calls run through the same loop, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. On later turns a stored reply's `<think>` blocks go back as `reasoning_content` instead of answer text, for a template that reads that field and does not split `</think>` out of the content itself (Muse Spark, Gemma 4); every other template, and a reply that is only reasoning, gets the reply as stored. The reasoning reaches the template from HartsyInference alpha.377 on.
 
-Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. On later turns a stored reply's `<think>` blocks go back as `reasoning_content` instead of answer text, for a template that reads that field and does not split `</think>` out of the content itself (Muse Spark, Gemma 4); every other template, and a reply that is only reasoning, gets the reply as stored. The reasoning reaches the template from HartsyInference alpha.377, which this extension picks up once [#44](https://github.com/HartsyAI/SwarmUI-LLMAssistant/pull/44) has it take the latest published engine; on an older engine these models see the earlier answers without their reasoning. The engine only reports that parser once the model has loaded, after this gate runs, so a Muse Spark GGUF still uses the tag convention here even with `StructuredToolCalling` on.
-
-All of these normalize to the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS` and `LLMAssistantVoiceTurn`, so nothing downstream cares which path was used. Malformed JSON isn't swallowed — the model gets an error result back and can retry, and near-valid JSON is run through a repair pass first (fence unwrapping, trailing commas, unbalanced brackets from truncation), with the repair verified by actually re-parsing.
-
-[`LLMAssistantVoiceTurnWS`](#streaming-frames) is a separate, Hartsy-local-only route with its own wire shape (`native_tool_call`/`tool_result` instead of `tool_call`/`tool_result`) — it runs the Tools package's agent loop directly against the engine instead of going through the text-tag convention, and refuses (one `error` frame) on any other provider. When native tool calling isn't available for the resolved model (the setting is off, or the template doesn't instruct Hermes JSON), it does **not** refuse: it runs the turn as a plain stream with no tool definitions sent at all (not even the tag convention — this route has no tag scanner of its own), sending one `{"notice": …}` frame first if the assistant actually had tools enabled. It exists for callers that need tool-call ids and native dispatch latency, such as the phone/voice-agent work; the ordinary chat UI keeps using `LLMAssistantSendMessageWS`. Cancelling it (closing the socket) cancels the in-flight LLM stream and any tool call it's running, not just the response — see the API reference below.
+All of these reach the same `tool_call` / `tool_result` events on `LLMAssistantSendMessageWS`. The voice routes use their own shape (`native_tool_call` / `tool_result` / `done`, see [Streaming frames](#streaming-frames)), and `LLMAssistantVoiceTurnWS` runs on any provider with the same loop.
 
 ### Running a tool yourself
 
-Type `/` in the composer to get a searchable picker of every tool enabled for the current assistant. Pick one, fill in the form, and it runs directly — no model in the loop. The call is persisted into the thread exactly like a model-driven one.
+Type `/` in the composer to get a searchable picker of every tool enabled for the current assistant. Pick one, fill in the form, and it runs directly, with no model in the loop. The call is persisted into the thread exactly like a model-driven one.
 
 ![The slash tool picker](Assets/screenshots/tool-picker.png)
 
 ### Per-conversation toggle
 
-The wrench button in the composer turns tool calling on or off for *this chat*, overriding the assistant's default. With tools off, no tool descriptions are injected into the system prompt at all — small local models get reliably confused by them.
+The wrench button in the composer turns tool calling on or off for *this chat*, overriding the assistant's default. With tools off, no tools are sent at all. Small local models get reliably confused by tool descriptions, so turn tools off for a model that answers badly with them.
 
 ---
 
@@ -508,7 +501,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?` | streaming frames (below); `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
-| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below) — stateless like `LLMAssistantVoiceTurn`, Hartsy-local only, one `{"error": …}` frame for any other provider |
+| `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
@@ -532,25 +525,24 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"error": "…"}` | A failure after streaming began. |
 | `{"lane": n, …}` | Compare mode: routes the frame to a column. |
 
-`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above — no `iteration`, `tool_call`, `status` or `titleUpdated` frames, since it drives the Tools package's agent loop directly instead of the tag-based one:
+`LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames and one frame of its own, the round-limit `notice`. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
 
 | Frame | Meaning |
 |---|---|
-| `{"notice": "…"}` | At most one tools-unavailable notice, before the first `chunk`: tools were enabled for this assistant but dropped from this turn — `StructuredToolCalling` is off, or the resolved model's chat template doesn't instruct Hermes JSON tool calls (see the settings table below). The turn still runs, as a plain stream with no tool definitions sent. No notice before the first `chunk` means either native tool calling is active, or the assistant had no tools enabled to drop in the first place. |
-| `{"native_tool_call": {id, name, arguments}}` | The engine resolved a tool call natively (no tag scan) and it was run. Sent immediately before that call's `tool_result`; a call that is not run (round cap, or a round that ended in an error or cancellation) is never sent. |
-| `{"tool_result": {id, name, result}}` | That tool finished — same shape as above. |
+| `{"native_tool_call": {id, name, arguments}}` | The model made a tool call and it was run. Sent immediately before that call's `tool_result`; a call that is not run (the round cap, or a round that ended in an error or a stop) is never sent. |
+| `{"tool_result": {id, name, result}}` | That tool finished, same shape as above. |
 | `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
 | `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
-`[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]` — a client resuming a
+`[{role: system|user|assistant|tool, content, toolCallId?, name?, toolCalls?}, …]`, a client resuming a
 multi-turn voice session sends this instead of `message` (which still works alone, for a single new turn;
 `messages` takes priority when both are present). The resolved system prompt is prepended as a leading system
 turn unless `messages` already opens with one, so replaying history never double-injects it. An
 `assistant`-role entry's own `toolCalls` (and a `tool`-role entry's `toolCallId`/`name`) use the same
 `{id, name, arguments}` shape a `native_tool_call` frame sent earlier in the session, so a client can echo its
 own history straight back. `enableThinking?` (bool) maps directly to the engine's `enable_thinking` chat-template
-toggle (Qwen3-family reasoning-block switch) — omit it to keep the model's own default; a voice caller sends
+toggle (Qwen3-family reasoning-block switch), omit it to keep the model's own default; a voice caller sends
 `false`, since thinking adds hundreds of tokens before the first spoken word. `conversationId?` (string) names
 the conversation a turn belongs to, so a local model reuses its prefix from one turn to the next
 (`ReuseConversationPrefix`); every turn is its own socket, so without it turns are grouped by the SwarmUI session
@@ -674,7 +666,7 @@ SwarmUI-LLMAssistant/
 │   ├── LLMModelLookup.cs      Cached ListModels() with a 5-minute TTL
 │   ├── LLMModelMatcher.cs     Exact / Family / Provider / Tag / Glob / Default matching
 │   ├── ExtendedLLMInput.cs    Request shape (messages, params, media, tools)
-│   ├── LLMStreamHelper.cs     Agentic loop, WS framing, server-side persistence
+│   ├── LLMStreamHelper.cs     Chat entry point: builds the turn context for ToolTurnRunner
 │   └── SwarmNativeLLMProvider.cs   Optional bridge to native Swarm backends (off)
 ├── Backends/                  REMOVABLE runtime pack
 │   ├── LLMProviderBackend.cs  AbstractLLMBackend + ILLMProvider base; self-registers
@@ -685,7 +677,7 @@ SwarmUI-LLMAssistant/
 │   ├── BackendCardAPI.cs      The two routes the backend cards fill their dropdowns from
 │   └── LLMBackendPack.cs      One Register() call
 ├── Services/                  Assistants, instructions, threads, tools, media, memory,
-│                              settings layers, rate limits, audit log, JSON repair, GC
+│                              settings layers, rate limits, audit log, GC, the one tool loop (ToolTurnRunner, ToolTurnSinks)
 ├── Tools/BuiltIn/             The 13 built-in tool handlers
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
 ├── WebAPI/                    51 endpoints across 11 files + permission definitions
@@ -740,7 +732,7 @@ Each provider is queried in parallel under a bounded timeout, and anything that 
 Keys are per-user. Set yours in the `User` tab; the backend config does not carry one.
 
 **Tool calls never fire.**
-Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models also follow the `<tool_call>` convention unreliably — try a larger instruct-tuned model, or a provider with native tool calling.
+Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models often call tools unreliably, try a larger instruct-tuned model, or a provider with native tool calling. A model that answers in prose instead of calling a tool is a model limit, not a broken tool path.
 
 **`<llmprompt>` tags aren't processed.**
 Toggle the **LLM Prompt Processing** group on in the Generate sidebar, make sure an LLM model resolves, and check the server log for the `[LLMAssistant]` prefix.
@@ -775,7 +767,9 @@ For an OpenAI-compatible server the list appears once the backend is saved with 
 - **Shared assistant avatars** are served from the uploading user's output folder, so another user needs SwarmUI's `View Others Outputs` permission to see them. Personal avatars are unaffected.
 - **Speculative Decode** only engages on greedy (temperature 0) requests, so the default chat temperature does not use it. **Graph Decode** covers normal chats on CUDA only while **Top K** is 1 to 64.
 - **The backend cards' device lists** are built once per SwarmUI start. Restart after changing a GPU or driver.
-- **`StructuredToolCalling`** is off by default — it's new and not yet verified against a broad set of local models. Turning it on does two things together, **for a model whose own chat template instructs Hermes JSON tool calls specifically** (checked by reading the resolved GGUF's `tokenizer.chat_template` metadata directly via `HartsyInference.ModelAssets.Gguf.GgufLoader` — metadata only, the multi-GB tensor data is never touched — and testing whether it references `tools` and instructs a literal `<tool_call>` tag wrapping a JSON object with `"name"`/`"arguments"` keys; everything else — Llama, Mistral, Gemma, DeepSeek's R1 distillations, and GLM-4.5/Qwen3.5/Qwen3-Coder-style templates that keep the `<tool_call>` tag but switch to XML arguments — keeps the grammar-masking but not native dispatch, since the engine installs only one parser for the whole backend): grammar-masked JSON (as before) *and* real native tool calling (`SupportsNativeToolCallingFor`) through the engine's `HartsyInference.Tools` package. This replaced an earlier version that matched the model's *filename* against a family allow-list — independent review found real false positives in that (DeepSeek's R1 distillations on both the Qwen- and Llama-architecture bases, despite "deepseek"/"qwen" matching; Qwen3.5 and GLM-4.5 keeping the tag but switching to XML arguments the installed filter can't parse), which reading the template itself eliminates as a class, not just those cases. With it on for a qualifying model, Hartsy-local's native tool calls work the same way on every route: the one-shot `LLMAssistantVoiceTurn`, the streaming `LLMAssistantSendMessageWS`, and `LLMAssistantVoiceTurnWS` all dispatch a native call and feed its result back — `Generate`'s one-shot accumulator (shared by every provider in this pack) now turns a `native_tool_call` event into the same `<tool_call>` tag text its existing scanner already parses (with every `<`/`>` JSON-escaped first, so a tool name or argument value can never masquerade as, or split, that tag), instead of silently dropping it. With it off, or on for a model whose template doesn't qualify, `LLMAssistantVoiceTurnWS` no longer refuses the turn outright: it sends one `{"notice": …}` frame (only when the assistant actually had tools enabled) and runs the turn as a plain stream with no tool definitions sent — see [Streaming frames](#streaming-frames).
+- **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
+- **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. Anthropic and OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field.
+- **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
 - **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
 
 ---

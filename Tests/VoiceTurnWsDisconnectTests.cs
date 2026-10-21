@@ -7,29 +7,28 @@ using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
-/// <summary>Pins <see cref="ChatEndpoints.WatchForDisconnectAsync"/> — the fix for a real, independent-review-found
+/// <summary>Pins <see cref="ChatEndpoints.WatchForDisconnectAsync"/>: the fix for a real, independent-review-found
 /// bug in <see cref="ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s WebSocket lifecycle. The earlier version started
 /// the background "watch for a disconnect" receive with a token tied to the turn's own lifetime and cancelled it
 /// once the turn finished, intending to "clean up" the dangling receive. Cancelling a pending
-/// <c>WebSocket.ReceiveAsync</c> instead aborts the whole socket (undocumented behavior, not a guess — this file
+/// <c>WebSocket.ReceiveAsync</c> instead aborts the whole socket (undocumented behavior, not a guess; this file
 /// reproduces it against a real loopback socket, not a mock), and SwarmUI's own request handler calls
 /// <c>socket.CloseAsync(...)</c> unconditionally right after every WS route returns; an <c>Aborted</c> socket is
 /// not a state <c>CloseAsync</c> accepts. The reviewer's empirical repro found this threw on roughly 41% of
-/// otherwise-completely-normal turns — a coin-flip failure rate that unit tests against a fake/mocked
+/// otherwise-completely-normal turns; a coin-flip failure rate that unit tests against a fake/mocked
 /// <see cref="WebSocket"/> would never catch, because the bug lives entirely in the real
 /// <c>ManagedWebSocket</c>'s state machine, not in this extension's own code. Every test here therefore runs a
 /// real <see cref="HttpListener"/> server socket against a real <see cref="ClientWebSocket"/> client over
-/// loopback TCP — the same shape the reviewer's repro used — rather than a fake or mocked socket.
+/// loopback TCP, the same shape the reviewer's repro used, rather than a fake or mocked socket.
 ///
 /// <para>Covers the three scenarios the fix needs to get right: (a) 200 repetitions of a normal
 /// turn-finishes-then-framework-closes completion, asserting zero exceptions and that the socket ends
-/// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once" — the original bug was intermittent,
+/// <see cref="WebSocketState.Closed"/> (not merely "doesn't throw once"; the original bug was intermittent,
 /// so one passing iteration proves nothing); (b) an ungraceful client abort mid-turn cancels the turn's own
 /// cancellation token promptly; (c) the same abort, while something is actively awaiting that exact token
-/// (standing in for a long-running tool handler — <c>ChatEndpoints.cs:514</c> hands <c>turnCancel.Token</c>
-/// straight into <c>StreamToolLoopAsync</c>, which forwards it hop by hop into every dispatched tool call; see
-/// that test's own comment for the full chain), also observes cancellation. All three run in well under the
-/// 10-second budget — see each test's own timing notes.</para></summary>
+/// (standing in for a long-running tool handler: the route hands <c>turnCancel.Token</c> to <c>ToolTurnRunner</c>,
+/// which forwards it into every dispatched tool call; see that test's own comment), also observes cancellation.
+/// All three run in well under the 10-second budget; see each test's own timing notes.</para></summary>
 public class VoiceTurnWsDisconnectTests : IDisposable
 {
     private readonly HttpListener _listener;
@@ -186,16 +185,11 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     [Fact]
     public async Task ClientAbortsWhileToolHandlerRuns_CancelsTheHandlersOwnToken()
     {
-        // (c) ChatEndpoints.cs:514 hands turnCancel.Token to StreamToolLoopAsync; HartsyLocalLLMProvider.cs's
-        // StreamToolLoopAsync forwards that exact token, unchanged, into ToolLoop.RunAsync (HartsyInference.Tools'
-        // ToolLoop.cs:30-31, forwarded again at :97 into registry.InvokeAsync), through to the per-tool lambda
-        // registered at ChatEndpoints.cs:628 -- confirmed hop by hop, not assumed. One hop past that lambda,
-        // ToolExecutorService.ExecuteTool (ToolExecutorService.cs:104/113) links it into a *new*, timeout-bearing
-        // CancellationTokenSource before a concrete shell/http ToolHandler ever sees it, so the literal token
-        // object does change there -- but that derived token still cancels whenever this one does, which is all
-        // this test needs: it models a handler awaiting turnCancel.Token directly, standing in for the whole
-        // chain, since the scope of this fix is the socket-to-token wiring, not the tool loop itself (which has
-        // its own coverage in ToolLoopIntegrationTests.cs).
+        // (c) The route hands turnCancel.Token to ToolTurnRunner, which links it into the token ToolLoop passes to every
+        // dispatched call and on to ToolExecutorService.ExecuteTool. ExecuteTool links it again into a timeout-bearing source
+        // before a shell/http ToolHandler sees it; that derived token still cancels whenever this one does, which is all this
+        // test needs: it models a handler awaiting turnCancel.Token directly, since the scope here is the socket-to-token
+        // wiring, not the tool loop itself (ToolLoopIntegrationTests and ToolTurnRunnerTests cover that).
         (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
         try
         {
@@ -260,6 +254,57 @@ public class VoiceTurnWsDisconnectTests : IDisposable
         }
         finally
         {
+            client.Dispose();
+        }
+    }
+
+
+    /// <summary>Polls until <paramref name="condition"/> holds or the budget runs out; a closed tab reaches the watcher asynchronously.</summary>
+    private static async Task WaitForAsync(Func<bool> condition, TimeSpan budget)
+    {
+        Stopwatch elapsed = Stopwatch.StartNew();
+        while (!condition() && elapsed.Elapsed < budget)
+        {
+            await Task.Delay(10);
+        }
+    }
+
+    [Fact]
+    public async Task AChatToolTurnIsCancelledWhenItsTabCloses()
+    {
+        // The chat route hands its turn's source to CancelToolTurnOnClose; a closed tab must cancel it, so no later call starts.
+        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        try
+        {
+            using CancellationTokenSource turn = new();
+            ChatEndpoints.CancelToolTurnOnClose(server, turn, runsTools: true);
+            client.Abort();
+            await WaitForAsync(() => turn.IsCancellationRequested, TimeSpan.FromSeconds(5));
+            Assert.True(turn.IsCancellationRequested);
+        }
+        finally
+        {
+            server.Dispose();
+            client.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task AChatTurnWithoutToolsIsLeftToFinishWhenItsTabCloses()
+    {
+        // Nothing runs after a reply without tools, so its generation keeps running and is saved, as on main.
+        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        try
+        {
+            using CancellationTokenSource turn = new();
+            ChatEndpoints.CancelToolTurnOnClose(server, turn, runsTools: false);
+            client.Abort();
+            await Task.Delay(500);
+            Assert.False(turn.IsCancellationRequested);
+        }
+        finally
+        {
+            server.Dispose();
             client.Dispose();
         }
     }

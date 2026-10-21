@@ -8,10 +8,10 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <summary>Unit tests for <see cref="HartsyLocalLLMProvider"/>'s pure, static role/message/request mapping
 /// (<c>RoleFor</c>/<c>ToTextMessage</c>/<c>ToNativeToolCall</c>/<c>BuildRequestCore</c>, all <c>internal</c> via
 /// <c>InternalsVisibleTo</c>). These run with no SwarmUI host, no <c>Program.ServerSettings</c> and no
-/// constructed provider instance — a live provider's settings (<c>SettingsRaw</c>) are populated by SwarmUI's
+/// constructed provider instance; a live provider's settings (<c>SettingsRaw</c>) are populated by SwarmUI's
 /// backend framework at runtime, which this project does not have, so only the static helpers that take their
 /// own <see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings"/> parameter (a plain
-/// <c>AutoConfiguration</c>, freely constructible on its own — see <c>BuildRequestCoreTests</c>) or no settings
+/// <c>AutoConfiguration</c>, freely constructible on its own; see <c>BuildRequestCoreTests</c>) or no settings
 /// at all are exercised here.</summary>
 public class HartsyLocalLLMProviderTests
 {
@@ -30,7 +30,7 @@ public class HartsyLocalLLMProviderTests
     public void ToTextMessage_ToolRole_CarriesCallIdAndName()
     {
         // Before this fix, RoleFor's switch fell through to TextRole.User for any role it didn't recognize,
-        // including "tool" — silently losing the tool-call id/name the engine's chat templates need to render
+        // including "tool", silently losing the tool-call id/name the engine's chat templates need to render
         // a `tool` turn correctly (Qwen's <tool_response>, the Jinja tool_call_id/name fields).
         LLMMessage toolResult = new()
         {
@@ -173,12 +173,12 @@ public class HartsyLocalLLMProviderTests
         Assert.Equal("", result.Name);
     }
 
-    /// <summary>Pins <see cref="HartsyLocalLLMProvider.BuildRequestCore"/> — the pure tail of
+    /// <summary>Pins <see cref="HartsyLocalLLMProvider.BuildRequestCore"/>, the pure tail of
     /// <c>BuildRequestAsync</c>, extracted specifically so a scalar like <see cref="TextRequest.EnableThinking"/>
     /// is verifiable against a real <see cref="TextRequest"/> the way the Round-3 addendum asked for ("reaches
     /// the engine request"), not just by reading the one-line object-initializer entry that sets it.
     /// <see cref="HartsyLocalLLMProvider.HartsyLocalLLMProviderSettings"/> is a plain <c>AutoConfiguration</c>
-    /// with field initializers for defaults — constructs fine with no SwarmUI host, confirmed by every test
+    /// with field initializers for defaults; it constructs fine with no SwarmUI host, confirmed by every test
     /// below actually running (not skipping).</summary>
     public class BuildRequestCoreTests
     {
@@ -201,6 +201,18 @@ public class HartsyLocalLLMProviderTests
             TextRequest request = HartsyLocalLLMProvider.BuildRequestCore(
                 Input(enableThinking), messages: [], tools: null, deviceKey: "cuda:0", settings: new());
             Assert.Equal(enableThinking, request.EnableThinking);
+        }
+
+        [Theory]
+        [InlineData("get_time")]
+        [InlineData(null)]
+        public void ForceToolId_ReachesTheTextRequest(string forced)
+        {
+            ExtendedLLMInput input = Input();
+            input.ForceToolId = forced;
+            TextRequest request = HartsyLocalLLMProvider.BuildRequestCore(
+                input, messages: [], tools: [new ToolDefinition { Name = "get_time" }], deviceKey: "cpu", settings: new());
+            Assert.Equal(forced, request.ForceToolId);
         }
 
         [Theory]

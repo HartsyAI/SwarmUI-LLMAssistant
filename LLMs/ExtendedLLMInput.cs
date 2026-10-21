@@ -50,18 +50,17 @@ public class ExtendedLLMInput
     /// different devices generate concurrently. Ignored by backends that don't do local device placement.</summary>
     public string Device;
 
-    /// <summary>Tools available to the LLM for this request (prompt-injected for legacy/tag-convention
-    /// providers, sent as a native <c>tools</c> field for providers with
-    /// <see cref="ILLMProvider.SupportsNativeToolCalling"/>).</summary>
+    /// <summary>Tools offered to the model for this request; every provider sends them natively (the local engine renders them with the
+    /// model's own chat template, or writes the Hermes tool prompt for a template without a tools slot).</summary>
     public List<JObject> Tools { get; set; } = [];
 
-    /// <summary>When set, the user explicitly requested this specific tool id — a native provider maps
-    /// this to a forced <c>tool_choice</c>; a legacy provider gets an extra system-prompt directive.</summary>
+    /// <summary>When set, the user explicitly requested this tool id: Anthropic and OpenAI-compatible endpoints get a forced
+    /// <c>tool_choice</c>, and the local engine states the choice in the prompt and restricts its parser to that tool. Round one only.</summary>
     public string ForceToolId;
 
     /// <summary>Sets the model's chat-template <c>enable_thinking</c> variable (Qwen3-family reasoning-block
     /// toggle), mirroring <see cref="HartsyInference.Engine.Requests.TextRequest.EnableThinking"/> exactly:
-    /// null leaves it undefined so the template falls back to its own default — today's behavior for every
+    /// null leaves it undefined so the template falls back to its own default, today's behavior for every
     /// existing caller, none of which set this. Only <see cref="Backends.HartsyLocalLLMProvider"/> currently
     /// honors it; ignored by a provider/template without a thinking slot.</summary>
     public bool? EnableThinking;
@@ -118,6 +117,11 @@ public class ExtendedLLMInput
                 Roles.System => LLMRoles.System,
                 _ => LLMRoles.User
             };
+            if (llmRole == LLMRoles.Assistant && (msg.Rounds is { Count: > 0 } || msg.ToolCalls is { Count: > 0 }))
+            {
+                AddToolTurns(input, msg);
+                continue;
+            }
             input.Messages.Add(new LLMMessage()
             {
                 Role = llmRole,
@@ -132,17 +136,102 @@ public class ExtendedLLMInput
         return input;
     }
 
+    /// <summary>Replays a saved assistant turn that made tool calls, in the order it happened. A reply saved with its
+    /// <see cref="ChatMessageData.Rounds"/> replays round by round: each round's prose, its calls, then their results. A reply
+    /// saved without rounds replays all its calls as one turn, then its prose. Each result is cut to
+    /// <see cref="ToolConstants.MaxReplayedToolResultChars"/>, with a stand-in when none was recorded.</summary>
+    private static void AddToolTurns(ExtendedLLMInput input, ChatMessageData msg)
+    {
+        Dictionary<string, JObject> calls = [];
+        foreach (JObject call in msg.ToolCalls ?? [])
+        {
+            string id = call["id"]?.ToString() ?? "";
+            calls.TryAdd(id, call);
+        }
+        if (msg.Rounds is { Count: > 0 } rounds)
+        {
+            foreach (JObject round in rounds)
+            {
+                string text = round["text"]?.ToString() ?? "";
+                List<JObject> roundCalls = [];
+                foreach (JToken id in round["toolCallIds"] as JArray ?? [])
+                {
+                    if (calls.TryGetValue(id?.ToString() ?? "", out JObject call))
+                    {
+                        roundCalls.Add(call);
+                    }
+                }
+                if (roundCalls.Count > 0)
+                {
+                    AddCallTurn(input, text, roundCalls);
+                }
+                else if (!string.IsNullOrWhiteSpace(text))
+                {
+                    input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = text });
+                }
+            }
+            return;
+        }
+        AddCallTurn(input, "", [.. calls.Values]);
+        if (!string.IsNullOrWhiteSpace(msg.Content))
+        {
+            input.Messages.Add(new LLMMessage() { Role = LLMRoles.Assistant, Content = msg.Content });
+        }
+    }
+
+    /// <summary>One assistant turn that made calls (with the prose that came before them), then one tool result per call.</summary>
+    private static void AddCallTurn(ExtendedLLMInput input, string text, List<JObject> calls)
+    {
+        input.Messages.Add(new LLMMessage()
+        {
+            Role = LLMRoles.Assistant,
+            Content = text ?? "",
+            ToolCalls = [.. calls.Select(c => new JObject
+            {
+                ["id"] = c["id"]?.ToString() ?? "",
+                ["name"] = c["name"]?.ToString() ?? "",
+                ["arguments"] = LLMMessageMapping.ArgumentsOrRaw(c["arguments"]),
+            })],
+        });
+        foreach (JObject call in calls)
+        {
+            string resultText = call["result"] is { Type: not JTokenType.Null } result
+                ? result.Type == JTokenType.String ? result.ToString() : result.ToString(Newtonsoft.Json.Formatting.None)
+                : "{\"success\":false,\"error\":\"no result recorded\"}";
+            if (resultText.Length > ToolConstants.MaxReplayedToolResultChars)
+            {
+                resultText = resultText[..ToolConstants.MaxReplayedToolResultChars] + "...[truncated]";
+            }
+            input.Messages.Add(new LLMMessage()
+            {
+                Role = LLMRoles.Tool,
+                Content = resultText,
+                ToolCallId = call["id"]?.ToString() ?? "",
+                Name = call["name"]?.ToString() ?? "",
+            });
+        }
+    }
+
+    /// <summary>A copy of this input for one more model round: the same settings and conversation, the given messages appended, and the given forced tool.</summary>
+    public ExtendedLLMInput CloneForRound(IEnumerable<LLMMessage> appended, string forceToolId)
+    {
+        ExtendedLLMInput copy = (ExtendedLLMInput)MemberwiseClone();
+        copy.Messages = [.. Messages, .. appended];
+        copy.ForceToolId = forceToolId;
+        return copy;
+    }
+
     /// <summary>Creates an ExtendedLLMInput from an already-parsed conversation (eg
     /// <see cref="Hartsy.Extensions.LLMAssistant.WebAPI.ChatEndpoints.LLMAssistantVoiceTurnWS"/>'s optional
     /// <c>messages</c> request field, oldest first). Prepends <paramref name="systemPrompt"/> as a new leading
-    /// system message unless <paramref name="messages"/> already opens with one — the same rule
+    /// system message unless <paramref name="messages"/> already opens with one; the same rule
     /// <c>HartsyInference.LLM.Generation.PromptBuilder.WithSystemPrompt</c> applies at the engine's own
     /// prompt-build layer, kept here too so this type's own invariant (see <see cref="SystemPrompt"/>'s doc:
     /// mirrored into <see cref="Messages"/>[0]) never ends up carrying two system turns into
     /// <see cref="Backends.HartsyLocalLLMProvider.BuildRequestAsync"/>, which trusts that invariant completely
-    /// (it never sets <c>TextRequest.SystemPrompt</c>, on purpose — see that method's own comment). When
-    /// <paramref name="messages"/> already opens with a system turn, <em>that turn's own content</em> — not
-    /// <paramref name="systemPrompt"/> — is what gets mirrored into <see cref="SystemPrompt"/>, since the
+    /// (it never sets <c>TextRequest.SystemPrompt</c>, on purpose; see that method's own comment). When
+    /// <paramref name="messages"/> already opens with a system turn, <em>that turn's own content</em>, not
+    /// <paramref name="systemPrompt"/>, is what gets mirrored into <see cref="SystemPrompt"/>, since the
     /// caller's own system message is what will actually reach the model.</summary>
     public static ExtendedLLMInput CreateFromMessages(List<LLMMessage> messages, string systemPrompt = null, string model = null)
     {
@@ -177,4 +266,9 @@ public class ChatMessageData
     /// <summary>Media URLs persisted on the saved message (eg user-attached images). Built into
     /// <see cref="LLMMessage.Media"/> when the chat endpoint constructs the LLM input.</summary>
     public List<LLMMediaAttachment> Media { get; set; }
+    /// <summary>Tool calls an assistant message made, each <c>{id, name, arguments, result}</c>; null for a plain turn.</summary>
+    public List<JObject> ToolCalls { get; set; }
+    /// <summary>The message's rounds in order, each <c>{text, toolCallIds}</c>, so a replay keeps each round's prose and calls
+    /// together; null when the message was saved without them.</summary>
+    public List<JObject> Rounds { get; set; }
 }

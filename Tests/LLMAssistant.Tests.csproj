@@ -27,7 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="../SwarmUI-LLMAssistant.csproj" />
     <!-- The extension references SwarmUI.dll with Private=false (the live host already has it loaded, so the
-         extension never bundles its own copy) — that keeps it out of this project's transitive closure too, but
+         extension never bundles its own copy); that keeps it out of this project's transitive closure too, but
          HartsyLocalLLMProvider's base type chain (LLMProviderBackend : AbstractLLMBackend) is still SwarmUI.dll
          metadata the compiler needs to resolve, and the CLR needs the same assembly loadable to run a single
          static method on a type whose base lives there. Unlike the extension, this test project has no host
@@ -49,7 +49,7 @@
   <Import Project="../HartsyLocal.props" />
 
   <ItemGroup>
-    <!-- Real chat-template fixtures for HermesTemplateDetectionTests: see Fixtures/chat_templates/SOURCES.md
+    <!-- Real chat-template fixtures for ReasoningHistoryTests: see Fixtures/chat_templates/SOURCES.md
          for where each one came from. Copied beside the test binary so File.ReadAllText can find them by a
          path relative to the running assembly, not the source tree. -->
     <None Include="Fixtures/chat_templates/*.jinja" CopyToOutputDirectory="PreserveNewest" />

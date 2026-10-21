@@ -27,7 +27,7 @@
             return;
         }
 
-        // Option B: a leading "/toolId ..." forces that tool — strip it for the model payload (the backend
+        // Option B: a leading "/toolId ..." forces that tool; strip it for the model payload (the backend
         // adds a "call this tool" directive); the bubble still shows what the user typed.
         const forced = (typeof llmaPickerExtractForceTool === 'function') ? llmaPickerExtractForceTool(message) : null;
         const payloadMessage = forced ? forced.message : message;
@@ -42,7 +42,7 @@
             await llmaCreateThread(LLMAState.activeAssistantId);
         }
 
-        // Hide welcome, show chat. Sending always means "take me to the latest" — re-arm auto-follow
+        // Hide welcome, show chat. Sending always means "take me to the latest"; re-arm auto-follow
         // so the user's new message and the incoming reply track the bottom even if they'd scrolled up.
         llmaShowChatPanel();
         LLMAState._autoFollow = true;
@@ -60,7 +60,7 @@
         }
 
         // Add user message (uses the served URL; no base64 in the in-memory message either). In the
-        // branch model it hangs off the current active leaf and becomes the new leaf — mirroring the
+        // branch model it hangs off the current active leaf and becomes the new leaf, mirroring the
         // server's AppendMessage so allNodes stays consistent without an extra round trip.
         const userMsg = {
             id: userMsgId, role: 'user', content: message || '(image)',
@@ -78,7 +78,7 @@
         LLMAState.exactTokenCountForLen = -1;
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
-        // Build payload — server is authoritative for history; we only send threadId + new message.
+        // Build payload. The server is authoritative for history; we only send threadId + new message.
         // Send the client-generated message id so the server persists it under the SAME id we rendered
         // with; otherwise the server assigns its own GUID and later edit/delete/fork can't find the message.
         const payload = llmaBuildPayload(payloadMessage, 'chat');
@@ -100,7 +100,7 @@
     }
 
     /**
-     * Build the WS request payload. Server is authoritative for chat history — we send the active
+     * Build the WS request payload. Server is authoritative for chat history; we send the active
      * threadId and the new message; we do NOT send history arrays. Thread params override settings.
      */
     function llmaBuildPayload(message, instructionId, options = {}) {
@@ -152,7 +152,7 @@
         const bubble = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-bubble`);
         const startTime = performance.now();
         let firstChunk = true;
-        // Text content containers per iteration — tool call/result bubbles sit between them. Owns the
+        // Text content containers per iteration; tool call/result bubbles sit between them. Owns the
         // accumulated text, the <tool_call> hide filter, and the throttled render (see utils.js).
         const renderer = llmaMakeStreamRenderer(() => bubble);
 
@@ -167,7 +167,7 @@
                     llmaSetStreaming(false);
                     return;
                 }
-                // Backend status events — eg LlamaSharp's "loading_model" before the disk read kicks
+                // Backend status events, eg LlamaSharp's "loading_model" before the disk read kicks
                 // off. The typing-indicator dots already exist in the bubble; we swap them for a labeled
                 // spinner so the user knows something is happening during a multi-second model load.
                 if (data.status) {
@@ -175,11 +175,14 @@
                         llmaShowLoadStatusInBubble(bubble, `${translate('Loading model')} ${data.model || ''}…`);
                     } else if (data.status === 'model_ready') {
                         llmaShowLoadStatusInBubble(bubble, null);
+                    } else if (data.status === 'queued') {
+                        // The engine holds the request behind others on the same model: say so instead of a silent wait.
+                        llmaShowLoadStatusInBubble(bubble, translate('Waiting in queue'));
                     }
                     return;
                 }
                 // Auto-generated chat title, sent once after a chat's first exchange (see
-                // ChatEndpoints.MaybeGenerateTitleAsync) — a side-channel event on this same socket,
+                // ChatEndpoints.MaybeGenerateTitleAsync); a side-channel event on this same socket,
                 // unrelated to the reply currently streaming into this bubble.
                 if (data.titleUpdated) {
                     const meta = LLMAState.threads.find(t => t.id === data.threadId);
@@ -206,7 +209,7 @@
                     llmaScrollToBottom();
                 }
                 if (data.iteration !== undefined) {
-                    // New agentic iteration beginning — start a fresh text segment
+                    // New agentic iteration beginning: start a fresh text segment
                     renderer.breakSegment();
                 }
                 if (data.tool_call) {
@@ -283,7 +286,7 @@
                         metaDiv.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                     }
                     if (data.stopReason === 'length') {
-                        llmaShowToast('Reply cut off — hit the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
+                        llmaShowToast('Reply cut off at the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
                     LLMAState._activeSocket = null;
@@ -299,7 +302,7 @@
                     if (onComplete) onComplete(cleanFinal);
                 }
             }, 0, err => {
-                // err here is the string from makeWSRequest's onerror (NOT an object) — pass it straight
+                // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
                 // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
                 llmaShowErrorInBubble(bubble, err || translate('WebSocket error'));
                 LLMAState._activeSocket = null;
@@ -314,7 +317,7 @@
 
     /** Abort an in-flight stream, persisting whatever text arrived so far. */
     function llmaStopGeneration() {
-        // Tell the server to actually cancel generation — closing the socket below only detaches this
+        // Tell the server to actually cancel generation; closing the socket below only detaches this
         // client from it; the model would otherwise keep running to completion in the background.
         // Fire-and-forget: the local UI reset happens immediately regardless of whether this round-trips.
         if (LLMAState.activeThreadId) {

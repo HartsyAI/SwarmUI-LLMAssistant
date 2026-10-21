@@ -14,8 +14,8 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// <see cref="TextRequest.PrefixCacheKey"/>, what scopes it (user, conversation, model), that it leaves
 /// <see cref="TextRequest.PrefixCacheCapacityHint"/> to the engine, that every tool round keeps the turn's key, and that
 /// no other provider's request ever carries the conversation scope. Everything here goes through the same pure
-/// pieces the routes use — <see cref="HartsyLocalLLMProvider.BuildRequestCore"/> and the
-/// <see cref="ChatEndpoints"/> scope helpers — since the routes themselves need a live <c>Session</c>/host (see
+/// pieces the routes use (<see cref="HartsyLocalLLMProvider.BuildRequestCore"/> and the
+/// <see cref="ChatEndpoints"/> scope helpers), since the routes themselves need a live <c>Session</c>/host (see
 /// <see cref="HartsyLocalLLMProviderTests"/>' own class doc).</summary>
 public class ConversationPrefixCacheTests
 {
@@ -214,7 +214,7 @@ public class ConversationPrefixCacheTests
     [Fact]
     public async Task ToolLoopRounds_AllCarryTheTurnsKey()
     {
-        // LLMAssistantVoiceTurnWS: StreamToolLoopAsync builds one TextRequest per turn and ToolLoop re-issues it
+        // A tool turn: ToolTurnRunner builds each round from the same input and ToolLoop re-issues it
         // (with the tool call and its result appended) for every round.
         ExtendedLLMInput input = Turn(ChatEndpoints.VoiceTurnWsConversationId("call-1", sessionId: null), Model,
             (LLMRoles.System, "You are a phone assistant."), (LLMRoles.User, "what time is it?"));
@@ -244,24 +244,6 @@ public class ConversationPrefixCacheTests
         });
         Assert.True(fake.SeenRequests[1].Messages.Count > fake.SeenRequests[0].Messages.Count);
     }
-
-    [Fact]
-    public void TagLoopRounds_RebuildTheSameKeyFromTheGrowingInput()
-    {
-        // LLMStreamHelper's agentic loop and LLMAssistantVoiceTurn rebuild the request every round from the same
-        // ExtendedLLMInput, appending the model's tool-call turn and the tool result as they go.
-        ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("t1"), Model,
-            (LLMRoles.System, "Be helpful."), (LLMRoles.User, "search for cats"));
-        string round1 = Build(input, "alice").PrefixCacheKey;
-        input.Messages.Add(new LLMMessage { Role = LLMRoles.Assistant, Content = "<tool_call>{\"name\":\"web_search\",\"arguments\":{\"q\":\"cats\"}}</tool_call>" });
-        input.Messages.Add(new LLMMessage { Role = LLMRoles.User, Content = ToolPromptServiceResult() });
-        string round2 = Build(input, "alice").PrefixCacheKey;
-        Assert.NotNull(round1);
-        Assert.Equal(round1, round2);
-    }
-
-    private static string ToolPromptServiceResult()
-        => Services.ToolPromptService.FormatToolResult("web_search", new JObject { ["success"] = true, ["results"] = new JArray("cats.example") });
 
     [Fact]
     public void ThreadConversationId_IsNullForABlankThread()

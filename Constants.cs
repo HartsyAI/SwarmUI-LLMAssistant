@@ -18,7 +18,7 @@ public static class InstructionIds
     /// <summary>Instruction-generation (meta) instruction id.</summary>
     public const string InstructionGen = "instructiongen";
     /// <summary>Short, glanceable single-paragraph replies tuned for the floating Companion overlay
-    /// (Clippy-style helper). Used when a Companion message is sent — falls back to <see cref="Chat"/>
+    /// (Clippy-style helper). Used when a Companion message is sent; falls back to <see cref="Chat"/>
     /// if an assistant has not defined its own companion text.</summary>
     public const string Companion = "companion";
 
@@ -68,8 +68,8 @@ public static class AssistantConstants
 /// <summary>Tool-calling related constants.</summary>
 public static class ToolConstants
 {
-    /// <summary>Maximum number of agentic iterations (tool call rounds) per user message.</summary>
-    public const int MaxAgenticIterations = 8;
+    /// <summary>Longest tool result replayed to the model from saved history; a longer one is cut with a marker.</summary>
+    public const int MaxReplayedToolResultChars = 4000;
 
     /// <summary>Handler type: built-in C# ToolHandler implementation.</summary>
     public const string HandlerBuiltIn = "builtin";

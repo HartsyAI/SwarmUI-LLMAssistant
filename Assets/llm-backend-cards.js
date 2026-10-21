@@ -24,7 +24,7 @@ class LLMBackendCards {
                 sections: [
                     { key: 'basics', title: 'Basics', guide: 'local-engine-basics', fields: ['Device', 'GPUDeviceId', 'VramMode'] },
                     { key: 'memory', title: 'Memory', guide: 'local-engine-memory', fields: ['Placement', 'LowVramQuant', 'AlwaysFreeMemory', 'EvictBelowGb', 'ReuseConversationPrefix'] },
-                    { key: 'advanced', title: 'Advanced', guide: 'local-engine-advanced', fields: ['RepetitionPenalty', 'TopK', 'MinP', 'GraphDecode', 'SpeculativeDecode', 'RecurrentLoops', 'StructuredToolCalling'] }
+                    { key: 'advanced', title: 'Advanced', guide: 'local-engine-advanced', fields: ['RepetitionPenalty', 'TopK', 'MinP', 'GraphDecode', 'SpeculativeDecode', 'RecurrentLoops'] }
                 ],
                 fields: {
                     Device: { label: 'Device', default: 'auto' },
@@ -40,14 +40,13 @@ class LLMBackendCards {
                     MinP: { label: 'Min P', default: '0', min: 0, max: 1, step: 0.01 },
                     GraphDecode: { label: 'Graph Decode', default: 'false' },
                     SpeculativeDecode: { label: 'Speculative Decode', default: 'false' },
-                    RecurrentLoops: { label: 'Default Loops', default: '0' },
-                    StructuredToolCalling: { label: 'Structured Tool Calling', default: 'false' }
+                    RecurrentLoops: { label: 'Default Loops', default: '0' }
                 }
             },
             'llmassistant-openai': {
                 sections: [
                     { key: 'basics', title: 'Basics', guide: 'remote-openai-compatible-settings', fields: ['Address', 'AuthorizationHeader', 'DefaultModel'] },
-                    { key: 'advanced', title: 'Advanced', guide: 'remote-openai-compatible-settings', fields: ['AllowIdle', 'ConnectionAttemptTimeoutSeconds', 'OtherHeaders', 'TokenLimitParameter', 'NativeToolCalling'] }
+                    { key: 'advanced', title: 'Advanced', guide: 'remote-openai-compatible-settings', fields: ['AllowIdle', 'ConnectionAttemptTimeoutSeconds', 'OtherHeaders', 'TokenLimitParameter'] }
                 ],
                 fields: {
                     Address: { label: 'Address', default: '' },
@@ -56,8 +55,7 @@ class LLMBackendCards {
                     AllowIdle: { label: 'Allow Idle', default: 'false' },
                     ConnectionAttemptTimeoutSeconds: { label: 'Connect Timeout (seconds)', default: '30', min: 1, max: 600, step: 1 },
                     OtherHeaders: { label: 'Other Headers', default: '' },
-                    TokenLimitParameter: { label: 'Token Limit Field', default: 'auto' },
-                    NativeToolCalling: { label: 'Native Tool Calling', default: 'auto' }
+                    TokenLimitParameter: { label: 'Token Limit Field', default: 'auto' }
                 }
             },
             'llmassistant-anthropic': {

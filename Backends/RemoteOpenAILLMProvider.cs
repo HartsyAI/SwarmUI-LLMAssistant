@@ -44,13 +44,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         [ConfigComment("How many seconds to wait for the server when connecting and listing models.\nUse about 5 for a server on your own network.")]
         public int ConnectionAttemptTimeoutSeconds = 30;
 
-        [ConfigComment("Whether to use this endpoint's native `tools`/`tool_calls` wire mechanism instead of the "
-            + "text-based <tool_call> tag convention. 'Auto' only enables it for api.openai.com (the one dialect "
-            + "guaranteed to support it correctly) — arbitrary self-hosted OpenAI-compatible servers (Ollama, "
-            + "LM Studio, vLLM, older llama.cpp builds) vary in tool_calls support and quality, so they stay on "
-            + "the safer tag convention unless you confirm your endpoint supports it and turn this on manually.")]
-        [ManualSettingsOptions(Vals = ["auto", "on", "off"], ManualNames = ["Auto (only api.openai.com)", "On (this endpoint supports tool_calls)", "Off (always use the <tool_call> tag convention)"])]
-        public string NativeToolCalling = "auto";
     }
 
     /// <summary>Shared HTTP client for all instances of this backend type.</summary>
@@ -67,14 +60,6 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm"];
-
-    /// <inheritdoc/>
-    public bool SupportsNativeToolCalling => Settings.NativeToolCalling switch
-    {
-        "on" => true,
-        "off" => false,
-        _ => (Settings.Address ?? "").Contains("openai.com", StringComparison.OrdinalIgnoreCase),
-    };
 
     /// <inheritdoc/>
     protected override async Task OnProviderInit()
@@ -157,10 +142,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         JArray messages = [];
         if (input.Messages.Count > 0)
         {
-            foreach (LLMMessage msg in input.Messages)
-            {
-                messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
-            }
+            messages = BuildOpenAIMessages(input.Messages);
         }
         else
         {
@@ -186,11 +168,8 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             body["seed"] = input.Seed;
         }
-        // Re-check SupportsNativeToolCalling here (not just trust the caller already gated it) — input.Tools
-        // is populated unconditionally by ChatEndpoints.ApplyToolsToInput regardless of native/legacy mode
-        // (only the tag-convention system-prompt injection is conditional), so this is the single place that
-        // actually decides whether THIS request emits a native tools field.
-        if (input.Tools is { Count: > 0 } && SupportsNativeToolCalling)
+        // The endpoint must support tools; one that does not answers with an error, which surfaces to the user.
+        if (input.Tools is { Count: > 0 })
         {
             body["tools"] = BuildOpenAITools(input.Tools);
             body["tool_choice"] = !string.IsNullOrEmpty(input.ForceToolId)
@@ -200,10 +179,51 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         return body;
     }
 
+    /// <summary>The OpenAI <c>messages</c> array for a conversation. An assistant turn that made tool calls carries
+    /// <c>tool_calls</c> (arguments as JSON text); a tool result is a <c>tool</c> message keyed by its call id.</summary>
+    internal static JArray BuildOpenAIMessages(IReadOnlyList<LLMMessage> source)
+    {
+        JArray messages = [];
+        foreach (LLMMessage msg in source)
+        {
+            if (msg.Role == LLMRoles.Tool)
+            {
+                messages.Add(new JObject() { ["role"] = LLMRoles.Tool, ["tool_call_id"] = msg.ToolCallId ?? "", ["content"] = msg.Content ?? "" });
+                continue;
+            }
+            if (msg.Role == LLMRoles.Assistant && msg.ToolCalls is { Count: > 0 } calls)
+            {
+                JArray toolCalls = [];
+                foreach (JObject call in calls)
+                {
+                    toolCalls.Add(new JObject()
+                    {
+                        ["id"] = call["id"]?.ToString() ?? "",
+                        ["type"] = "function",
+                        ["function"] = new JObject()
+                        {
+                            ["name"] = call["name"]?.ToString() ?? "",
+                            ["arguments"] = LLMMessageMapping.ArgumentsText(call["arguments"]),
+                        },
+                    });
+                }
+                messages.Add(new JObject()
+                {
+                    ["role"] = LLMRoles.Assistant,
+                    ["content"] = string.IsNullOrWhiteSpace(msg.Content) ? null : msg.Content,
+                    ["tool_calls"] = toolCalls,
+                });
+                continue;
+            }
+            messages.Add(new JObject() { ["role"] = msg.Role, ["content"] = BuildOpenAIContent(msg) });
+        }
+        return messages;
+    }
+
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto
     /// the OpenAI function-tool definition (<c>{type:"function", function:{name, description, parameters}}</c>).
     /// <c>id</c> (snake_case, eg <c>generate_image</c>) is used as the function name, matching
-    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key — same reasoning as Anthropic's mapping.</summary>
+    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key; same reasoning as Anthropic's mapping.</summary>
     private static JArray BuildOpenAITools(List<JObject> tools)
     {
         JArray result = [];
@@ -276,7 +296,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         }
         using Stream stream = await response.Content.ReadAsStreamAsync(ct);
         using StreamReader reader = new(stream, Encoding.UTF8);
-        // Tracks in-progress native tool_calls by their `index` — OpenAI streams id/name once on the first
+        // Tracks in-progress native tool_calls by their `index`: OpenAI streams id/name once on the first
         // delta for an index and `arguments` as incremental string fragments across subsequent deltas for
         // the same index; nothing is complete/parseable until `finish_reason == "tool_calls"` arrives.
         Dictionary<int, (string Id, string Name, StringBuilder Args)> pendingToolCalls = [];
@@ -341,16 +361,11 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     {
                         foreach ((string id, string name, StringBuilder argsBuilder) in pendingToolCalls.Values)
                         {
-                            JObject args;
-                            try
+                            // Malformed JSON stays raw text, so the turn answers the model with an error instead of running the tool on {}.
+                            JToken args = LLMMessageMapping.StreamedArguments(argsBuilder.ToString());
+                            if (args is not JObject)
                             {
-                                string json = argsBuilder.ToString();
-                                args = string.IsNullOrWhiteSpace(json) ? new JObject() : JObject.Parse(json);
-                            }
-                            catch (Exception ex)
-                            {
-                                Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}: {ex.Message}");
-                                args = new JObject();
+                                Logs.Debug($"[RemoteOpenAILLMProvider] Malformed tool_calls arguments JSON for {name}.");
                             }
                             await onChunk(new JObject()
                             {
