@@ -152,6 +152,8 @@
         const bubble = document.querySelector(`[data-msg-id="${assistantMsgId}"] .llma-msg-bubble`);
         const startTime = performance.now();
         let firstChunk = true;
+        // Every chunk of the reply across tool iterations (the renderer's own text restarts at each one).
+        let streamedRaw = '';
         // Text content containers per iteration; tool call/result bubbles sit between them. Owns the
         // accumulated text, the <tool_call> hide filter, and the throttled render (see utils.js).
         const renderer = llmaMakeStreamRenderer(() => bubble);
@@ -205,6 +207,7 @@
                         llmaShowLoadStatusInBubble(bubble, null);
                     }
                     renderer.appendChunk(data.chunk);
+                    streamedRaw += data.chunk;
                     LLMAState._streamingText = renderer.getRawText();
                     llmaScrollToBottom();
                 }
@@ -260,6 +263,7 @@
                         if (data.truncated) msg.meta.truncated = true;
                         if (data.reason) msg.meta.reason = data.reason;
                         if (data.stopReason) msg.meta.stopReason = data.stopReason;
+                        if (data.failure) msg.meta.error = data.failure;
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;
@@ -271,6 +275,8 @@
                         llmaSetRenderedHtml(tc, llmaRenderAssistantContent(cleanFinal, assistantMsgId));
                         llmaPostRenderMermaid(tc);
                     }
+                    // A reply that failed after some text: its message goes under the text.
+                    if (data.failure) llmaAppendErrorToBubble(bubble, data.failure);
 
                     // Rebuild the asset index for this thread and update the sidebar
                     llmaRebuildAssetsForThread();
@@ -295,10 +301,24 @@
             }, 0, err => {
                 // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
                 // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
-                llmaShowErrorInBubble(bubble, err || translate('WebSocket error'));
-                LLMAState._activeSocket = null;
-                LLMAState._streamingMsgId = null;
-                llmaSetStreaming(false);
+                // A failure after some text keeps the text: text still waiting for its render is drawn first.
+                renderer.flushRender();
+                bubble?.querySelector('.llma-typing')?.remove();
+                llmaShowLoadStatusInBubble(bubble, null);
+                const message = err || translate('WebSocket error');
+                // A reply is partial when it streamed text or ran tools; the load banner and typing dots are not text.
+                const msg = LLMAState.messages.find(m => m.id === assistantMsgId);
+                const partial = !!streamedRaw || !!(msg && (msg.toolCalls || []).length);
+                if (partial) llmaAppendErrorToBubble(bubble, message);
+                else llmaShowErrorInBubble(bubble, message);
+                // The stored reply keeps what streamed and its error, as the server's copy does.
+                if (msg && partial) {
+                    msg.content = llmaStripToolTags(streamedRaw);
+                    msg.rawContent = streamedRaw;
+                    msg.meta = Object.assign({}, msg.meta, { error: message });
+                    LLMAState.activeLeafId = assistantMsgId;
+                }
+                llmaFinishStreamState();
             });
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);

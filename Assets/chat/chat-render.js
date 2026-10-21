@@ -232,7 +232,7 @@
             if (content) {
                 bubble.innerHTML = llmaRenderAssistantContent(content, id);
                 llmaPostRenderMermaid(bubble);
-            } else {
+            } else if (!(meta && meta.error)) {
                 bubble.innerHTML = '<div class="llma-typing"><span></span><span></span><span></span></div>';
             }
 
@@ -260,6 +260,8 @@
             actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
 
             body.appendChild(bubble);
+            // A reply that failed keeps its text, and the message goes under it.
+            if (meta && meta.error) bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(meta.error));
             body.appendChild(metaDiv);
             body.appendChild(actions);
             // Pager outside the hover-faded actions so it stays visible as a branch indicator.
@@ -330,22 +332,33 @@
         document.getElementById('llma-scroll-bottom-btn')?.addEventListener('click', llmaResumeAutoFollow);
     }
 
-    /** Replace a bubble's contents with a friendly, informative inline error card. */
-    function llmaShowErrorInBubble(bubble, error) {
-        if (!bubble) return;
+    /** The error block for a failed reply: the humanized message, its hint, and the raw detail as a tooltip. */
+    function llmaErrorBlockHtml(error) {
         const info = (typeof llmaHumanizeError === 'function')
             ? llmaHumanizeError(error)
             : { title: (typeof llmaShortError === 'function' ? llmaShortError(error) : String(error)) || translate('Something went wrong'), hint: null, detail: '' };
-        console.error('[LLMAssistant] chat error:', error);
         let body = `<div class="llma-msg-error-title">${llmaEscapeHtml(info.title)}</div>`;
         if (info.hint) body += `<div class="llma-msg-error-hint">${llmaEscapeHtml(info.hint)}</div>`;
         // Keep the raw detail reachable via tooltip when it differs from the shown title.
         const tip = info.detail && info.detail !== info.title ? ` title="${llmaEscapeHtml(info.detail)}"` : '';
-        bubble.innerHTML =
-            `<div class="llma-msg-error"${tip}>` +
-                `<span class="llma-msg-error-icon" aria-hidden="true">⚠</span>` +
-                `<div class="llma-msg-error-body">${body}</div>` +
-            `</div>`;
+        return `<div class="llma-msg-error"${tip}>` +
+            `<span class="llma-msg-error-icon" aria-hidden="true">⚠</span>` +
+            `<div class="llma-msg-error-body">${body}</div>` +
+        `</div>`;
+    }
+
+    /** Replaces the bubble with an error block, for a reply that showed no text. */
+    function llmaShowErrorInBubble(bubble, error) {
+        if (!bubble) return;
+        console.error('[LLMAssistant] chat error:', error);
+        bubble.innerHTML = llmaErrorBlockHtml(error);
+    }
+
+    /** Adds an error block right after the bubble, under the text it shows, so a partial reply stays on screen. */
+    function llmaAppendErrorToBubble(bubble, error) {
+        if (!bubble) return;
+        console.error('[LLMAssistant] chat error:', error);
+        bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(error));
     }
 
     /**
@@ -381,5 +394,7 @@
     window.llmaToggleScrollButton     = llmaToggleScrollButton;
     window.llmaSetupScroll            = llmaSetupScroll;
     window.llmaShowErrorInBubble      = llmaShowErrorInBubble;
+    window.llmaAppendErrorToBubble    = llmaAppendErrorToBubble;
+    window.llmaErrorBlockHtml         = llmaErrorBlockHtml;
     window.llmaShowLoadStatusInBubble = llmaShowLoadStatusInBubble;
 })();

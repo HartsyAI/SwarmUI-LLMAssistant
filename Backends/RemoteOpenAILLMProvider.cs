@@ -324,6 +324,13 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
             try
             {
                 JObject parsed = JObject.Parse(data);
+                if (parsed["error"] is JToken serverError && serverError.Type != JTokenType.Null)
+                {
+                    // An error event ends the reply with the server's message; the text before it is kept.
+                    string message = serverError is JObject detail ? detail.Value<string>("message") : serverError.ToString();
+                    await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = string.IsNullOrWhiteSpace(message) ? "The server reported an error." : message });
+                    break;
+                }
                 JArray choices = parsed.Value<JArray>("choices");
                 if (choices is not null && choices.Count > 0)
                 {

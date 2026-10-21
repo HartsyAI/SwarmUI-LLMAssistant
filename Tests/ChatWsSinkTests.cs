@@ -64,6 +64,20 @@ public class ChatWsSinkTests
     }
 
     [Fact]
+    public async Task PartialReplyEngineFailureKeepsItsDoneFrameWithTheMessage()
+    {
+        (ChatWsSink sink, List<JObject> frames) = Make();
+
+        await sink.Done(new ToolTurnOutcome("Partial.", "error", false, null, [], SpokenText: "Partial.", Error: "boom"));
+
+        JObject only = Assert.Single(frames);
+        Assert.True(only["done"]?.Value<bool>());
+        Assert.Equal("Partial.", only["full_text"]?.ToString());
+        Assert.Equal("error", only["stopReason"]?.ToString());
+        Assert.Equal("boom", only["failure"]?.ToString());
+    }
+
+    [Fact]
     public async Task AFinishedReplyEndsWithItsDoneFrame()
     {
         (ChatWsSink sink, List<JObject> frames) = Make();

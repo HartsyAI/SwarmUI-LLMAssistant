@@ -520,9 +520,10 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"tool_call": {id, name, arguments}}` | A tool call was resolved and is about to run. |
 | `{"tool_result": {id, name, result}}` | That tool finished. |
 | `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. |
+| `failure` on `done` | The reply stopped on an error after some text: the message is shown under that text, which stays. The reply still ends with this `done` frame. |
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
-| `{"error": "…"}` | A failure after streaming began, or an engine failure with no answer text and no tool result shown (no `done` frame follows it). |
+| `{"error": "…"}` | A failure: any text already streamed stays, and the message is shown under it. No `done` frame follows. |
 | `{"lane": n, …}` | Compare mode: routes the frame to a column. |
 
 `LLMAssistantVoiceTurnWS` uses a **different** tool shape on the same `chunk`/`done`/`error` frames above, with no `iteration`, `tool_call`, `status` or `titleUpdated` frames and one frame of its own, the round-limit `notice`. Its `chunk` frames carry only the visible text, so a reasoning trace is never spoken; `done.full_text` is the visible text too:
@@ -533,6 +534,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"tool_result": {id, name, result}}` | That tool finished, same shape as above. |
 | `{"notice": "tool round limit reached …"}` | The 8-round cap was hit while the model still wanted another call; that call was not run. Comes before `done`. |
 | `{"done": true, "full_text": "…", "toolCalls": [...], "stopReason"?: …}` | Generation finished. `toolCalls` is the device-action subset, exactly like `LLMAssistantVoiceTurn`'s response. `stopReason: "tool_round_limit"` means the 8-round cap was hit (see the notice above); this route never sends `"tool_call"`. |
+| `failure` on `done` | The reply stopped on an error after some spoken text: the message. The spoken text before it is kept, and the reply still ends with this `done` frame. |
 | `{"error": "…"}` | An engine failure with no spoken answer and no tool result sent: the message, and no `done` frame follows it. |
 
 Request fields unique to this route: `messages?` is the full conversation so far (oldest first), as
