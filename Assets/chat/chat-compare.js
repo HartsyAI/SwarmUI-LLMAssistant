@@ -414,9 +414,11 @@
                 done = true;
                 renderer.flushRender();
                 bubble && bubble.querySelector('.llma-typing')?.remove();
-                if (typeof llmaAppendErrorToBubble === 'function' && (bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, err);
+                llmaShowLoadStatusInBubble(bubble, null);
+                const partial = !!streamedRaw || (L.node.toolCalls || []).length > 0;
+                if (partial && typeof llmaAppendErrorToBubble === 'function') llmaAppendErrorToBubble(bubble, err);
                 else if (typeof llmaShowErrorInBubble === 'function') llmaShowErrorInBubble(bubble, err);
-                if (streamedRaw || (L.node.toolCalls || []).length) {
+                if (partial) {
                     L.node.content = (typeof llmaStripToolTags === 'function') ? llmaStripToolTags(streamedRaw) : streamedRaw;
                     L.node.rawContent = streamedRaw;
                     L.node.meta = Object.assign({}, L.node.meta, { error: err });

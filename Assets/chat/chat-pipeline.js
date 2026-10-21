@@ -304,12 +304,15 @@
                 // A failure after some text keeps the text: text still waiting for its render is drawn first.
                 renderer.flushRender();
                 bubble?.querySelector('.llma-typing')?.remove();
+                llmaShowLoadStatusInBubble(bubble, null);
                 const message = err || translate('WebSocket error');
-                if ((bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, message);
+                // A reply is partial when it streamed text or ran tools; the load banner and typing dots are not text.
+                const msg = LLMAState.messages.find(m => m.id === assistantMsgId);
+                const partial = !!streamedRaw || !!(msg && (msg.toolCalls || []).length);
+                if (partial) llmaAppendErrorToBubble(bubble, message);
                 else llmaShowErrorInBubble(bubble, message);
                 // The stored reply keeps what streamed and its error, as the server's copy does.
-                const msg = LLMAState.messages.find(m => m.id === assistantMsgId);
-                if (msg && (streamedRaw || (msg.toolCalls || []).length)) {
+                if (msg && partial) {
                     msg.content = llmaStripToolTags(streamedRaw);
                     msg.rawContent = streamedRaw;
                     msg.meta = Object.assign({}, msg.meta, { error: message });

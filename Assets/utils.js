@@ -270,7 +270,8 @@ function llmaMakeStreamRenderer(getBubble) {
     };
     return {
         appendChunk(text) { rawText += text; filter.feed(text); schedule(); },
-        breakSegment() { clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
+        // Draws the segment that is ending first, so a chunk still waiting for its render is not dropped.
+        breakSegment() { if (rawText) renderNow(); clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
         cancelPendingRender: clearPendingRender,
         // Renders all the text received so far now, so a failing stream shows what it already has.
         flushRender() { clearPendingRender(); if (rawText) renderNow(); },
