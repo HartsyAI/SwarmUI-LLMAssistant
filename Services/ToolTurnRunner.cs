@@ -175,8 +175,8 @@ public static class ToolTurnRunner
                     case TextChunkKind.Chunk:
                         await AppendText(chunk.Text);
                         break;
-                    case TextChunkKind.Result when !runsTools && spokenText.Length == 0 && !string.IsNullOrEmpty(chunk.Text):
-                        // A reply reported only as a final result is still shown and saved; the tool loop does this for its own rounds.
+                    case TextChunkKind.Result when !runsTools && fullText.Length == 0 && !string.IsNullOrEmpty(chunk.Text):
+                        // A reply that streamed no text, reasoning included, is shown and saved from its final result; the tool loop does this for its own rounds.
                         await AppendText(chunk.Text);
                         break;
                     case TextChunkKind.Reasoning:

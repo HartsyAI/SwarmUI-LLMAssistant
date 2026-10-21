@@ -293,6 +293,17 @@ public class ToolTurnRunnerTests
     }
 
     [Fact]
+    public async Task AResultAfterThinkOnlyTextIsNotShownTwice()
+    {
+        ScriptedChatProvider provider = new([Text("<think>Weighing it.</think>"), new TextChunk { Kind = TextChunkKind.Result, Text = "<think>Weighing it.</think>" }, Stop(StopReason.Stop)]);
+        RecordingChatSink sink = new();
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(), Context(provider, (_, _) => Task.FromResult(new JObject()), []), sink);
+
+        Assert.Equal(["chunk:<think>Weighing it.</think>", "done"], sink.Events);
+        Assert.Equal("<think>Weighing it.</think>", outcome.FullText);
+    }
+
+    [Fact]
     public async Task MalformedArgumentsAreAnsweredWithAnErrorAndTheToolDoesNotRun()
     {
         ScriptedChatProvider provider = new(
