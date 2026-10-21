@@ -161,9 +161,12 @@
 
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
-                if (data.error) {
+                if (data.error && !data.done) {
                     renderer.cancelPendingRender();
-                    llmaShowErrorInBubble(bubble, data.error);
+                    bubble?.querySelector('.llma-typing')?.remove();
+                    // Text already on screen stays, and the message goes under it.
+                    if ((bubble?.textContent || '').trim()) llmaAppendErrorToBubble(bubble, data.error);
+                    else llmaShowErrorInBubble(bubble, data.error);
                     llmaFinishStreamState();
                     return;
                 }
@@ -260,6 +263,7 @@
                         if (data.truncated) msg.meta.truncated = true;
                         if (data.reason) msg.meta.reason = data.reason;
                         if (data.stopReason) msg.meta.stopReason = data.stopReason;
+                        if (data.error) msg.meta.error = data.error;
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;
@@ -271,6 +275,8 @@
                         llmaSetRenderedHtml(tc, llmaRenderAssistantContent(cleanFinal, assistantMsgId));
                         llmaPostRenderMermaid(tc);
                     }
+                    // A reply that failed after some text: its message goes under the text.
+                    if (data.error) llmaAppendErrorToBubble(bubble, data.error);
 
                     // Rebuild the asset index for this thread and update the sidebar
                     llmaRebuildAssetsForThread();

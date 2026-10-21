@@ -370,6 +370,12 @@ public class AnthropicLLMProvider : LLMProviderBackend
             try
             {
                 JObject parsed = JObject.Parse(data);
+                if (currentEvent == "error")
+                {
+                    // An error event ends the reply with the server's message; the text before it is kept.
+                    await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = parsed["error"]?["message"]?.ToString() ?? "The server reported an error." });
+                    break;
+                }
                 if (currentEvent == "content_block_start")
                 {
                     JObject block = parsed.Value<JObject>("content_block");

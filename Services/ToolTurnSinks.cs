@@ -81,6 +81,11 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
         JObject frame = outcome.Truncated
             ? new JObject { ["done"] = true, ["truncated"] = true, ["reason"] = outcome.Reason, ["full_text"] = outcome.FullText }
             : new JObject { ["done"] = true, ["full_text"] = outcome.FullText, ["stopReason"] = outcome.StopReason };
+        // The text before a failure stays on screen; the message rides along for the bubble to show under it.
+        if (!string.IsNullOrEmpty(outcome.Error))
+        {
+            frame["error"] = outcome.Error;
+        }
         return Send(frame);
     }
 
@@ -222,14 +227,19 @@ public sealed class VoiceWsSink(Func<JObject, Task> send, Func<bool> isOpen, JAr
         {
             await Send(new JObject { ["notice"] = $"tool round limit reached ({outcome.RoundLimit ?? "max_rounds"}); the model's last tool call was not run" });
         }
-        await Send(new JObject
+        JObject done = new()
         {
             ["done"] = true,
             // Speech is the visible text: a reasoning trace is never read aloud.
             ["full_text"] = outcome.SpokenText ?? outcome.FullText,
             ["toolCalls"] = deviceCalls,
             ["stopReason"] = DoneStopReason(outcome),
-        });
+        };
+        if (!string.IsNullOrEmpty(outcome.Error))
+        {
+            done["error"] = outcome.Error;
+        }
+        await Send(done);
     }
 
     /// <summary>The <c>done</c> frame's <c>stopReason</c>: a round limit (or any tool-call stop) is <c>tool_round_limit</c>, never

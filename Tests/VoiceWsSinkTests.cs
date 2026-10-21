@@ -55,6 +55,19 @@ public class VoiceWsSinkTests
     }
 
     [Fact]
+    public async Task PartialSpeechEngineFailureKeepsItsDoneFrameWithTheMessage()
+    {
+        (VoiceWsSink sink, List<JObject> frames, _) = Make();
+
+        await sink.Done(new ToolTurnOutcome("Partial.", "error", false, null, [], SpokenText: "Partial.", Error: "boom"));
+
+        JObject only = Assert.Single(frames);
+        Assert.True(only["done"]?.Value<bool>());
+        Assert.Equal("Partial.", only["full_text"]?.ToString());
+        Assert.Equal("boom", only["error"]?.ToString());
+    }
+
+    [Fact]
     public async Task ToolCallAndResultUseTheVoiceFrameShapes()
     {
         (VoiceWsSink sink, List<JObject> frames, _) = Make();
