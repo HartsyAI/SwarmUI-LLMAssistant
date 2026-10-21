@@ -5,6 +5,7 @@ using FreneticUtilities.FreneticDataSyntax;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
+using SwarmUI.DataHolders;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
 
@@ -14,30 +15,33 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// OpenRouter, …). A per-user <c>openai_api</c> key overrides the configured Authorization header.</summary>
 public class RemoteOpenAILLMProvider : LLMProviderBackend
 {
+    /// <summary>Settings saved to Data/Backends.fds by field name, so renaming or retyping a field breaks every saved backend.</summary>
+    /// <remarks>Assets/llm-backend-cards.js groups these fields into the card's sections.</remarks>
     public class RemoteOpenAILLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("The network address of the OpenAI API compatible LLM provider.\nUsually starts with 'http://' or 'https://'.\nFor example: 'http://localhost:11434' for Ollama, or 'https://api.openai.com' for OpenAI.")]
+        [ConfigComment("The server's web address. For example http://localhost:11434 for Ollama,\nhttp://localhost:1234 for LM Studio, or https://api.openai.com for OpenAI.")]
+        [SuggestionPlaceholder(Text = "for example http://localhost:11434")]
         public string Address = "";
 
-        [ConfigComment("Whether the backend is allowed to revert to an 'idle' state if the API address is unresponsive.\nAn idle state is not considered an error, but cannot generate.\nIt will automatically return to 'running' if the API becomes available.")]
+        [ConfigComment("Lets the backend wait quietly (idle) instead of showing an error when the server is offline at startup.\nIt switches back to running after its next successful reply.")]
         public bool AllowIdle = false;
 
-        [ConfigComment("If the remote instance has an 'Authorization:' header required, specify it here.\nFor example, 'Bearer sk-abc123'.\nIf you don't know what this is, you don't need it.")]
+        [ConfigComment("Only if the server needs a key. For example: Bearer sk-abc123\nA user's own OpenAI key from the User tab is used instead when they have one.")]
         [ValueIsSecret]
         public string AuthorizationHeader = "";
 
-        [ConfigComment("Any other headers here, newline separated, for example:\nMyHeader: MyVal\nSecondHeader: secondVal")]
+        [ConfigComment("Extra headers some servers need, one per line. For example:\nMyHeader: MyValue")]
         public string OtherHeaders = "";
 
-        [ConfigComment("The default model name to request if none is specified in the generation request.\nFor example: 'gpt-4o' for OpenAI, or 'llama3.2' for Ollama.")]
+        [ConfigComment("The model used when a request doesn't name one.\nAfter you save a working Address, this lists the server's models. You can still type any name.")]
+        [SuggestionPlaceholder(Text = "for example llama3.2 or gpt-4o")]
         public string DefaultModel = "";
 
-        [ConfigComment("Which JSON field carries the response-length limit.\n 'auto' picks 'max_completion_tokens' for api.openai.com (required by o1/o3/GPT-5, accepted by 4o/4.1) and 'max_tokens' everywhere else (Ollama, vLLM, LM Studio, Azure, OpenRouter, …).\n"
-            + "Override only if your endpoint rejects the auto choice.")]
-        [ManualSettingsOptions(Vals = ["auto", "max_tokens", "max_completion_tokens"], ManualNames = ["Auto (detect from address)", "max_tokens (legacy / local servers)", "max_completion_tokens (OpenAI o1+ / GPT-5)"])]
+        [ConfigComment("Which field sends the reply length limit. Auto is right unless the server rejects it:\nit uses max_completion_tokens for api.openai.com and max_tokens everywhere else.")]
+        [ManualSettingsOptions(Vals = ["auto", "max_tokens", "max_completion_tokens"], ManualNames = ["Auto (recommended)", "max_tokens (most servers)", "max_completion_tokens (OpenAI o1, o3, GPT-5)"])]
         public string TokenLimitParameter = "auto";
 
-        [ConfigComment("When attempting to connect to the backend, this is the maximum time Swarm will wait before considering the connection to be failed.\nNote that depending on other configurations, it may fail faster than this.\nFor local network machines, set this to a low value (eg 5) to avoid 'Loading...' delays.")]
+        [ConfigComment("How many seconds to wait for the server when connecting and listing models.\nUse about 5 for a server on your own network.")]
         public int ConnectionAttemptTimeoutSeconds = 30;
 
         [ConfigComment("Whether to use this endpoint's native `tools`/`tool_calls` wire mechanism instead of the "
@@ -227,7 +231,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <summary>Builds the OpenAI-shaped <c>content</c> for one message: a plain string when there's
     /// no media, or text + <c>image_url</c> parts otherwise. HTTPS URLs pass through; base64
     /// attachments are wrapped in a <c>data:</c> URI (local paths must already be resolved to base64
-    /// by the caller — this never touches the filesystem).</summary>
+    /// by the caller; this never touches the filesystem).</summary>
     private static JToken BuildOpenAIContent(LLMMessage msg)
     {
         if (msg.Media is null || msg.Media.Count == 0)
@@ -328,7 +332,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     }
                     string finishReason = firstChoice?.Value<string>("finish_reason");
                     // finish_reason "length" means the server truncated the reply at the token cap, not
-                    // a natural stop — surface that so the UI can tell the user why.
+                    // a natural stop, so surface that and the UI can tell the user why.
                     if (finishReason == "length")
                     {
                         await onChunk(new JObject() { ["stopReason"] = "length" });
@@ -369,7 +373,11 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     }
 
     /// <inheritdoc/>
-    public override async Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default)
+    public override Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default) => ListModelsAs(null, ct);
+
+    /// <summary>Lists the endpoint's models with the headers a request from <paramref name="asUser"/>'s session would carry
+    /// (that user's own key, when set), or the configured headers alone when null.</summary>
+    public async Task<List<LLMModelInfo>> ListModelsAs(ExtendedLLMInput asUser, CancellationToken ct = default)
     {
         List<LLMModelInfo> models = [];
         if (string.IsNullOrWhiteSpace(Settings.Address))
@@ -382,7 +390,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         try
         {
             HttpRequestMessage request = new(HttpMethod.Get, $"{address}/v1/models");
-            ApplyHeaders(request);
+            ApplyHeaders(request, asUser);
             HttpResponseMessage response = await HttpClient.SendAsync(request, linked.Token);
             if (!response.IsSuccessStatusCode)
             {

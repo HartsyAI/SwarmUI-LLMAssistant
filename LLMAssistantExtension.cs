@@ -13,7 +13,7 @@ namespace Hartsy.Extensions.LLMAssistant;
 /// using SwarmUI's native LLM model registry and backends.</summary>
 public class LLMAssistantExtension : Extension
 {
-    /// <summary>For startup logging only — must not shadow the base `Version` field core populates from git.</summary>
+    /// <summary>For startup logging only; must not shadow the base `Version` field core populates from git.</summary>
     public const string ExtensionVersion = "2.0.0-alpha.2";
 
     public LLMAssistantExtension()
@@ -46,6 +46,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/llmassistant.js");
         // Companion overlay (loaded last so its boot can read LLMAState helpers defined above).
         ScriptFiles.Add("Assets/companion.js");
+        // Sections, plain labels, guide links and filled dropdowns for the LLM backend cards under Server > Backends.
+        ScriptFiles.Add("Assets/llm-backend-cards.js");
         // CSS
         StyleSheetFiles.Add("Assets/llma-layout.css");
         StyleSheetFiles.Add("Assets/llma-topbar.css");
@@ -58,11 +60,12 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-assets.css");
         StyleSheetFiles.Add("Assets/llma-companion.css");
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
-        // Static asset files (images) — served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
+        StyleSheetFiles.Add("Assets/llma-backend-cards.css");
+        // Static asset files (images), served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
         OtherAssets.Add("Assets/swarmui-logo.jpg");
         // Vendored front-end libraries (marked / highlight.js / DOMPurify / KaTeX + fonts / Mermaid).
-        // Shipped locally so the extension has ZERO runtime external dependencies — no CDN, no internet.
+        // Shipped locally so the extension has ZERO runtime external dependencies: no CDN, no internet.
         // Loaded on demand by Assets/utils.js. See Assets/vendor/FETCH.md.
         RegisterVendorAssets();
     }
@@ -76,7 +79,7 @@ public class LLMAssistantExtension : Extension
         string vendorAbs = Path.Combine(FilePath, "Assets", "vendor");
         if (!Directory.Exists(vendorAbs))
         {
-            Logs.Error("[LLMAssistant] Assets/vendor is missing — markdown/math/diagram rendering will be unavailable. Run the vendoring step (see Assets/vendor/FETCH.md).");
+            Logs.Error("[LLMAssistant] Assets/vendor is missing, so markdown/math/diagram rendering will be unavailable. Run the vendoring step (see Assets/vendor/FETCH.md).");
             return;
         }
         int count = 0;
@@ -87,7 +90,7 @@ public class LLMAssistantExtension : Extension
             {
                 continue;
             }
-            // Extension-relative, forward-slashed (URL form) — eg "Assets/vendor/marked/marked.min.js".
+            // Extension-relative, forward-slashed (URL form), eg "Assets/vendor/marked/marked.min.js".
             OtherAssets.Add(Path.GetRelativePath(FilePath, file).Replace('\\', '/'));
             count++;
         }
@@ -99,7 +102,7 @@ public class LLMAssistantExtension : Extension
         RegisterLLMModelType();
         // Core clears T2IModelSets on any model-path settings save; re-register or the LLM type vanishes.
         Program.ModelPathsChangedEvent += OnModelPathsChanged;
-        // Removable backend pack — supplies the actual LLM providers behind ILLMProvider.
+        // Removable backend pack: supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
         Backends.LLMBackendPack.Register();
         RegisterBuiltInTools();

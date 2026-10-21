@@ -1,0 +1,53 @@
+/* Sections on the LLM backend cards under Server > Backends, added by llm-backend-cards.js. */
+
+.llma-card-section {
+    border: 1px solid var(--bs-border-color, #444);
+    border-radius: 6px;
+    margin: 6px 0;
+    overflow: hidden;
+}
+
+.llma-card-section-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    background: rgba(128, 128, 128, 0.12);
+    user-select: none;
+}
+
+.llma-card-section-header:hover {
+    background: rgba(128, 128, 128, 0.2);
+}
+
+.llma-card-section-caret {
+    display: inline-block;
+    width: 1em;
+}
+
+.llma-card-section-title {
+    font-weight: 600;
+    flex: 1;
+}
+
+.llma-card-section-body {
+    padding: 6px 10px 10px 10px;
+}
+
+.llma-card-guide-link {
+    font-size: 0.85em;
+}
+
+/* Default Model on the OpenAI-compatible card: one line, so it can suggest the server's models. */
+.llma-card-suggest-input {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--shadow);
+    padding: 2px;
+}
+
+/* A field the chosen Device or another setting makes unused. */
+.llma-card-inactive {
+    opacity: 0.45;
+}
