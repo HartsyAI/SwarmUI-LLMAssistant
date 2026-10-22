@@ -1275,7 +1275,7 @@ public static class ChatEndpoints
     /// value pins the seed (only providers that honor <c>ExtendedLLMInput.Seed</c> will use it).
     /// <paramref name="loops"/> <c>0</c> means "not set by this request": the saved <c>loops</c> parameter applies when
     /// positive, else the provider's own default (the checkpoint's for a looped model, ignored by every other model).</summary>
-    internal static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1, int loops = 0)
+    public static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1, int loops = 0)
     {
         input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? ExtendedLLMInput.DefaultTemperature;
         input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? ExtendedLLMInput.DefaultMaxTokens;

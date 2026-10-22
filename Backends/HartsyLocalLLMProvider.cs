@@ -163,13 +163,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
 
     /// <summary>Per-(path, length, last-write-time) cache of <see cref="ReadGgufModelFacts"/>, so listing the models does not reread
     /// every GGUF header on each call; replacing a file changes its length or write time and misses the cache.</summary>
-    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), (int ContextLength, string Family, string Quantization)> _ggufFactsCache = new();
+    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), GgufModelFacts> _ggufFactsCache = new();
 
     /// <summary>The context length, model family and quantization <see cref="ListModels"/> reports for <paramref name="ggufPath"/>, read
     /// from its GGUF header only (<see cref="GgufLoader.Load"/> maps the file and parses its metadata, never the tensor data). A field the
     /// header does not carry stays empty (<c>-1</c> or null), as does every field when the file is missing or not a GGUF; the failure is
     /// logged at Debug and never thrown.</summary>
-    public static (int ContextLength, string Family, string Quantization) ReadGgufModelFacts(string ggufPath)
+    public static GgufModelFacts ReadGgufModelFacts(string ggufPath)
     {
         FileInfo info;
         try
@@ -179,18 +179,18 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         catch (Exception ex)
         {
             Logs.Debug($"[HartsyLocalLLMProvider] Could not stat '{ggufPath}' for its model facts: {ex.Message}");
-            return (-1, null, null);
+            return GgufModelFacts.Unknown;
         }
         if (!info.Exists)
         {
-            return (-1, null, null);
+            return GgufModelFacts.Unknown;
         }
         (string Path, long Length, DateTime LastWriteUtc) key = (ggufPath, info.Length, info.LastWriteTimeUtc);
-        if (_ggufFactsCache.TryGetValue(key, out (int ContextLength, string Family, string Quantization) cached))
+        if (_ggufFactsCache.TryGetValue(key, out GgufModelFacts cached))
         {
             return cached;
         }
-        (int ContextLength, string Family, string Quantization) facts = (-1, null, null);
+        GgufModelFacts facts = GgufModelFacts.Unknown;
         try
         {
             using GgufLoader loader = new();
@@ -234,7 +234,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 32 => "BF16",
                 _ => null
             };
-            facts = (context > 0 && context <= int.MaxValue ? (int)context : -1, family, quantization);
+            facts = new GgufModelFacts(context > 0 && context <= int.MaxValue ? (int)context : -1, family, quantization);
         }
         catch (Exception ex)
         {
@@ -1020,10 +1020,10 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
                 };
                 // Header-only and cached per file (see ReadGgufModelFacts), so a listing does not reread every GGUF on each call.
-                (int contextLength, string family, string quantization) = ReadGgufModelFacts(file);
-                info.ContextLength = contextLength;
-                info.Family = family;
-                info.Quantization = quantization;
+                GgufModelFacts facts = ReadGgufModelFacts(file);
+                info.ContextLength = facts.ContextLength;
+                info.Family = facts.Family;
+                info.Quantization = facts.Quantization;
                 if (placed.TryGetValue(FullPath(file), out LoadedModelPlacement placement))
                 {
                     info.Metadata["placement"] = PlacementLabel(placement.Placement);

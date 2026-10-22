@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using Hartsy.Extensions.LLMAssistant.Backends;
+using Hartsy.Extensions.LLMAssistant.LLMs;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
@@ -29,7 +30,7 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
             ("qwen2.context_length", (uint)32768),
             ("general.file_type", (uint)15));
 
-        (int ContextLength, string Family, string Quantization) facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
+        GgufModelFacts facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
 
         Assert.Equal(32768, facts.ContextLength);
         Assert.Equal("qwen2", facts.Family);
@@ -44,7 +45,7 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
             ("llama.context_length", (uint)4096),
             ("general.file_type", (uint)9999));
 
-        (int ContextLength, string Family, string Quantization) facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
+        GgufModelFacts facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
 
         Assert.Equal(4096, facts.ContextLength);
         Assert.Equal("llama", facts.Family);
@@ -57,7 +58,7 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
         // The context length key is "<architecture>.context_length", so without an architecture there is nothing to read.
         string path = WriteGguf(Path.Combine(_dir, "bare.gguf"), ("general.file_type", (uint)1));
 
-        (int ContextLength, string Family, string Quantization) facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
+        GgufModelFacts facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
 
         Assert.Equal(-1, facts.ContextLength);
         Assert.Null(facts.Family);
@@ -67,7 +68,7 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
     [Fact]
     public void MissingFileReturnsEmptyFacts()
     {
-        (int ContextLength, string Family, string Quantization) facts = HartsyLocalLLMProvider.ReadGgufModelFacts(Path.Combine(_dir, "absent.gguf"));
+        GgufModelFacts facts = HartsyLocalLLMProvider.ReadGgufModelFacts(Path.Combine(_dir, "absent.gguf"));
 
         Assert.Equal(-1, facts.ContextLength);
         Assert.Null(facts.Family);
@@ -80,7 +81,7 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
         string path = Path.Combine(_dir, "text.gguf");
         File.WriteAllText(path, "this is not a GGUF header at all");
 
-        (int ContextLength, string Family, string Quantization) facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
+        GgufModelFacts facts = HartsyLocalLLMProvider.ReadGgufModelFacts(path);
 
         Assert.Equal(-1, facts.ContextLength);
         Assert.Null(facts.Family);
