@@ -10,6 +10,16 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// multimodal content blocks message-by-message.</para></summary>
 public class ExtendedLLMInput
 {
+    /// <summary>The sampling defaults every request falls back to: the field initializers below, the chat endpoints' parameter
+    /// resolution, and the local engine's fallbacks all read these, so they cannot drift apart.</summary>
+    public const double DefaultTemperature = 1.0;
+
+    /// <summary>Default max response tokens.</summary>
+    public const int DefaultMaxTokens = 4096;
+
+    /// <summary>Default nucleus sampling cutoff.</summary>
+    public const double DefaultTopP = 0.9;
+
     /// <summary>The most recent user message text (convenience mirror of the last user turn).</summary>
     public string UserMessage;
 
@@ -23,13 +33,13 @@ public class ExtendedLLMInput
     public List<LLMMessage> Messages = [];
 
     /// <summary>Sampling temperature.</summary>
-    public double Temperature = 1.0;
+    public double Temperature = DefaultTemperature;
 
     /// <summary>Max response tokens.</summary>
-    public int MaxTokens = 4096;
+    public int MaxTokens = DefaultMaxTokens;
 
     /// <summary>Nucleus sampling cutoff.</summary>
-    public double TopP = 0.9;
+    public double TopP = DefaultTopP;
 
     /// <summary>Pinned seed, or -1 for "let the provider pick". Only honored by providers that support it.</summary>
     public long Seed = -1;

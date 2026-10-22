@@ -898,6 +898,13 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>The token cap for a generated chat title: a title is 3-6 words, so this is deliberately far below the
+    /// chat's <see cref="ExtendedLLMInput.DefaultMaxTokens"/>.</summary>
+    public const int TitleMaxTokens = 20;
+
+    /// <summary>The temperature for a generated chat title: a little below the chat default, for a steadier short phrase.</summary>
+    public const double TitleTemperature = 0.7;
+
     /// <summary>Asks the LLM for a short (3-6 word) chat title from the first exchange. Returns null on
     /// any failure or if the model ignores the format and returns something unusably long.</summary>
     private static async Task<string> GenerateChatTitle(string userText, string replyText, string model)
@@ -909,8 +916,8 @@ public static class ChatEndpoints
             prompt += $"\nAssistant: {Truncate(replyText, 400)}";
         }
         ExtendedLLMInput input = ExtendedLLMInput.Create(prompt, system, model);
-        input.MaxTokens = 20;
-        input.Temperature = 0.7;
+        input.MaxTokens = TitleMaxTokens;
+        input.Temperature = TitleTemperature;
         string raw = await LLMDispatcher.Generate(input);
         return CleanGeneratedTitle(raw);
     }
@@ -1268,11 +1275,11 @@ public static class ChatEndpoints
     /// value pins the seed (only providers that honor <c>ExtendedLLMInput.Seed</c> will use it).
     /// <paramref name="loops"/> <c>0</c> means "not set by this request": the saved <c>loops</c> parameter applies when
     /// positive, else the provider's own default (the checkpoint's for a looped model, ignored by every other model).</summary>
-    private static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1, int loops = 0)
+    internal static void ApplyParameters(ExtendedLLMInput input, JObject parameters, double temperature, int maxTokens, long seed = -1, int loops = 0)
     {
-        input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? 1.0;
-        input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? 4096;
-        input.TopP = parameters?["topP"]?.Value<double>() ?? 0.9;
+        input.Temperature = temperature >= 0 ? temperature : parameters?["temperature"]?.Value<double>() ?? ExtendedLLMInput.DefaultTemperature;
+        input.MaxTokens = maxTokens >= 0 ? maxTokens : parameters?["maxTokens"]?.Value<int>() ?? ExtendedLLMInput.DefaultMaxTokens;
+        input.TopP = parameters?["topP"]?.Value<double>() ?? ExtendedLLMInput.DefaultTopP;
         int resolvedLoops = loops > 0 ? loops : ReadPositiveInt(parameters, "loops");
         input.Loops = resolvedLoops > 0 ? resolvedLoops : null;
         if (seed < 0)

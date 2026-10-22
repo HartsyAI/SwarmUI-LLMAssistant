@@ -161,6 +161,89 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return verdict;
     }
 
+    /// <summary>Per-(path, length, last-write-time) cache of <see cref="ReadGgufModelFacts"/>, so listing the models does not reread
+    /// every GGUF header on each call; replacing a file changes its length or write time and misses the cache.</summary>
+    private static readonly ConcurrentDictionary<(string Path, long Length, DateTime LastWriteUtc), (int ContextLength, string Family, string Quantization)> _ggufFactsCache = new();
+
+    /// <summary>The context length, model family and quantization <see cref="ListModels"/> reports for <paramref name="ggufPath"/>, read
+    /// from its GGUF header only (<see cref="GgufLoader.Load"/> maps the file and parses its metadata, never the tensor data). A field the
+    /// header does not carry stays empty (<c>-1</c> or null), as does every field when the file is missing or not a GGUF; the failure is
+    /// logged at Debug and never thrown.</summary>
+    public static (int ContextLength, string Family, string Quantization) ReadGgufModelFacts(string ggufPath)
+    {
+        FileInfo info;
+        try
+        {
+            info = new FileInfo(ggufPath);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[HartsyLocalLLMProvider] Could not stat '{ggufPath}' for its model facts: {ex.Message}");
+            return (-1, null, null);
+        }
+        if (!info.Exists)
+        {
+            return (-1, null, null);
+        }
+        (string Path, long Length, DateTime LastWriteUtc) key = (ggufPath, info.Length, info.LastWriteTimeUtc);
+        if (_ggufFactsCache.TryGetValue(key, out (int ContextLength, string Family, string Quantization) cached))
+        {
+            return cached;
+        }
+        (int ContextLength, string Family, string Quantization) facts = (-1, null, null);
+        try
+        {
+            using GgufLoader loader = new();
+            loader.Load(ggufPath);
+            GgufMetadata metadata = loader.Metadata;
+            string family = metadata.GetString("general.architecture");
+            // The context length is keyed by the architecture ("qwen2.context_length"), so it is only read once that is known.
+            uint context = family is null ? 0 : metadata.GetUInt32($"{family}.context_length");
+            // general.file_type is llama.cpp's llama_ftype enum; a value outside this table (or a missing key) leaves the quantization empty.
+            string quantization = metadata.GetUInt32("general.file_type", uint.MaxValue) switch
+            {
+                0 => "F32",
+                1 => "F16",
+                2 => "Q4_0",
+                3 => "Q4_1",
+                7 => "Q8_0",
+                8 => "Q5_0",
+                9 => "Q5_1",
+                10 => "Q2_K",
+                11 => "Q3_K_S",
+                12 => "Q3_K_M",
+                13 => "Q3_K_L",
+                14 => "Q4_K_S",
+                15 => "Q4_K_M",
+                16 => "Q5_K_S",
+                17 => "Q5_K_M",
+                18 => "Q6_K",
+                19 => "IQ2_XXS",
+                20 => "IQ2_XS",
+                21 => "Q2_K_S",
+                22 => "IQ3_XS",
+                23 => "IQ3_XXS",
+                24 => "IQ1_S",
+                25 => "IQ4_NL",
+                26 => "IQ3_S",
+                27 => "IQ3_M",
+                28 => "IQ2_S",
+                29 => "IQ2_M",
+                30 => "IQ4_XS",
+                31 => "IQ1_M",
+                32 => "BF16",
+                _ => null
+            };
+            facts = (context > 0 && context <= int.MaxValue ? (int)context : -1, family, quantization);
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[HartsyLocalLLMProvider] Could not read '{ggufPath}'s model facts: {ex.Message}");
+        }
+        _ggufFactsCache[key] = facts;
+        return facts;
+    }
+
     /// <summary>The tags <see cref="ForwardEngineStreamAsync"/> wraps reasoning in, and <see cref="TrySplitThinkBlocks"/> reads back.</summary>
     internal const string ThinkOpen = "<think>";
 
@@ -692,11 +775,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             // output from real GGUF vision models under the WS chat path (verified 2026-07-25 testing against
             // llava-v1.5-7b/Qwen2.5-VL-7B).
             Temperature = Math.Max(0, input.Temperature),
-            TopP = input.TopP > 0 ? input.TopP : 1.0,
+            TopP = input.TopP > 0 ? input.TopP : ExtendedLLMInput.DefaultTopP,
             TopK = settings.TopK > 0 ? settings.TopK : null,
             MinP = settings.MinP > 0 ? settings.MinP : null,
             RepetitionPenalty = settings.RepetitionPenalty > 0 ? settings.RepetitionPenalty : null,
-            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : 4096,
+            MaxTokens = input.MaxTokens > 0 ? input.MaxTokens : ExtendedLLMInput.DefaultMaxTokens,
             Seed = input.Seed,
             Greedy = input.Temperature <= 0,
             // Voice callers send false (Qwen3 thinking adds hundreds of tokens before the first spoken word); null
@@ -936,6 +1019,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     IsLoaded = placed.ContainsKey(FullPath(file)),
                     Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
                 };
+                // Header-only and cached per file (see ReadGgufModelFacts), so a listing does not reread every GGUF on each call.
+                (int contextLength, string family, string quantization) = ReadGgufModelFacts(file);
+                info.ContextLength = contextLength;
+                info.Family = family;
+                info.Quantization = quantization;
                 if (placed.TryGetValue(FullPath(file), out LoadedModelPlacement placement))
                 {
                     info.Metadata["placement"] = PlacementLabel(placement.Placement);
