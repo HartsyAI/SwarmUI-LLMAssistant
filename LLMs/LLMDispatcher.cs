@@ -24,7 +24,7 @@ public static class LLMDispatcher
         {
             return providers[0];
         }
-        ILLMProvider owner = await LLMModelLookup.GetOwningProviderAsync(input.Model, backendId);
+        ILLMProvider owner = await LLMModelLookup.GetOwningProviderAsync(input.Model, backendId, input.RequestSession);
         return owner ?? providers[0];
     }
 

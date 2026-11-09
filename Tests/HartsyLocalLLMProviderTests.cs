@@ -84,9 +84,8 @@ public class HartsyLocalLLMProviderTests
     [InlineData("{broken")]
     public void NativeToolCallJson_MalformedOrEmptyArguments_FailsSoftToAnEmptyObject(string arguments)
     {
-        // Contrary to the contract (NativeToolCall.Arguments is documented as JSON), but the engine's own
-        // AnthropicLLMProvider precedent fails soft here rather than losing the whole streamed turn over one
-        // malformed call.
+        // Contrary to the contract (NativeToolCall.Arguments is documented as JSON), but this fails soft
+        // rather than losing the whole streamed turn over one malformed call.
         NativeToolCall call = new() { Id = "call_1", Name = "get_time", Arguments = arguments };
         Newtonsoft.Json.Linq.JObject json = HartsyLocalLLMProvider.NativeToolCallJson(call);
         Assert.Empty(((Newtonsoft.Json.Linq.JObject)json["arguments"]).Properties());

@@ -815,7 +815,7 @@ public static class ChatEndpoints
         try
         {
             // Resolve model facts once so per-model instruction variants can pick the right text.
-            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
             // Build LLM input from the active branch (truncated to maxContextMessages).
             List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
@@ -1066,7 +1066,7 @@ public static class ChatEndpoints
                 // during this lane's own setup (model lookup, tool resolution) is observed here instead
                 // of being silently ignored: the check right before StreamToWebSocket turns it into a
                 // fast bail for this lane rather than starting the model anyway.
-                LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model);
+                LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;

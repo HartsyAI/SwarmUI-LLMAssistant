@@ -661,7 +661,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     }
 
     /// <summary>Builds the <c>{id, name, arguments}</c> shape of <see cref="GenerateLive"/>'s <c>native_tool_call</c> event, the shape
-    /// <see cref="AnthropicLLMProvider"/> emits too: <c>arguments</c> is a parsed <see cref="JObject"/>, and malformed JSON (the engine's
+    /// <see cref="RemoteOpenAILLMProvider"/> emits too: <c>arguments</c> is a parsed <see cref="JObject"/>, and malformed JSON (the engine's
     /// parser never emits it) fails soft into an empty object rather than losing the whole chunk.</summary>
     internal static JObject NativeToolCallJson(NativeToolCall call)
     {

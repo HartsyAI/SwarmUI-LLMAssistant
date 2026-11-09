@@ -33,7 +33,8 @@ public static class BackendCardAPI
         });
     }
 
-    /// <summary>Default Model choices for one remote LLM backend, asked with the viewer's own key: the server's list (sorted) or Anthropic's (newest first).</summary>
+    /// <summary>Default Model choices for one remote LLM backend, asked with the viewer's own key: the server's list, sorted, or Anthropic's in
+    /// its own order (newest first).</summary>
     /// <remarks>An empty list carries its cause in <c>reason</c>, not <c>error</c>, which core would log on every Backends tab visit.</remarks>
     public static async Task<JObject> LLMAssistantListBackendModels(Session session, int backend_id)
     {
@@ -46,13 +47,13 @@ public static class BackendCardAPI
         {
             if (data.AbstractBackend is RemoteOpenAILLMProvider openai)
             {
-                List<LLMModelInfo> listed = await openai.ListModelsAs(new ExtendedLLMInput { RequestSession = session }, cts.Token);
-                return ModelChoices(listed.Select(m => (m.Id, m.Name)).OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase));
-            }
-            if (data.AbstractBackend is AnthropicLLMProvider anthropic)
-            {
-                List<(string Id, string Name)> models = await anthropic.ListApiModelsAs(session, cts.Token);
-                return models is null ? ModelChoices([], "Set your own Anthropic key in the User tab to list Anthropic's models.") : ModelChoices(models);
+                ExtendedLLMInput asUser = new() { RequestSession = session };
+                if (openai.IsAnthropic && string.IsNullOrWhiteSpace(openai.GetUserKey(asUser)) && string.IsNullOrWhiteSpace(openai.Settings.AuthorizationHeader))
+                {
+                    return ModelChoices([], "Set your own Anthropic key in the User tab to list Anthropic's models.");
+                }
+                IEnumerable<(string Id, string Name)> listed = (await openai.ListModelsAs(asUser, cts.Token)).Select(m => (m.Id, m.Name));
+                return ModelChoices(openai.IsAnthropic ? listed : listed.OrderBy(m => m.Id, StringComparer.OrdinalIgnoreCase));
             }
             return ModelChoices([]);
         }

@@ -64,7 +64,7 @@ public class ExtendedLLMInput
     /// model's own chat template, or writes the Hermes tool prompt for a template without a tools slot).</summary>
     public List<JObject> Tools { get; set; } = [];
 
-    /// <summary>When set, the user explicitly requested this tool id: Anthropic and OpenAI-compatible endpoints get a forced
+    /// <summary>When set, the user explicitly requested this tool id: OpenAI-compatible endpoints get a forced
     /// <c>tool_choice</c>, and the local engine states the choice in the prompt and restricts its parser to that tool. Round one only.</summary>
     public string ForceToolId;
 

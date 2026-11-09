@@ -4,7 +4,7 @@ A full LLM workspace inside [SwarmUI](https://github.com/mcmonkeyprojects/SwarmU
 
 ![The LLM Assistant tab](Assets/screenshots/chat-overview.png)
 
-It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# local GGUF engine**, **Anthropic Claude**, and **any OpenAI-compatible endpoint** (OpenAI, Ollama, LM Studio, vLLM, OpenRouter, …). Pick one under `Server > Backends` and the tab lights up.
+It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# local GGUF engine** and **any OpenAI-compatible endpoint** (OpenAI, Anthropic Claude, Ollama, LM Studio, vLLM, OpenRouter, …). Pick one under `Server > Backends` and the tab lights up.
 
 | | |
 |---|---|
@@ -60,7 +60,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - A working SwarmUI install.
 - At least one LLM backend added under `Server > Backends` (see below).
 - For the local engine: `.gguf` weights in `Models/llm/` and, ideally, a GPU: an NVIDIA RTX 30-series or newer through CUDA, or any other GPU through Vulkan (CPU works, slowly).
-- For Anthropic / OpenAI: each user sets their **own** API key in the `User` tab. No key is stored server-wide.
+- For OpenAI or Anthropic Claude: each user sets their **own** API key in the `User` tab. No key is stored server-wide.
 
 ---
 
@@ -83,19 +83,18 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 
 ## Adding an LLM backend
 
-Go to `Server > Backends`. The three LLM backend types appear directly in the "Add new backend" row.
+Go to `Server > Backends`. The two LLM backend types appear directly in the "Add new backend" row.
 
 ![LLM backend types](Assets/screenshots/backend-types.png)
 
 | Backend type | What it is |
 |---|---|
 | **LLM: Local (HartsyInference GGUF)** | Runs GGUF models on this machine with the built-in pure-C# engine. No llama.cpp, no Python, no external process. Reads from `Models/llm/`. |
-| **LLM: Anthropic Claude** | Anthropic's Messages API, using each user's own `anthropic_api` key. Native `tools` / `tool_choice` support. |
-| **LLM: Remote (OpenAI-Compatible)** | Any OpenAI-compatible server, such as OpenAI, Ollama, LM Studio, vLLM or OpenRouter. Each user's own `openai_api` key overrides the configured `Authorization` header. |
+| **LLM: Remote (OpenAI-Compatible)** | Any OpenAI-compatible server, such as OpenAI, Anthropic Claude, Ollama, LM Studio, vLLM or OpenRouter. Each user's own key overrides the configured `Authorization` header: `anthropic_api` for Anthropic's API (see [Claude](#anthropic-settings)), `openai_api` otherwise. |
 
 Each card groups its settings into sections. **Basics** starts open; **Memory** and **Advanced** open by themselves when a setting in them is changed from its default. Each section header has a **Guide** link, and each `?` tooltip ends with a link to the part of this README that explains the setting. The tables below name each setting by its label on the card, with the name it is saved under (and shown in the logs) in brackets.
 
-Dropdowns list only what works here: the local card's **Device** and **GPU** come from the engine's own device check, and **Default Model** comes from the server or from Anthropic. A saved value that a dropdown no longer lists stays selected, marked *(saved value)*, so saving the card never changes it behind your back. The device lists are built once per SwarmUI start, so restart SwarmUI after changing a GPU or driver.
+Dropdowns list only what works here: the local card's **Device** and **GPU** come from the engine's own device check, and **Default Model** comes from the server. A saved value that a dropdown no longer lists stays selected, marked *(saved value)*, so saving the card never changes it behind your back. The device lists are built once per SwarmUI start, so restart SwarmUI after changing a GPU or driver.
 
 ### Local engine settings
 
@@ -148,26 +147,27 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 
 | Setting | Default | Notes |
 |---|---|---|
-| **Address** (`Address`) | *(empty)* | The server's address, for example `http://localhost:11434` (Ollama), `http://localhost:1234` (LM Studio) or `https://api.openai.com`. The backend stays disabled until this is set. |
-| **Authorization Header** (`AuthorizationHeader`) | *(empty)* | Only for a server that needs a key, for example `Bearer sk-abc123`. A user's own `openai_api` key from the `User` tab replaces it on that user's requests. |
+| **Address** (`Address`) | *(empty)* | The server's address, for example `http://localhost:11434` (Ollama), `http://localhost:1234` (LM Studio), `https://api.openai.com`, or `https://api.anthropic.com` for [Claude](#anthropic-settings). The backend stays disabled until this is set. |
+| **Authorization Header** (`AuthorizationHeader`) | *(empty)* | Only for a server that needs a key, for example `Bearer sk-abc123`. A user's own key from the `User` tab replaces it on that user's requests: `anthropic_api` for Anthropic's API, `openai_api` otherwise. With this empty, a server that answers "key needed" at startup still counts as running, since each user brings their own. |
 | **Default Model** (`DefaultModel`) | *(empty)* | The model used when a request doesn't name one. Once the backend is saved with a working **Address**, the box suggests the server's models (from its `/v1/models`, asked with your own key when you have one), and you can still type any name. |
 | **Allow Idle** (`AllowIdle`) | `false` | When the server is offline at startup, the backend waits as *idle* instead of showing an error, and switches to running after its next successful reply. |
 | **Connect Timeout (seconds)** (`ConnectionAttemptTimeoutSeconds`) | `30` | How long to wait for the server when connecting and listing models. Lower it (e.g. `5`) for a server on your own network. |
 | **Other Headers** (`OtherHeaders`) | *(empty)* | Extra headers, one `Header: value` per line. |
 | **Token Limit Field** (`TokenLimitParameter`) | `auto` | `auto` picks `max_completion_tokens` for `api.openai.com` and `max_tokens` everywhere else. Change it only if the server rejects the auto choice. |
 
-### Anthropic settings
+### Claude (Anthropic) <a id="anthropic-settings"></a>
 
-**Basics** holds Default Model; the rest is under **Advanced**.
+Claude runs through **LLM: Remote (OpenAI-Compatible)**, pointed at Anthropic's [OpenAI SDK compatibility](https://platform.claude.com/docs/en/api/openai-sdk) endpoint.
 
-| Setting | Default | Notes |
-|---|---|---|
-| **Default Model** (`DefaultModel`) | `claude-opus-4-8` | The Claude model used when a request doesn't name one. When you have your own Anthropic key set in the `User` tab, the dropdown lists the models Anthropic's Models API offers that key, so new models show up without an update. Without a key it shows the built-in list. |
-| **Reply Timeout (seconds)** (`TimeoutSeconds`) | `120` | The longest a whole reply may take, from the request to the last word, before it is stopped. Raise it if long replies get cut off. |
-| **Workspace ID** (`WorkspaceId`) | *(empty)* | Sent as the `anthropic-workspace-id` header. Only needed when the API key is not tied to one workspace. A user's own workspace ID, set with their key, is used instead. |
-| **Base URL** (`BaseUrl`) | `https://api.anthropic.com` | Only change this to use a proxy or an Anthropic-compatible server. |
+1. Add an **LLM: Remote (OpenAI-Compatible)** backend with **Address** `https://api.anthropic.com`. Leave **Authorization Header** empty, so each user's own key is used.
+2. Each user sets their Anthropic key in the `User` tab. A key that is not tied to one workspace also needs the workspace: the user's own workspace ID set with the key, or for everyone an `anthropic-workspace-id: wrkspc_...` line in **Other Headers**.
+3. Once a user has a key, **Default Model** and the chat's model picker list the models Anthropic's Models API offers that key, so new models show up without an update.
 
-Anthropic's tool API is always on, there's no toggle, because it's one stable contract. Set your key in the `User` tab.
+When the Address is Anthropic's, the backend reads each user's `anthropic_api` key instead of `openai_api`, lists models with `x-api-key` (the Models API does not take a Bearer token), and leaves out the sampling settings Claude rejects: no `temperature` or `top_p` for Claude 4.7 and later, and only `temperature` (capped at 1) for older models.
+
+Anthropic describes the compatibility endpoint as meant for testing and comparing models rather than long-term production use. Through it, Claude's thinking is not returned, prompt caching is off, PDF and file input are refused, and every system message is merged into one system prompt.
+
+**Upgrading from the old "LLM: Anthropic Claude" backend.** That backend type was removed. On the first start after updating, each saved one becomes a Remote (OpenAI-Compatible) backend with the same title, its **Base URL** as the **Address**, the same **Default Model**, and its **Workspace ID** as an **Other Headers** line. Its **Reply Timeout** has no counterpart and is dropped. The previous file is kept beside it as `Data/Backends.fds.before-anthropic-migration.bak`.
 
 ---
 
@@ -253,11 +253,10 @@ The model can call tools, get real results back, and keep going, up to **8 round
 
 | Provider | How tools reach the model | How calls come back |
 |---|---|---|
-| **Anthropic** | Native `tools` and `tool_use` blocks | Native `tool_use` events |
 | **OpenAI-compatible** | Native `tools`, always sent when tools are on, along with saved tool turns as `tool_calls` and `tool` messages; the endpoint must support them (an endpoint that does not returns an error, and turning tools off for the chat avoids it) | Incremental `delta.tool_calls[]`, resolved at `finish_reason == "tool_calls"` |
 | **Hartsy-local (GGUF)** | Native through the engine's [`HartsyInference.Tools`](https://www.nuget.org/packages/HartsyInference.Tools) package. The engine reads the model's chat template: a template with a tools slot renders the tools itself, and a template without one gets the Hermes tool prompt written into the conversation | The engine parses the model's own call format (Hermes JSON, Qwen3.5 and Qwen3-Coder XML, GLM-4.5 arg pairs, DeepSeek-R1 blocks, Llama 3, Gemma 4, Mistral) and emits a native call event |
 
-A tool result is fed back to the model for its next round, along with the reasoning of the round that made the call, in the same `<think>` form a stored reply uses (see Muse Spark below), so a template that reads reasoning fields sees it. Saved tool turns are replayed to the model on later turns, so a follow-up can refer to an earlier result. Malformed arguments are not swallowed: when Anthropic or an OpenAI-compatible endpoint sends a call whose arguments are not valid JSON, the tool does not run and the model gets an error result back and can retry. The local engine cannot parse such a call at all, so it stays in the reply as text.
+A tool result is fed back to the model for its next round, along with the reasoning of the round that made the call, in the same `<think>` form a stored reply uses (see Muse Spark below), so a template that reads reasoning fields sees it. Saved tool turns are replayed to the model on later turns, so a follow-up can refer to an earlier result. Malformed arguments are not swallowed: when an OpenAI-compatible endpoint (Claude's included) sends a call whose arguments are not valid JSON, the tool does not run and the model gets an error result back and can retry. The local engine cannot parse such a call at all, so it stays in the reply as text.
 
 Muse Spark (engine family `muse-spark`) is parsed by the engine itself: its own output parser splits each reply into reasoning, answer text and `<atem:invoke>` tool calls, so its calls run through the same loop, and the reasoning shows in the chat's Reasoning block like a Qwen3 `<think>` block. It is left out of one-shot replies (voice turns, prompt enhancement, captions), since its template has no `enable_thinking` switch to turn it off. On later turns a stored reply's `<think>` blocks go back as `reasoning_content` instead of answer text, for a template that reads that field and does not split `</think>` out of the content itself (Muse Spark, Gemma 4); every other template, and a reply that is only reasoning, gets the reply as stored. The reasoning reaches the template from HartsyInference alpha.377 on.
 
@@ -431,7 +430,6 @@ Per SwarmUI's extension standards, everything this extension can send over the n
 |---|---|---|
 | `html.duckduckgo.com` | Only when the model (or you, via `/`) calls the `web_search` tool | Disable the tool, or deny `llm_tool_web_search` |
 | Any public URL | Only when the `http_request` tool is called (SSRF-guarded: loopback/private/link-local/metadata addresses are blocked) | Disable the tool, or deny `llm_tool_http_request` |
-| `api.anthropic.com` (or your configured `BaseUrl`) | When a chat request routes to an Anthropic backend you added, and when someone with their own Anthropic key opens `Server > Backends`, to list models for the card's Default Model | Don't add the backend |
 | Your configured `Address` | When an OpenAI-compatible backend you added starts, serves a chat request or lists its models (for the model picker, and for the card's Default Model when `Server > Backends` opens) | Don't add the backend |
 
 Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, so **the UI itself makes zero outbound connections.**
@@ -616,7 +614,7 @@ they were sent with.
 | `LLMAssistantSaveInstruction` | `id`, `title`, `content`, `categories?`, `tooltip?`, `scope?` | `{success, instruction}` |
 | `LLMAssistantDeleteInstruction` | `id`, `scope?` | `{success}` |
 | `LLMAssistantListGpus` | `device?` (`auto`, `cuda`, `vulkan` or `cpu`) | `{kind, values[], names[]}`: the local backend card's GPU choices for that Device and the kind it runs on. Needs SwarmUI's `View Backends List` permission |
-| `LLMAssistantListBackendModels` | `backend_id` | `{values[], names[], reason?}`: Default Model choices for a remote LLM backend's card, from the server's `/v1/models` or Anthropic's Models API, asked with your own key. Empty, with the cause in `reason`, when there is nothing to list. Needs `View Backends List` |
+| `LLMAssistantListBackendModels` | `backend_id` | `{values[], names[], reason?}`: Default Model choices for a remote LLM backend's card, from the server's `/v1/models` (Anthropic's Models API for Claude), asked with your own key. Empty, with the cause in `reason`, when there is nothing to list. Needs `View Backends List` |
 
 ### Worked example: a full chat turn
 
@@ -674,8 +672,8 @@ SwarmUI-LLMAssistant/
 ├── Backends/                  REMOVABLE runtime pack
 │   ├── LLMProviderBackend.cs  AbstractLLMBackend + ILLMProvider base; self-registers
 │   ├── HartsyLocalLLMProvider.cs   Pure-C# GGUF via HartsyInference.Engine
-│   ├── AnthropicLLMProvider.cs     Anthropic Messages API
-│   ├── RemoteOpenAILLMProvider.cs  Any OpenAI-compatible endpoint
+│   ├── RemoteOpenAILLMProvider.cs  Any OpenAI-compatible endpoint, Anthropic's included
+│   ├── AnthropicBackendMigration.cs  Turns saved backends of the removed Anthropic type into Remote ones
 │   ├── LocalDeviceChoices.cs  Device and GPU dropdowns for the local card, from the engine's device check
 │   ├── BackendCardAPI.cs      The two routes the backend cards fill their dropdowns from
 │   └── LLMBackendPack.cs      One Register() call
@@ -759,7 +757,7 @@ The engine's CUDA kernels need an NVIDIA RTX 30-series card or newer. Set **Devi
 The value saved for that backend is not in the list this machine offers, for example a GPU that is gone or CUDA on a card that fails the CUDA check. The backend still uses it. Pick another entry and Save to change it.
 
 **Default Model doesn't list any models.**
-For an OpenAI-compatible server the list appears once the backend is saved with an **Address** that answers; for Anthropic it needs your own key in the `User` tab, and the list is asked again each time you open `Server > Backends`. Until then the field works as before. For an OpenAI-compatible server the SwarmUI log says why the list is empty; for Anthropic the browser console does.
+The list appears once the backend is saved with an **Address** that answers; for Claude it also needs your own Anthropic key in the `User` tab. The list is asked again each time you open `Server > Backends`, and until then the field works as before. The SwarmUI log says why a list is empty; for Claude without a key, the browser console does.
 
 ---
 
@@ -771,7 +769,7 @@ For an OpenAI-compatible server the list appears once the backend is saved with 
 - **Speculative Decode** only engages on greedy (temperature 0) requests, so the default chat temperature does not use it. **Graph Decode** covers normal chats on CUDA only while **Top K** is 1 to 64.
 - **The backend cards' device lists** are built once per SwarmUI start. Restart after changing a GPU or driver.
 - **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
-- **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. Anthropic and OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field.
+- **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field. Claude Opus 5.5, Sonnet 5.5 and Fable 5.1 do not support a forced tool and answer such a request with an error.
 - **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
 - **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
 

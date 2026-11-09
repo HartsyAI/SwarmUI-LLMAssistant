@@ -16,14 +16,15 @@ public static class ModelEndpoints
     /// shouldn't hold up the whole model list (which it would under its full connection timeout).</summary>
     private static readonly TimeSpan ListTimeout = TimeSpan.FromSeconds(8);
 
-    /// <summary>Returns available LLM models from all registered LLM providers. Each provider is queried
-    /// in parallel under a bounded timeout; whatever resolves is returned, and any provider that timed
-    /// out or errored is reported in <c>warnings</c> so the UI can degrade gracefully instead of hanging.</summary>
+    /// <summary>Returns the LLM models <paramref name="session"/>'s user can use, from all registered LLM providers (a provider
+    /// that takes each user's own key lists with theirs). Each provider is queried in parallel under a bounded timeout; whatever
+    /// resolves is returned, and any provider that timed out or errored is reported in <c>warnings</c> so the UI can degrade
+    /// gracefully instead of hanging.</summary>
     public static async Task<JObject> LLMAssistantGetModels(Session session)
     {
         List<ILLMProvider> providers = LLMProviderRegistry.All.ToList();
         (ILLMProvider Provider, List<LLMModelInfo> Models, string Error)[] results =
-            await Task.WhenAll(providers.Select(ListWithTimeout));
+            await Task.WhenAll(providers.Select(provider => ListWithTimeout(provider, session)));
         JArray models = [];
         JArray warnings = [];
         foreach ((ILLMProvider provider, List<LLMModelInfo> providerModels, string error) in results)
@@ -95,12 +96,12 @@ public static class ModelEndpoints
 
     /// <summary>Lists one provider's models under <see cref="ListTimeout"/>, turning a timeout/error into a
     /// human-readable message instead of a thrown exception so one bad backend can't fail the whole call.</summary>
-    private static async Task<(ILLMProvider, List<LLMModelInfo>, string)> ListWithTimeout(ILLMProvider provider)
+    private static async Task<(ILLMProvider, List<LLMModelInfo>, string)> ListWithTimeout(ILLMProvider provider, Session session)
     {
         using CancellationTokenSource cts = new(ListTimeout);
         try
         {
-            return (provider, await provider.ListModels(cts.Token) ?? [], null);
+            return (provider, await provider.ListModelsFor(session, cts.Token) ?? [], null);
         }
         catch (OperationCanceledException)
         {
