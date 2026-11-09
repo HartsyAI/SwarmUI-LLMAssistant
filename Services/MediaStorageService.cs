@@ -79,7 +79,7 @@ public static class MediaStorageService
         {
             throw new InvalidOperationException($"Unsupported image MIME: {mime}. Allowed: png, jpg, webp, gif.");
         }
-        // SwarmUI's ImageFile handles the data URI decode + ImageSharp wrapping.
+        // SwarmUI's ImageFile handles the data URI decode.
         ImageFile img;
         try
         {

@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using FreneticUtilities.FreneticDataSyntax;
+using ImageMagick;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Backends;
 using SwarmUI.Core;
@@ -22,8 +23,6 @@ using HartsyInference.LLM.Looped;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
 using HartsyInference.Tools;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
 
 namespace Hartsy.Extensions.LLMAssistant.Backends;
 
@@ -946,10 +945,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 ? $"data:{(string.IsNullOrEmpty(att.MediaType) ? "image/png" : att.MediaType)};base64,{att.Data}"
                 : att.Data;
             ImageInputResolver.ResolvedImage resolved = await ImageInputResolver.ResolveAsync(reference, ct);
-            using SixLabors.ImageSharp.Image<Rgb24> img = SixLabors.ImageSharp.Image.Load<Rgb24>(resolved.Bytes);
-            byte[] rgb = new byte[img.Width * img.Height * 3];
-            img.CopyPixelDataTo(rgb);
-            images.Add(new ImageData { Rgb = rgb, Width = img.Width, Height = img.Height });
+            using MagickImage img = new(resolved.Bytes);
+            byte[] rgb = img.GetPixels().ToByteArray(PixelMapping.RGB);
+            images.Add(new ImageData { Rgb = rgb, Width = (int)img.Width, Height = (int)img.Height });
         }
         return images;
     }
