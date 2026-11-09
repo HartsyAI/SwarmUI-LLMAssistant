@@ -26,7 +26,9 @@ public static class ImageInputResolver
 
     /// <summary>Raster formats accepted from any image input. ImageMagick also renders SVG, and an SVG can reference
     /// local files, so every other format is rejected before its pixels are decoded.</summary>
-    private static readonly HashSet<MagickFormat> AllowedFormats = [MagickFormat.Png, MagickFormat.Jpeg, MagickFormat.WebP, MagickFormat.Gif, MagickFormat.Bmp, MagickFormat.Tiff];
+    private static readonly HashSet<MagickFormat> AllowedFormats = [MagickFormat.Png, MagickFormat.Jpeg, MagickFormat.WebP, MagickFormat.Gif, MagickFormat.Bmp, MagickFormat.Bmp2, MagickFormat.Bmp3, MagickFormat.Tiff];
+
+    private const string UnsupportedFormatMessage = "Unsupported image format. Allowed: PNG, JPEG, WebP, GIF, BMP, TIFF.";
 
     public class ResolvedImage
     {
@@ -141,10 +143,19 @@ public static class ImageInputResolver
         }
     }
 
-    /// <summary>Reads only the header to identify the format. Throws <see cref="InvalidOperationException"/> when the
-    /// data is unreadable or its format is not in <see cref="AllowedFormats"/>.</summary>
+    /// <summary>Rejects data that is not an allowed raster image. The file signature is checked first so ImageMagick never
+    /// inspects any other format: identifying a PDF, for example, launches Ghostscript. ImageMagick then confirms the
+    /// format from the header without decoding pixels. Throws <see cref="InvalidOperationException"/> on rejection.</summary>
     private static void EnsureRasterImage(byte[] bytes)
     {
+        if (bytes.Length == 0)
+        {
+            throw new InvalidOperationException("Image data is empty.");
+        }
+        if (!HasRasterSignature(bytes))
+        {
+            throw new InvalidOperationException(UnsupportedFormatMessage);
+        }
         MagickFormat format;
         try
         {
@@ -156,8 +167,24 @@ public static class ImageInputResolver
         }
         if (!AllowedFormats.Contains(format))
         {
-            throw new InvalidOperationException("Unsupported image format. Allowed: PNG, JPEG, WebP, GIF, BMP, TIFF.");
+            throw new InvalidOperationException(UnsupportedFormatMessage);
         }
+    }
+
+    /// <summary>True when the data starts with the signature of PNG, JPEG, GIF, BMP, WebP, or TIFF.</summary>
+    private static bool HasRasterSignature(byte[] b)
+    {
+        if (b.Length < 12)
+        {
+            return false;
+        }
+        bool png = b[0] == 0x89 && b[1] == (byte)'P' && b[2] == (byte)'N' && b[3] == (byte)'G';
+        bool jpeg = b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF;
+        bool gif = b[0] == (byte)'G' && b[1] == (byte)'I' && b[2] == (byte)'F' && b[3] == (byte)'8';
+        bool bmp = b[0] == (byte)'B' && b[1] == (byte)'M';
+        bool webp = b[0] == (byte)'R' && b[1] == (byte)'I' && b[2] == (byte)'F' && b[3] == (byte)'F' && b[8] == (byte)'W' && b[9] == (byte)'E' && b[10] == (byte)'B' && b[11] == (byte)'P';
+        bool tiff = (b[0] == (byte)'I' && b[1] == (byte)'I' && b[2] == 0x2A && b[3] == 0) || (b[0] == (byte)'M' && b[1] == (byte)'M' && b[2] == 0 && b[3] == 0x2A);
+        return png || jpeg || gif || bmp || webp || tiff;
     }
 
     private static void EnsureSize(int byteCount)
