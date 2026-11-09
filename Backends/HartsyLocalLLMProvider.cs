@@ -946,6 +946,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 : att.Data;
             ImageInputResolver.ResolvedImage resolved = await ImageInputResolver.ResolveAsync(reference, ct);
             using MagickImage img = new(resolved.Bytes);
+            // CMYK pixels read as RGB come out color-inverted, so convert to sRGB first.
+            img.ColorSpace = ColorSpace.sRGB;
             byte[] rgb = img.GetPixels().ToByteArray(PixelMapping.RGB);
             images.Add(new ImageData { Rgb = rgb, Width = (int)img.Width, Height = (int)img.Height });
         }

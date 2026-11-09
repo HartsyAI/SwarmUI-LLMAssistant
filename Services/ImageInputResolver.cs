@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net.Http;
+using ImageMagick;
 using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Utils;
@@ -23,6 +24,10 @@ public static class ImageInputResolver
     /// <summary>Default request timeout for HTTPS fetches.</summary>
     public static readonly TimeSpan FetchTimeout = TimeSpan.FromSeconds(20);
 
+    /// <summary>Raster formats accepted from any image input. ImageMagick also renders SVG, and an SVG can reference
+    /// local files, so every other format is rejected before its pixels are decoded.</summary>
+    private static readonly HashSet<MagickFormat> AllowedFormats = [MagickFormat.Png, MagickFormat.Jpeg, MagickFormat.WebP, MagickFormat.Gif, MagickFormat.Bmp, MagickFormat.Tiff];
+
     public class ResolvedImage
     {
         public byte[] Bytes;
@@ -32,8 +37,16 @@ public static class ImageInputResolver
         public string DataUri => $"data:{MimeType};base64,{Convert.ToBase64String(Bytes)}";
     }
 
-    /// <summary>Resolves the input string into bytes. See class doc for accepted shapes.</summary>
+    /// <summary>Resolves the input string into bytes, then rejects anything that is not an allowed raster format.
+    /// See class doc for accepted shapes.</summary>
     public static async Task<ResolvedImage> ResolveAsync(string input, CancellationToken ct = default)
+    {
+        ResolvedImage resolved = await ResolveSourceAsync(input, ct);
+        EnsureRasterImage(resolved.Bytes);
+        return resolved;
+    }
+
+    private static async Task<ResolvedImage> ResolveSourceAsync(string input, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input))
         {
@@ -125,6 +138,25 @@ public static class ImageInputResolver
         catch
         {
             throw new InvalidOperationException("Unrecognized image input. Expected a data URI, an Output/... path, an https:// URL, or raw base64.");
+        }
+    }
+
+    /// <summary>Reads only the header to identify the format. Throws <see cref="InvalidOperationException"/> when the
+    /// data is unreadable or its format is not in <see cref="AllowedFormats"/>.</summary>
+    private static void EnsureRasterImage(byte[] bytes)
+    {
+        MagickFormat format;
+        try
+        {
+            format = new MagickImageInfo(bytes).Format;
+        }
+        catch (MagickException ex)
+        {
+            throw new InvalidOperationException("Image could not be read.", ex);
+        }
+        if (!AllowedFormats.Contains(format))
+        {
+            throw new InvalidOperationException("Unsupported image format. Allowed: PNG, JPEG, WebP, GIF, BMP, TIFF.");
         }
     }
 
