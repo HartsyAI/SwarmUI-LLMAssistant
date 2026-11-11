@@ -517,7 +517,8 @@ function llmaIsVisionModel(model) {
     const provider = (model.provider || '').toLowerCase();
     const hay = `${id} ${name} ${family} ${provider}`;
     // Known vision-capable families. Conservative; only well-attested ones.
-    if (/claude-(opus-4|sonnet-4|haiku-4|3-5-sonnet|3-5-haiku|3-opus)/.test(hay)) return true;
+    // Every Claude model Anthropic's API still serves takes images.
+    if (/claude-/.test(hay)) return true;
     if (/(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|chatgpt-4)/.test(hay)) return true;
     if (/(gemini-1\.5|gemini-2|gemini-pro-vision|gemini-flash)/.test(hay)) return true;
     if (/(llava|moondream|minicpm-v|qwen2-vl|qwen-vl|internvl|bakllava|llama-?3\.2-vision|phi-3-vision|phi-3\.5-vision|pixtral|molmo)/.test(hay)) return true;

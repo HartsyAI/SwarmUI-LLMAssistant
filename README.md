@@ -47,7 +47,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - **Real chats, stored on the server.** Threads are grouped by date, searchable, renameable, exportable (JSON / Markdown / plain text), and auto-titled from the first exchange. Your message is saved *before* the model is called, so a disconnect never loses it.
 - **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, so no edit is destructive.
 - **Side-by-side comparison.** Run the same prompt through two models at once, in parallel, then keep the winner.
-- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and Anthropic and OpenAI-compatible endpoints use their native tool APIs.
+- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and OpenAI-compatible endpoints (Claude included) use their native tool-calling API.
 - **Custom assistants.** Per-mode system prompts, inheritance, per-model prompt variants, parameter overrides, avatars, and a per-assistant tool allowlist.
 - **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify and all served locally. **No CDN, no outbound requests.**
 - **Floating companion.** An opt-in in-page helper that can critique your last render, suggest a preset, or explain a SwarmUI feature from the bundled docs.
@@ -730,7 +730,7 @@ Add one under `Server > Backends`. The quickest path is *LLM: Remote (OpenAI-Com
 Each provider is queried in parallel under a bounded timeout, and anything that times out is reported in `warnings` rather than hanging the request. Check the backend's status in `Server > Backends` and its logs.
 
 **"No Anthropic API key set" / OpenAI 401.**
-Keys are per-user. Set yours in the `User` tab; the backend config does not carry one.
+Keys are per-user. Set yours in the `User` tab; the backend config does not carry one. If Claude's model list stays empty after you set a key, Anthropic refused that key: the SwarmUI log shows `Failed to list models from https://api.anthropic.com: HTTP Unauthorized`. Paste the key again, whole, and save.
 
 **Tool calls never fire.**
 Check, in order: the tool is enabled globally (`Settings > Tools`); it's checked on the current assistant; the assistant's tool master switch is on; the composer's wrench toggle is on for this chat; and you hold the matching `llm_tool_*` permission. Small local models often call tools unreliably, try a larger instruct-tuned model, or a provider with native tool calling. A model that answers in prose instead of calling a tool is a model limit, not a broken tool path.

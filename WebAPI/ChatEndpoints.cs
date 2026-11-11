@@ -257,7 +257,7 @@ public static class ChatEndpoints
             // than a missing request field. Verified on hardware 2026-09-05: this was the whole failure.
             if (string.IsNullOrWhiteSpace(model))
             {
-                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync();
+                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync(session);
                 if (fallback is null)
                 {
                     return new JObject
@@ -402,7 +402,7 @@ public static class ChatEndpoints
             assistantId = ResolveAssistantId(assistantId, () => AssistantService.GetActiveAssistantId(settings, session.User));
             if (string.IsNullOrWhiteSpace(model))
             {
-                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync();
+                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync(session);
                 if (fallback is null)
                 {
                     await SendAsync(new JObject

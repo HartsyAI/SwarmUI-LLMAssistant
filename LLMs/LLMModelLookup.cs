@@ -52,12 +52,13 @@ public static class LLMModelLookup
     /// <summary>The first model any registered provider advertises, or null when none does. For callers
     /// that cannot name a model because there is no one to pick one — a voice satellite sends an
     /// utterance and nothing else. Uses the same cached rosters as the lookups above, so it costs
-    /// nothing on the hot path.</summary>
-    public static async Task<LLMModelInfo> GetFirstAvailableAsync()
+    /// nothing on the hot path. Pass the caller's <paramref name="session"/> so a provider whose models
+    /// depend on each user's own key (Claude) lists that user's models.</summary>
+    public static async Task<LLMModelInfo> GetFirstAvailableAsync(Session session = null)
     {
         foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
-            List<LLMModelInfo> models = await GetModelsCached(provider, null);
+            List<LLMModelInfo> models = await GetModelsCached(provider, session);
             if (models.Count > 0)
             {
                 return models[0];

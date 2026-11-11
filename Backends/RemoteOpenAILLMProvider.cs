@@ -327,7 +327,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto
     /// the OpenAI function-tool definition (<c>{type:"function", function:{name, description, parameters}}</c>).
     /// <c>id</c> (snake_case, eg <c>generate_image</c>) is used as the function name, matching
-    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key; same reasoning as Anthropic's mapping.</summary>
+    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key, so a returned tool call names the handler to run.</summary>
     private static JArray BuildOpenAITools(List<JObject> tools)
     {
         JArray result = [];
