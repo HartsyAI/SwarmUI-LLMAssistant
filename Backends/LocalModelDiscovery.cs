@@ -164,8 +164,30 @@ internal static class LocalModelDiscovery
         return false;
     }
 
+    /// <summary>The model id a chat request names for the model at <paramref name="path"/>, the inverse of <see cref="ResolveModelPath"/>: a
+    /// GGUF's file name, or a checkpoint folder's path relative to the model folder that holds it (with <c>/</c> separators). Null when the
+    /// path is under none of <paramref name="folders"/>.</summary>
+    internal static string IdFor(string path, IReadOnlyCollection<string> folders)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        string full = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        foreach (string folder in folders)
+        {
+            string relative = Path.GetRelativePath(folder, full);
+            if (relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative) || relative == ".")
+            {
+                continue;
+            }
+            return File.Exists(full) ? Path.GetFileName(full) : relative.Replace('\\', '/');
+        }
+        return null;
+    }
+
     /// <summary>Resolves a model id to the path the engine loads: a GGUF whose file name (or full path) matches, else a checkpoint folder
-    /// whose id matches (either slash style, any case). Null when nothing matches.</summary>
+    /// whose id, or full path, matches (either slash style, any case). Null when nothing matches.</summary>
     internal static string ResolveModelPath(string modelId, IReadOnlyCollection<string> folders)
     {
         if (string.IsNullOrEmpty(modelId))
@@ -183,6 +205,8 @@ internal static class LocalModelDiscovery
             }
         }
         string wanted = modelId.Replace('\\', '/').Trim('/');
-        return EnumerateCheckpointModels(folders).FirstOrDefault(m => m.Id.Equals(wanted, StringComparison.OrdinalIgnoreCase))?.FullPath;
+        string wantedPath = Path.IsPathRooted(modelId) ? Path.GetFullPath(modelId).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : null;
+        return EnumerateCheckpointModels(folders).FirstOrDefault(m => m.Id.Equals(wanted, StringComparison.OrdinalIgnoreCase)
+            || (wantedPath is not null && m.FullPath.Equals(wantedPath, StringComparison.OrdinalIgnoreCase)))?.FullPath;
     }
 }

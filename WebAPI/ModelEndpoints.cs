@@ -78,7 +78,7 @@ public static class ModelEndpoints
 
     /// <summary>Downloads a variant of a downloadable local model (today <c>moss-vl-realtime</c>: <c>gguf-q4k</c>, <c>bf16</c>, <c>nf4</c>,
     /// <c>fp8</c>) into the Swarm LLM model folder, streaming progress. Request: <c>{"model":"moss-vl-realtime","variant":"nf4"}</c>.
-    /// Frames out: <c>{"progress":{"file":"…","fraction":0.42}}</c> per file, then the returned <c>{"success":true,"path":"…"}</c> (or
+    /// Frames out: <c>{"progress":{"file":"…","fraction":0.42}}</c> per file, then the returned <c>{"success":true,"path":"…","model":"…"}</c> (<c>model</c> is the id to chat with) (or
     /// <c>{"success":false,"error":"…"}</c>). The client closing the socket cancels the download; files already finished are kept.
     /// Admin only: a download is gigabytes of disk and bandwidth.</summary>
     public static async Task<JObject> LLMAssistantDownloadModel(WebSocket socket, Session session, JObject input)
@@ -126,7 +126,8 @@ public static class ModelEndpoints
                 }
                 frames.Writer.TryWrite(new JObject { ["progress"] = new JObject { ["file"] = asset.FileName, ["fraction"] = fraction } });
             }, cancel.Token);
-            return new JObject { ["success"] = true, ["path"] = path };
+            // "model" is the id to chat with (what the model list shows); "path" is where it landed.
+            return new JObject { ["success"] = true, ["path"] = path, ["model"] = HartsyLocalLLMProvider.ChatModelIdFor(path) };
         }
         catch (OperationCanceledException)
         {

@@ -523,8 +523,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return true;
     }
 
+    /// <summary>The model id a chat request names for the downloaded model at <paramref name="path"/>: what <see cref="ListModels"/> shows,
+    /// not the filesystem path. Null when the path is outside the configured LLM model folders.</summary>
+    internal static string ChatModelIdFor(string path) => LocalModelDiscovery.IdFor(path, [.. ModelFolders()]);
+
     /// <summary>Downloads <paramref name="variant"/> of the catalog model <paramref name="model"/> (eg <c>moss-vl-realtime</c>, <c>nf4</c>)
-    /// under the Swarm model root and returns the path to chat with: the checkpoint folder, or the GGUF file. Files already there are kept;
+    /// under the Swarm model root and returns the path of the result: the checkpoint folder, or the GGUF file (see <see cref="ChatModelIdFor"/>
+    /// for the id to chat with). Files already there are kept;
     /// each is verified against its SHA-256. <paramref name="onProgress"/> gets each file and its 0..1 progress.</summary>
     /// <exception cref="SwarmReadableErrorException">The model is not downloadable, or the download failed.</exception>
     public static async Task<string> DownloadModelAsync(string model, string variant, Action<ModelAsset, double> onProgress, CancellationToken ct)

@@ -613,7 +613,7 @@ they were sent with.
 | `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
 | `LLMAssistantGetModels` | none | `{success, models[], warnings[]}`; providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
 | `LLMAssistantUnloadModels` | none | `{success, freed, providers}`; `freed` counts providers that actually released something |
-| `LLMAssistantDownloadModel` | WebSocket; `model` (`moss-vl-realtime`), `variant?` (`gguf-q4k` default, `bf16`, `nf4`, `fp8`) | frames `{progress:{file, fraction}}`, then `{success, path}`; admin only; closing the socket cancels it |
+| `LLMAssistantDownloadModel` | WebSocket; `model` (`moss-vl-realtime`), `variant?` (`gguf-q4k` default, `bf16`, `nf4`, `fp8`) | frames `{progress:{file, fraction}}`, then `{success, path, model}` (`model` is the id to chat with, as the model list shows it); admin only; closing the socket cancels it |
 | `LLMAssistantGetSessionState` | none | `{success, state}` |
 | `LLMAssistantSetSessionState` | `state` (patch object; `null` clears a key) | `{success, state}` |
 | `LLMAssistantGetAssets` | `threadId` | `{success, threadId, assets[]}` |

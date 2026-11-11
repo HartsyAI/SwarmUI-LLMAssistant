@@ -113,6 +113,39 @@ public sealed class MossVlModelDiscoveryTests : IDisposable
         Assert.Equal(real, LocalModelDiscovery.ResolveModelPath("Moss-VL-Realtime-q4k.gguf", [_root]));
     }
 
+    [Fact]
+    public void ADownloadedModelsPathBecomesAnIdTheChatCanResolveBack()
+    {
+        // The download route reports where a model landed; the chat names a model by its id, so the route also returns IdFor(path).
+        string folder = Checkpoint(Path.Combine("moss", "nf4"), Nf4Moss);
+        string gguf = Path.Combine(_root, "moss", "Moss-VL-Realtime-q4k.gguf");
+        File.WriteAllBytes(gguf, [0]);
+
+        Assert.Equal("moss/nf4", LocalModelDiscovery.IdFor(folder, [_root]));
+        Assert.Equal("moss/nf4", LocalModelDiscovery.IdFor(folder + Path.DirectorySeparatorChar, [_root]));
+        Assert.Equal("Moss-VL-Realtime-q4k.gguf", LocalModelDiscovery.IdFor(gguf, [_root]));
+        Assert.Equal(Path.GetFullPath(folder), LocalModelDiscovery.ResolveModelPath(LocalModelDiscovery.IdFor(folder, [_root]), [_root]));
+        Assert.Equal(gguf, LocalModelDiscovery.ResolveModelPath(LocalModelDiscovery.IdFor(gguf, [_root]), [_root]));
+    }
+
+    [Fact]
+    public void ACheckpointFolderIsAlsoResolvedByItsFullPath()
+    {
+        string folder = Checkpoint(Path.Combine("moss", "fp8"), Fp8Moss);
+        Assert.Equal(Path.GetFullPath(folder), LocalModelDiscovery.ResolveModelPath(folder, [_root]));
+        Assert.Equal(Path.GetFullPath(folder), LocalModelDiscovery.ResolveModelPath(folder + Path.DirectorySeparatorChar, [_root]));
+        // A folder outside the model roots is not resolved, whatever path is given.
+        Assert.Null(LocalModelDiscovery.ResolveModelPath(Path.Combine(Path.GetTempPath(), "elsewhere"), [_root]));
+    }
+
+    [Fact]
+    public void APathOutsideTheModelFoldersHasNoId()
+    {
+        Assert.Null(LocalModelDiscovery.IdFor(Path.Combine(Path.GetTempPath(), "elsewhere", "nf4"), [_root]));
+        Assert.Null(LocalModelDiscovery.IdFor(_root, [_root]));
+        Assert.Null(LocalModelDiscovery.IdFor(null, [_root]));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]
