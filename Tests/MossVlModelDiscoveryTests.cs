@@ -98,6 +98,21 @@ public sealed class MossVlModelDiscoveryTests : IDisposable
         Assert.Equal(LocalModelDiscovery.ResolveModelPath("moss/nf4", [_root]), LocalModelDiscovery.ResolveModelPath("moss/nf4/", [_root]));
     }
 
+    [Fact]
+    public void TheEnginesConvertedWeightCachesAreNotChatModels()
+    {
+        // The engine writes text-only conversions to a _gguf-cache folder beside the model (found live: 19 of them listed as models).
+        string real = Path.Combine(_root, "moss", "Moss-VL-Realtime-q4k.gguf");
+        string cached = Path.Combine(_root, "moss", "_gguf-cache", "moss-vl-text-q4_0-3l-v1.gguf");
+        Directory.CreateDirectory(Path.GetDirectoryName(cached)!);
+        File.WriteAllBytes(real, [0]);
+        File.WriteAllBytes(cached, [0]);
+
+        Assert.Equal([real], LocalModelDiscovery.EnumerateGgufFiles(_root).ToArray());
+        Assert.Null(LocalModelDiscovery.ResolveModelPath("moss-vl-text-q4_0-3l-v1.gguf", [_root]));
+        Assert.Equal(real, LocalModelDiscovery.ResolveModelPath("Moss-VL-Realtime-q4k.gguf", [_root]));
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("")]

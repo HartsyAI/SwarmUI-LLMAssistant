@@ -25,6 +25,18 @@ internal static class LocalModelDiscovery
     /// <param name="ContextLength">The text model's maximum positions, or -1 when the config does not say.</param>
     internal sealed record CheckpointModel(string Id, string Name, string FullPath, long SizeBytes, string Quantization, int ContextLength);
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> WarnedAmbiguousFolders = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The name of the folder the engine writes converted-weight caches to beside a model. Its GGUF files are an
+    /// implementation detail (a text-only conversion, no tokenizer), never chat models.</summary>
+    internal const string QuantCacheFolder = "_gguf-cache";
+
+    /// <summary>Every GGUF file under <paramref name="folder"/> except the engine's own converted-weight caches (<see cref="QuantCacheFolder"/>).</summary>
+    internal static IEnumerable<string> EnumerateGgufFiles(string folder) =>
+        Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories)
+            .Where(file => !Path.GetRelativePath(folder, file).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                .Any(part => part.Equals(QuantCacheFolder, StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>Every MOSS-VL checkpoint folder under <paramref name="folders"/>. A folder that is a checkpoint is not searched further
     /// (its shards are not models). A folder that holds both a GGUF and the checkpoint is ambiguous to the engine, so it is skipped and logged.</summary>
     internal static IEnumerable<CheckpointModel> EnumerateCheckpointModels(IEnumerable<string> folders)
@@ -49,7 +61,11 @@ internal static class LocalModelDiscovery
             }
             if (Directory.EnumerateFiles(directory, "*.gguf").Any())
             {
-                Logs.Warning($"[LLMAssistant] '{directory}' holds both a GGUF and a checkpoint, which the engine cannot tell apart. Keep them in separate folders; this one is not listed.");
+                // A listing runs often; say it once per folder.
+                if (WarnedAmbiguousFolders.TryAdd(directory, 0))
+                {
+                    Logs.Warning($"[LLMAssistant] '{directory}' holds both a GGUF and a checkpoint, which the engine cannot tell apart. Keep them in separate folders; this one is not listed.");
+                }
                 yield break;
             }
             yield return Describe(root, info);
@@ -158,7 +174,7 @@ internal static class LocalModelDiscovery
         }
         foreach (string folder in folders)
         {
-            foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
+            foreach (string file in LocalModelDiscovery.EnumerateGgufFiles(folder))
             {
                 if (Path.GetFileName(file).Equals(modelId, StringComparison.OrdinalIgnoreCase) || file.Equals(modelId, StringComparison.OrdinalIgnoreCase))
                 {

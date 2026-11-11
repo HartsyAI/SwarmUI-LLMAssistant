@@ -1097,7 +1097,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         foreach (string folder in ModelFolders())
         {
-            foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
+            foreach (string file in LocalModelDiscovery.EnumerateGgufFiles(folder))
             {
                 ct.ThrowIfCancellationRequested();
                 string id = Path.GetFileName(file);
