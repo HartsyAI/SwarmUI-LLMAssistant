@@ -8,7 +8,7 @@ using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using HartsyInference.Engine.Requests;
-using HartsyInference.Tools;
+using HartsyInference.Engine.ToolCalling;
 using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;

@@ -116,7 +116,8 @@ The local card has three sections: Basics, Memory and Advanced. A backend you al
 | Setting | Default | Notes |
 |---|---|---|
 | **Placement** (`Placement`) | `auto` | Where a GGUF model goes when it is too big for this GPU. CUDA only. **Auto** puts the whole model on this GPU when it fits, else splits its layers across every GPU, else (for a mixture-of-experts model) keeps the most-used experts on this GPU and runs the rest on the CPU. **GPU only** refuses a model that does not fit instead. **Split across GPUs** always splits. **Offload experts to CPU** always offloads, which runs a large mixture-of-experts model on a small card, more slowly. The model list shows where the engine put each loaded model. |
-| **Keep Weights Compressed** (`LowVramQuant`) | `false` | Keeps quantized GGUF weights compressed on the GPU instead of caching a wider copy: less VRAM, slower replies. CUDA only. **VRAM Mode** Maximum turns it on too. |
+| **Keep Weights Compressed** (`LowVramQuant`) | `false` | Keeps quantized GGUF weights compressed on the GPU instead of caching a wider copy: less VRAM, slower replies. CUDA, and Vulkan for MOSS-VL. **VRAM Mode** Maximum turns it on too. |
+| **Weight Precision** (`WeightPrecision`) | `native` | For a MOSS-VL checkpoint folder only: re-quantizes the weights a release leaves in BF16 as the model loads, so it fits a smaller card. **Q8_0** suits the NF4 release and **Q4_K** the FP8 one (see **MOSS-VL-Realtime** below). A GGUF ignores it, and it applies on the next load: unload the model to change it. |
 | **Unload After Each Reply** (`AlwaysFreeMemory`) | `false` | Unloads the model after every reply, so the next reply loads it again. Unlike **VRAM Mode** Maximum, it changes nothing else. |
 | **Free RAM Floor (GB)** (`EvictBelowGb`) | `0` | Before each reply, unloads the loaded model first when free system RAM is below this many GB. `0` turns it off. Set it too high and every reply reloads the model. |
 | **Reuse Chat Memory** (`ReuseConversationPrefix`) | `true` | Keeps each conversation's processed prompt between turns, so long chats start answering sooner (see below). Not used while **Unload After Each Reply** is on, or with **VRAM Mode** Aggressive or Maximum. |
@@ -139,6 +140,11 @@ Free Memory (including Swarm's idle VRAM clear), switching models or editing the
 | **Graph Decode** (`GraphDecode`) | `false` | Records each decode step once as a CUDA graph and replays it, for faster replies on common dense models (Llama, Qwen, Mistral, Gemma). Works for greedy requests and, while **Top K** is 1 to 64, for normal chats. CUDA only: Vulkan turns graph decode on by itself for longer greedy replies, so this setting is not sent there. When it is on and a capture fails, the request fails instead of decoding the normal way, so turn it off if replies fail with a graph error. |
 | **Speculative Decode** (`SpeculativeDecode`) | `false` | Prompt-lookup speculative decoding, with no draft model. Only for greedy (temperature 0) requests without JSON mode, and only when **Graph Decode** does not take the request. Biggest win on output that repeats earlier text. |
 | **Default Loops** (`RecurrentLoops`) | `0` | For a looped model such as NVIDIA Nemotron Dory: how many passes to run when the chat sets no **Loops**. **Model default** keeps the checkpoint's own count; `1` is fastest and `4` most accurate. Every other model ignores it. See [looped models](#looped-models-dory). |
+
+| **Video Frames Per Second** (`VideoFps`) | `1` | Frames taken each second from an attached video (MOSS-VL). `1` is the model's own default; lower is faster and uses less memory. |
+| **Video Max Frames** (`VideoMaxFrames`) | `256` | The most frames taken from one attached video. Each frame costs vision memory and time, and replies slow down past about 32 frames held. |
+
+**MOSS-VL-Realtime (images and video)** <a id="moss-vl-realtime"></a>. OpenMOSS's 11B vision-language model (engine alpha.420 and later) answers questions about attached images and videos. Put either form in the LLM model folder: the community Q4_K GGUF (`Moss-VL-Realtime-q4k.gguf`, about 8.4 GB, with `tokenizer.json` beside it; the vision tower is inside the GGUF, so no `mmproj` is needed), or an official checkpoint **folder** (BF16, NF4 or FP8; a folder is listed by its path under the model folder). Both appear in the model list with image and video attachments enabled. A server admin can fetch a variant (`gguf-q4k`, `nf4`, `fp8`, `bf16`) with `LLMAssistantDownloadModel`; each folder variant lands in its own `moss-vl-realtime-<variant>` folder. On a 12 GB card the GGUF runs as is; the NF4 folder with **Weight Precision** `q8_0` decodes at about 28.8 tokens per second and the FP8 folder with `q4_k` at about 9.7 (Vulkan, RTX 3060). The model answers about the last user message and its media only: it ignores the system prompt and earlier turns, takes no tools, and a message with no image or video gets the engine's refusal. Video needs `ffmpeg` and `ffprobe` on the server's `PATH`, or in the folder the engine setting `paths.ffmpegDir` names. CUDA has not been run for this model.
 
 **Looped models (Dory)** <a id="looped-models-dory"></a>. NVIDIA Nemotron Dory 1.0 (engine family `dory`, HartsyInference alpha.378 and later) re-runs a shared block of layers a chosen number of times per request, trading latency for accuracy without swapping checkpoints. The count is the **Loops** field: per chat in the parameters popover, per user in the settings modal's Generation section (saved as the `loops` parameter, 0 = not set), and the backend's **Default Loops** (`RecurrentLoops`) when neither is set; a request's own value wins. The chat and voice routes take it as `loops` (1 to 4); the engine rejects a count above the model's maximum. Calls the extension makes on its own (chat titles, `<llm:…>` prompt enhancement, the caption tools) use the backend default. The engine keeps a conversation's cached prefix only for requests with the same loop count, so changing it mid-thread re-processes the prompt once. Every other model ignores the field.
 
@@ -315,6 +321,8 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 ## Vision
 
 Assistants with a `vision` instruction accept image attachments. Attach with the paperclip or drag-and-drop; the image is uploaded once, downscaled to the configured long-edge cap, and stored as a URL on the message, so the thread blob never carries base64.
+
+A model that also takes **video** (MOSS-VL-Realtime, see [MOSS-VL-Realtime](#moss-vl-realtime)) enables mp4, webm and mov attachments on the same paperclip, up to 64 MB. The video is stored under the thread's uploads like an image (so deleting the thread cleans it up), previews in the composer, and plays in the message. Other models keep the image-only paperclip, and a video dropped on one is refused with a message.
 
 The same vision path backs the `caption_image` tool, `fuse_image_descriptions`, `batch_caption_folder`, the companion's "Critique my last image", and the Generate tab's magic-vision action.
 
@@ -503,6 +511,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
 | `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
+| `LLMAssistantUploadChatVideo` | POST | `threadId`, `messageId`, `videoData` (data URI; mp4, webm or mov, up to 64 MB) | `{success, url, mediaType, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
 
@@ -604,6 +613,7 @@ they were sent with.
 | `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
 | `LLMAssistantGetModels` | none | `{success, models[], warnings[]}`; providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |
 | `LLMAssistantUnloadModels` | none | `{success, freed, providers}`; `freed` counts providers that actually released something |
+| `LLMAssistantDownloadModel` | WebSocket; `model` (`moss-vl-realtime`), `variant?` (`gguf-q4k` default, `bf16`, `nf4`, `fp8`) | frames `{progress:{file, fraction}}`, then `{success, path}`; admin only; closing the socket cancels it |
 | `LLMAssistantGetSessionState` | none | `{success, state}` |
 | `LLMAssistantSetSessionState` | `state` (patch object; `null` clears a key) | `{success, state}` |
 | `LLMAssistantGetAssets` | `threadId` | `{success, threadId, assets[]}` |
@@ -750,7 +760,10 @@ The modal is scoped to the tab pane. If it escapes, `.llma-container` has lost `
 It's opt-in: enable it in `Settings > Companion`, and make sure you have `llm_companion`.
 
 **"I can't see images."**
-Either the selected model isn't vision-capable or the assistant has no `vision` instruction. Switch to a vision model (a Claude model, a vision-tagged Ollama model, or a multimodal GGUF with its mmproj alongside).
+Either the selected model isn't vision-capable or the assistant has no `vision` instruction. Switch to a vision model (a Claude model, a vision-tagged Ollama model, a multimodal GGUF with its mmproj alongside, or MOSS-VL-Realtime).
+
+**"I can't attach a video", or a video reply says ffmpeg failed.**
+Only a video-capable model (MOSS-VL-Realtime) enables video; the paperclip's tooltip says what the selected model takes. A video is decoded on the server with `ffmpeg` and `ffprobe`: install them on the `PATH`, or set the engine setting `paths.ffmpegDir` to the folder that holds them. Videos over 64 MB are refused.
 
 **The local LLM stops with an engine error, or CUDA is missing from Device.**
 The engine's CUDA kernels need an NVIDIA RTX 30-series card or newer. Set **Device** to **Auto**: on an older NVIDIA card (RTX 20-series, GTX 16-series), or an AMD or Intel GPU, Auto picks Vulkan. The server log says why CUDA was left out. After changing a GPU or driver, restart SwarmUI so the card lists it.

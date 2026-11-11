@@ -2,7 +2,7 @@ using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using HartsyInference.Engine.Requests;
-using HartsyInference.Tools;
+using HartsyInference.Engine.ToolCalling;
 using ToolDefinition = HartsyInference.Engine.Requests.ToolDefinition;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Newtonsoft.Json.Linq;

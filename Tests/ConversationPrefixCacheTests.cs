@@ -4,7 +4,7 @@ using Hartsy.Extensions.LLMAssistant.WebAPI;
 using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
-using HartsyInference.Tools;
+using HartsyInference.Engine.ToolCalling;
 using Newtonsoft.Json.Linq;
 using Xunit;
 

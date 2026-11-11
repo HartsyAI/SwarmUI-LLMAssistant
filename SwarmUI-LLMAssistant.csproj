@@ -31,9 +31,6 @@
          lookup on nuget.org, so a developer's local feed of alpha.N-local.M packs, which NuGet ranks above the published
          alpha.N, is never picked up (that is what broke every extension build on 2026-10-07 under the old floating alpha.*). -->
     <PackageReference Include="HartsyInference" Version="*-*" />
-    <!-- HartsyInference.Tools (ToolLoop/ToolRegistry/ToolCalling) is a separate package, not part of the meta package; it
-         floats the same way, and the engine publishes both together. -->
-    <PackageReference Include="HartsyInference.Tools" Version="*-*" />
   </ItemGroup>
 
   <!-- LOCAL ENGINE DEBUGGING (dotnet build -p:UseLocalHartsy=true): the engine references come from HartsyLocal.props,

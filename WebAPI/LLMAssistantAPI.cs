@@ -159,6 +159,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ModelEndpoints.LLMAssistantGetModels, false, PermModels);
         API.RegisterAPICall(ModelEndpoints.LLMAssistantDecide, true, PermChat);
         API.RegisterAPICall(ModelEndpoints.LLMAssistantUnloadModels, true, PermModels);
+        // Gigabytes of disk and bandwidth, so admin-only like the audit log.
+        API.RegisterAPICall(ModelEndpoints.LLMAssistantDownloadModel, true, PermSharedWrite);
         // Threads
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThreads, false, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantGetThread, false, PermThreads);
