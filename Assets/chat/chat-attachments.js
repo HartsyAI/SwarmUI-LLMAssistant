@@ -26,12 +26,13 @@
     const LLMA_VIDEO_EXT_MIME = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
     const LLMA_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
-    /** 'image', 'video' or null for a file. Video also matches by extension, because browsers often report an empty type for .mov. */
+    /** 'image', 'video' or null for a file. Video also matches by extension when the browser reports no type or a generic
+     *  application/octet-stream (common for .mov), the same fallback llmaVideoMime applies. */
     function llmaAttachKind(file) {
         const type = (file?.type || '').toLowerCase();
         if (type.startsWith('image/')) return 'image';
         if (type.startsWith('video/')) return 'video';
-        if (!type && LLMA_VIDEO_EXT_MIME[(file?.name || '').split('.').pop().toLowerCase()]) return 'video';
+        if ((!type || type === 'application/octet-stream') && LLMA_VIDEO_EXT_MIME[(file?.name || '').split('.').pop().toLowerCase()]) return 'video';
         return null;
     }
 

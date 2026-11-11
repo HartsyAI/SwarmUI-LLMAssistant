@@ -54,6 +54,17 @@ public class VideoAttachmentWiringTests
     }
 
     [Fact]
+    public void AttachKind_RecognizesAVideoByExtensionWhenTheTypeIsEmptyOrOctetStream()
+    {
+        // Browsers often report application/octet-stream for .mov/.mkv; the kind check must not reject it before llmaVideoMime's fallback runs.
+        string js = Read("Assets", "chat", "chat-attachments.js");
+        int fn = js.IndexOf("function llmaAttachKind", StringComparison.Ordinal);
+        Assert.True(fn >= 0);
+        string body = js[fn..js.IndexOf("function llmaVideoMime", StringComparison.Ordinal)];
+        Assert.Contains("(!type || type === 'application/octet-stream') && LLMA_VIDEO_EXT_MIME[", body);
+    }
+
+    [Fact]
     public void Composer_GatesVideoDrops_WithAVideoSpecificToast()
     {
         string composer = Read("Assets", "chat", "chat-composer.js");
