@@ -515,22 +515,32 @@ function llmaOpenModelPicker() {
     }
 }
 
-// Toggles the paperclip / attach-image button based on the active model's vision capability.
-// Tri-state: known-vision (enabled, normal tooltip), known-text-only (disabled, hint tooltip),
-// unknown (enabled, no change) — see llmaIsVisionModel for the fail-open semantics.
+// Toggles the paperclip / attach button based on the active model's vision and video capability.
+// Tri-state vision: known-vision (enabled, normal tooltip), known-text-only (disabled, hint tooltip),
+// unknown (enabled, no change) — see llmaIsVisionModel for the fail-open semantics. Video is strict
+// (llmaIsVideoModel): the file picker only offers video files when the model says it takes video.
 function llmaUpdateAttachAvailability() {
     const label = document.getElementById('llma-attach-label');
     if (!label) return;
     const model = (LLMAState.availableModels || []).find(m => m.id === LLMAState.currentModel);
     const cap = llmaIsVisionModel(model);
-    if (cap === false) {
+    const video = llmaIsVideoModel(model);
+    const fileInput = document.getElementById('llma-attach-file');
+    if (cap === false && !video) {
         label.classList.add('llma-attach-disabled');
         label.setAttribute('aria-disabled', 'true');
         label.title = translate("The current model doesn't support image input. Pick a vision model to attach images.");
+        if (fileInput) fileInput.accept = '';
     } else {
         label.classList.remove('llma-attach-disabled');
         label.removeAttribute('aria-disabled');
-        label.title = translate('Attach image');
+        if (video) {
+            label.title = translate('Attach image or video');
+            if (fileInput) fileInput.accept = cap === false ? LLMA_VIDEO_ACCEPT : `image/*,${LLMA_VIDEO_ACCEPT}`;
+        } else {
+            label.title = translate('Attach image');
+            if (fileInput) fileInput.accept = 'image/*';
+        }
     }
 }
 

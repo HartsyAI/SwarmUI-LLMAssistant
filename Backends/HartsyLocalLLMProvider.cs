@@ -20,9 +20,10 @@ using HartsyInference.Engine.Placement;
 using HartsyInference.Engine.Registry;
 using HartsyInference.Engine.Requests;
 using HartsyInference.LLM.Looped;
+using HartsyInference.LLM.Models.MossVl;
 using HartsyInference.Engine.Services;
 using HartsyInference.ModelAssets.Gguf;
-using HartsyInference.Tools;
+using HartsyInference.Engine.ToolCalling;
 
 namespace Hartsy.Extensions.LLMAssistant.Backends;
 
@@ -54,8 +55,19 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             ManualNames = ["Auto (recommended)", "GPU only", "Split across GPUs", "Offload experts to CPU"])]
         public string Placement = "auto";
 
-        [ConfigComment("Keeps quantized GGUF weights compressed on the GPU: less VRAM, slower replies. NVIDIA (CUDA) only.\nVRAM Mode Maximum turns this on too.")]
+        [ConfigComment("Keeps quantized GGUF weights compressed on the GPU: less VRAM, slower replies. NVIDIA (CUDA), and Vulkan for MOSS-VL.\nVRAM Mode Maximum turns this on too.")]
         public bool LowVramQuant = false;
+
+        [ConfigComment("Re-quantizes the BF16 weights of a MOSS-VL checkpoint folder as it loads, so it fits a smaller card. q8_0 suits the NF4 release, q4_k the FP8 one.\nNative keeps the stored weights. A GGUF ignores this. Unload the model to change it.")]
+        [ManualSettingsOptions(Impl = null, Vals = ["native", "q8_0", "q6_k", "q5_k", "q4_k", "q4_0"],
+            ManualNames = ["Native (as stored)", "Q8_0", "Q6_K", "Q5_K", "Q4_K", "Q4_0"])]
+        public string WeightPrecision = "native";
+
+        [ConfigComment("Frames taken each second from an attached video (MOSS-VL). 1 is the model's default.\nLower is faster and uses less memory.")]
+        public double VideoFps = 1.0;
+
+        [ConfigComment("The most frames taken from one attached video (MOSS-VL). Each frame costs memory and time.\nReplies slow down past about 32 frames.")]
+        public int VideoMaxFrames = 256;
 
         [ConfigComment("Makes words the model already used less likely, so small models don't loop.\n1.0 turns it off. 1.1 is a good default.")]
         public double RepetitionPenalty = 1.1;
@@ -329,11 +341,11 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     protected override Task OnProviderInit()
     {
         EngineOptions options = new() { VramPolicy = ParseVramMode(Settings.VramMode) };
-        // Installs the Tools package's stream filter: it only ever does anything for a request that sets
-        // TextRequest.Tools (ToolCalling.CreateFilter returns null otherwise), so this is safe to install
+        // Installs the engine's tool-call stream filter: it only ever does anything for a request that sets
+        // TextRequest.Tools (ToolCallParsing.CreateFilter returns null otherwise), so this is safe to install
         // unconditionally; every existing request without Tools set keeps its exact current code path.
-        // The format is resolved per request from the model's own template (see ToolCalling.ResolveFormat).
-        ToolCalling.Install(options);
+        // The format is resolved per request from the model's own template (see ToolCallParsing.ResolveFormat).
+        ToolCallParsing.Install(options);
         // The policy reaches the text slots because TextService applies the engine's policy to the backends it
         // builds per device key; without that it would only govern this shell engine's own unused backend.
         DeviceKind = LocalDeviceChoices.ResolveKind(Settings.Device, Settings.GPUDeviceId);
@@ -492,6 +504,56 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return Path.GetDirectoryName(ModelDownloader.PrimaryLocalPath(entry));
     }
 
+    /// <summary>The catalog models a user may download from the chat UI: those with downloadable variants (today MOSS-VL-Realtime). Anything
+    /// else is refused, so this route cannot be used to pull an arbitrary multi-gigabyte catalog entry.</summary>
+    internal static bool IsDownloadableModel(string model, string variant, out CatalogEntry entry, out string error)
+    {
+        entry = string.IsNullOrWhiteSpace(model) ? null : ModelCatalog.Find(model);
+        if (entry is null || entry.Modality != Modality.Text || entry.Variants.Count == 0)
+        {
+            error = $"'{model}' is not a downloadable local LLM.";
+            return false;
+        }
+        if (!entry.Variants.Any(v => v.Id.Equals(variant, StringComparison.OrdinalIgnoreCase)))
+        {
+            error = $"'{entry.Id}' has no variant '{variant}'. Variants: {string.Join(", ", entry.Variants.Select(v => v.Id))}.";
+            return false;
+        }
+        error = null;
+        return true;
+    }
+
+    /// <summary>The model id a chat request names for the downloaded model at <paramref name="path"/>: what <see cref="ListModels"/> shows,
+    /// not the filesystem path. Null when the path is outside the configured LLM model folders.</summary>
+    internal static string ChatModelIdFor(string path) => LocalModelDiscovery.IdFor(path, [.. ModelFolders()]);
+
+    /// <summary>Downloads <paramref name="variant"/> of the catalog model <paramref name="model"/> (eg <c>moss-vl-realtime</c>, <c>nf4</c>)
+    /// under the Swarm model root and returns the path of the result: the checkpoint folder, or the GGUF file (see <see cref="ChatModelIdFor"/>
+    /// for the id to chat with). Files already there are kept;
+    /// each is verified against its SHA-256. <paramref name="onProgress"/> gets each file and its 0..1 progress.</summary>
+    /// <exception cref="SwarmReadableErrorException">The model is not downloadable, or the download failed.</exception>
+    public static async Task<string> DownloadModelAsync(string model, string variant, Action<ModelAsset, double> onProgress, CancellationToken ct)
+    {
+        if (!IsDownloadableModel(model, variant, out CatalogEntry entry, out string error))
+        {
+            throw new SwarmReadableErrorException(error);
+        }
+        if (string.IsNullOrEmpty(EngineKnobs.ModelsRoot.Value))
+        {
+            KnobStore.Set(EngineKnobs.ModelsRoot, Program.ServerSettings.Paths.ActualModelRoot);
+        }
+        Logs.Info($"[LLMAssistant] Downloading '{entry.Id}' variant '{variant}' to {RepoPaths.ModelsRoot()}.");
+        try
+        {
+            await ModelDownloader.DownloadVariantAsync(entry, variant, onProgress, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new SwarmReadableErrorException($"Downloading '{entry.Id}' ({variant}) failed: {ex.Message}");
+        }
+        return ModelDownloader.VariantFolder(entry, variant) ?? ModelDownloader.PrimaryLocalPath(entry);
+    }
+
     /// <summary>Answers a Jev / SystemOne request body (<c>/v1/systemone</c> shape) with Cloudflare Clef. The release
     /// directory (<c>model</c> in the body, e.g. <c>clef-flash</c>) must sit in the LLM model folder.</summary>
     public async Task<string> DecideAsync(string requestJson, CancellationToken ct)
@@ -503,25 +565,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         return await Engine.Decisions.DecideAsync(spec, requestJson, ct);
     }
 
-    /// <summary>Resolves a model id (file name) to a full GGUF path, or null if not found.</summary>
-    private static string ResolvePath(string modelId)
-    {
-        if (string.IsNullOrEmpty(modelId))
-        {
-            return null;
-        }
-        foreach (string folder in ModelFolders())
-        {
-            foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
-            {
-                if (Path.GetFileName(file).Equals(modelId, StringComparison.OrdinalIgnoreCase) || file.Equals(modelId, StringComparison.OrdinalIgnoreCase))
-                {
-                    return file;
-                }
-            }
-        }
-        return null;
-    }
+    /// <summary>Resolves a model id to the path the engine loads: a GGUF by file name, or a checkpoint folder (MOSS-VL BF16, NF4, FP8)
+    /// by its path under the model folder. Null if not found. See <see cref="LocalModelDiscovery.ResolveModelPath"/>.</summary>
+    private static string ResolvePath(string modelId) => LocalModelDiscovery.ResolveModelPath(modelId, [.. ModelFolders()]);
 
     /// <summary>Resolves the GGUF path, applies the low-memory eviction check, and builds the
     /// <see cref="ModelSpec"/>/<see cref="TextRequest"/> pair every entry point into the engine needs
@@ -534,7 +580,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         string path = ResolvePath(input.Model);
         if (path is null)
         {
-            throw new SwarmReadableErrorException($"LLM model '{input.Model}' not found in the LLM model folder(s). Drop a .gguf file into Models/llm.");
+            throw new SwarmReadableErrorException($"LLM model '{input.Model}' not found in the LLM model folder(s). Drop a .gguf file, or a MOSS-VL checkpoint folder, into Models/llm.");
         }
         await MaybeEvictForLowMemory();
         ModelSpec spec = new() { Requested = input.Model, Modality = Modality.Text, LocalPath = path };
@@ -700,10 +746,13 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             LLMMessage m = source[i];
             string content = m.Content ?? "";
             List<ImageData> images = null;
+            VideoClip video = null;
             if (i == lastUserIdx && m.Media is { Count: > 0 })
             {
-                images = await DecodeImagesAsync(m.Media, ct);
-                if (images.Count > 0)
+                // Videos travel as encoded bytes (the engine decodes them); only still images go through the pixel decoder.
+                images = await DecodeImagesAsync([.. m.Media.Where(a => a is null || !a.IsVideo)], ct);
+                video = await ReadVideoAsync(m.Media, ct);
+                if (images.Count > 0 || video is not null)
                 {
                     // The chat layer inlines "[Attached image URL: ...]" into the text alongside real media so
                     // the model can reference the path when chaining tools. That annotation must never reach a
@@ -711,7 +760,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     content = StripImageAnnotations(content);
                 }
             }
-            messages.Add(ToTextMessage(m, content, images, splitReasoning));
+            messages.Add(ToTextMessage(m, content, images, splitReasoning, video));
         }
         List<ToolDefinition> tools = null;
         // Tools are offered whenever the request names them; the engine picks the dialect from the model.
@@ -795,6 +844,10 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             GraphDecode = settings.GraphDecode && BackendFactory.Kind(deviceKey) != "vulkan" ? true : null,
             SpeculativeDecode = settings.SpeculativeDecode ? true : null,
             LowVramQuant = settings.LowVramQuant ? "true" : null,
+            WeightPrecision = WeightPrecisionFor(settings.WeightPrecision),
+            // A video's sampling: null leaves the model's own defaults (1 fps, 256 frames) in force.
+            VideoFps = settings.VideoFps > 0 ? settings.VideoFps : null,
+            VideoMaxFrames = settings.VideoMaxFrames > 0 ? settings.VideoMaxFrames : null,
             Placement = PlacementFor(settings.Placement),
             AlwaysFreeMemory = settings.AlwaysFreeMemory,
             PrefixCacheKey = prefixCacheKey
@@ -813,6 +866,58 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             return null;
         }
         return recurrentLoops > 0 ? recurrentLoops : null;
+    }
+
+    /// <summary>The engine's weight-precision word for the WeightPrecision setting: a GGUF block type a MOSS-VL checkpoint folder's BF16
+    /// weights are re-quantized to. Blank, <c>native</c> or unrecognized is null, which keeps the stored weights rather than failing every
+    /// request on a typo (the engine refuses an unknown name).</summary>
+    internal static string WeightPrecisionFor(string precision)
+    {
+        string value = precision?.Trim().ToLowerInvariant();
+        return value is "q8_0" or "q6_k" or "q5_k" or "q4_k" or "q4_0" ? value : null;
+    }
+
+    /// <summary>The first attached video as the engine's <see cref="VideoClip"/> (encoded bytes plus a container hint), or null when the
+    /// message has none. A local upload arrives as <c>Type="file"</c> (a path, see <see cref="MediaResolver"/>) and is read here; inline
+    /// base64 is decoded; a remote URL is not fetched. The model answers about one video, so extra videos are ignored with a warning.
+    /// A file over <see cref="MediaStorageService.MaxVideoBytes"/> is refused.</summary>
+    internal static async Task<VideoClip> ReadVideoAsync(List<LLMMediaAttachment> media, CancellationToken ct)
+    {
+        List<LLMMediaAttachment> videos = [.. media.Where(a => a is { IsVideo: true } && !string.IsNullOrEmpty(a.Data))];
+        if (videos.Count == 0)
+        {
+            return null;
+        }
+        if (videos.Count > 1)
+        {
+            Logs.Warning($"[LLMAssistant] {videos.Count} videos were attached; the model answers about one, so only the first is used.");
+        }
+        LLMMediaAttachment video = videos[0];
+        byte[] bytes;
+        switch (video.Type)
+        {
+            case "file":
+                if (new FileInfo(video.Data).Length > MediaStorageService.MaxVideoBytes)
+                {
+                    throw new SwarmReadableErrorException($"The attached video is larger than {MediaStorageService.MaxVideoBytes / (1024 * 1024)} MB.");
+                }
+                bytes = await File.ReadAllBytesAsync(video.Data, ct);
+                break;
+            case "base64":
+                bytes = Convert.FromBase64String(video.Data);
+                break;
+            default:
+                Logs.Warning("[LLMAssistant] A video given by URL cannot be read here; attach the file instead.");
+                return null;
+        }
+        string format = video.MediaType?.ToLowerInvariant() switch
+        {
+            "video/webm" => "webm",
+            "video/quicktime" => "mov",
+            "video/mp4" => "mp4",
+            _ => null,
+        };
+        return new VideoClip { Data = bytes, Format = format };
     }
 
     /// <summary>The engine's placement word for the Placement setting: auto, gpu, split or offload. Blank or unrecognized is
@@ -884,7 +989,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
     /// With <paramref name="splitReasoning"/> (<see cref="TakesReasoningContent(string)"/> for the model's template), an assistant
     /// reply's <c>&lt;think&gt;</c> blocks move to <see cref="TextMessage.ReasoningContent"/> (<see cref="TrySplitThinkBlocks"/>), unless
     /// that would leave an empty turn: a reply that is only reasoning, with no answer or tool call, stays as stored.</summary>
-    internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images, bool splitReasoning = false)
+    internal static TextMessage ToTextMessage(LLMMessage m, string content, List<ImageData> images, bool splitReasoning = false, VideoClip video = null)
     {
         bool isTool = m.Role == LLMRoles.Tool;
         string reasoning = null;
@@ -901,6 +1006,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             Role = RoleFor(m.Role),
             Content = content,
             Images = images is { Count: > 0 } ? images : null,
+            Video = video,
             ToolCallId = isTool ? m.ToolCallId : null,
             Name = isTool ? m.Name : null,
             ToolCalls = m.Role == LLMRoles.Assistant && m.ToolCalls is { Count: > 0 }
@@ -964,7 +1070,8 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
             return text;
         }
         IEnumerable<string> kept = text.Split('\n')
-            .Where(l => !l.TrimStart().StartsWith("[Attached image URL:", StringComparison.OrdinalIgnoreCase));
+            .Where(l => !l.TrimStart().StartsWith("[Attached image URL:", StringComparison.OrdinalIgnoreCase)
+                && !l.TrimStart().StartsWith("[Attached video URL:", StringComparison.OrdinalIgnoreCase));
         return string.Join('\n', kept).Trim();
     }
 
@@ -995,7 +1102,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
         }
         foreach (string folder in ModelFolders())
         {
-            foreach (string file in Directory.EnumerateFiles(folder, "*.gguf", SearchOption.AllDirectories))
+            foreach (string file in LocalModelDiscovery.EnumerateGgufFiles(folder))
             {
                 ct.ThrowIfCancellationRequested();
                 string id = Path.GetFileName(file);
@@ -1024,20 +1131,75 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 info.ContextLength = facts.ContextLength;
                 info.Family = facts.Family;
                 info.Quantization = facts.Quantization;
-                if (placed.TryGetValue(FullPath(file), out LoadedModelPlacement placement))
+                AddPlacementAndCapabilities(info, file, placed);
+                models.Add(info);
+            }
+            // Checkpoint folders (MOSS-VL BF16, NF4, FP8) are models too; they are not single files, so the GGUF scan never sees them.
+            foreach (LocalModelDiscovery.CheckpointModel folderModel in LocalModelDiscovery.EnumerateCheckpointModels([folder]))
+            {
+                ct.ThrowIfCancellationRequested();
+                LLMModelInfo info = new()
                 {
-                    info.Metadata["placement"] = PlacementLabel(placement.Placement);
-                    info.Metadata["placement_reason"] = placement.Placement.Reason;
-                }
-                // Advertise vision capability when a sidecar mmproj sits next to the model (UI can badge it).
-                if (TextService.FindMmproj(file) is not null)
-                {
-                    info.Metadata["vision"] = "true";
-                }
+                    Id = folderModel.Id,
+                    Name = folderModel.Name,
+                    Provider = "hartsy-local",
+                    BackendId = AbstractBackendData?.ID ?? -1,
+                    SizeBytes = folderModel.SizeBytes,
+                    ContextLength = folderModel.ContextLength,
+                    Family = MossVlConfig.ModelType,
+                    Quantization = folderModel.Quantization,
+                    IsLoaded = placed.ContainsKey(FullPath(folderModel.FullPath)),
+                    Metadata = { ["device"] = deviceLabel, ["devices"] = devices }
+                };
+                AddPlacementAndCapabilities(info, folderModel.FullPath, placed);
                 models.Add(info);
             }
         }
         return Task.FromResult(models);
+    }
+
+    /// <summary>Adds the engine's placement (when it holds the model) and the input capabilities (<see cref="CapabilityMetadata"/>) to
+    /// <paramref name="info"/>, for the model at <paramref name="path"/> (a GGUF or a checkpoint folder).</summary>
+    private static void AddPlacementAndCapabilities(LLMModelInfo info, string path, Dictionary<string, LoadedModelPlacement> placed)
+    {
+        if (placed.TryGetValue(FullPath(path), out LoadedModelPlacement placement))
+        {
+            info.Metadata["placement"] = PlacementLabel(placement.Placement);
+            info.Metadata["placement_reason"] = placement.Placement.Reason;
+        }
+        foreach (KeyValuePair<string, string> entry in CapabilityMetadata(TextService.InputCapabilities(path)))
+        {
+            info.Metadata[entry.Key] = entry.Value;
+        }
+    }
+
+    /// <summary>The model-list metadata for what a model takes besides text: <c>vision</c>, <c>video</c> and <c>realtime</c> as "true" when
+    /// it does (the chat UI reads these to enable image and video attachments), and a <c>tags</c> list so an instruction matcher on a tag
+    /// finds them. Nothing is written for a text-only model, so the UI treats its vision capability as unknown rather than false.</summary>
+    internal static Dictionary<string, string> CapabilityMetadata(TextInputCapabilities capabilities)
+    {
+        Dictionary<string, string> metadata = [];
+        List<string> tags = [];
+        if (capabilities.Images)
+        {
+            metadata["vision"] = "true";
+            tags.Add("vision");
+        }
+        if (capabilities.Video)
+        {
+            metadata["video"] = "true";
+            tags.Add("video");
+        }
+        if (capabilities.RealtimeSession)
+        {
+            metadata["realtime"] = "true";
+            tags.Add("realtime");
+        }
+        if (tags.Count > 0)
+        {
+            metadata["tags"] = string.Join(",", tags);
+        }
+        return metadata;
     }
 
     /// <summary>A short label for where a model was placed, for the model list and the chat header.</summary>

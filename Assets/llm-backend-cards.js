@@ -22,8 +22,8 @@ class LLMBackendCards {
             'llmassistant-hartsy-local': {
                 sections: [
                     { key: 'basics', title: 'Basics', guide: 'local-engine-basics', fields: ['Device', 'GPUDeviceId', 'VramMode'] },
-                    { key: 'memory', title: 'Memory', guide: 'local-engine-memory', fields: ['Placement', 'LowVramQuant', 'AlwaysFreeMemory', 'EvictBelowGb', 'ReuseConversationPrefix'] },
-                    { key: 'advanced', title: 'Advanced', guide: 'local-engine-advanced', fields: ['RepetitionPenalty', 'TopK', 'MinP', 'GraphDecode', 'SpeculativeDecode', 'RecurrentLoops'] }
+                    { key: 'memory', title: 'Memory', guide: 'local-engine-memory', fields: ['Placement', 'LowVramQuant', 'WeightPrecision', 'AlwaysFreeMemory', 'EvictBelowGb', 'ReuseConversationPrefix'] },
+                    { key: 'advanced', title: 'Advanced', guide: 'local-engine-advanced', fields: ['RepetitionPenalty', 'TopK', 'MinP', 'GraphDecode', 'SpeculativeDecode', 'RecurrentLoops', 'VideoFps', 'VideoMaxFrames'] }
                 ],
                 fields: {
                     Device: { label: 'Device', default: 'auto' },
@@ -31,6 +31,7 @@ class LLMBackendCards {
                     VramMode: { label: 'VRAM Mode', default: 'Auto' },
                     Placement: { label: 'Placement', default: 'auto' },
                     LowVramQuant: { label: 'Keep Weights Compressed', default: 'false' },
+                    WeightPrecision: { label: 'Weight Precision (MOSS-VL folders)', default: 'native' },
                     AlwaysFreeMemory: { label: 'Unload After Each Reply', default: 'false' },
                     EvictBelowGb: { label: 'Free RAM Floor (GB)', default: '0', min: 0, max: 1024, step: 1 },
                     ReuseConversationPrefix: { label: 'Reuse Chat Memory', default: 'true' },
@@ -39,7 +40,9 @@ class LLMBackendCards {
                     MinP: { label: 'Min P', default: '0', min: 0, max: 1, step: 0.01 },
                     GraphDecode: { label: 'Graph Decode', default: 'false' },
                     SpeculativeDecode: { label: 'Speculative Decode', default: 'false' },
-                    RecurrentLoops: { label: 'Default Loops', default: '0' }
+                    RecurrentLoops: { label: 'Default Loops', default: '0' },
+                    VideoFps: { label: 'Video Frames Per Second', default: '1', min: 0.1, max: 30, step: 0.1 },
+                    VideoMaxFrames: { label: 'Video Max Frames', default: '256', min: 1, max: 1024, step: 1 }
                 }
             },
             'llmassistant-openai': {
@@ -480,9 +483,12 @@ class LLMBackendCards {
         let vramMode = this.valueOf(cardBody, 'VramMode');
         let alwaysFree = cardBody.querySelector('[data-name="AlwaysFreeMemory"]')?.checked == true;
         this.setInactive(cardBody, 'GPUDeviceId', kind == 'cpu', 'Not used on CPU.');
-        for (let name of ['Placement', 'LowVramQuant', 'GraphDecode']) {
+        for (let name of ['Placement', 'GraphDecode']) {
             this.setInactive(cardBody, name, kind != '' && kind != 'cuda', 'Only used with CUDA (NVIDIA).');
         }
+        // MOSS-VL keeps its weights packed on Vulkan too; every other model needs CUDA for it.
+        this.setInactive(cardBody, 'LowVramQuant', kind == 'cpu', 'Needs a GPU: CUDA (NVIDIA), or Vulkan for MOSS-VL.');
+        this.setInactive(cardBody, 'WeightPrecision', kind == 'cpu', 'Only used when a MOSS-VL checkpoint folder loads on a GPU.');
         this.setInactive(cardBody, 'ReuseConversationPrefix', alwaysFree || vramMode == 'Aggressive' || vramMode == 'Maximum',
             'Not used while Unload After Each Reply is on, or with VRAM Mode Aggressive or Maximum.');
     }

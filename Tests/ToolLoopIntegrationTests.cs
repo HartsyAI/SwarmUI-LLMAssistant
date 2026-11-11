@@ -2,7 +2,7 @@ using HartsyInference.Engine;
 using HartsyInference.Engine.Dispatch;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.Services;
-using HartsyInference.Tools;
+using HartsyInference.Engine.ToolCalling;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;

@@ -30,6 +30,8 @@ const LLMAState = {
     laneBackends:      {},
     isGenerating:      false,
     abortController:   null,
+    // The pending composer attachment (the name predates video). Image: { kind: 'image', base64, mediaType, dataUrl }.
+    // Video: { kind: 'video', file, mediaType, objectUrl, sizeBytes } (the file is read to a data URI only at upload time).
     attachedImage:     null,
     markdownEnabled:   true,
     enterToSend:       true,
@@ -521,9 +523,23 @@ function llmaIsVisionModel(model) {
     if (/claude-/.test(hay)) return true;
     if (/(gpt-4o|gpt-4\.1|gpt-4-turbo|gpt-4-vision|chatgpt-4)/.test(hay)) return true;
     if (/(gemini-1\.5|gemini-2|gemini-pro-vision|gemini-flash)/.test(hay)) return true;
-    if (/(llava|moondream|minicpm-v|qwen2-vl|qwen-vl|internvl|bakllava|llama-?3\.2-vision|phi-3-vision|phi-3\.5-vision|pixtral|molmo)/.test(hay)) return true;
+    if (/(llava|moondream|minicpm-v|qwen2-vl|qwen-vl|internvl|bakllava|llama-?3\.2-vision|phi-3-vision|phi-3\.5-vision|pixtral|molmo|moss-vl)/.test(hay)) return true;
     return null;
 }
+
+// -- Video capability --
+// File-picker accept list for video, and the client-side size cap (mirrors MediaStorageService.MaxVideoBytes on the server).
+const LLMA_VIDEO_ACCEPT = 'video/mp4,video/webm,video/quicktime';
+const LLMA_MAX_VIDEO_BYTES = 64 * 1024 * 1024;
+
+// Strict, unlike llmaIsVisionModel: only a backend that says metadata.video is true (eg a MOSS-VL model on the local
+// engine) takes video. Unknown or unflagged models read as false, because a video sent to a model that cannot decode it is
+// dropped or rejected rather than degrading to a still image.
+function llmaIsVideoModel(model) {
+    if (!model || !model.metadata) return false;
+    return model.metadata.video === true || model.metadata.video === 'true';
+}
+window.llmaIsVideoModel = llmaIsVideoModel;
 
 // -- Error formatting --
 // Pulls a one-line human-readable string out of whatever genericRequest's error callback hands us.

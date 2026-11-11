@@ -373,6 +373,12 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
             {
                 continue;
             }
+            // The chat API's content parts here are text and images; a video (or the local path a resolved one carries) is not an image.
+            if (att.IsVideo)
+            {
+                Logs.Debug("[RemoteOpenAILLMProvider] Skipping an attached video: this provider sends images only.");
+                continue;
+            }
             bool isHttpUrl = att.Type == "url" && (att.Data.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || att.Data.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
             string url = isHttpUrl
                 ? att.Data

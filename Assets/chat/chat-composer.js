@@ -95,6 +95,11 @@
                 const files = e.dataTransfer?.files;
                 if (files?.length > 0) {
                     for (const f of files) {
+                        // A video is gated by llmaHandleAttach (it toasts when the model takes no video).
+                        if (typeof llmaAttachKind === 'function' && llmaAttachKind(f) === 'video') {
+                            llmaHandleAttach(f);
+                            return;
+                        }
                         if (f.type.startsWith('image/')) {
                             if (attachLabel?.getAttribute('aria-disabled') === 'true') {
                                 llmaShowToast("This model doesn't support image input.", 'info');

@@ -1,3 +1,4 @@
+using System.Net.WebSockets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Backends;
@@ -73,6 +74,74 @@ public static class ModelEndpoints
         catch (SwarmReadableErrorException ex)
         {
             return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Downloads a variant of a downloadable local model (today <c>moss-vl-realtime</c>: <c>gguf-q4k</c>, <c>bf16</c>, <c>nf4</c>,
+    /// <c>fp8</c>) into the Swarm LLM model folder, streaming progress. Request: <c>{"model":"moss-vl-realtime","variant":"nf4"}</c>.
+    /// Frames out: <c>{"progress":{"file":"…","fraction":0.42}}</c> per file, then the returned <c>{"success":true,"path":"…","model":"…"}</c> (<c>model</c> is the id to chat with) (or
+    /// <c>{"success":false,"error":"…"}</c>). The client closing the socket cancels the download; files already finished are kept.
+    /// Admin only: a download is gigabytes of disk and bandwidth.</summary>
+    public static async Task<JObject> LLMAssistantDownloadModel(WebSocket socket, Session session, JObject input)
+    {
+        string model = input.Value<string>("model");
+        string variant = input.Value<string>("variant");
+        if (string.IsNullOrWhiteSpace(variant))
+        {
+            variant = "gguf-q4k";
+        }
+        if (!HartsyLocalLLMProvider.IsDownloadableModel(model, variant, out _, out string refusal))
+        {
+            return new JObject { ["success"] = false, ["error"] = refusal };
+        }
+        using CancellationTokenSource cancel = new();
+        // The client closing its socket stops the download; the receive loop ends when it does.
+        _ = ChatEndpoints.WatchForDisconnectAsync(socket, () => cancel.Cancel());
+        // Progress callbacks run as the download streams; one reader sends them in order so frames never interleave on the socket.
+        System.Threading.Channels.Channel<JObject> frames = System.Threading.Channels.Channel.CreateUnbounded<JObject>();
+        Task sender = Task.Run(async () =>
+        {
+            await foreach (JObject frame in frames.Reader.ReadAllAsync())
+            {
+                if (socket.State != WebSocketState.Open)
+                {
+                    continue;
+                }
+                byte[] bytes = System.Text.Encoding.UTF8.GetBytes(frame.ToString(Newtonsoft.Json.Formatting.None));
+                await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+        });
+        Dictionary<string, double> lastSent = [];
+        try
+        {
+            string path = await HartsyLocalLLMProvider.DownloadModelAsync(model, variant, (asset, fraction) =>
+            {
+                // At most a frame per percent per file, so a multi-gigabyte shard does not flood the socket.
+                lock (lastSent)
+                {
+                    if (lastSent.TryGetValue(asset.FileName, out double last) && fraction < 1.0 && fraction - last < 0.01)
+                    {
+                        return;
+                    }
+                    lastSent[asset.FileName] = fraction;
+                }
+                frames.Writer.TryWrite(new JObject { ["progress"] = new JObject { ["file"] = asset.FileName, ["fraction"] = fraction } });
+            }, cancel.Token);
+            // "model" is the id to chat with (what the model list shows); "path" is where it landed.
+            return new JObject { ["success"] = true, ["path"] = path, ["model"] = HartsyLocalLLMProvider.ChatModelIdFor(path) };
+        }
+        catch (OperationCanceledException)
+        {
+            return new JObject { ["success"] = false, ["error"] = "The download was cancelled. Files that finished are kept." };
+        }
+        catch (SwarmReadableErrorException ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        finally
+        {
+            frames.Writer.TryComplete();
+            await sender;
         }
     }
 

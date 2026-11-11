@@ -17,10 +17,10 @@
         const skip = new Set();
         for (const msg of messages) {
             if (skip.has(msg.id)) continue;
-            // Prefer the persisted media URL (server-authoritative) over a legacy/in-memory base64.
-            // <img src> handles both transparently.
-            const imgSrc = (Array.isArray(msg.media) && msg.media[0]?.url) || msg.imageBase64 || null;
-            llmaAppendMessageToDOM(msg.role, msg.content, imgSrc, msg.id, msg.meta);
+            // Prefer the persisted media entries (server-authoritative: url + mediaType) over a legacy/in-memory
+            // base64 image; <img src> handles both transparently.
+            const media = (Array.isArray(msg.media) && msg.media.length > 0) ? msg.media : (msg.imageBase64 || null);
+            llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta);
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
                 const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
                 if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
@@ -156,8 +156,29 @@
         }, 0);
     }
 
-    /** Append a single message row (Claude-style: user right-aligned pill, assistant header+body). */
-    function llmaAppendMessageToDOM(role, content, imageBase64, msgId, meta) {
+    /**
+     * Build the element for one attached media entry: <video controls> when its mediaType is video/* (or, for a bare
+     * URL string with no type, its extension is a video one), <img> otherwise. File-private.
+     */
+    function llmaBuildMediaElement(entry) {
+        const url = typeof entry === 'string' ? entry : entry?.url;
+        if (!url) return null;
+        const type = typeof entry === 'string' ? '' : (entry.mediaType || '');
+        const isVideo = type.startsWith('video/') || (!type && /^data:video\/|\.(mp4|m4v|webm|mov)(\?|#|$)/i.test(url));
+        const el = document.createElement(isVideo ? 'video' : 'img');
+        if (isVideo) {
+            el.controls = true;
+            el.preload = 'metadata';
+            el.playsInline = true;
+        }
+        el.src = url;
+        el.className = 'llma-msg-image';
+        return el;
+    }
+
+    /** Append a single message row (Claude-style: user right-aligned pill, assistant header+body).
+     *  `media` is an image URL/base64 string, one `{url, mediaType}` entry, or an array of entries (images and videos). */
+    function llmaAppendMessageToDOM(role, content, media, msgId, meta) {
         const container = document.getElementById('llma-messages');
         if (!container) return null;
 
@@ -182,11 +203,9 @@
             // ── User: right-aligned pill, no avatar ──
             const bubble = document.createElement('div');
             bubble.className = 'llma-msg-bubble user-bubble';
-            if (imageBase64) {
-                const img = document.createElement('img');
-                img.src = imageBase64;
-                img.className = 'llma-msg-image';
-                bubble.appendChild(img);
+            for (const entry of (Array.isArray(media) ? media : [media])) {
+                const el = llmaBuildMediaElement(entry);
+                if (el) bubble.appendChild(el);
             }
             if (content) bubble.appendChild(document.createTextNode(content));
 

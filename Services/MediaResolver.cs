@@ -15,6 +15,13 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 ///   and replace with <c>{ Type: "base64", Data: &lt;b64&gt;, MediaType: ... }</c> so the backend
 ///   can inline it (the model can't reach our local server).</item>
 /// </list>
+/// <para><b>Video contract.</b> A local <c>View/</c> (or legacy <c>Output/</c>) attachment whose <c>MediaType</c> starts with
+/// <c>video/</c> (or, with no <c>MediaType</c>, whose extension is a video one) is NOT base64'd, because a clip can be tens of MB.
+/// It is returned as <c>{ Type: "file", Data: &lt;absolute local path&gt;, MediaType: "video/mp4|webm|quicktime" }</c>; the
+/// provider reads the file itself (the path is already traversal-checked and size-checked against
+/// <see cref="MediaStorageService.MaxVideoBytes"/>; a missing, oversized or escaping file is skipped with a warning).
+/// A video that arrives as <c>"base64"</c> or an <c>http(s)</c> <c>"url"</c> passes through unchanged.
+/// Providers that only understand images must skip attachments where <see cref="LLMMediaAttachment.IsVideo"/> is true.</para>
 /// <para>Resolution happens at LLM-input-build time in <c>ChatEndpoints</c>, so the resolved
 /// list lives only as long as the request — no caching needed and no risk of stale content.</para></summary>
 public static class MediaResolver
@@ -23,6 +30,11 @@ public static class MediaResolver
     /// yields null. File-read failures degrade to skipping that attachment with a warning log —
     /// better than failing the whole chat request because one image is gone.</summary>
     public static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments)
+        => ResolveForLLM(attachments, OutputUrls.ToFullPath);
+
+    /// <summary>The testable core: <paramref name="toFullPath"/> maps a local output URL to a full path (null when it escapes the
+    /// output root), so tests do not need the server's output settings.</summary>
+    internal static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments, Func<string, string> toFullPath)
     {
         if (attachments is null || attachments.Count == 0)
         {
@@ -49,7 +61,7 @@ public static class MediaResolver
                 // Defense in depth: ToFullPath returns null on traversal outside the output root.
                 // (URLs come from our own upload endpoint so they're trusted, but we shouldn't
                 // assume that for all callers.)
-                string fullPath = OutputUrls.ToFullPath(att.Data);
+                string fullPath = toFullPath(att.Data);
                 if (fullPath is null)
                 {
                     Logs.Warning($"[LLMAssistant] MediaResolver refused path traversal: {att.Data}");
@@ -60,6 +72,28 @@ public static class MediaResolver
                     Logs.Warning($"[LLMAssistant] MediaResolver: referenced media file missing: {fullPath}");
                     continue;
                 }
+                string mediaType = string.IsNullOrEmpty(att.MediaType) ? ImageInputResolver.GuessMimeFromExt(fullPath) : att.MediaType;
+                if (mediaType.StartsWith("video/", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Videos stay on disk: hand the provider the path instead of inflating a clip into a base64 string.
+                    long length;
+                    try
+                    {
+                        length = new FileInfo(fullPath).Length;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logs.Warning($"[LLMAssistant] MediaResolver: could not stat {fullPath}: {ex.Message}");
+                        continue;
+                    }
+                    if (length > MediaStorageService.MaxVideoBytes)
+                    {
+                        Logs.Warning($"[LLMAssistant] MediaResolver: skipping video over the {MediaStorageService.MaxVideoBytes / (1024 * 1024)} MB cap: {fullPath}");
+                        continue;
+                    }
+                    resolved.Add(new LLMMediaAttachment { Type = "file", Data = fullPath, MediaType = mediaType });
+                    continue;
+                }
                 try
                 {
                     byte[] bytes = File.ReadAllBytes(fullPath);
@@ -67,7 +101,7 @@ public static class MediaResolver
                     {
                         Type = "base64",
                         Data = Convert.ToBase64String(bytes),
-                        MediaType = string.IsNullOrEmpty(att.MediaType) ? ImageInputResolver.GuessMimeFromExt(fullPath) : att.MediaType
+                        MediaType = mediaType
                     });
                 }
                 catch (Exception ex)

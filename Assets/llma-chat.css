@@ -597,6 +597,13 @@
     margin-bottom: 6px;
     display: block;
 }
+/* A video in a message keeps its aspect ratio (the image rule above crops) and shows the player controls. */
+video.llma-msg-image {
+    max-width: 320px;
+    max-height: 240px;
+    object-fit: contain;
+    background: var(--black);
+}
 
 /* Typing indicator */
 .llma-typing {
@@ -636,6 +643,19 @@
     border-radius: 8px;
     border: 1px solid var(--light-border);
     object-fit: cover;
+}
+/* Video attachment preview: muted metadata-only player thumbnail + a duration/size note */
+.llma-attachment-preview video.llma-attach-video {
+    height: 72px;
+    border-radius: 8px;
+    border: 1px solid var(--light-border);
+    object-fit: cover;
+    background: var(--black);
+}
+.llma-attach-note {
+    align-self: center;
+    font-size: 11.5px;
+    color: var(--text-soft);
 }
 /* Quick-caption popover under the "Caption ▾" button on the attached-image preview */
 .llma-attach-caption-wrap {

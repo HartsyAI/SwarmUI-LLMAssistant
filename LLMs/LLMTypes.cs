@@ -26,6 +26,9 @@ public class LLMMediaAttachment
     public string Data;
     /// <summary>MIME type (eg <c>image/png</c>); used when <see cref="Type"/> is <c>"base64"</c>.</summary>
     public string MediaType;
+    /// <summary>True when <see cref="MediaType"/> is a <c>video/*</c> type. Providers that only understand images
+    /// should skip these attachments.</summary>
+    public bool IsVideo => MediaType is not null && MediaType.StartsWith("video/", StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>A single message in a conversation handed to a provider.</summary>
