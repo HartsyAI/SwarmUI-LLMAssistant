@@ -265,7 +265,8 @@ public class AnthropicLLMProvider : LLMProviderBackend
         }
         foreach (LLMMediaAttachment att in msg.Media)
         {
-            if (att is null || string.IsNullOrEmpty(att.Data))
+            // Anthropic's image block cannot carry video; a local video file reference would be mis-sent as an image.
+            if (att is null || string.IsNullOrEmpty(att.Data) || att.IsVideo)
             {
                 continue;
             }

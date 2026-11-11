@@ -55,7 +55,7 @@
             const upload = await llmaUploadAttachedImage(userMsgId);
             if (!upload) return; // toast already shown
             mediaPayload = [upload];
-            mediaForRender = upload.url;
+            mediaForRender = mediaPayload;
             llmaClearAttachment();
         }
 
@@ -63,7 +63,7 @@
         // branch model it hangs off the current active leaf and becomes the new leaf, mirroring the
         // server's AppendMessage so allNodes stays consistent without an extra round trip.
         const userMsg = {
-            id: userMsgId, role: 'user', content: message || '(image)',
+            id: userMsgId, role: 'user', content: message || (mediaPayload?.[0]?.mediaType?.startsWith('video/') ? '(video)' : '(image)'),
             timestamp: new Date().toISOString(),
             media: mediaPayload || undefined,
             parentId: LLMAState.activeLeafId ?? null,
@@ -72,6 +72,7 @@
         (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
         LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId);
+        // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
         LLMAState.exactTokenCount = null;

@@ -196,7 +196,8 @@ public static class ImageInputResolver
     }
 
     /// <summary>Guesses a MIME type from a file extension; defaults to PNG. Shared with
-    /// <see cref="MediaResolver"/> so there's one mapping to maintain.</summary>
+    /// <see cref="MediaResolver"/> so there's one mapping to maintain. Video extensions (mp4, m4v, webm, mov) map to their
+    /// <c>video/*</c> type so a video is never mislabeled as an image.</summary>
     public static string GuessMimeFromExt(string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
@@ -207,7 +208,10 @@ public static class ImageInputResolver
             ".webp" => "image/webp",
             ".gif" => "image/gif",
             ".bmp" => "image/bmp",
-            _ => "image/png"
+            ".mp4" or ".m4v" => "video/mp4",
+            ".webm" => "video/webm",
+            ".mov" => "video/quicktime",
+            _ =>"image/png"
         };
     }
 }

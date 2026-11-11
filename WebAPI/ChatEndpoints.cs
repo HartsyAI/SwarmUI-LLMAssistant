@@ -77,6 +77,57 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Uploads a video the user just attached to chat (mp4, webm or mov): validates the container signature and the
+    /// <see cref="MediaStorageService.MaxVideoBytes"/> cap, stores it unchanged in the user's per-thread uploads dir (no
+    /// decode or resize) and returns the served URL. Same response shape as <see cref="LLMAssistantUploadChatImage"/>
+    /// minus the dimensions.</summary>
+    public static async Task<JObject> LLMAssistantUploadChatVideo(Session session, JObject rawInput)
+    {
+        if (session?.User is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        string threadId = rawInput["threadId"]?.ToString();
+        string messageId = rawInput["messageId"]?.ToString();
+        string videoData = rawInput["videoData"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(messageId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "messageId is required." };
+        }
+        if (string.IsNullOrWhiteSpace(videoData))
+        {
+            return new JObject { ["success"] = false, ["error"] = "videoData (data URI) is required." };
+        }
+        try
+        {
+            MediaStorageService.StoredVideo stored = await MediaStorageService.SaveVideoAsync(session.User, threadId, messageId, videoData);
+            if (stored is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = "Malformed data URI." };
+            }
+            return new JObject
+            {
+                ["success"] = true,
+                ["url"] = stored.Url,
+                ["mediaType"] = stored.MimeType,
+                ["bytesWritten"] = stored.BytesWritten
+            };
+        }
+        catch (InvalidOperationException ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Chat video upload failed for {session.User.UserID}: {ex.Message}");
+            return new JObject { ["success"] = false, ["error"] = "Upload failed (see server logs)." };
+        }
+    }
+
     /// <summary>Test-runs an unsaved instruction text against the LLM with a sample user message,
     /// without persisting anything (no thread, no memory write). Used by the assistant editor's
     /// per-tab "Test" button so users can verify a persona/instruction <i>before</i> saving.
@@ -1180,13 +1231,16 @@ public static class ChatEndpoints
                     {
                         continue;
                     }
-                    entry.Media.Add(new LLMMediaAttachment
+                    // The kind comes from the saved mediaType; only a missing mediaType (older threads) defaults to image/png.
+                    string mediaType = m["mediaType"]?.ToString();
+                    LLMMediaAttachment att = new()
                     {
                         Type = "url",
                         Data = url,
-                        MediaType = m["mediaType"]?.ToString() ?? "image/png"
-                    });
-                    urlsForContext.Add(url);
+                        MediaType = string.IsNullOrWhiteSpace(mediaType) ? "image/png" : mediaType
+                    };
+                    entry.Media.Add(att);
+                    urlsForContext.Add($"[Attached {(att.IsVideo ? "video" : "image")} URL: {url}]");
                 }
                 // Inline the URL(s) as a system-style annotation so the LLM has the path
                 // accessible as text; needed for tool calls like generate_image's initImage.
@@ -1194,7 +1248,7 @@ public static class ChatEndpoints
                 // the URL string when chaining tools.
                 if (urlsForContext.Count > 0)
                 {
-                    string suffix = string.Join("\n", urlsForContext.Select(u => $"[Attached image URL: {u}]"));
+                    string suffix = string.Join("\n", urlsForContext);
                     entry.Content = string.IsNullOrEmpty(entry.Content) ? suffix : $"{entry.Content}\n\n{suffix}";
                 }
             }

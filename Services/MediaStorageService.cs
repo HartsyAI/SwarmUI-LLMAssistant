@@ -124,9 +124,119 @@ public static class MediaStorageService
         };
     }
 
+    /// <summary>Hard cap on a chat-attached video (decoded bytes). Videos are stored untouched (no decode or resize), so this
+    /// bounds disk use and the memory the local engine reads when it decodes the clip.</summary>
+    public const int MaxVideoBytes = 64 * 1024 * 1024;
+
+    private static readonly Dictionary<string, string> VideoMimeToExt = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["video/mp4"] = ".mp4",
+        ["video/webm"] = ".webm",
+        ["video/quicktime"] = ".mov"
+    };
+
+    /// <summary>Returned shape from a successful video save.</summary>
+    public class StoredVideo
+    {
+        /// <summary>The served URL the browser should use (eg <c>View/{userId}/llm_assistant/uploads/{threadId}/{messageId}.mp4</c>).</summary>
+        public string Url;
+        /// <summary>Absolute filesystem path. Used by orphan GC and never sent to the client.</summary>
+        public string FullPath;
+        public string MimeType;
+        public int BytesWritten;
+    }
+
+    /// <summary>Decodes a video data URI (mp4, webm or mov), validates its container signature and size, and writes it
+    /// unchanged to the same per-thread uploads folder images use (so the orphan sweep protects it through
+    /// <c>media[].url</c>). Returns null if the input is not a data URI; throws <see cref="InvalidOperationException"/>
+    /// with a user-readable message for an unsupported type, an oversized clip or a bad signature.</summary>
+    public static async Task<StoredVideo> SaveVideoAsync(User user, string threadId, string messageId, string dataUri, CancellationToken ct = default)
+    {
+        if (user is null)
+        {
+            return null;
+        }
+        StoredVideo stored = await SaveVideoToAsync(Path.Combine(user.OutputDirectory, SubdirRoot), threadId, messageId, dataUri, ct);
+        if (stored is not null)
+        {
+            stored.Url = OutputUrls.ForFullPath(stored.FullPath);
+        }
+        return stored;
+    }
+
+    /// <summary>The host-independent core of <see cref="SaveVideoAsync"/>: writes under
+    /// <paramref name="uploadsRoot"/>/{thread}/{message}.{ext} and leaves <see cref="StoredVideo.Url"/> null (building it needs
+    /// the server's output root). <paramref name="maxBytes"/> is the decoded-size cap (tests pass a small one).</summary>
+    internal static async Task<StoredVideo> SaveVideoToAsync(string uploadsRoot, string threadId, string messageId, string dataUri, CancellationToken ct = default, int maxBytes = MaxVideoBytes)
+    {
+        if (string.IsNullOrEmpty(dataUri) || !dataUri.StartsWith("data:", StringComparison.Ordinal))
+        {
+            return null;
+        }
+        int commaIdx = dataUri.IndexOf(',');
+        if (commaIdx <= 0)
+        {
+            return null;
+        }
+        string mime = dataUri[5..commaIdx].Split(';')[0].Trim().ToLowerInvariant();
+        if (!VideoMimeToExt.TryGetValue(mime, out string ext))
+        {
+            throw new InvalidOperationException($"Unsupported video type: {(mime.Length == 0 ? "unknown" : mime)}. Allowed: mp4, webm, mov.");
+        }
+        // Reject on the encoded length before allocating the decoded buffer (base64 is ~4/3 of the raw size).
+        long approxBytes = (long)(dataUri.Length - commaIdx - 1) / 4 * 3;
+        if (approxBytes > (long)maxBytes + 3)
+        {
+            throw new InvalidOperationException($"Video too large (over {maxBytes / (1024 * 1024)} MB).");
+        }
+        byte[] bytes;
+        try
+        {
+            bytes = Convert.FromBase64String(dataUri[(commaIdx + 1)..]);
+        }
+        catch (FormatException)
+        {
+            throw new InvalidOperationException("Could not decode video: invalid base64 data.");
+        }
+        if (bytes.Length > maxBytes)
+        {
+            throw new InvalidOperationException($"Video too large ({bytes.Length} bytes; max {maxBytes}).");
+        }
+        if (!HasVideoSignature(bytes, mime))
+        {
+            throw new InvalidOperationException($"The file is not a valid {ext.TrimStart('.')} video (bad file signature).");
+        }
+        string safeThread = SanitizeIdComponent(threadId, fallback: "_thread");
+        string safeMessage = SanitizeIdComponent(messageId, fallback: $"vid-{Guid.NewGuid():N}");
+        string dir = Path.Combine(uploadsRoot, safeThread);
+        Directory.CreateDirectory(dir);
+        string fullPath = Path.GetFullPath(Path.Combine(dir, safeMessage + ext));
+        await File.WriteAllBytesAsync(fullPath, bytes, ct);
+        return new StoredVideo { FullPath = fullPath, MimeType = mime, BytesWritten = bytes.Length };
+    }
+
+    /// <summary>True when <paramref name="bytes"/> starts like the container <paramref name="mime"/> names: an ISO base media
+    /// <c>ftyp</c> box at offset 4 for mp4 and mov, the EBML header <c>1A 45 DF A3</c> for webm.</summary>
+    internal static bool HasVideoSignature(byte[] bytes, string mime)
+    {
+        if (bytes is null || bytes.Length < 12)
+        {
+            return false;
+        }
+        if (string.Equals(mime, "video/webm", StringComparison.OrdinalIgnoreCase))
+        {
+            return bytes[0] == 0x1A && bytes[1] == 0x45 && bytes[2] == 0xDF && bytes[3] == 0xA3;
+        }
+        if (string.Equals(mime, "video/mp4", StringComparison.OrdinalIgnoreCase) || string.Equals(mime, "video/quicktime", StringComparison.OrdinalIgnoreCase))
+        {
+            return bytes[4] == (byte)'f' && bytes[5] == (byte)'t' && bytes[6] == (byte)'y' && bytes[7] == (byte)'p';
+        }
+        return false;
+    }
+
     /// <summary>Strict sanitizer: keep alnum, dash, underscore. Falls back to a synthetic id if
     /// nothing usable remains.</summary>
-    private static string SanitizeIdComponent(string raw, string fallback)
+    internal static string SanitizeIdComponent(string raw, string fallback)
     {
         if (string.IsNullOrEmpty(raw))
         {

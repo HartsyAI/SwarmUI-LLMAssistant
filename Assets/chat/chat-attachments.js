@@ -1,7 +1,7 @@
 /* ================================================================
    LLM Assistant - chat/chat-attachments.js
-   Image attach/paste/drop, the quick-caption popover, upload, and
-   send-to-prompt-box integration.
+   Image and video attach/paste/drop, the quick-caption popover (images),
+   upload, and send-to-prompt-box integration.
    ================================================================ */
 
 (function () {
@@ -22,12 +22,39 @@
         ['story', 'Story']
     ];
 
-    /** Intercept an image paste and attach it. */
+    // Video container types the server accepts (MediaStorageService), keyed by file extension for files whose type is empty.
+    const LLMA_VIDEO_EXT_MIME = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
+    const LLMA_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime'];
+
+    /** 'image', 'video' or null for a file. Video also matches by extension, because browsers often report an empty type for .mov. */
+    function llmaAttachKind(file) {
+        const type = (file?.type || '').toLowerCase();
+        if (type.startsWith('image/')) return 'image';
+        if (type.startsWith('video/')) return 'video';
+        if (!type && LLMA_VIDEO_EXT_MIME[(file?.name || '').split('.').pop().toLowerCase()]) return 'video';
+        return null;
+    }
+
+    /** The server-accepted MIME for a video file (from its type, else its extension), or null when it is not mp4/webm/mov. */
+    function llmaVideoMime(file) {
+        const type = (file.type || '').toLowerCase();
+        if (LLMA_VIDEO_MIMES.includes(type)) return type;
+        if (!type || type === 'application/octet-stream') return LLMA_VIDEO_EXT_MIME[(file.name || '').split('.').pop().toLowerCase()] || null;
+        return null;
+    }
+
+    /** Whether the active chat model takes video (strict: its metadata must say so). */
+    function llmaCurrentModelTakesVideo() {
+        const model = (LLMAState.availableModels || []).find(m => m.id === LLMAState.currentModel);
+        return llmaIsVideoModel(model);
+    }
+
+    /** Intercept an image or video paste and attach it. */
     function llmaHandlePaste(e) {
         const items = e.clipboardData?.items;
         if (!items) return;
         for (const item of items) {
-            if (item.type.startsWith('image/')) {
+            if (item.kind === 'file' && (item.type.startsWith('image/') || item.type.startsWith('video/'))) {
                 e.preventDefault();
                 llmaHandleAttach(item.getAsFile());
                 return;
@@ -35,18 +62,82 @@
         }
     }
 
-    /** Read an image file into the attachment state + show its preview. */
+    /** Read an image or video file into the attachment state + show its preview. */
     async function llmaHandleAttach(file) {
-        if (!file.type.startsWith('image/')) return;
+        const kind = llmaAttachKind(file);
+        if (!kind) return;
+        const attachFile = document.getElementById('llma-attach-file');
+        if (kind === 'video') {
+            if (!llmaCurrentModelTakesVideo()) {
+                llmaShowToast("This model doesn't support video input. Pick a video model such as MOSS-VL.", 'info');
+                if (attachFile) attachFile.value = '';
+                return;
+            }
+            const mediaType = llmaVideoMime(file);
+            if (!mediaType) {
+                llmaShowToast('Unsupported video format. Use mp4, webm or mov.', 'error');
+                if (attachFile) attachFile.value = '';
+                return;
+            }
+            if (file.size > LLMA_MAX_VIDEO_BYTES) {
+                llmaShowToast(`${translate('Video is too large')} (${llmaFormatBytes(file.size)}). ${translate('The limit is 64 MB.')}`, 'error');
+                if (attachFile) attachFile.value = '';
+                return;
+            }
+            llmaReleaseAttachment();
+            // The file is only read into a data URI at upload time; the preview plays straight from a blob URL.
+            const objectUrl = URL.createObjectURL(file);
+            LLMAState.attachedImage = { kind: 'video', file, mediaType, objectUrl, sizeBytes: file.size };
+            llmaShowVideoPreview(objectUrl, file.size);
+            if (attachFile) attachFile.value = '';
+            return;
+        }
         const dataUrl = await llmaFileToBase64(file);
+        llmaReleaseAttachment();
         LLMAState.attachedImage = {
+            kind:      'image',
             base64:    llmaDataUrlToBase64(dataUrl),
             mediaType: llmaDataUrlMediaType(dataUrl),
             dataUrl:   dataUrl,
         };
         llmaShowAttachmentPreview(dataUrl);
-        const attachFile = document.getElementById('llma-attach-file');
         if (attachFile) attachFile.value = '';
+    }
+
+    /** "12.3 MB" style size text. File-private. */
+    function llmaFormatBytes(n) {
+        if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+        if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+        return `${n} B`;
+    }
+
+    /** Render the video attachment preview: a muted metadata-only player, a duration + size note, and the remove button.
+     *  No caption / use-as-prompt / use-as-init actions: those are image-only. */
+    function llmaShowVideoPreview(objectUrl, sizeBytes) {
+        const preview = document.getElementById('llma-attachment-preview');
+        if (!preview) return;
+        preview.innerHTML = '';
+        preview.style.display = '';
+
+        const video = document.createElement('video');
+        video.className = 'llma-attach-video';
+        video.muted = true;
+        video.playsInline = true;
+        video.preload = 'metadata';
+        // The #t fragment shows a frame instead of a black box before the clip is played.
+        video.src = `${objectUrl}#t=0.1`;
+        preview.appendChild(video);
+
+        const note = document.createElement('div');
+        note.className = 'llma-attach-note';
+        note.textContent = llmaFormatBytes(sizeBytes);
+        video.addEventListener('loadedmetadata', () => {
+            if (!Number.isFinite(video.duration)) return;
+            const secs = Math.round(video.duration);
+            note.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} · ${llmaFormatBytes(sizeBytes)}`;
+        });
+        preview.appendChild(note);
+        preview.appendChild(llmaCreateActionBtn('×', () => llmaClearAttachment(), 'llma-attachment-remove'));
     }
 
     /** Render the attachment thumbnail + its action buttons (caption / use-as-prompt / init / remove). */
@@ -186,20 +277,28 @@
         container.appendChild(actions);
     }
 
+    /** Drop the pending attachment's state, revoking a video's blob URL so the file can be freed. File-private. */
+    function llmaReleaseAttachment() {
+        const att = LLMAState.attachedImage;
+        if (att?.objectUrl) URL.revokeObjectURL(att.objectUrl);
+        LLMAState.attachedImage = null;
+    }
+
     /** Clear the attachment state + hide the preview. */
     function llmaClearAttachment() {
-        LLMAState.attachedImage = null;
+        llmaReleaseAttachment();
         const preview = document.getElementById('llma-attachment-preview');
         if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
     }
 
     /**
-     * Upload the currently-attached image to the per-user uploads dir; returns `{ url, mediaType }`
+     * Upload the currently-attached image or video to the per-user uploads dir; returns `{ url, mediaType }`
      * (the shape both the WS media payload and the DOM render expect), or null on failure (toast
      * surfaced). Caller must clear the attachment after a successful return.
      */
     async function llmaUploadAttachedImage(messageId) {
         if (!LLMAState.attachedImage) return null;
+        if (LLMAState.attachedImage.kind === 'video') return llmaUploadAttachedVideo(messageId);
         if (!LLMAState.activeThreadId) {
             llmaShowToast('Cannot upload image without an active chat', 'error');
             return null;
@@ -220,9 +319,38 @@
         return null;
     }
 
+    /** Upload the attached video through LLMAssistantUploadChatVideo (the clip is read into a data URI here, not at attach time). File-private. */
+    async function llmaUploadAttachedVideo(messageId) {
+        const att = LLMAState.attachedImage;
+        if (!LLMAState.activeThreadId) {
+            llmaShowToast('Cannot upload video without an active chat', 'error');
+            return null;
+        }
+        if (att.sizeBytes > LLMA_MAX_VIDEO_BYTES) {
+            llmaShowToast('Video is too large. The limit is 64 MB.', 'error');
+            return null;
+        }
+        try {
+            // slice() restamps the type so the data URI always carries the MIME the server's allowlist expects.
+            const dataUrl = await llmaFileToBase64(att.file.slice(0, att.file.size, att.mediaType));
+            const result = await llmaRequest('LLMAssistantUploadChatVideo', {
+                threadId: LLMAState.activeThreadId,
+                messageId,
+                videoData: dataUrl,
+            });
+            if (result?.success && result.url) {
+                return { url: result.url, mediaType: result.mediaType || att.mediaType };
+            }
+            llmaShowToast(result?.error || 'Video upload failed', 'error');
+        } catch {
+            llmaShowToast('Video upload failed', 'error');
+        }
+        return null;
+    }
+
     /** Caption the attached image into the prompt box (creates a thread if needed). File-private. */
     function llmaCaptionAndSendToPrompt() {
-        if (!LLMAState.attachedImage) return;
+        if (!LLMAState.attachedImage || LLMAState.attachedImage.kind === 'video') return;
         llmaShowChatPanel();
         if (!LLMAState.activeThreadId) {
             llmaCreateThread(LLMAState.activeAssistantId).then(() => llmaDoCaptionPrompt());
@@ -238,7 +366,7 @@
         const upload = await llmaUploadAttachedImage(userMsgId);
         if (!upload) return;
         LLMAState.messages.push({ id: userMsgId, role: 'user', content: captionMsg, timestamp: new Date().toISOString(), media: [upload] });
-        llmaAppendMessageToDOM('user', captionMsg, upload.url, userMsgId);
+        llmaAppendMessageToDOM('user', captionMsg, upload, userMsgId);
         llmaClearAttachment();
         const payload = llmaBuildPayload(captionMsg, 'caption');
         payload.media = [upload];
@@ -256,6 +384,7 @@
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaHandlePaste         = llmaHandlePaste;
     window.llmaHandleAttach        = llmaHandleAttach;
+    window.llmaAttachKind          = llmaAttachKind;
     window.llmaClearAttachment     = llmaClearAttachment;
     window.llmaUploadAttachedImage = llmaUploadAttachedImage;
     window.llmaSendToPromptBox     = llmaSendToPromptBox;
