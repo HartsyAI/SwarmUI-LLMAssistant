@@ -105,7 +105,7 @@ public class CaptionImageTool : ToolHandler
         }
         // Build a one-shot LLM input. Use whatever model the chat is using; the LLM dispatcher
         // routes by model id and the backends emit vision content blocks for media-bearing
-        // messages automatically (see AnthropicLLMBackend.BuildAnthropicContent etc).
+        // messages automatically (see RemoteOpenAILLMProvider.BuildOpenAIContent etc).
         ExtendedLLMInput input = new()
         {
             Model = ctx.ModelId,

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using SwarmUI.Accounts;
 
 namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
@@ -19,14 +20,18 @@ public static class LLMModelLookup
     /// <summary>One cached provider roster: the models it advertised and when that expires.</summary>
     private record ProviderEntry(DateTime Expires, List<LLMModelInfo> Models);
 
-    /// <summary>Per-provider model roster cache, keyed by <see cref="ILLMProvider.Id"/>.</summary>
+    /// <summary>Per-provider model roster cache, keyed by <see cref="ILLMProvider.Id"/>, plus <c>|</c> and the user id for a
+    /// provider whose models vary by user.</summary>
     private static readonly ConcurrentDictionary<string, ProviderEntry> ProviderCache = new();
 
-    /// <summary>Returns the provider's models, cached. Never throws — a provider that fails to list
-    /// (eg an unreachable remote endpoint) yields an empty list, so it can't block the hot path.</summary>
-    private static async Task<List<LLMModelInfo>> GetModelsCached(ILLMProvider provider)
+    /// <summary>Returns the provider's models as <paramref name="session"/>'s user sees them (with their own key, on a provider
+    /// whose models vary by user), cached. Never throws — a provider that fails to list (eg an unreachable remote endpoint)
+    /// yields an empty list, so it can't block the hot path.</summary>
+    private static async Task<List<LLMModelInfo>> GetModelsCached(ILLMProvider provider, Session session)
     {
-        if (ProviderCache.TryGetValue(provider.Id, out ProviderEntry entry) && entry.Expires > DateTime.UtcNow)
+        bool perUser = provider.ModelsVaryByUser && session?.User is not null;
+        string key = perUser ? $"{provider.Id}|{session.User.UserID}" : provider.Id;
+        if (ProviderCache.TryGetValue(key, out ProviderEntry entry) && entry.Expires > DateTime.UtcNow)
         {
             return entry.Models;
         }
@@ -34,25 +39,26 @@ public static class LLMModelLookup
         using CancellationTokenSource cts = new(ListTimeout);
         try
         {
-            models = await provider.ListModels(cts.Token) ?? [];
+            models = await (perUser ? provider.ListModelsFor(session, cts.Token) : provider.ListModels(cts.Token)) ?? [];
         }
         catch
         {
             models = [];
         }
-        ProviderCache[provider.Id] = new ProviderEntry(DateTime.UtcNow + TTL, models);
+        ProviderCache[key] = new ProviderEntry(DateTime.UtcNow + TTL, models);
         return models;
     }
 
     /// <summary>The first model any registered provider advertises, or null when none does. For callers
     /// that cannot name a model because there is no one to pick one — a voice satellite sends an
     /// utterance and nothing else. Uses the same cached rosters as the lookups above, so it costs
-    /// nothing on the hot path.</summary>
-    public static async Task<LLMModelInfo> GetFirstAvailableAsync()
+    /// nothing on the hot path. Pass the caller's <paramref name="session"/> so a provider whose models
+    /// depend on each user's own key (Claude) lists that user's models.</summary>
+    public static async Task<LLMModelInfo> GetFirstAvailableAsync(Session session = null)
     {
         foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
-            List<LLMModelInfo> models = await GetModelsCached(provider);
+            List<LLMModelInfo> models = await GetModelsCached(provider, session);
             if (models.Count > 0)
             {
                 return models[0];
@@ -62,8 +68,8 @@ public static class LLMModelLookup
     }
 
     /// <summary>Returns the <see cref="LLMModelInfo"/> for the given model id, or null if no registered
-    /// provider advertises it. Tolerates a null/empty id (returns null).</summary>
-    public static async Task<LLMModelInfo> GetByIdAsync(string modelId)
+    /// provider advertises it to <paramref name="session"/>'s user (null: the server's own view). Tolerates a null/empty id (returns null).</summary>
+    public static async Task<LLMModelInfo> GetByIdAsync(string modelId, Session session = null)
     {
         if (string.IsNullOrEmpty(modelId))
         {
@@ -71,7 +77,7 @@ public static class LLMModelLookup
         }
         foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
-            List<LLMModelInfo> models = await GetModelsCached(provider);
+            List<LLMModelInfo> models = await GetModelsCached(provider, session);
             LLMModelInfo match = models.FirstOrDefault(m => string.Equals(m.Id, modelId, StringComparison.OrdinalIgnoreCase));
             if (match is not null)
             {
@@ -88,8 +94,9 @@ public static class LLMModelLookup
     /// <summary>Returns the provider that advertises the given model id on the given backend instance.
     /// When <paramref name="backendId"/> is &gt;= 0, only a provider advertising the model with that exact
     /// backend id matches (used to route a compare lane to a chosen GPU/device); if none matches the
-    /// backend id, falls back to the first provider that owns the model at all. -1 = any backend.</summary>
-    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId, int backendId)
+    /// backend id, falls back to the first provider that owns the model at all. -1 = any backend. Models are listed as
+    /// <paramref name="session"/>'s user sees them (null: the server's own view).</summary>
+    public static async Task<ILLMProvider> GetOwningProviderAsync(string modelId, int backendId, Session session = null)
     {
         if (string.IsNullOrEmpty(modelId))
         {
@@ -98,7 +105,7 @@ public static class LLMModelLookup
         ILLMProvider anyOwner = null;
         foreach (ILLMProvider provider in LLMProviderRegistry.All)
         {
-            List<LLMModelInfo> models = await GetModelsCached(provider);
+            List<LLMModelInfo> models = await GetModelsCached(provider, session);
             bool ownsModel = false;
             foreach (LLMModelInfo m in models)
             {

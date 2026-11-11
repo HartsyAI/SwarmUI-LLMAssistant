@@ -1,5 +1,6 @@
 using System.Text;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.LLMs;
 using SwarmUI.Utils;
@@ -18,9 +19,15 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// <c>LLMBackendPack.Register()</c> call) to fall back to a native Swarm LLM API.</para></summary>
 public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
 {
-    /// <summary>Short provider kind, eg <c>"anthropic"</c>. Combined with the backend instance id
+    /// <summary>Short provider kind, eg <c>"openai"</c>. Combined with the backend instance id
     /// to form a unique <see cref="Id"/>.</summary>
     public abstract string ProviderKind { get; }
+
+    /// <inheritdoc/>
+    public virtual bool ModelsVaryByUser => false;
+
+    /// <inheritdoc/>
+    public virtual Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModels(ct);
 
     /// <inheritdoc/>
     public string Id => $"{ProviderKind}:{AbstractBackendData?.ID ?? 0}";

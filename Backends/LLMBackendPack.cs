@@ -25,22 +25,22 @@ public static class LLMBackendPack
         }
         Registered = true;
         RegisterApiKey(new("anthropic_api", "anthropic", "Anthropic", "https://console.anthropic.com/",
-            new("To use the Anthropic Claude LLM backend, set your API key below.<br>This allows you to use Claude models for text generation.")));
+            new("To use Claude through the Remote (OpenAI-Compatible) LLM backend at https://api.anthropic.com, set your API key below.<br>This allows you to use Claude models for text generation.")));
         RegisterApiKey(new("openai_api", "openai", "OpenAI", "https://platform.openai.com/api-keys",
             new("To use OpenAI (or other OpenAI-compatible) models via the Remote LLM backend, set your API key below.<br>This allows you to use GPT models for text generation.")));
         BasicAPIFeatures.AcceptedAPIKeyTypes.Add("anthropic_api");
         BasicAPIFeatures.AcceptedAPIKeyTypes.Add("openai_api");
+        // Claude now runs through the OpenAI-compatible backend; saved backends of the old Anthropic type are converted before core loads them.
+        AnthropicBackendMigration.Run();
         // isStandard: true, so these show in the Server > Backends type row without "Show Advanced" and
         // without the "advanced users only" confirm. Type IDS must never change (Backends.fds persists
         // instances by id); display names/descriptions are free to change.
-        Program.Backends.RegisterBackendType<AnthropicLLMProvider>("llmassistant-anthropic", "LLM: Anthropic Claude",
-            "(LLM Assistant) Claude models through the Anthropic API. Each user adds their own API key in the User tab.", true, isStandard: true);
         Program.Backends.RegisterBackendType<RemoteOpenAILLMProvider>("llmassistant-openai", "LLM: Remote (OpenAI-Compatible)",
-            "(LLM Assistant) Any OpenAI-compatible server, such as OpenAI, Ollama, LM Studio, vLLM or OpenRouter. Set Address to the server. A user's own OpenAI key from the User tab is used when they have one.", true, isStandard: true);
+            "(LLM Assistant) Any OpenAI-compatible server, such as OpenAI, Anthropic Claude (https://api.anthropic.com), Ollama, LM Studio, vLLM or OpenRouter. Set Address to the server. A user's own key from the User tab is used when they have one.", true, isStandard: true);
         Program.Backends.RegisterBackendType<HartsyLocalLLMProvider>("llmassistant-hartsy-local", "LLM: Local (HartsyInference GGUF)",
             "(LLM Assistant) Runs GGUF language models on this machine with the built-in HartsyInference engine. Nothing else to install. Put .gguf files in Models/llm.", true, isStandard: true);
         BackendCardAPI.Register();
-        Logs.Info("[LLMAssistant] Registered LLM backend pack (Anthropic, Remote OpenAI, HartsyInference local).");
+        Logs.Info("[LLMAssistant] Registered LLM backend pack (Remote OpenAI-compatible, HartsyInference local).");
     }
 
     /// <summary>Registers an API key type, tolerating the case where core (or a reload) already has it.</summary>

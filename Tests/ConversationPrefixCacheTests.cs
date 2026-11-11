@@ -296,9 +296,12 @@ public class ConversationPrefixCacheTests
     }
 
     [Fact]
-    public void AnthropicProvider_RequestBodyNeverCarriesTheConversationScope()
+    public void AnthropicAddress_RequestBodyNeverCarriesTheConversationScope()
     {
-        AnthropicLLMProvider provider = new() { SettingsRaw = new AnthropicLLMProvider.AnthropicLLMProviderSettings() };
+        RemoteOpenAILLMProvider provider = new()
+        {
+            SettingsRaw = new RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings { Address = "https://api.anthropic.com", DefaultModel = "claude-opus-4-8" }
+        };
         ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("6f1d0c2b9a8e4f0f"), "claude-opus-4-8", (LLMRoles.User, "hi"));
         JObject body = provider.BuildRequestBody(input, stream: true);
         Assert.Equal(["max_tokens", "messages", "model", "stream"], body.Properties().Select(p => p.Name).Order(StringComparer.Ordinal));

@@ -75,7 +75,7 @@ public class BackendCardSettingsTests
     }
 
     [Fact]
-    public void RemoteAndAnthropicSettings_SavedBackendFromFile_LoadsUnchanged()
+    public void RemoteSettings_SavedBackendFromFile_LoadsUnchanged()
     {
         RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings remote = new();
         // A backend saved before NativeToolCalling was removed still sets it; the unknown key is ignored.
@@ -86,12 +86,6 @@ public class BackendCardSettingsTests
         Assert.Equal("max_tokens", remote.TokenLimitParameter);
         Assert.Equal(5, remote.ConnectionAttemptTimeoutSeconds);
         Assert.True(remote.AllowIdle);
-        AnthropicLLMProvider.AnthropicLLMProviderSettings anthropic = new();
-        anthropic.Load(new FDSSection("DefaultModel: claude-sonnet-4-6\nTimeoutSeconds: 300\nWorkspaceId: wrkspc_1\n"));
-        Assert.Equal("claude-sonnet-4-6", anthropic.DefaultModel);
-        Assert.Equal(300, anthropic.TimeoutSeconds);
-        Assert.Equal("wrkspc_1", anthropic.WorkspaceId);
-        Assert.Equal("https://api.anthropic.com", anthropic.BaseUrl);
     }
 
     [Theory]
@@ -173,19 +167,25 @@ public class BackendCardSettingsTests
     }
 
     [Fact]
-    public void AnthropicModelList_ReadsIdsAndNamesInOrder()
+    public void AnthropicModelList_ReadsIdsNamesAndContextInOrder()
     {
         JObject body = JObject.Parse("""
             {"data": [
-              {"type": "model", "id": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "created_at": "2026-05-01T00:00:00Z"},
+              {"type": "model", "id": "claude-opus-4-8", "display_name": "Claude Opus 4.8", "created_at": "2026-05-01T00:00:00Z", "max_input_tokens": 1000000},
               {"type": "model", "id": "claude-haiku-4-5", "display_name": ""},
               {"type": "model", "id": "", "display_name": "Broken"}
             ], "has_more": false}
             """);
-        List<(string Id, string Name)> models = AnthropicLLMProvider.ParseModelList(body);
+        List<LLMModelInfo> models = RemoteOpenAILLMProvider.ParseModelList(body, 7, anthropic: true);
         List<(string Id, string Name)> expected = [("claude-opus-4-8", "Claude Opus 4.8"), ("claude-haiku-4-5", "claude-haiku-4-5")];
-        Assert.Equal(expected, models);
-        Assert.Empty(AnthropicLLMProvider.ParseModelList(null));
+        Assert.Equal(expected, models.Select(m => (m.Id, m.Name)));
+        Assert.Equal(1000000, models[0].ContextLength);
+        Assert.Equal(-1, models[1].ContextLength);
+        Assert.All(models, m => Assert.Equal("claude", m.Family));
+        Assert.All(models, m => Assert.Equal("anthropic", m.Provider));
+        Assert.All(models, m => Assert.Equal(7, m.BackendId));
+        Assert.False(models[0].Metadata.ContainsKey("display_name"));
+        Assert.Empty(RemoteOpenAILLMProvider.ParseModelList(null, 7, anthropic: true));
     }
 
     [Fact]
@@ -203,12 +203,11 @@ public class BackendCardSettingsTests
         Assert.Null(empty["error"]);
     }
 
-    /// <summary>The three settings classes, by the backend type id their card renders for.</summary>
+    /// <summary>The settings classes, by the backend type id their card renders for.</summary>
     private static readonly Dictionary<string, Type> SettingsByType = new()
     {
         ["llmassistant-hartsy-local"] = typeof(LocalSettings),
-        ["llmassistant-openai"] = typeof(RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings),
-        ["llmassistant-anthropic"] = typeof(AnthropicLLMProvider.AnthropicLLMProviderSettings)
+        ["llmassistant-openai"] = typeof(RemoteOpenAILLMProvider.RemoteOpenAILLMProviderSettings)
     };
 
     /// <summary>Every tooltip is short, plain and free of em dashes.</summary>
