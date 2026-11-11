@@ -12,7 +12,7 @@ public static class LLMRoles
     public const string User = "user";
     public const string Assistant = "assistant";
     /// <summary>A tool-call result turn. Every provider maps it to its own wire shape (the local engine's tool role,
-    /// Anthropic's <c>tool_result</c> block, OpenAI's <c>tool</c> message), carrying <see cref="LLMMessage.ToolCallId"/>
+    /// OpenAI's <c>tool</c> message), carrying <see cref="LLMMessage.ToolCallId"/>
     /// and <see cref="LLMMessage.Name"/>. A saved tool turn is replayed with this role.</summary>
     public const string Tool = "tool";
 }

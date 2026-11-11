@@ -6,7 +6,7 @@ using Xunit;
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>A saved tool turn replays as the calls and results the model made, and each provider's request carries the tool
-/// shapes its API expects (Anthropic <c>tool_use</c>/<c>tool_result</c> blocks, OpenAI <c>tool_calls</c>/<c>tool</c> messages).</summary>
+/// shapes its API expects (OpenAI <c>tool_calls</c>/<c>tool</c> messages, the local engine's native calls).</summary>
 public class ToolHistoryTests
 {
     private static JObject SavedCall(string id, string name, JObject args, JToken result) => new()
@@ -62,44 +62,6 @@ public class ToolHistoryTests
         Assert.Single(input.Messages);
         Assert.Equal("assistant", input.Messages[0].Role);
         Assert.Null(input.Messages[0].ToolCalls);
-    }
-
-    [Fact]
-    public void AnthropicMergesToolResultsAndTheNextUserTurn()
-    {
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(
-        [
-            new ChatMessageData { Role = "user", Content = "time and weather?" },
-            Assistant("", SavedCall("c1", "get_time", new JObject(), new JObject { ["now"] = "14:05" }), SavedCall("c2", "get_weather", new JObject(), new JObject { ["sky"] = "clear" })),
-            new ChatMessageData { Role = "user", Content = "thanks" },
-        ]);
-        JArray messages = AnthropicLLMProvider.BuildAnthropicMessages(input.Messages);
-        Assert.Equal(["user", "assistant", "user"], messages.Select(m => m["role"]!.ToString()));
-        JArray results = (JArray)messages[2]["content"]!;
-        Assert.Equal(["tool_result", "tool_result", "text"], results.Select(b => b["type"]!.ToString()));
-        Assert.Equal("c1", results[0]["tool_use_id"]!.ToString());
-        Assert.Equal("thanks", results[2]["text"]!.ToString());
-    }
-
-    [Fact]
-    public void AnthropicToolUseCarriesItsInputAsAnObject()
-    {
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory([Assistant("Checking.", SavedCall("c1", "get_time", new JObject { ["tz"] = "UTC" }, new JObject()))]);
-        JArray messages = AnthropicLLMProvider.BuildAnthropicMessages(input.Messages);
-        // Saved prose follows the turn's tool results (see ExtendedLLMInput.AddToolTurns), so the tool_use turn holds only the call.
-        JArray blocks = (JArray)messages[0]["content"]!;
-        Assert.Equal(["tool_use"], blocks.Select(b => b["type"]!.ToString()));
-        Assert.Equal("UTC", ((JObject)blocks[0]["input"]!)["tz"]!.ToString());
-        Assert.Equal(["assistant", "user", "assistant"], messages.Select(m => m["role"]!.ToString()));
-        Assert.Equal("Checking.", messages[2]["content"]!.ToString());
-    }
-
-    [Fact]
-    public void AnthropicDropsBlankAssistantTurns()
-    {
-        List<LLMMessage> source = [new LLMMessage { Role = "user", Content = "hi" }, new LLMMessage { Role = "assistant", Content = "   " }, new LLMMessage { Role = "user", Content = "again" }];
-        JArray messages = AnthropicLLMProvider.BuildAnthropicMessages(source);
-        Assert.Equal(["user"], messages.Select(m => m["role"]!.ToString()));
     }
 
     [Fact]
@@ -177,7 +139,7 @@ public class ToolHistoryTests
     [Fact]
     public void AMalformedSavedArgumentsStayAsWrittenInTheReplay()
     {
-        // The local engine gets the text as written; Anthropic needs an object, so it gets {}; OpenAI takes the text as is.
+        // The local engine and OpenAI both get the text as written.
         JObject call = new()
         {
             ["id"] = "c1",
@@ -190,11 +152,6 @@ public class ToolHistoryTests
 
         Assert.Equal("{\"tz\":", callTurn.ToolCalls![0]["arguments"]!.ToString());
         Assert.Equal("{\"tz\":", HartsyLocalLLMProvider.ToNativeToolCall(callTurn.ToolCalls[0]).Arguments);
-        JObject toolUse = AnthropicLLMProvider.BuildAnthropicMessages(input.Messages)
-            .SelectMany(m => m["content"] as JArray ?? new JArray())
-            .OfType<JObject>()
-            .Single(b => b["type"]?.ToString() == "tool_use");
-        Assert.Equal(JTokenType.Object, toolUse["input"]!.Type);
         JArray openai = RemoteOpenAILLMProvider.BuildOpenAIMessages(input.Messages);
         JToken openAiCall = openai.Single(m => m["tool_calls"] is not null)["tool_calls"]![0]!;
         Assert.Equal("{\"tz\":", openAiCall["function"]!["arguments"]!.ToString());

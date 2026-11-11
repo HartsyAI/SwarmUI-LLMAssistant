@@ -1,5 +1,5 @@
 /**
- * Organizes the three LLM backend cards that core renders under Server > Backends, without replacing core code:
+ * Organizes the LLM backend cards that core renders under Server > Backends, without replacing core code:
  * - Groups each card's fields into Basics, Memory and Advanced sections, each with a link to its guide in the README.
  * - Shows plain labels, with the saved name and a guide link in each tooltip. Saved names never change.
  * - Relists GPU when the local card's Device changes, from LLMAssistantListGpus, and greys out what the device ignores.
@@ -14,7 +14,6 @@ class LLMBackendCards {
         this.guideRoot = 'https://github.com/HartsyAI/SwarmUI-LLMAssistant#';
         this.localType = 'llmassistant-hartsy-local';
         this.openaiType = 'llmassistant-openai';
-        this.anthropicType = 'llmassistant-anthropic';
         /**
          * Per backend type: sections in card order (Basics starts open, the others open by themselves when a field in them is not
          * at its default), then the label, default and number limits per saved field name.
@@ -59,18 +58,6 @@ class LLMBackendCards {
                     ConnectionAttemptTimeoutSeconds: { label: 'Connect Timeout (seconds)', default: '30', min: 1, max: 600, step: 1 },
                     OtherHeaders: { label: 'Other Headers', default: '' },
                     TokenLimitParameter: { label: 'Token Limit Field', default: 'auto' }
-                }
-            },
-            'llmassistant-anthropic': {
-                sections: [
-                    { key: 'basics', title: 'Basics', guide: 'anthropic-settings', fields: ['DefaultModel'] },
-                    { key: 'advanced', title: 'Advanced', guide: 'anthropic-settings', fields: ['TimeoutSeconds', 'WorkspaceId', 'BaseUrl'] }
-                ],
-                fields: {
-                    DefaultModel: { label: 'Default Model', default: 'claude-opus-4-8' },
-                    TimeoutSeconds: { label: 'Reply Timeout (seconds)', default: '120', min: 10, max: 3600, step: 10 },
-                    WorkspaceId: { label: 'Workspace ID', default: '' },
-                    BaseUrl: { label: 'Base URL', default: 'https://api.anthropic.com' }
                 }
             }
         };
@@ -413,8 +400,8 @@ class LLMBackendCards {
     }
 
     /**
-     * Fills Default Model from a cached LLMAssistantListBackendModels answer: suggestions on the OpenAI card, the dropdown on the
-     * Anthropic one. With nothing cached, asks the server only when mayAsk is set.
+     * Fills Default Model from a cached LLMAssistantListBackendModels answer, as suggestions on a text box or the options of a
+     * dropdown. With nothing cached, asks the server only when mayAsk is set.
      */
     applyModelList(cardBody, backend, mayAsk) {
         let key = `${backend.id}:${backend.modcount}`;

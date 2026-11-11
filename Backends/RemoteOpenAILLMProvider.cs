@@ -1,8 +1,11 @@
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using FreneticUtilities.FreneticDataSyntax;
+using FreneticUtilities.FreneticExtensions;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.DataHolders;
@@ -11,22 +14,23 @@ using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Backends;
 
-/// <summary>LLM backend for any OpenAI API-compatible provider (OpenAI, Ollama, LM Studio, vLLM,
-/// OpenRouter, …). A per-user <c>openai_api</c> key overrides the configured Authorization header.</summary>
+/// <summary>LLM backend for any OpenAI API-compatible provider (OpenAI, Anthropic Claude, Ollama, LM Studio, vLLM,
+/// OpenRouter, …). A per-user key overrides the configured Authorization header: <c>anthropic_api</c> when the Address is
+/// Anthropic's API, <c>openai_api</c> otherwise.</summary>
 public class RemoteOpenAILLMProvider : LLMProviderBackend
 {
     /// <summary>Settings saved to Data/Backends.fds by field name, so renaming or retyping a field breaks every saved backend.</summary>
     /// <remarks>Assets/llm-backend-cards.js groups these fields into the card's sections.</remarks>
     public class RemoteOpenAILLMProviderSettings : AutoConfiguration
     {
-        [ConfigComment("The server's web address. For example http://localhost:11434 for Ollama,\nhttp://localhost:1234 for LM Studio, or https://api.openai.com for OpenAI.")]
+        [ConfigComment("The server's web address. For example http://localhost:11434 for Ollama,\nhttp://localhost:1234 for LM Studio, https://api.openai.com for OpenAI,\nor https://api.anthropic.com for Claude.")]
         [SuggestionPlaceholder(Text = "for example http://localhost:11434")]
         public string Address = "";
 
         [ConfigComment("Lets the backend wait quietly (idle) instead of showing an error when the server is offline at startup.\nIt switches back to running after its next successful reply.")]
         public bool AllowIdle = false;
 
-        [ConfigComment("Only if the server needs a key. For example: Bearer sk-abc123\nA user's own OpenAI key from the User tab is used instead when they have one.")]
+        [ConfigComment("Only if the server needs a key. For example: Bearer sk-abc123\nA user's own key from the User tab is used instead when they have one\n(their Anthropic key for https://api.anthropic.com, their OpenAI key otherwise).")]
         [ValueIsSecret]
         public string AuthorizationHeader = "";
 
@@ -62,6 +66,37 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     public override IEnumerable<string> SupportedFeatures => ["llm", "remote_llm"];
 
     /// <inheritdoc/>
+    public override bool ModelsVaryByUser => true;
+
+    /// <inheritdoc/>
+    public override Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModelsAs(new ExtendedLLMInput { RequestSession = session }, ct);
+
+    /// <summary>The <c>anthropic-version</c> Anthropic's own (non-OpenAI-shaped) routes require, here the Models API.</summary>
+    public const string AnthropicVersion = "2023-06-01";
+
+    /// <summary>The header that picks the workspace for an Anthropic key not tied to one.</summary>
+    public const string AnthropicWorkspaceHeader = "anthropic-workspace-id";
+
+    /// <summary>Whether Address is Anthropic's API, reached through its OpenAI-compatible layer.</summary>
+    public bool IsAnthropic => IsAnthropicAddress(Settings.Address);
+
+    /// <summary>Whether <paramref name="address"/>'s host is <c>anthropic.com</c> or one of its subdomains.</summary>
+    internal static bool IsAnthropicAddress(string address)
+    {
+        if (!Uri.TryCreate((address ?? "").Trim(), UriKind.Absolute, out Uri uri))
+        {
+            return false;
+        }
+        return uri.Host.Equals("anthropic.com", StringComparison.OrdinalIgnoreCase) || uri.Host.EndsWith(".anthropic.com", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The User tab key type this backend reads: the user's Anthropic key for Anthropic's API, their OpenAI key otherwise.</summary>
+    public string UserKeyType => IsAnthropic ? "anthropic_api" : "openai_api";
+
+    /// <summary>The calling user's own key for this backend, or null when they have none.</summary>
+    public string GetUserKey(ExtendedLLMInput input) => input?.RequestSession?.User?.GetGenericData(UserKeyType, "key");
+
+    /// <inheritdoc/>
     protected override async Task OnProviderInit()
     {
         if (string.IsNullOrWhiteSpace(Settings.Address))
@@ -73,11 +108,18 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         try
         {
             using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(Settings.ConnectionAttemptTimeoutSeconds));
-            HttpRequestMessage request = new(HttpMethod.Get, $"{address}/v1/models");
-            ApplyHeaders(request);
+            HttpRequestMessage request = new(HttpMethod.Get, ModelsUrl(address));
+            ApplyHeaders(request, null, true);
             HttpResponseMessage response = await HttpClient.SendAsync(request, timeout.Token);
             if (response.IsSuccessStatusCode)
             {
+                Status = BackendStatus.RUNNING;
+                return;
+            }
+            // With no server-wide key, each user brings their own, so a server that answers "no key" is up and ready for them.
+            if ((response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden) && string.IsNullOrWhiteSpace(Settings.AuthorizationHeader))
+            {
+                Logs.Debug($"[RemoteOpenAILLMProvider] {address} needs a key; none is set on the backend, so each user's own key from the User tab is used.");
                 Status = BackendStatus.RUNNING;
                 return;
             }
@@ -93,18 +135,32 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     protected override async Task OnProviderShutdown() => Status = BackendStatus.DISABLED;
 
-    /// <summary>Applies configured headers to an HTTP request, with optional per-user API key override.</summary>
-    public void ApplyHeaders(HttpRequestMessage request, ExtendedLLMInput input = null)
+    /// <summary>The model list URL. Anthropic's pages at 20 models unless asked for more.</summary>
+    private string ModelsUrl(string address) => IsAnthropic ? $"{address}/v1/models?limit=1000" : $"{address}/v1/models";
+
+    /// <summary>Applies configured headers to an HTTP request, with optional per-user API key override. <paramref name="modelsList"/>
+    /// marks a model list request, which Anthropic serves from its own Models API: that takes the key as <c>x-api-key</c> with an
+    /// <c>anthropic-version</c>, not as a Bearer token.</summary>
+    public void ApplyHeaders(HttpRequestMessage request, ExtendedLLMInput input = null, bool modelsList = false)
     {
         string authHeader = Settings.AuthorizationHeader;
-        string userKey = input?.RequestSession?.User?.GetGenericData("openai_api", "key");
+        string userKey = GetUserKey(input);
         if (!string.IsNullOrEmpty(userKey))
         {
             authHeader = $"Bearer {userKey}";
         }
+        bool anthropicModels = modelsList && IsAnthropic;
         if (!string.IsNullOrWhiteSpace(authHeader))
         {
-            request.Headers.TryAddWithoutValidation("Authorization", authHeader);
+            if (anthropicModels)
+            {
+                string key = authHeader.Trim();
+                request.Headers.TryAddWithoutValidation("x-api-key", key.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? key["Bearer ".Length..].Trim() : key);
+            }
+            else
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", authHeader);
+            }
         }
         if (!string.IsNullOrWhiteSpace(Settings.OtherHeaders))
         {
@@ -118,6 +174,17 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     request.Headers.TryAddWithoutValidation(headerName, headerValue);
                 }
             }
+        }
+        if (anthropicModels && !request.Headers.Contains("anthropic-version"))
+        {
+            request.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
+        }
+        // A user's own workspace, set with their Anthropic key, replaces the backend's one from Other Headers.
+        string userWorkspace = IsAnthropic ? input?.RequestSession?.User?.GetGenericData("anthropic_api", "workspace_id") : null;
+        if (!string.IsNullOrWhiteSpace(userWorkspace))
+        {
+            request.Headers.Remove(AnthropicWorkspaceHeader);
+            request.Headers.TryAddWithoutValidation(AnthropicWorkspaceHeader, userWorkspace.Trim());
         }
     }
 
@@ -159,11 +226,18 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             ["model"] = model,
             ["messages"] = messages,
-            ["temperature"] = input.Temperature,
             [TokenLimitField()] = input.MaxTokens,
-            ["top_p"] = input.TopP,
             ["stream"] = stream
         };
+        if (IsAnthropic)
+        {
+            AddAnthropicSampling(body, model, input);
+        }
+        else
+        {
+            body["temperature"] = input.Temperature;
+            body["top_p"] = input.TopP;
+        }
         if (input.Seed >= 0)
         {
             body["seed"] = input.Seed;
@@ -177,6 +251,36 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                 : "auto";
         }
         return body;
+    }
+
+    /// <summary>Adds the one sampling setting Claude takes. Claude 4.7 and later reject <c>temperature</c> and <c>top_p</c> outright
+    /// (400), so they get neither; older models reject both together, so they get <c>temperature</c> (Claude's range ends at 1),
+    /// or <c>top_p</c> when temperature is unset.</summary>
+    internal static void AddAnthropicSampling(JObject body, string model, ExtendedLLMInput input)
+    {
+        if (!AnthropicAcceptsSampling(model))
+        {
+            return;
+        }
+        if (input.Temperature >= 0)
+        {
+            body["temperature"] = Math.Min(input.Temperature, 1.0);
+        }
+        else if (input.TopP >= 0 && input.TopP < 1.0)
+        {
+            body["top_p"] = input.TopP;
+        }
+    }
+
+    /// <summary>Whether a Claude model still accepts <c>temperature</c>/<c>top_p</c>: an allowlist of the older families, so an
+    /// unknown or new model never fails on them.</summary>
+    internal static bool AnthropicAcceptsSampling(string model)
+    {
+        string m = (model ?? "").ToLowerFast();
+        return m.Contains("claude-3")
+            || m.Contains("opus-4-0") || m.Contains("opus-4-1") || m.Contains("opus-4-5") || m.Contains("opus-4-6")
+            || m.Contains("sonnet-4-0") || m.Contains("sonnet-4-5") || m.Contains("sonnet-4-6")
+            || m.Contains("haiku-4-5");
     }
 
     /// <summary>The OpenAI <c>messages</c> array for a conversation. An assistant turn that made tool calls carries
@@ -223,7 +327,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <summary>Maps this extension's tool JObject shape (<c>{id, name, description, parameters}</c>) onto
     /// the OpenAI function-tool definition (<c>{type:"function", function:{name, description, parameters}}</c>).
     /// <c>id</c> (snake_case, eg <c>generate_image</c>) is used as the function name, matching
-    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key; same reasoning as Anthropic's mapping.</summary>
+    /// <c>ToolExecutorService.ExecuteTool</c>'s dispatch key, so a returned tool call names the handler to run.</summary>
     private static JArray BuildOpenAITools(List<JObject> tools)
     {
         JArray result = [];
@@ -287,6 +391,10 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
     /// <inheritdoc/>
     public override async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
     {
+        if (IsAnthropic && string.IsNullOrWhiteSpace(GetUserKey(input)) && string.IsNullOrWhiteSpace(Settings.AuthorizationHeader))
+        {
+            throw new SwarmReadableErrorException("No Anthropic API key set. Go to the User tab to set your Anthropic API key.");
+        }
         string address = Settings.Address.TrimEnd('/');
         JObject body = BuildRequestBody(input, true);
         HttpRequestMessage request = new(HttpMethod.Post, $"{address}/v1/chat/completions")
@@ -412,13 +520,18 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         {
             return models;
         }
+        // Anthropic lists nothing without a key, so a user who has none is not worth a request (and a warning) each time.
+        if (IsAnthropic && string.IsNullOrWhiteSpace(GetUserKey(asUser)) && string.IsNullOrWhiteSpace(Settings.AuthorizationHeader))
+        {
+            return models;
+        }
         string address = Settings.Address.TrimEnd('/');
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(Settings.ConnectionAttemptTimeoutSeconds));
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token, ct);
         try
         {
-            HttpRequestMessage request = new(HttpMethod.Get, $"{address}/v1/models");
-            ApplyHeaders(request, asUser);
+            HttpRequestMessage request = new(HttpMethod.Get, ModelsUrl(address));
+            ApplyHeaders(request, asUser, true);
             HttpResponseMessage response = await HttpClient.SendAsync(request, linked.Token);
             if (!response.IsSuccessStatusCode)
             {
@@ -426,55 +539,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                 return models;
             }
             string body = await response.Content.ReadAsStringAsync(linked.Token);
-            JObject parsed = JObject.Parse(body);
-            JArray data = parsed.Value<JArray>("data");
-            if (data is null)
-            {
-                return models;
-            }
-            foreach (JObject model in data.OfType<JObject>())
-            {
-                string id = model.Value<string>("id") ?? "";
-                if (string.IsNullOrEmpty(id))
-                {
-                    continue;
-                }
-                LLMModelInfo info = new()
-                {
-                    Id = id,
-                    Name = model.Value<string>("name") ?? id,
-                    Provider = "openai_api",
-                    BackendId = AbstractBackendData?.ID ?? -1,
-                    IsLoaded = true
-                };
-                string family = model.Value<string>("family") ?? model["details"]?.Value<string>("family");
-                if (!string.IsNullOrEmpty(family))
-                {
-                    info.Family = family;
-                }
-                string quant = model["details"]?.Value<string>("quantization_level");
-                if (!string.IsNullOrEmpty(quant))
-                {
-                    info.Quantization = quant;
-                }
-                long size = model.Value<long?>("size") ?? -1;
-                if (size > 0)
-                {
-                    info.SizeBytes = size;
-                }
-                foreach (KeyValuePair<string, JToken> prop in model)
-                {
-                    if (prop.Key is "id" or "name" or "family" or "size" or "details" or "object")
-                    {
-                        continue;
-                    }
-                    if (prop.Value.Type == JTokenType.String)
-                    {
-                        info.Metadata[prop.Key] = prop.Value.ToString();
-                    }
-                }
-                models.Add(info);
-            }
+            models = ParseModelList(JObject.Parse(body), AbstractBackendData?.ID ?? -1, IsAnthropic);
         }
         catch (OperationCanceledException)
         {
@@ -483,6 +548,68 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         catch (Exception ex)
         {
             Logs.Warning($"[RemoteOpenAILLMProvider] Error listing models from {address}: {ex.Message}");
+        }
+        return models;
+    }
+
+    /// <summary>The models in a <c>/v1/models</c> answer's <c>data</c>, in its order. Reads OpenAI's and Ollama's fields, and
+    /// Anthropic's <c>display_name</c> and <c>max_input_tokens</c>. An Anthropic model's provider is <c>anthropic</c> (as it was under
+    /// the removed Anthropic backend, so the model picker's group and <c>provider:anthropic</c> instruction variants still apply) and
+    /// its family is <c>claude</c>.</summary>
+    internal static List<LLMModelInfo> ParseModelList(JObject parsed, int backendId, bool anthropic)
+    {
+        List<LLMModelInfo> models = [];
+        if (parsed?.Value<JArray>("data") is not JArray data)
+        {
+            return models;
+        }
+        foreach (JObject model in data.OfType<JObject>())
+        {
+            string id = model.Value<string>("id") ?? "";
+            if (string.IsNullOrEmpty(id))
+            {
+                continue;
+            }
+            LLMModelInfo info = new()
+            {
+                Id = id,
+                Name = new[] { model.Value<string>("name"), model.Value<string>("display_name") }.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? id,
+                Provider = anthropic ? "anthropic" : "openai_api",
+                BackendId = backendId,
+                IsLoaded = true
+            };
+            string family = model.Value<string>("family") ?? model["details"]?.Value<string>("family") ?? (anthropic ? "claude" : null);
+            if (!string.IsNullOrEmpty(family))
+            {
+                info.Family = family;
+            }
+            int contextLength = model.Value<int?>("max_input_tokens") ?? -1;
+            if (contextLength > 0)
+            {
+                info.ContextLength = contextLength;
+            }
+            string quant = model["details"]?.Value<string>("quantization_level");
+            if (!string.IsNullOrEmpty(quant))
+            {
+                info.Quantization = quant;
+            }
+            long size = model.Value<long?>("size") ?? -1;
+            if (size > 0)
+            {
+                info.SizeBytes = size;
+            }
+            foreach (KeyValuePair<string, JToken> prop in model)
+            {
+                if (prop.Key is "id" or "name" or "display_name" or "family" or "size" or "details" or "object")
+                {
+                    continue;
+                }
+                if (prop.Value.Type == JTokenType.String)
+                {
+                    info.Metadata[prop.Key] = prop.Value.ToString();
+                }
+            }
+            models.Add(info);
         }
         return models;
     }

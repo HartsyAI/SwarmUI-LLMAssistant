@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Accounts;
 
 namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
@@ -12,7 +13,7 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// <c>ILLMProvider</c> that adapts the native backend; nothing else changes.</para></summary>
 public interface ILLMProvider
 {
-    /// <summary>Stable provider id (eg <c>"hartsy-local"</c>, <c>"anthropic"</c>).</summary>
+    /// <summary>Stable provider id (eg <c>"hartsy-local"</c>, <c>"openai"</c>).</summary>
     string Id { get; }
 
     /// <summary>Human-facing provider name.</summary>
@@ -22,6 +23,13 @@ public interface ILLMProvider
     /// network call must honor <paramref name="ct"/> so callers can bound an unresponsive endpoint
     /// (eg the model dropdown) instead of waiting out the full connection timeout.</summary>
     Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default);
+
+    /// <summary>Whether <see cref="ListModelsFor"/> can answer differently per user (each user brings their own API key), so a
+    /// cached list must be kept per user.</summary>
+    bool ModelsVaryByUser => false;
+
+    /// <summary>Lists the models <paramref name="session"/>'s user can reach. The default ignores the session.</summary>
+    Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModels(ct);
 
     /// <summary>Generates a full (non-streamed) response. Implementations must honor <paramref name="ct"/>
     /// the same way <see cref="GenerateLive"/> does.</summary>
