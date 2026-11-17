@@ -23,7 +23,7 @@ npm test
 
 Or `E2E/run-e2e.ps1` / `E2E/run-e2e.sh` from anywhere.
 
-The first run takes a minute or two longer: SwarmUI starts with `--environment dev`, which rebuilds the extension on every start, so what you test is always your working tree, including uncommitted changes.
+Each start takes a minute or two: core caches an extension's build under `src/bin/extensions/` keyed on its git HEAD and does not notice uncommitted changes, so the harness deletes that cached DLL first and core rebuilds the extension from your working tree. (Deleting it is harmless to your own SwarmUI: it just rebuilds the extension on its next start.)
 
 To poke at the stack by hand, or to iterate on specs without restarting SwarmUI each time:
 
