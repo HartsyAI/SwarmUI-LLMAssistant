@@ -170,6 +170,20 @@
 .llma-compare-on .llma-model-select-wrap .llma-model-select    { order: 1; }
 .llma-compare-on .llma-model-select-wrap .llma-model-select-b-wrap { order: 3; }
 .llma-compare-on .llma-model-select-wrap .llma-model-refresh   { order: 4; }
+/* Segmented controls (Bootstrap btn-group + btn-check, the markup core uses) in the theme's colours. Bootstrap sets its blue on each
+   .btn-outline-primary itself, so the button variables are overridden on the buttons, not inherited from the group. */
+.llma-segmented .btn {
+    --bs-btn-color: var(--text-soft);
+    --bs-btn-border-color: var(--light-border);
+    --bs-btn-hover-color: var(--text);
+    --bs-btn-hover-bg: var(--background-soft);
+    --bs-btn-hover-border-color: var(--border-color);
+    --bs-btn-active-color: var(--emphasis-text);
+    --bs-btn-active-bg: var(--emphasis);
+    --bs-btn-active-border-color: var(--emphasis);
+    --bs-btn-disabled-color: var(--text-soft);
+    --bs-btn-disabled-border-color: var(--light-border);
+}
 /* Lane B model pill wrapper (compare mode). */
 .llma-model-select-b-wrap {
     display: inline-flex;

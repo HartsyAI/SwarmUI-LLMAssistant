@@ -34,17 +34,18 @@
                 <button class="llma-icon-btn translate" id="llma-sidebar-toggle" title="Toggle sidebar" aria-label="Toggle sidebar">
                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 3h12M2 8h12M2 13h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                 </button>
-                <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
-            </div>
-            <div class="llma-topbar-right">
-                <!-- Mode switch, in core's own segmented-control markup (Bootstrap btn-group + btn-check, as in the preset export dialog).
-                     Code mode is reserved (see HARNESS-ROADMAP.md): its segment stays disabled until it ships. -->
-                <div class="btn-group btn-group-sm" role="group" aria-label="Mode" id="llma-mode-switch">
+                <!-- Mode switch, in core's own segmented-control markup (Bootstrap btn-group + btn-check, as in the preset export dialog),
+                     coloured with the theme's variables by .llma-segmented. Code mode is reserved (see HARNESS-ROADMAP.md): its segment
+                     stays disabled until it ships. -->
+                <div class="btn-group btn-group-sm llma-segmented" role="group" aria-label="Mode" id="llma-mode-switch">
                     <input type="radio" class="btn-check" name="llma-mode" id="llma-mode-chat" autocomplete="off" checked>
                     <label class="btn btn-outline-primary translate" for="llma-mode-chat">Chat</label>
                     <input type="radio" class="btn-check" name="llma-mode" id="llma-mode-code" autocomplete="off" disabled>
                     <label class="btn btn-outline-primary translate" for="llma-mode-code" title="Code mode: coming soon">Code</label>
                 </div>
+                <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
+            </div>
+            <div class="llma-topbar-right">
                 <!-- Model select. Collapses into a popover ("model menu") when the top bar gets narrow —
                      see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
                 <div class="llma-popover-anchor llma-model-anchor" id="llma-model-anchor">
