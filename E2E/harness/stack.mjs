@@ -5,12 +5,16 @@
 // --backends_file under E2E/.run/, and Paths.OutputPath / Paths.ModelRoot point inside that folder too.
 //
 // Requires an existing SwarmUI build at <swarm root>/src/bin/live_release (build SwarmUI first, as launch-windows.bat does).
-// Core caches an extension's build as src/bin/extensions/<dll>/<dll>-<git HEAD>.dll and only rebuilds when that file is missing
-// (it decides this before it knows about --environment dev), so uncommitted changes would otherwise run against a stale build.
-// startStack() therefore deletes that cached file first, which makes core rebuild the extension from the working tree.
+//
+// Swarm runs from a PRIVATE root in the system temp folder (not under the extension, which would make a link cycle): links to the real SwarmUI folders, except that src/bin has only the
+// built SwarmUI (linked) and src/Extensions has only this extension (linked). Core caches an extension's build under
+// src/bin/extensions keyed on the extension's git HEAD and reuses it even when the files changed, and a SwarmUI you are running from
+// the same checkout holds that cache locked. With its own src/bin, src/obj and src/Extensions the test instance always builds the
+// extension fresh from the working tree, never touches or is blocked by your own instance, and loads no other extension.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -84,35 +88,47 @@ async function waitFor(url, label, timeoutMs, child) {
     throw new Error(`${label} did not answer ${url} within ${Math.round(timeoutMs / 1000)}s. See E2E/.run/*.log`);
 }
 
-/** Deletes core's cached build of this extension so the next Swarm start rebuilds it from the working tree. */
-function invalidateExtensionBuild(root) {
-    let head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: extensionDir, encoding: 'utf8' });
-    let hash = head.status === 0 ? head.stdout.trim().slice(0, 8) : 'unknown';
-    let dllName = `SwarmExtension${extensionFolderName}`;
-    let cached = path.join(root, 'src', 'bin', 'extensions', dllName, `${dllName}-${hash}.dll`);
-    if (fs.existsSync(cached)) {
-        try {
-            fs.rmSync(cached, { force: true });
-            log(`removed cached extension build ${path.basename(cached)} so it is rebuilt from the working tree`);
-        }
-        catch (e) {
-            throw new Error(`Could not remove ${cached} (is a SwarmUI instance using it running?): ${e.message}`);
-        }
+/** Links (a junction on Windows) or copies one entry of the real SwarmUI folder into the private root. */
+function linkEntry(from, to) {
+    let stat = fs.statSync(from);
+    if (stat.isDirectory()) {
+        fs.symlinkSync(from, to, isWindows ? 'junction' : 'dir');
+    }
+    else {
+        fs.copyFileSync(from, to);
     }
 }
 
+/** Builds the private SwarmUI root described at the top of this file and returns its path. */
+function buildPrivateRoot(root) {
+    let sandbox = path.join(os.tmpdir(), `llma-e2e-swarm-root-${SWARM_PORT}`);
+    fs.rmSync(sandbox, { recursive: true, force: true }); // removes the links, never what they point to
+    let skipTop = new Set(['src', 'Data', 'Output', 'Models', '.git', '.vs', 'node_modules']);
+    fs.mkdirSync(path.join(sandbox, 'src', 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(sandbox, 'src', 'Extensions'), { recursive: true });
+    for (let entry of fs.readdirSync(root)) {
+        if (!skipTop.has(entry)) {
+            linkEntry(path.join(root, entry), path.join(sandbox, entry));
+        }
+    }
+    for (let entry of fs.readdirSync(path.join(root, 'src'))) {
+        if (!['bin', 'obj', 'Extensions'].includes(entry)) {
+            linkEntry(path.join(root, 'src', entry), path.join(sandbox, 'src', entry));
+        }
+    }
+    linkEntry(path.join(root, 'src', 'bin', 'live_release'), path.join(sandbox, 'src', 'bin', 'live_release'));
+    linkEntry(extensionDir, path.join(sandbox, 'src', 'Extensions', extensionFolderName));
+    return sandbox;
+}
+
 /** Writes the throwaway Swarm data folder and returns its paths. */
-function seedData(root, runDir) {
+function seedData(runDir) {
     let dataDir = path.join(runDir, 'data');
     let outputDir = path.join(runDir, 'output');
     let modelsDir = path.join(runDir, 'models');
     for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm')]) {
         fs.mkdirSync(dir, { recursive: true });
     }
-    let extensionsRoot = path.join(root, 'src', 'Extensions');
-    let others = fs.existsSync(extensionsRoot)
-        ? fs.readdirSync(extensionsRoot, { withFileTypes: true }).filter(e => e.isDirectory() && e.name !== extensionFolderName).map(e => e.name)
-        : [];
     let slash = p => p.replace(/\\/g, '/');
     let settings = [
         'IsInstalled: true',
@@ -124,9 +140,6 @@ function seedData(root, runDir) {
         'Paths:',
         `\tModelRoot: ${slash(modelsDir)}`,
         `\tOutputPath: ${slash(outputDir)}`,
-        'DisabledExtensions:',
-        // FDS lists put their "- item" lines at the same indent as the key.
-        ...others.map(name => `- ${name}`),
         ''
     ].join('\n');
     let backends = [
@@ -169,12 +182,12 @@ export async function startStack() {
     await waitFor(`${MOCK_URL}/__health`, 'MockLLM', 30000, mock);
     log(`MockLLM up on ${MOCK_URL}`);
 
-    let seeded = seedData(root, runDir);
-    invalidateExtensionBuild(root);
-    log('starting throwaway SwarmUI (it rebuilds the extension first, which takes a minute or two)...');
+    let seeded = seedData(runDir);
+    let sandbox = buildPrivateRoot(root);
+    log('starting throwaway SwarmUI (it builds the extension first, which takes a minute or two)...');
     let swarmLog = fs.openSync(path.join(runDir, 'swarm.log'), 'w');
     let swarm = spawn('dotnet', [
-        swarmDll,
+        path.join(sandbox, 'src', 'bin', 'live_release', 'SwarmUI.dll'),
         '--environment', 'dev',
         '--launch_mode', 'none',
         '--host', 'localhost',
@@ -183,7 +196,7 @@ export async function startStack() {
         '--settings_file', seeded.settingsFile,
         '--backends_file', seeded.backendsFile
     ], {
-        cwd: root,
+        cwd: sandbox,
         env: { ...process.env, ASPNETCORE_ENVIRONMENT: 'Development', DOTNET_CLI_UI_LANGUAGE: 'en', DOTNET_CLI_TELEMETRY_OPTOUT: '1' },
         stdio: ['ignore', swarmLog, swarmLog],
         detached: !isWindows
