@@ -23,7 +23,7 @@ npm test
 
 Or `E2E/run-e2e.ps1` / `E2E/run-e2e.sh` from anywhere.
 
-Each start takes a minute or two: core caches an extension's build under `src/bin/extensions/` keyed on its git HEAD and does not notice uncommitted changes, so the harness deletes that cached DLL first and core rebuilds the extension from your working tree. (Deleting it is harmless to your own SwarmUI: it just rebuilds the extension on its next start.)
+Each start takes a minute or two, because the extension is built from your working tree. SwarmUI runs from a **private root** in your system temp folder (links to the real SwarmUI folders, with its own `src/bin`, `src/obj` and `src/Extensions` holding only this extension). Core caches an extension's build keyed on its git HEAD and ignores uncommitted changes, and a SwarmUI you run yourself from the same checkout holds that cache locked; the private root avoids both, so the test instance never touches or waits on yours, and loads no other extension.
 
 To poke at the stack by hand, or to iterate on specs without restarting SwarmUI each time:
 
@@ -37,7 +37,7 @@ Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT`
 ## What the stack is
 
 - SwarmUI runs with `--data_dir`, `--settings_file` and `--backends_file` under `E2E/.run/`, and `Paths.OutputPath` / `Paths.ModelRoot` inside it too.
-- Every other extension is disabled (via `DisabledExtensions` in the seeded settings), so only this extension is under test.
+- Only this extension is present in the private root, so only it is under test.
 - One backend is seeded: `LLM: Remote (OpenAI-Compatible)` at the mock, default model `mock-model`. The mock also lists `mock-model-b` for compare mode.
 - The local GGUF engine (`LLM: Local`) is **not** covered here, since it needs a GPU. A PR that touches `HartsyLocalLLMProvider` needs a manual GPU smoke check on top.
 
