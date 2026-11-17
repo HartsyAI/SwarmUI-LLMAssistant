@@ -37,10 +37,13 @@
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
             <div class="llma-topbar-right">
-                <!-- Mode switch. Code mode is reserved (see HARNESS-ROADMAP.md): the button stays disabled until it ships. -->
-                <div class="llma-mode-switch" id="llma-mode-switch" role="group" aria-label="Mode">
-                    <button class="llma-mode-btn active translate" id="llma-mode-chat" type="button" aria-pressed="true">Chat</button>
-                    <button class="llma-mode-btn translate" id="llma-mode-code" type="button" aria-pressed="false" disabled title="Code mode: coming soon">Code</button>
+                <!-- Mode switch, in core's own segmented-control markup (Bootstrap btn-group + btn-check, as in the preset export dialog).
+                     Code mode is reserved (see HARNESS-ROADMAP.md): its segment stays disabled until it ships. -->
+                <div class="btn-group btn-group-sm" role="group" aria-label="Mode" id="llma-mode-switch">
+                    <input type="radio" class="btn-check" name="llma-mode" id="llma-mode-chat" autocomplete="off" checked>
+                    <label class="btn btn-outline-primary translate" for="llma-mode-chat">Chat</label>
+                    <input type="radio" class="btn-check" name="llma-mode" id="llma-mode-code" autocomplete="off" disabled>
+                    <label class="btn btn-outline-primary translate" for="llma-mode-code" title="Code mode: coming soon">Code</label>
                 </div>
                 <!-- Model select. Collapses into a popover ("model menu") when the top bar gets narrow —
                      see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
