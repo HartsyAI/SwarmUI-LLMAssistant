@@ -98,6 +98,10 @@ public interface IToolTurnSink
     /// <summary>A call the turn never ran (the round limit, an error or a stop), with its stand-in result: <c>{id, name, result}</c>.</summary>
     Task ToolNotRun(JObject result);
 
+    /// <summary>Reserved for code mode: a gated tool call is waiting for the user's approval, <c>{id, name, arguments}</c>.
+    /// Nothing raises it yet; the default does nothing, so existing sinks are unaffected.</summary>
+    Task ToolApproval(JObject request) => Task.CompletedTask;
+
     /// <summary>The turn ended.</summary>
     Task Done(ToolTurnOutcome outcome);
 }

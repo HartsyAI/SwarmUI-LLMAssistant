@@ -260,6 +260,7 @@ public static class ThreadStorageService
             ["id"] = threadId,
             ["title"] = title ?? "New Thread",
             ["assistantId"] = assistantId ?? "",
+            ["mode"] = ThreadModes.Chat,
             ["createdAt"] = now,
             ["updatedAt"] = now,
             ["messages"] = new JArray(),

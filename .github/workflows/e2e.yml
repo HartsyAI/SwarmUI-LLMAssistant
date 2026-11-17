@@ -1,0 +1,63 @@
+name: E2E
+
+# Unit tests plus the browser e2e suite (Playwright against a throwaway SwarmUI and a scripted mock LLM).
+# See E2E/README.md. The local GGUF engine is not covered here (it needs a GPU).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out SwarmUI
+        uses: actions/checkout@v4
+        with:
+          repository: mcmonkeyprojects/SwarmUI
+          path: SwarmUI
+
+      - name: Check out this extension into SwarmUI
+        uses: actions/checkout@v4
+        with:
+          path: SwarmUI/src/Extensions/SwarmUI-LLMAssistant
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build SwarmUI
+        working-directory: SwarmUI
+        run: dotnet build src/SwarmUI.csproj --configuration Release -o src/bin/live_release
+
+      - name: Unit tests
+        working-directory: SwarmUI
+        run: dotnet test src/Extensions/SwarmUI-LLMAssistant/Tests/LLMAssistant.Tests.csproj
+
+      - name: Install e2e dependencies
+        working-directory: SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Browser e2e
+        working-directory: SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E
+        run: npx playwright test
+
+      - name: Upload report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/playwright-report
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/test-results
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/.run/*.log

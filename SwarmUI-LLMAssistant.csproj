@@ -22,6 +22,8 @@
        this, the SDK's default **/*.cs glob would also compile its sources into this assembly and fail. -->
   <ItemGroup>
     <Compile Remove="Tests/**" />
+    <!-- E2E/ holds the browser test harness and its own MockLLM project; none of it belongs in the extension assembly. -->
+    <Compile Remove="E2E/**" />
   </ItemGroup>
 
   <!-- RELEASE: the published meta-package, https://www.nuget.org/packages/HartsyInference. -->
