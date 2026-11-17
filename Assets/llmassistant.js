@@ -84,6 +84,7 @@ async function llmaInit() {
     if (typeof llmaSetupFindBar === 'function') llmaSetupFindBar();
     if (typeof llmaSetupBulkBar === 'function') llmaSetupBulkBar();
     llmaSetupSettingsModal();
+    llmaSetupHooksTab();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
@@ -1347,6 +1348,7 @@ function llmaSetupSettingsModal() {
             const panel = document.getElementById(`llma-settings-${tab.dataset.tab}`);
             if (panel) panel.style.display = '';
             if (tab.dataset.tab === 'tools') llmaLoadTools();
+            if (tab.dataset.tab === 'hooks') llmaHooks.load();
         });
     });
 

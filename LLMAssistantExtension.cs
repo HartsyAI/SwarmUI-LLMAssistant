@@ -35,6 +35,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/core-bridge.js");
         // Settings and parameter forms, built from core's make*Input helpers and input groups.
         ScriptFiles.Add("Assets/settings-forms.js");
+        // The Hooks tab of the settings dialog (list, editor and tester).
+        ScriptFiles.Add("Assets/hooks.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
         ScriptFiles.Add("Assets/chat/chat-render.js");

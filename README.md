@@ -292,6 +292,19 @@ The **Ask / Auto / Plan** control in the composer sets how this chat approves to
 
 Each tool declares what it can do, which is what the modes read: `file_read`, `memory_read`, `swarm_docs`, `web_search`, `caption_image` and `fuse_image_descriptions` only read; `generate_image`, `create_image_preset`, `batch_caption_folder`, `file_write` and `memory_write` change something; `http_request` sends a request; `shell_exec` runs a command. A tool that does not say counts as a change.
 
+### Hooks
+
+A **hook** is a policy that runs around a tool call the model makes. Write them in `Settings > Hooks`, which also has a tester that shows what a hook would do to a sample call without running any tool.
+
+- A **pre** hook runs before the call and can **refuse** it (the model is told why), make the user be **asked** first whatever the approval mode is, **rewrite** its arguments, or add a **note** for the model.
+- A **post** hook runs after the call and can add a note to the result, which the model reads next round.
+- A **rule** hook is plain data: a tool (an id, or a pattern with `*` and `?` such as `file_*`), optionally one argument and how to compare it (present, glob, regular expression or contains), and what to do. It needs no permission beyond `llm_settings`.
+- A **command** hook runs a program (no shell). It gets the call as one JSON object on standard input (`{phase, tool, handler, arguments, result?}`) and answers with JSON on standard output (`{decision: allow|deny|ask, message, arguments, note}`, every field optional). Exit code 2 refuses the call with what it wrote to standard error; any other failure, or running past its time limit, follows its **If it fails** setting (refuse the call by default). Creating one needs `llm_hook_command`, which defaults to **NOBODY**: it is the same power as `shell_exec`.
+
+Hooks live in the same two layers as assistants and tools. A **shared** hook (needs `llm_shared_write`) applies to every user; a **personal** hook applies to you. Both apply, shared first, each by its order. The first refusal stops the rest, rewrites apply one after another, and notes pile up. A personal command hook stops running if its owner loses `llm_hook_command`.
+
+Hooks apply to calls the **model** makes, and are loaded once when a turn starts. A tool you run yourself from the `/` picker, the Run Test panel or the API is never touched. Rule matching is case-insensitive, and a regular expression that takes too long to evaluate is treated as not matching.
+
 ---
 
 ## Built-in tools
@@ -460,7 +473,7 @@ Everything else is local: the HartsyInference engine runs in-process with no net
 
 ## Permissions
 
-Sixteen permissions, all under the **LLMAssistant** group in `Server > Users`. Defaults are deliberately conservative.
+These permissions are all under the **LLMAssistant** group in `Server > Users`. Defaults are deliberately conservative.
 
 | Permission | Default | Covers |
 |---|---|---|
@@ -478,6 +491,7 @@ Sixteen permissions, all under the **LLMAssistant** group in `Server > Users`. D
 | `llm_tool_file_write` | POWERUSERS *(risky)* | `file_write` |
 | `llm_tool_http_request` | POWERUSERS *(risky)* | `http_request` |
 | `llm_tool_shell_exec` | **NOBODY** *(powerful)* | `shell_exec` |
+| `llm_hook_command` | **NOBODY** *(powerful)* | Creating a command hook (a program run around tool calls) |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
 
@@ -586,6 +600,10 @@ they were sent with.
 | `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}`, switch branch |
 | `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
 | `LLMAssistantSetThreadApprovalMode` | `threadId`, `mode` (`auto` \| `ask` \| `plan`) | `{success, mode}`; how this chat approves tool calls |
+| `LLMAssistantGetHooks` | none | `{success, hooks[], canWriteShared, canCommand}`; every hook the caller can see, each tagged `_scope` |
+| `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
+| `LLMAssistantDeleteHook` | `hookId`, `scope?` | `{success}` |
+| `LLMAssistantTestHook` | `hook`, `toolId`, `arguments`, `result?` | `{success, phase, denied?, message?, forceAsk?, arguments?, notes[]}`; what the hook would do to the sample call, with no tool run. Testing a command hook runs its program, so it needs `llm_hook_command` |
 | `LLMAssistantResolveToolApproval` | `approvalId`, `decision` (`allow` \| `allow_chat` \| `deny`) | `{success, resolved}`; answers a waiting `tool_approval`. A separate request, not a message on the chat socket. Only the user the call was for can answer; an unknown, finished or someone else's id gives `resolved: false` |
 | `LLMAssistantExportThread` | `threadId`, `format` (`json` \| `markdown`) | `{success, filename, content}` |
 

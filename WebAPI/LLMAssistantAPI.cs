@@ -42,6 +42,13 @@ public static class LLMAssistantAPI
         "Allows creating/editing/deleting shared (admin-managed) assistants, tools, and instructions that are visible to every user of the instance. Users without this permission can still create personal assistants/tools, but they only exist for themselves.",
         PermissionDefault.ADMINS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to create a <b>command</b> hook: a policy that runs a program on the server around tool calls. A rule hook (plain data) needs
+    /// no special permission. Defaults to NOBODY, like <c>shell_exec</c>, since it is the same power.</summary>
+    public static readonly PermInfo PermHookCommand = Permissions.Register(new(
+        "llm_hook_command", "LLM Hook Command",
+        "Allows creating hooks that run a program on the SwarmUI host before or after the LLM's tool calls. This is equivalent to shell access for whoever writes the hook. Only grant to fully trusted admin users.",
+        PermissionDefault.NOBODY, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -169,6 +176,10 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(HookEndpoints.LLMAssistantGetHooks, false, PermSettings);
+        API.RegisterAPICall(HookEndpoints.LLMAssistantSaveHook, true, PermSettings);
+        API.RegisterAPICall(HookEndpoints.LLMAssistantDeleteHook, true, PermSettings);
+        API.RegisterAPICall(HookEndpoints.LLMAssistantTestHook, true, PermSettings);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadApprovalMode, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);

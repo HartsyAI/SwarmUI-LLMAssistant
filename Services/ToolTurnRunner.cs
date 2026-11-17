@@ -5,6 +5,7 @@ using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.ToolCalling;
 using ToolDefinition = HartsyInference.Engine.Requests.ToolDefinition;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Hooks;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
@@ -385,16 +386,16 @@ public static class ToolTurnRunner
     /// <summary>Runs a call through <see cref="ToolExecutorService"/>; a handler failure becomes the call's error result.</summary>
     private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model, IToolTurnSink sink)
     {
-        // Auto mode (the default) needs no gate, so a turn that does not use approval runs exactly as before.
-        ToolApprovalGate gate = ApprovalPolicy.Normalize(ctx.ApprovalMode) == ApprovalModes.Auto
-            ? null
-            : new ToolApprovalGate(ctx.ApprovalMode, ctx.Session?.User?.UserID, ctx.ThreadId, sink);
+        // The gate is always there: in Auto mode it lets everything through, but a hook can still make it ask. Hooks are loaded once per turn,
+        // and only for calls the model makes (a tool the user runs themselves never reaches here).
+        ToolApprovalGate gate = new(ctx.ApprovalMode, ctx.Session?.User?.UserID, ctx.ThreadId, sink);
+        ToolHookRunner hooks = ToolHookRunner.For(ctx.Session?.User);
         return async (call, cancel) =>
     {
         try
         {
             // The model id is the turn's own model: a handler that starts a nested request (captioning) must stay on it.
-            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id);
+            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id, hooks);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

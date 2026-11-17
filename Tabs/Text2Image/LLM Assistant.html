@@ -265,6 +265,7 @@
                 <button class="nav-link llma-modal-tab active translate" data-tab="general" role="tab" aria-selected="true">General</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="assistants" role="tab" aria-selected="false">Assistants</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="tools" role="tab" aria-selected="false">Tools</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="hooks" role="tab" aria-selected="false">Hooks</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -480,6 +481,13 @@
                             </label>
                         </div>
                     </div>
+                </div>
+
+                <!-- Hooks: policy that runs around the model's tool calls (hooks.js; the editor is built from core's input helpers) -->
+                <div class="llma-modal-panel" id="llma-settings-hooks" style="display:none;">
+                    <div id="llma-hooks-list"></div>
+                    <button type="button" class="basic-button translate" id="llma-hooks-add">+ Add Hook</button>
+                    <div id="llma-hooks-editor" style="display:none;"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

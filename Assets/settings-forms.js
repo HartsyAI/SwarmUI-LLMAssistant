@@ -82,6 +82,11 @@ class LLMASettingsForms {
         return `${popover}<div class="input-group input-group-open" id="auto-group-${id}"><span id="input_group_${id}" class="input-group-header input-group-shrinkable"><span class="header-label-wrap"><span class="auto-symbol">&#x2B9F;</span><span class="header-label">${translateableHtml(escapeHtml(title))}</span>${button}</span></span><div class="input-group-content" id="input_group_content_${id}" data-do_not_save="true">${inputs.join('')}</div></div>`;
     }
 
+    /** A text box (core's makeTextInput, which adds its own popover). <paramref name="format"/> is 'normal' for one line or 'big' for several. */
+    text(id, name, description, value, format = 'normal') {
+        return makeTextInput(null, id, id, name, description, value, format, '', false, true);
+    }
+
     /** A decimal or integer slider with its number box (core's makeSliderInput), plus its popover. */
     slider(id, name, description, value, min, max, step) {
         return makeGenericPopover(id, name, 'Number', description, '') + makeSliderInput(null, id, id, name, description, value, min, max, min, max, step);
