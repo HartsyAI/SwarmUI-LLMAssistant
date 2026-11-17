@@ -5,8 +5,9 @@
 // --backends_file under E2E/.run/, and Paths.OutputPath / Paths.ModelRoot point inside that folder too.
 //
 // Requires an existing SwarmUI build at <swarm root>/src/bin/live_release (build SwarmUI first, as launch-windows.bat does).
-// SwarmUI runs with `--environment dev`, which makes core rebuild extensions on every start, so uncommitted extension
-// changes are always what gets tested (outside dev mode core reuses a build keyed on the extension's git HEAD).
+// Core caches an extension's build as src/bin/extensions/<dll>/<dll>-<git HEAD>.dll and only rebuilds when that file is missing
+// (it decides this before it knows about --environment dev), so uncommitted changes would otherwise run against a stale build.
+// startStack() therefore deletes that cached file first, which makes core rebuild the extension from the working tree.
 
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -83,6 +84,23 @@ async function waitFor(url, label, timeoutMs, child) {
     throw new Error(`${label} did not answer ${url} within ${Math.round(timeoutMs / 1000)}s. See E2E/.run/*.log`);
 }
 
+/** Deletes core's cached build of this extension so the next Swarm start rebuilds it from the working tree. */
+function invalidateExtensionBuild(root) {
+    let head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: extensionDir, encoding: 'utf8' });
+    let hash = head.status === 0 ? head.stdout.trim().slice(0, 8) : 'unknown';
+    let dllName = `SwarmExtension${extensionFolderName}`;
+    let cached = path.join(root, 'src', 'bin', 'extensions', dllName, `${dllName}-${hash}.dll`);
+    if (fs.existsSync(cached)) {
+        try {
+            fs.rmSync(cached, { force: true });
+            log(`removed cached extension build ${path.basename(cached)} so it is rebuilt from the working tree`);
+        }
+        catch (e) {
+            throw new Error(`Could not remove ${cached} (is a SwarmUI instance using it running?): ${e.message}`);
+        }
+    }
+}
+
 /** Writes the throwaway Swarm data folder and returns its paths. */
 function seedData(root, runDir) {
     let dataDir = path.join(runDir, 'data');
@@ -152,7 +170,8 @@ export async function startStack() {
     log(`MockLLM up on ${MOCK_URL}`);
 
     let seeded = seedData(root, runDir);
-    log('starting throwaway SwarmUI (dev mode builds the extension; the first start takes a minute or two)...');
+    invalidateExtensionBuild(root);
+    log('starting throwaway SwarmUI (it rebuilds the extension first, which takes a minute or two)...');
     let swarmLog = fs.openSync(path.join(runDir, 'swarm.log'), 'w');
     let swarm = spawn('dotnet', [
         swarmDll,
@@ -179,6 +198,13 @@ export async function startStack() {
     catch (e) {
         stop();
         throw e;
+    }
+    // Swarm answers even when the extension failed to build, which would make every spec fail with a confusing timeout.
+    let swarmLogText = fs.readFileSync(path.join(runDir, 'swarm.log'), 'utf8');
+    if (!swarmLogText.includes('[LLMAssistant] Initialized.')) {
+        stop();
+        let problems = swarmLogText.split('\n').filter(l => /error|failed/i.test(l)).slice(0, 8).join('\n');
+        throw new Error(`SwarmUI is up but the LLM Assistant extension did not load. First errors in E2E/.run/swarm.log:\n${problems}`);
     }
     log(`SwarmUI up on ${SWARM_URL}`);
     return { stop, runDir };
