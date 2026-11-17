@@ -4,7 +4,7 @@ import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, ope
 
 test('the tab loads, lists the mock models, and shows the reserved Code switch disabled', async ({ llm }) => {
     await expect(llm.locator('#llma-model-select option')).toHaveCount(2);
-    await expect(llm.locator('#llma-mode-chat')).toHaveAttribute('aria-pressed', 'true');
+    await expect(llm.locator('#llma-mode-chat')).toBeChecked();
     await expect(llm.locator('#llma-mode-code')).toBeDisabled();
 });
 
