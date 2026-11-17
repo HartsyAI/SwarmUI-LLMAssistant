@@ -668,10 +668,11 @@ public static class ChatEndpoints
 
     /// <summary>Stop button: cancels whatever generation is currently in flight for a thread (a single
     /// reply or every lane of a compare turn), so the model actually stops producing tokens server-side
-    /// instead of just having the client stop listening. Plain HTTP, not WebSocket: the chat WS
-    /// endpoints read exactly one incoming frame and never listen again, so a second in-band message on
-    /// that same socket isn't a viable signal path; this is a separate call the client fires before it
-    /// closes its socket.</summary>
+    /// instead of just having the client stop listening. Plain HTTP, not WebSocket: after the request frame
+    /// the chat WS endpoints keep exactly one receive outstanding (<c>WatchForDisconnectAsync</c>), only to
+    /// notice the socket closing, and that receive must never be cancelled or shared, so a second in-band
+    /// message on the same socket isn't a viable signal path; this is a separate call the client fires
+    /// before it closes its socket.</summary>
     public static Task<JObject> LLMAssistantStopGeneration(Session session, string threadId)
     {
         // Thread ids are otherwise-unauthenticated strings (they can even appear in output paths), so
