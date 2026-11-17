@@ -711,23 +711,15 @@ function llmaCompanionMaybeGreet() {
 
 // -- Generation reactions ---------------------------------------
 
-// Hook into SwarmUI's gotImageResult by monkey-patching. The original function
-// is invoked first, our reaction logic runs after — failure-isolated so any
-// error here can't break the Generate tab. Batches are debounced: in a 4-image
-// batch the four `gotImageResult` calls collapse to one reaction with the last
-// image. A global cooldown then prevents back-to-back generations from
-// burning chatter budget.
+// Listen for generated images through the core bridge (core has no image-generated event; see core-bridge.js).
+// Batches are debounced: in a 4-image batch the four calls collapse to one
+// reaction with the last image. A global cooldown then prevents back-to-back
+// generations from burning chatter budget.
 function llmaCompanionAttachGenerationHook() {
     const cs = llmaCompanionChatterState();
     if (cs.genHookAttached) return;
-    if (typeof window === 'undefined' || typeof window.gotImageResult !== 'function') return;
-    const original = window.gotImageResult;
-    window.gotImageResult = function (image, metadata, batchId) {
-        const ret = original.apply(this, arguments);
-        try { llmaCompanionOnImageGenerated(image, metadata, batchId); }
-        catch (e) { console.warn('[LLMAssistant] gotImageResult hook error:', e); }
-        return ret;
-    };
+    if (!llmaCoreBridge.hookImageResult()) return;
+    llmaCoreBridge.onImageGenerated((image, metadata, batchId) => llmaCompanionOnImageGenerated(image, metadata, batchId));
     cs.genHookAttached = true;
 }
 

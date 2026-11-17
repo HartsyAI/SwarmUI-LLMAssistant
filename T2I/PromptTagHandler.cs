@@ -140,8 +140,8 @@ public static class PromptTagHandler
             }
         ));
 
-        // Must run before core's PreparsePromptLikes (element 0), which consumes the <llmprompt> tags.
-        T2IParamInput.LateSpecialParameterHandlers.Insert(0, input =>
+        // Must run before core's PreparsePromptLikes, which consumes the <llmprompt> tags (see CoreBridge).
+        CoreBridge.RunBeforeCorePromptParsing(input =>
         {
             PromptProcessor.ProcessPrompt(input);
         });
