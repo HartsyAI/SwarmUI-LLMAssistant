@@ -27,7 +27,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 
 | # | Gap | What peers do | What we have | Seam |
 |---|---|---|---|---|
-| 1 | **Per-call approval and permission modes** | OpenHarness: default (ask before writes/exec), auto, plan (read-only). OpenCode: build / plan agents. Cline: approve every action. | Only RBAC per handler: who may ever run a tool. Nothing asks "run *this* write?". `shell_exec` is on or off. | `ToolExecutorService.ExecuteTool`, a new sink event |
+| 1 | **Per-call approval and permission modes** (done in Phase 1: Ask / Auto / Plan, see the README) | OpenHarness: default (ask before writes/exec), auto, plan (read-only). OpenCode: build / plan agents. Cline: approve every action. | Only RBAC per handler: who may ever run a tool. Nothing asks "run *this* write?". `shell_exec` is on or off. | `ToolExecutorService.ExecuteTool`, a new sink event |
 | 2 | **MCP client** | stdio + HTTP, auto-reconnect, tool schemas inferred, tool-only servers (OpenHarness, Goose, LibreChat, Open WebUI) | `mcp_stdio` / `mcp_http` handler types are reserved in `Constants.cs` and the tool editor, not implemented | `ToolHandler`, `ToolRegistryService` |
 | 3 | **Hooks** | PreToolUse / PostToolUse, defined by plugins (OpenHarness) | None | `ToolExecutorService` is the single chokepoint |
 | 4 | **Context management** | Auto-compaction, preserved task state (OpenHarness) | Only a "Context Messages" count, which truncates. No summarising compaction. A long agent run just overflows. | `ExtendedLLMInput` build, `LLMStreamHelper` |

@@ -127,6 +127,8 @@
         const seed = get('seed');
         if (typeof seed === 'number' && seed >= 0) payload.seed = seed;
         if (options.media) payload.media = options.media;
+        // How tool calls are approved in this chat; the server also saves it on the chat.
+        payload.approvalMode = LLMAState.approvalMode || 'auto';
         return payload;
     }
 
@@ -231,6 +233,13 @@
                     }
                     if (bubble) {
                         llmaRenderToolCall(bubble, data.tool_call);
+                        llmaScrollToBottom();
+                    }
+                }
+                if (data.tool_approval) {
+                    // A tool call is waiting for the user: show Allow / Deny on its step.
+                    if (bubble) {
+                        llmaRenderToolApproval(bubble, data.tool_approval);
                         llmaScrollToBottom();
                     }
                 }
@@ -382,6 +391,11 @@
         if (sendBtn) sendBtn.style.display = active ? 'none' : '';
         if (stopBtn) stopBtn.style.display = active ? '' : 'none';
         if (input) input.disabled = active;
+        // A reply that has ended (finished, stopped, or failed) has nothing left waiting for an answer, and a Stop closes the socket
+        // before any result for the waiting call can arrive, so drop its Allow / Deny row here.
+        if (!active) {
+            document.querySelectorAll('.llma-tool-approval').forEach(row => row.remove());
+        }
     }
 
     // --- Public API (called by sibling files + other chat/ modules) ---

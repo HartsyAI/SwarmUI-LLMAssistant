@@ -143,6 +143,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChatEndpoints.LLMAssistantEditMessageWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantRegenerateWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantStopGeneration, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantResolveToolApproval, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);
@@ -168,6 +169,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadApprovalMode, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);

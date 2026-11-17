@@ -88,4 +88,17 @@ public class ChatWsSinkTests
         Assert.True(only["done"]?.Value<bool>());
         Assert.Equal("stop", only["stopReason"]?.ToString());
     }
+
+    [Fact]
+    public async Task AnApprovalRequestGoesToTheClientAsAToolApprovalFrame_AndTheSocketCanAsk()
+    {
+        (ChatWsSink sink, List<JObject> frames) = Make();
+
+        await sink.ToolApproval(new JObject { ["approvalId"] = "a1", ["id"] = "call-1", ["name"] = "file_write" });
+
+        Assert.True(sink.CanApprove);
+        JObject only = Assert.Single(frames);
+        Assert.Equal("a1", only["tool_approval"]?["approvalId"]?.ToString());
+        Assert.Equal("file_write", only["tool_approval"]?["name"]?.ToString());
+    }
 }

@@ -48,6 +48,9 @@ const LLMAState = {
     // The composer's Thinking toggle: 'auto' sends no enableThinking (the model's template default: on for Dory and Qwen3),
     // 'on' and 'off' send true and false. Kept per browser; see llmaNextThinkingMode()/llmaThinkingRequestValue().
     thinkingMode:      'auto',
+    // How tool calls are approved in this chat: 'auto' (everything runs), 'ask' (anything that changes something asks first) or 'plan'
+    // (read-only). Sent with every request; saved on the chat so it survives a reload. See llmaSetApprovalMode().
+    approvalMode:      'auto',
 };
 
 // -- Thinking toggle --

@@ -15,6 +15,9 @@ public class GenerateImageTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.GenerateImage;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Write;
+
     public const string ConfigDefaultPreset = "defaultPreset";
 
     public override JObject EnrichForUser(JObject toolDef, Session session, string assistantId = null)

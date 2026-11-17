@@ -16,6 +16,9 @@ public class MemoryWriteTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.MemoryWrite;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Write;
+
     public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
         JObject args = ctx.Args;

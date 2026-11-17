@@ -15,6 +15,9 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
     /// <inheritdoc/>
     public bool IsOpen => isOpen();
 
+    /// <inheritdoc/>
+    public bool CanApprove => true;
+
     /// <summary>Whether a <c>&lt;think&gt;</c> block is open on the socket.</summary>
     private bool _inThink;
 
@@ -54,6 +57,9 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
 
     /// <inheritdoc/>
     public Task ToolCall(JObject call) => Send(new JObject { ["tool_call"] = call });
+
+    /// <inheritdoc/>
+    public Task ToolApproval(JObject request) => Send(new JObject { ["tool_approval"] = request });
 
     /// <inheritdoc/>
     public Task ToolResult(JObject result)

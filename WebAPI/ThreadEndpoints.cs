@@ -40,6 +40,9 @@ public static class ThreadEndpoints
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)
     {
         bool deleted = ThreadStorageService.DeleteThread(session.User, threadId);
+        // A chat that is gone has nobody to answer for it: end any call still waiting for approval and forget what was allowed.
+        ToolApprovals.Pending.CancelScope(session.User.UserID, threadId);
+        ToolApprovals.Grants.Clear(session.User.UserID, threadId);
         // Only include "error" on failure: the API layer treats the mere PRESENCE of an "error" key as a
         // failure and logs it, so `error = null` on success produces a spurious empty-message error log.
         if (!deleted)
@@ -137,6 +140,29 @@ public static class ThreadEndpoints
             ["success"] = true,
             ["thread"] = thread
         };
+    }
+
+    /// <summary>Saves how this chat approves tool calls: <c>auto</c> (everything runs, the default), <c>ask</c> (anything that changes something
+    /// asks first) or <c>plan</c> (read-only). Request: <c>{ threadId, mode }</c>. A reply streamed after this uses it unless the request names
+    /// its own <c>approvalMode</c>.</summary>
+    public static async Task<JObject> LLMAssistantSetThreadApprovalMode(Session session, JObject rawInput)
+    {
+        string threadId = rawInput["threadId"]?.ToString();
+        string mode = (rawInput["mode"]?.ToString() ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (!ApprovalPolicy.IsValid(mode))
+        {
+            return new JObject { ["success"] = false, ["error"] = "mode must be auto, ask or plan." };
+        }
+        JObject thread = ThreadStorageService.SetApprovalMode(session.User, threadId, mode);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        return new JObject { ["success"] = true, ["mode"] = mode };
     }
 
     /// <summary>Sets (or clears) this thread's tool-calling override. <c>enabled</c> present and boolean →

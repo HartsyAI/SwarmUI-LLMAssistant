@@ -16,6 +16,9 @@ public class HttpRequestTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.HttpRequest;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Network;
+
     private static readonly HttpClient Http = NetworkBackendUtils.MakeHttpClient();
 
     public override async Task<JObject> Execute(ToolExecutionContext ctx)

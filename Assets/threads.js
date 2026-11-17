@@ -671,6 +671,7 @@ async function llmaSwitchThread(threadId) {
         // null when the thread has no override (inherits the assistant's toolsEnabled default).
         LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
         if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+        if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
@@ -738,6 +739,7 @@ async function llmaReloadActiveThread() {
     llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
     LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+    if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();

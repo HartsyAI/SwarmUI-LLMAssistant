@@ -14,6 +14,9 @@ public class MemoryReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.MemoryRead;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
         JObject profile = UserProfileService.GetProfile(ctx.Session?.User);
