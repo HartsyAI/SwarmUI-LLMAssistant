@@ -859,6 +859,14 @@ function llmaSetEl(id, value, type = 'value') {
         el.textContent = String(rounded);
     } else {
         el.value = value;
+        // Core's number, slider and dropdown inputs size themselves and keep a slider in step on these events.
+        if (el.classList.contains('auto-slider-number') || el.classList.contains('auto-number')) {
+            el.dispatchEvent(new Event('input'));
+            el.dispatchEvent(new Event('change'));
+        }
+        else if (el.classList.contains('auto-dropdown') && typeof autoSelectWidth == 'function') {
+            autoSelectWidth(el);
+        }
     }
 }
 

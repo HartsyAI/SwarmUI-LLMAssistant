@@ -75,6 +75,8 @@ async function llmaInit() {
     // been populated before LLMAState.currentModel was known. Re-apply the remembered model now.
     llmaApplyModelSelection();
 
+    // Settings and parameter forms come from core's input helpers; build them before anything reads or fills them.
+    llmaSettingsForms.build();
     llmaSetupTopBar();
     llmaSetupSidebar();
     llmaSetupInput();
@@ -552,18 +554,6 @@ function llmaSetupParamsPopover() {
     const reset   = document.getElementById('llma-params-reset');
     if (!btn || !popover) return;
 
-    const ranges = [
-        { range: 'llma-p-temperature', val: 'llma-p-temperature-val' },
-        { range: 'llma-p-top-p',       val: 'llma-p-top-p-val'       },
-    ];
-    for (const { range, val } of ranges) {
-        const input = document.getElementById(range);
-        const span  = document.getElementById(val);
-        if (input && span) {
-            input.addEventListener('input', () => { span.textContent = parseFloat(input.value).toFixed(1); });
-        }
-    }
-
     let cleanup = null;
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -577,10 +567,8 @@ function llmaSetupParamsPopover() {
             const d  = LLMAState.settings?.parameters || {};
             const get = (k) => tp[k] ?? d[k];
             llmaSetEl('llma-p-temperature',     get('temperature')        ?? 0.8);
-            llmaSetEl('llma-p-temperature-val', get('temperature')        ?? 0.8, 'text');
             llmaSetEl('llma-p-max-tokens',      get('maxTokens')          ?? 4096);
             llmaSetEl('llma-p-top-p',           get('topP')               ?? 0.9);
-            llmaSetEl('llma-p-top-p-val',       get('topP')               ?? 0.9, 'text');
             llmaSetEl('llma-p-context',         get('maxContextMessages') ?? 0);
             llmaSetEl('llma-p-loops',           get('loops')              ?? 0);
         }
@@ -1362,26 +1350,6 @@ function llmaSetupSettingsModal() {
         });
     });
 
-    // Sync range sliders
-    const rangeMap = [
-        { range: 'llma-s-temperature',        val: 'llma-s-temperature-val'        },
-        { range: 'llma-s-top-p',              val: 'llma-s-top-p-val'              },
-        { range: 'llma-s-companion-opacity',  val: 'llma-s-companion-opacity-val'  },
-    ];
-    for (const { range, val } of rangeMap) {
-        const input = document.getElementById(range);
-        const span  = document.getElementById(val);
-        if (input && span) {
-            input.addEventListener('input', () => { span.textContent = parseFloat(input.value).toFixed(2).replace(/\.?0+$/, ''); });
-        }
-    }
-    // Vision image-size slider shows a px suffix (integer).
-    const imgMax = document.getElementById('llma-s-image-max');
-    const imgMaxVal = document.getElementById('llma-s-image-max-val');
-    if (imgMax && imgMaxVal) {
-        imgMax.addEventListener('input', () => { imgMaxVal.textContent = `${imgMax.value}px`; });
-    }
-
     // Assistant editor buttons
     document.getElementById('llma-create-asst-btn')?.addEventListener('click', llmaOpenCreateEditor);
     // Starter template dropdown — populated lazily on first use, cloned into the editor on pick.
@@ -1533,15 +1501,12 @@ function llmaReadSettingsFromModal() {
 function llmaWriteSettingsToModal() {
     const g = LLMAState.settings?.parameters || LLMA_DEFAULT_SETTINGS.parameters;
     llmaSetEl('llma-s-temperature',         g.temperature        ?? 0.8);
-    llmaSetEl('llma-s-temperature-val',     g.temperature        ?? 0.8, 'text');
     llmaSetEl('llma-s-max-tokens',          g.maxTokens          ?? 4096);
     llmaSetEl('llma-s-top-p',               g.topP               ?? 0.9);
-    llmaSetEl('llma-s-top-p-val',           g.topP               ?? 0.9, 'text');
     llmaSetEl('llma-s-seed',                g.seed               ?? -1);
     llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
     llmaSetEl('llma-s-loops',               g.loops              ?? 0);
     llmaSetEl('llma-s-image-max',           g.imageMaxDimension  ?? 1536);
-    llmaSetEl('llma-s-image-max-val',       `${g.imageMaxDimension ?? 1536}px`, 'text');
     llmaSetElChecked('llma-s-stream',       g.stream             !== false);
 
     const u = LLMAState.settings?.ui || LLMA_DEFAULT_SETTINGS.ui;
@@ -1554,7 +1519,6 @@ function llmaWriteSettingsToModal() {
     llmaSetElChecked('llma-s-companion-enabled', !!c.enabled);
     llmaSetEl('llma-s-companion-corner', c.corner ?? 'bottom-right');
     llmaSetEl('llma-s-companion-opacity', c.opacity ?? 0.95);
-    llmaSetEl('llma-s-companion-opacity-val', c.opacity ?? 0.95, 'text');
     llmaPopulateCompanionPersonaSelect(c.personaId ?? '');
     llmaSetElChecked('llma-s-companion-btn-ask',      c.buttons?.ask                 !== false);
     llmaSetElChecked('llma-s-companion-btn-critique', c.buttons?.critique_last_image !== false);
@@ -1591,6 +1555,7 @@ function llmaPopulateCompanionPersonaSelect(selectedId) {
     // Only restore the saved value if it still matches one of the options; otherwise blank.
     const exists = !selectedId || (LLMAState.assistants || []).some(a => a.id === selectedId);
     sel.value = exists ? (selectedId || '') : '';
+    if (typeof autoSelectWidth == 'function') autoSelectWidth(sel);
 }
 
 function llmaApplySettingsToState() {

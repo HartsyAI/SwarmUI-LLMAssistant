@@ -125,12 +125,9 @@
     .llma-model-select { min-width: 0; max-width: 120px; }
     .llma-assistant-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
     .llma-modal { width: 95%; max-height: 90%; }
-    .llma-param-row { grid-template-columns: 75px 1fr auto; font-size: 11.5px; }
-    .llma-setting-row { grid-template-columns: 110px 1fr auto; }
     /* Two-up settings/list grids only make sense once the modal is wide (see llma-settings-modal) — collapse back to one column here. */
-    .llma-setting-section,
     .llma-asst-list-wrap,
-    .llma-tool-list-wrap { grid-template-columns: 1fr; }
+.llma-tool-list-wrap { grid-template-columns: 1fr; }
 }
 
 /* Short viewport (tablet in a browser with visible chrome, small laptop window, phone landscape):
