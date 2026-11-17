@@ -88,7 +88,7 @@
     border: 1px solid var(--light-border);
     border-radius: 5px;
     color: var(--text);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-word;
@@ -141,7 +141,7 @@
 .llma-tool-result-fileinfo {
     font-size: 11px;
     color: var(--text-soft);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
 }
 .llma-tool-result-filecontent {
     margin: 0;
@@ -150,7 +150,7 @@
     border: 1px solid var(--light-border);
     border-radius: 4px;
     color: var(--text);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-word;
@@ -163,7 +163,7 @@
     background: color-mix(in srgb, var(--background-gray) 60%, transparent);
     border-radius: 4px;
     color: var(--text);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
     font-size: 11px;
     white-space: pre-wrap;
     word-break: break-word;
@@ -242,7 +242,7 @@
     border-radius: 3px;
     background: color-mix(in srgb, var(--emphasis) 15%, transparent);
     color: var(--text-soft);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
 }
 .llma-tool-list-actions {
     display: flex;
@@ -341,7 +341,7 @@
     border: 1px solid var(--light-border);
     border-radius: 5px;
     color: var(--text);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
     font-size: 11px;
     resize: vertical;
 }
@@ -352,7 +352,7 @@
     border: 1px solid var(--light-border);
     border-radius: 5px;
     color: var(--text);
-    font-family: var(--monospace), monospace;
+    font-family: var(--font-monospace);
     font-size: 11px;
     min-height: 20px;
     max-height: 200px;

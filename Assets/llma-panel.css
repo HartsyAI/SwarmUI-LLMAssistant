@@ -134,17 +134,6 @@
     align-items: center;
     justify-content: space-between;
 }
-.llma-mem-add {
-    font-size: 11px;
-    padding: 2px 7px;
-    border-radius: 4px;
-    border: 1px solid var(--light-border);
-    background: transparent;
-    color: var(--text-soft);
-    cursor: pointer;
-    opacity: 0.6;
-}
-.llma-mem-add:hover { opacity: 1; }
 .llma-memory-chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .llma-mem-chip {
     display: inline-flex;
@@ -160,18 +149,6 @@
     cursor: default;
 }
 .llma-mem-chip:hover { opacity: 1; }
-.llma-mem-chip-del {
-    border: none;
-    background: none;
-    cursor: pointer;
-    color: var(--text-soft);
-    opacity: 0.4;
-    font-size: 12px;
-    line-height: 1;
-    padding: 0;
-    margin-left: 2px;
-}
-.llma-mem-chip-del:hover { opacity: 0.9; color: var(--backend-errored); }
 .llma-panel-empty {
     padding: 20px;
     text-align: center;
