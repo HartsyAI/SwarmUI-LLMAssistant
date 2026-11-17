@@ -58,6 +58,26 @@ public static class Roles
     public const string System = "system";
 }
 
+/// <summary>Thread modes. Reserved so threads can later be coding sessions; only <see cref="Chat"/> is live. See HARNESS-ROADMAP.md.</summary>
+public static class ThreadModes
+{
+    /// <summary>The ordinary chat workspace. Threads saved without a mode are this.</summary>
+    public const string Chat = "chat";
+    /// <summary>Reserved: coding sessions bound to a workspace root, with per-call tool approval.</summary>
+    public const string Code = "code";
+}
+
+/// <summary>Reserved: how tool calls are gated in code mode. Not enforced yet. See HARNESS-ROADMAP.md.</summary>
+public static class ApprovalModes
+{
+    /// <summary>Reads run freely; writes, edits and shell commands ask first.</summary>
+    public const string Ask = "ask";
+    /// <summary>Everything inside the workspace runs without asking.</summary>
+    public const string Auto = "auto";
+    /// <summary>Read-only tools only, until the user accepts a plan.</summary>
+    public const string Plan = "plan";
+}
+
 /// <summary>Assistant-related constants.</summary>
 public static class AssistantConstants
 {

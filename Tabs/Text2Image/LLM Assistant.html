@@ -37,6 +37,11 @@
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
             <div class="llma-topbar-right">
+                <!-- Mode switch. Code mode is reserved (see HARNESS-ROADMAP.md): the button stays disabled until it ships. -->
+                <div class="llma-mode-switch" id="llma-mode-switch" role="group" aria-label="Mode">
+                    <button class="llma-mode-btn active translate" id="llma-mode-chat" type="button" aria-pressed="true">Chat</button>
+                    <button class="llma-mode-btn translate" id="llma-mode-code" type="button" aria-pressed="false" disabled title="Code mode: coming soon">Code</button>
+                </div>
                 <!-- Model select. Collapses into a popover ("model menu") when the top bar gets narrow —
                      see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
                 <div class="llma-popover-anchor llma-model-anchor" id="llma-model-anchor">
