@@ -278,6 +278,20 @@ Type `/` in the composer to get a searchable picker of every tool enabled for th
 
 The wrench button in the composer turns tool calling on or off for *this chat*, overriding the assistant's default. With tools off, no tools are sent at all. Small local models get reliably confused by tool descriptions, so turn tools off for a model that answers badly with them.
 
+### Approving tool calls
+
+The **Ask / Auto / Plan** control in the composer sets how this chat approves tool calls. It is saved on the chat.
+
+| Mode | What happens |
+|---|---|
+| **Auto** (default) | Every tool runs without asking, as before. |
+| **Ask** | A tool that only reads or looks something up runs. Anything that changes something (writes a file, saves memory or a preset, generates an image, runs a command, sends a request) waits for you: the step opens and shows **Allow once**, **Allow for this chat** and **Deny**. The turn pauses until you answer. |
+| **Plan** | Only tools that read run. Anything that would change something is refused, and the model is told to describe what it would do instead. |
+
+**Allow for this chat** covers that one tool until the chat is deleted or the server restarts. A denied call gives the model a refusal result it can act on, so it carries on without the tool. Stop, closing the tab or deleting the chat while a call waits ends the wait. You are asked only about tools you are allowed to use, and a tool you run yourself from the `/` picker is never asked about. Voice turns have nobody to ask, so they always run in Auto.
+
+Each tool declares what it can do, which is what the modes read: `file_read`, `memory_read`, `swarm_docs`, `web_search`, `caption_image` and `fuse_image_descriptions` only read; `generate_image`, `create_image_preset`, `batch_caption_folder`, `file_write` and `memory_write` change something; `http_request` sends a request; `shell_exec` runs a command. A tool that does not say counts as a change.
+
 ---
 
 ## Built-in tools
@@ -504,7 +518,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 |---|---|---|---|
 | `LLMAssistantCreateThread` | POST | `assistantId?`, `title?` | `{success, thread}` |
 | `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
-| `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?` | streaming frames (below); `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
+| `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `approvalMode?` | streaming frames (below); `approvalMode` (`auto`, `ask` or `plan`) comes from the composer's Ask / Auto / Plan control, defaults to the mode saved on the chat, and is saved there when it differs; `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
 | `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
@@ -525,7 +539,8 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"status": …}` | Backend progress (e.g. model loading). Forwarded verbatim. |
 | `{"iteration": n}` | The agentic loop started round *n*. |
 | `{"tool_call": {id, name, arguments}}` | A tool call was resolved and is about to run. |
-| `{"tool_result": {id, name, result}}` | That tool finished. |
+| `{"tool_approval": {approvalId, id, name, arguments, risk, mode}}` | A tool call is waiting for the user's approval (Ask mode). Answer it with `LLMAssistantResolveToolApproval`. `id` is the call's id from `tool_call`; `risk` is `write`, `exec` or `network`. |
+| `{"tool_result": {id, name, result}}` | That tool finished. A refused call has `success: false, denied: true` and a message for the model. |
 | `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. |
 | `failure` on `done` | The reply stopped on an error after some text: the message is shown under that text, which stays. The reply still ends with this `done` frame. |
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
@@ -570,6 +585,8 @@ they were sent with.
 | `LLMAssistantDeleteMessage` | `threadId`, `messageId` | `{success, thread}` |
 | `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}`, switch branch |
 | `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
+| `LLMAssistantSetThreadApprovalMode` | `threadId`, `mode` (`auto` \| `ask` \| `plan`) | `{success, mode}`; how this chat approves tool calls |
+| `LLMAssistantResolveToolApproval` | `approvalId`, `decision` (`allow` \| `allow_chat` \| `deny`) | `{success, resolved}`; answers a waiting `tool_approval`. A separate request, not a message on the chat socket. Only the user the call was for can answer; an unknown, finished or someone else's id gives `resolved: false` |
 | `LLMAssistantExportThread` | `threadId`, `format` (`json` \| `markdown`) | `{success, filename, content}` |
 
 ### Assistants

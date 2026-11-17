@@ -12,6 +12,9 @@ public class SwarmDocsTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.SwarmDocs;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     /// <summary>Hard cap on bytes returned for a single read, to keep the LLM context bounded.</summary>
     private const int MaxReadBytes = 256 * 1024;
 

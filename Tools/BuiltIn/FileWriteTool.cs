@@ -16,6 +16,9 @@ public class FileWriteTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FileWrite;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Write;
+
     public const string ConfigExtraExtensions = "extraExtensions";
 
     /// <summary>Subdirectory of the user's output folder where this tool writes.</summary>

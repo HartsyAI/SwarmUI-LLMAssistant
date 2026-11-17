@@ -183,6 +183,67 @@
         llmaUpdateToolGroup(group);
     }
 
+    /**
+     * A tool call is waiting for the user's approval: open its step and show Allow once / Allow for this chat / Deny under its arguments.
+     * The answer goes to the server on its own request; the turn then carries on (or the call is refused) and a normal result closes the step.
+     * Built from core's own button class and Bootstrap's spacing utilities, so it needs no CSS of its own.
+     */
+    function llmaRenderToolApproval(bubble, req) {
+        if (!bubble || !req) return;
+        const callBubble = bubble.querySelector(`.llma-tool-call-bubble[data-tool-id="${CSS.escape(req.id || '')}"]`);
+        if (!callBubble) return;
+        callBubble.classList.remove('collapsed');
+        callBubble.closest('.llma-tool-group')?.classList.remove('collapsed');
+        const toggle = callBubble.querySelector('.llma-tool-call-toggle');
+        if (toggle) {
+            toggle.textContent = '▾';
+            toggle.setAttribute('aria-expanded', 'true');
+        }
+        const status = callBubble.querySelector('.llma-tool-call-status');
+        if (status) status.textContent = translate('needs approval');
+        callBubble.querySelector('.llma-tool-approval')?.remove();
+
+        const row = document.createElement('div');
+        row.className = 'llma-tool-approval d-flex flex-wrap align-items-center gap-2 mt-2';
+        row.dataset.approvalId = req.approvalId || '';
+        const question = document.createElement('span');
+        question.textContent = `${translate('Allow')} ${llmaFormatToolName(req.name)}?`;
+        row.appendChild(question);
+        const choices = [
+            { decision: 'allow', label: 'Allow once', primary: true },
+            { decision: 'allow_chat', label: 'Allow for this chat', primary: false },
+            { decision: 'deny', label: 'Deny', primary: false },
+        ];
+        for (const choice of choices) {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `basic-button${choice.primary ? ' btn-primary' : ''}`;
+            button.dataset.decision = choice.decision;
+            button.textContent = translate(choice.label);
+            button.addEventListener('click', () => llmaAnswerToolApproval(row, req.approvalId, choice.decision));
+            row.appendChild(button);
+        }
+        callBubble.querySelector('.llma-tool-call-body')?.insertBefore(row, callBubble.querySelector('.llma-tool-result-slot'));
+    }
+
+    /** Sends the user's answer for a waiting tool call and replaces the buttons with what was chosen. */
+    async function llmaAnswerToolApproval(row, approvalId, decision) {
+        for (const button of row.querySelectorAll('button')) {
+            button.disabled = true;
+        }
+        const reply = await llmaUserAction(
+            () => llmaRequest('LLMAssistantResolveToolApproval', { approvalId: approvalId, decision: decision }),
+            translate('Could not send your answer')
+        );
+        if (reply && reply.resolved) {
+            row.textContent = decision == 'deny' ? translate('Declined.') : translate('Allowed.');
+        }
+        else {
+            // The turn ended (Stop, or the tab was closed) before the answer arrived: nothing is waiting any more.
+            row.textContent = translate('This request has already ended.');
+        }
+    }
+
     /** Place a card holder after `group`, behind any holders already there (keeps call order). */
     function llmaInsertToolExtra(group, holder) {
         holder.classList.add('llma-tool-extra');
@@ -314,8 +375,9 @@
         if (callBubble) {
             callBubble.classList.remove('pending');
             callBubble.classList.add(success ? 'success' : 'error');
+            callBubble.querySelector('.llma-tool-approval')?.remove();
             const status = callBubble.querySelector('.llma-tool-call-status');
-            if (status) status.textContent = success ? translate('done') : translate('error');
+            if (status) status.textContent = success ? translate('done') : (result.denied ? translate('declined') : translate('error'));
             if (!success) {
                 // Surface failures: open the step and its group so the error isn't hidden.
                 callBubble.classList.remove('collapsed');
@@ -473,7 +535,7 @@
         // Re-runs via LLMAssistantExecuteTool (the standalone tool runner) and shows the new
         // result in place. Does NOT amend the conversation history server-side — purely a manual
         // "did the tool start working?" check the user can fire without re-prompting the LLM.
-        if (!success && callBubble) {
+        if (!success && callBubble && !result.denied) {
             const retryBtn = document.createElement('button');
             retryBtn.className = 'basic-button llma-tool-retry-btn';
             retryBtn.type = 'button';
@@ -544,5 +606,6 @@
     window.llmaStripToolTags    = llmaStripToolTags;
     window.llmaRenderToolCall   = llmaRenderToolCall;
     window.llmaRenderToolResult = llmaRenderToolResult;
+    window.llmaRenderToolApproval = llmaRenderToolApproval;
     window.llmaReplayToolCalls  = llmaReplayToolCalls;
 })();

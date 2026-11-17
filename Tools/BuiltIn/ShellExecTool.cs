@@ -16,6 +16,9 @@ public class ShellExecTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.ShellExec;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Exec;
+
     public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
         JObject args = ctx.Args;

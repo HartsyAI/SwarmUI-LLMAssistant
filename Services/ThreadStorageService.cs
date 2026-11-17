@@ -377,6 +377,22 @@ public static class ThreadStorageService
         }
     }
 
+    /// <summary>Saves how the thread approves tool calls (<c>auto</c>, <c>ask</c> or <c>plan</c>). Returns the updated thread, or null if not found.</summary>
+    public static JObject SetApprovalMode(User user, string threadId, string mode)
+    {
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            thread["approvalMode"] = mode;
+            SaveThread(user, thread);
+            return thread;
+        }
+    }
+
     /// <summary>Adds <paramref name="newMessage"/> as a sibling of <paramref name="refMessageId"/> (same
     /// parent) and makes it the active leaf — creating a new branch alongside the existing one. Backs the
     /// "edit a message into a new branch" flow. Returns the updated thread, or null if the ref isn't found.</summary>

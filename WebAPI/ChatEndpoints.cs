@@ -687,6 +687,21 @@ public static class ChatEndpoints
         return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
     }
 
+    /// <summary>Answers a tool call that is waiting for approval (a <c>tool_approval</c> event on the chat socket). <c>decision</c> is
+    /// <c>allow</c> (this call), <c>allow_chat</c> (this call, and the tool for the rest of the chat) or <c>deny</c>. A separate request, not a
+    /// message on the chat socket, because that socket's one outstanding receive only watches for it closing. Only the user the request
+    /// was made for can answer it; an unknown, finished or someone else's id all give the same reply.</summary>
+    public static Task<JObject> LLMAssistantResolveToolApproval(Session session, string approvalId, string decision)
+    {
+        string answer = (decision ?? "").Trim().ToLowerInvariant();
+        if (!ToolApprovals.Answers.Contains(answer))
+        {
+            return Task.FromResult(new JObject { ["success"] = false, ["error"] = "decision must be allow, allow_chat or deny." });
+        }
+        bool resolved = ToolApprovals.Pending.TryResolve(session.User.UserID, approvalId, answer);
+        return Task.FromResult(new JObject { ["success"] = resolved, ["resolved"] = resolved });
+    }
+
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
     /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, loops?, instructionId? }</c>.
@@ -844,6 +859,8 @@ public static class ChatEndpoints
         bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
 
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        string approvalMode = ResolveApprovalMode(rawInput, thread);
+        SaveApprovalModeIfChanged(session, threadId, thread, approvalMode);
         if (thread is null)
         {
             await SendWsError(socket, $"Chat '{threadId}' not found.");
@@ -889,7 +906,7 @@ public static class ChatEndpoints
                 return;
             }
             CancelToolTurnOnClose(socket, cts, enabledTools.Count > 0);
-            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId);
+            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
         }
         finally
         {
@@ -1077,6 +1094,8 @@ public static class ChatEndpoints
         long seed = rawInput["seed"]?.Value<long>() ?? -1;
         int loops = ReadPositiveInt(rawInput, "loops");
         bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
+        string approvalMode = ResolveApprovalMode(rawInput, thread);
+        SaveApprovalModeIfChanged(session, threadId, thread, approvalMode);
         // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
@@ -1136,7 +1155,7 @@ public static class ChatEndpoints
                     clientAssistantMessageId: L.AssistantMessageId,
                     lane: lane, sendLock: sendLock, parentMessageId: parentUserId,
                     compareGroupId: parentUserId, deviceLabel: L.Device, setActiveLeaf: lane == 0,
-                    ct: cts.Token);
+                    ct: cts.Token, approvalMode: approvalMode);
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested)
             {
@@ -1308,6 +1327,28 @@ public static class ChatEndpoints
     /// saved <c>loops</c> parameter; the engine rejects a loop count above the model's maximum when the request runs.</summary>
     /// <summary>A tri-state switch from a string API parameter: <c>true</c> or <c>false</c> in any case is the value; anything else, null
     /// included, is null ("not set"), since SwarmUI's reflected API parameters have no nullable bool.</summary>
+    /// <summary>How tool calls are approved for a reply: the request's <c>approvalMode</c> when it names a known one, else the one saved on the
+    /// chat, else auto.</summary>
+    internal static string ResolveApprovalMode(JObject rawInput, JObject thread)
+    {
+        string asked = rawInput?["approvalMode"]?.ToString();
+        if (ApprovalPolicy.IsValid((asked ?? "").Trim().ToLowerInvariant()))
+        {
+            return ApprovalPolicy.Normalize(asked);
+        }
+        return ApprovalPolicy.Normalize(thread?["approvalMode"]?.ToString());
+    }
+
+    /// <summary>Saves the mode a reply was asked to use on the chat when it differs from the one saved, so reloading the chat shows what it ran with.</summary>
+    private static void SaveApprovalModeIfChanged(Session session, string threadId, JObject thread, string mode)
+    {
+        string saved = ApprovalPolicy.Normalize(thread?["approvalMode"]?.ToString());
+        if (thread is not null && saved != mode)
+        {
+            ThreadStorageService.SetApprovalMode(session.User, threadId, mode);
+        }
+    }
+
     internal static bool? ReadOptionalBool(string value) => bool.TryParse(value?.Trim(), out bool parsed) ? parsed : null;
 
     /// <summary>Reads <paramref name="key"/> from a websocket request body as a tri-state switch: a JSON boolean, or the string <c>true</c> or

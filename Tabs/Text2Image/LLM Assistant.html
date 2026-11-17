@@ -178,6 +178,16 @@
                                     <span class="llma-thinking-toggle-name translate">Thinking</span>
                                     <span class="llma-thinking-toggle-label">Auto</span>
                                 </button>
+                                <!-- Tool approval for this chat, in core's segmented-control markup. Ask: anything that changes something asks first.
+                                     Auto: everything runs (the default). Plan: read-only, nothing is changed. -->
+                                <div class="btn-group btn-group-sm llma-segmented" role="group" aria-label="Tool approval" id="llma-approval-group">
+                                    <input type="radio" class="btn-check" name="llma-approval" id="llma-approval-ask" value="ask" autocomplete="off">
+                                    <label class="btn btn-outline-primary translate" for="llma-approval-ask" title="Ask before any tool that changes something">Ask</label>
+                                    <input type="radio" class="btn-check" name="llma-approval" id="llma-approval-auto" value="auto" autocomplete="off" checked>
+                                    <label class="btn btn-outline-primary translate" for="llma-approval-auto" title="Run tools without asking">Auto</label>
+                                    <input type="radio" class="btn-check" name="llma-approval" id="llma-approval-plan" value="plan" autocomplete="off">
+                                    <label class="btn btn-outline-primary translate" for="llma-approval-plan" title="Plan only: read-only tools run, nothing is changed">Plan</label>
+                                </div>
                                 <label class="llma-icon-btn llma-attach-label translate" id="llma-attach-label" title="Attach image or video" style="cursor:pointer;">
                                     <input type="file" id="llma-attach-file" accept="image/*,video/mp4,video/webm,video/quicktime" style="display:none;">
                                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7.5 3.5L4 7a2.12 2.12 0 003 3l5-5a3.54 3.54 0 00-5-5L2.5 4.5a4.95 4.95 0 007 7L13 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
