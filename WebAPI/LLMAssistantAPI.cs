@@ -151,6 +151,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChatEndpoints.LLMAssistantRegenerateWS, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantStopGeneration, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantResolveToolApproval, true, PermChat);
+        API.RegisterAPICall(ChatEndpoints.LLMAssistantCompactThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCreateThread, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);

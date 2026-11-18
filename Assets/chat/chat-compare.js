@@ -393,6 +393,7 @@
                 L.node.content = cleanFull;
                 L.node.rawContent = fullRaw;
                 L.node.meta = Object.assign({}, L.node.meta, { genTime: elapsed, model: L.model, device: L.device });
+                if (data.usage) L.node.meta.usage = data.usage;
                 if (data.truncated) L.node.meta.truncated = true;
                 if (data.reason) L.node.meta.reason = data.reason;
                 if (data.stopReason) L.node.meta.stopReason = data.stopReason;

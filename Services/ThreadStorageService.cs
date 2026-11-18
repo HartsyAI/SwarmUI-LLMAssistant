@@ -393,6 +393,32 @@ public static class ThreadStorageService
         }
     }
 
+    /// <summary>The most compaction summaries a thread keeps; the oldest go first. A summary only ever applies to the branch it was made on, so
+    /// a long conversation that was compacted many times keeps the recent ones, which are the ones its live branches can still use.</summary>
+    public const int MaxCompactionRecords = 12;
+
+    /// <summary>Saves a compaction summary (see <c>CompactionRecord.ToJson</c>) on the thread. Returns the updated thread, or null if not found.</summary>
+    public static JObject AddCompaction(User user, string threadId, JObject record)
+    {
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            JArray list = thread["compactions"] as JArray ?? [];
+            list.Add(record);
+            while (list.Count > MaxCompactionRecords)
+            {
+                list.RemoveAt(0);
+            }
+            thread["compactions"] = list;
+            SaveThread(user, thread);
+            return thread;
+        }
+    }
+
     /// <summary>Adds <paramref name="newMessage"/> as a sibling of <paramref name="refMessageId"/> (same
     /// parent) and makes it the active leaf — creating a new branch alongside the existing one. Backs the
     /// "edit a message into a new branch" flow. Returns the updated thread, or null if the ref isn't found.</summary>

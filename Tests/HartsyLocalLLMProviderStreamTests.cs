@@ -151,7 +151,6 @@ public class HartsyLocalLLMProviderStreamTests
     {
         List<JObject> events = await Forward(
             Reasoning(""),
-            new TextChunk { Kind = TextChunkKind.Usage },
             new TextChunk { Kind = TextChunkKind.ToolCallAbort, ToolCallIndex = 0 },
             new TextChunk { Kind = TextChunkKind.ToolResult, Text = "{}", ToolCall = new NativeToolCall { Id = "c", Name = "t", Arguments = "{}" } },
             new TextChunk { Kind = TextChunkKind.Status, Status = new TextStatus("loading_model") },

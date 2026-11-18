@@ -45,7 +45,12 @@ public static class SettingsService
             ["maxContextMessages"] = 0,
             // Long-edge cap (px) for images sent to vision models. Lower = fewer vision tokens (cheaper on
             // remote APIs), at some loss of fine detail. Clamped to [256, 2048]; 1536 = the prior fixed cap.
-            ["imageMaxDimension"] = 1536
+            ["imageMaxDimension"] = 1536,
+            // The model's window in tokens when the model's own listing is wrong or silent (0 = use the listing).
+            ["contextWindow"] = 0,
+            // Summarize the start of a long chat on its own once it fills this share of the window (see CompactionPlanner).
+            ["autoCompact"] = true,
+            ["compactThreshold"] = 0.8
         },
         ["assistants"] = new JObject
         {

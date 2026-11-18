@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
@@ -30,11 +31,13 @@ public static class ThreadEndpoints
                 ["error"] = $"Chat '{threadId}' not found."
             };
         }
-        return new JObject
+        JObject result = new() { ["success"] = true, ["thread"] = thread };
+        // The summary that stands in for the start of the conversation on the branch now showing, so the client can mark where it ends.
+        if (CompactionPlanner.FindActive(thread, ThreadStorageService.GetActivePath(thread)) is { } active)
         {
-            ["success"] = true,
-            ["thread"] = thread
-        };
+            result["activeCompaction"] = ChatEndpoints.CompactionJson(active);
+        }
+        return result;
     }
 
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)

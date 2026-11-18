@@ -229,6 +229,12 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
             [TokenLimitField()] = input.MaxTokens,
             ["stream"] = stream
         };
+        if (stream)
+        {
+            // Asks the endpoint to end the stream with its token counts. Anthropic's compatibility layer supports it, and an endpoint that
+            // does not know the field ignores it, so a stream without counts is simply estimated by the caller.
+            body["stream_options"] = new JObject { ["include_usage"] = true };
+        }
         if (IsAnthropic)
         {
             AddAnthropicSampling(body, model, input);
@@ -445,6 +451,12 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
                     await onChunk(new JObject() { ["stopReason"] = "error", ["error"] = string.IsNullOrWhiteSpace(message) ? "The server reported an error." : message });
                     break;
                 }
+                // The final event of a stream that asked for usage carries it with an empty `choices`; some servers send it on every event, null until the last.
+                if (parsed["usage"] is JObject usage && usage.Value<int?>("prompt_tokens") is { } promptTokens)
+                {
+                    int cached = usage["prompt_tokens_details"]?.Value<int?>("cached_tokens") ?? 0;
+                    await onChunk(new JObject() { ["usage"] = new JObject { ["promptTokens"] = promptTokens, ["completionTokens"] = usage.Value<int?>("completion_tokens") ?? 0, ["cachedTokens"] = cached } });
+                }
                 JArray choices = parsed.Value<JArray>("choices");
                 if (choices is not null && choices.Count > 0)
                 {
@@ -552,6 +564,21 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
         return models;
     }
 
+    /// <summary>The model's context window in tokens as its listing states it, or -1. Endpoints name it differently: Anthropic
+    /// <c>max_input_tokens</c>, OpenRouter and Together <c>context_length</c>, vLLM <c>max_model_len</c>, LM Studio <c>max_context_length</c>,
+    /// llama.cpp's server <c>meta.n_ctx_train</c>. The first one present wins.</summary>
+    internal static int ContextLengthOf(JObject model)
+    {
+        foreach (string field in new[] { "max_input_tokens", "context_length", "context_window", "max_model_len", "max_context_length" })
+        {
+            if (model[field] is JValue { Type: JTokenType.Integer } value && value.Value<long>() is > 0 and <= int.MaxValue)
+            {
+                return (int)value.Value<long>();
+            }
+        }
+        return model["meta"]?["n_ctx_train"] is JValue { Type: JTokenType.Integer } trained && trained.Value<long>() is > 0 and <= int.MaxValue ? (int)trained.Value<long>() : -1;
+    }
+
     /// <summary>The models in a <c>/v1/models</c> answer's <c>data</c>, in its order. Reads OpenAI's and Ollama's fields, and
     /// Anthropic's <c>display_name</c> and <c>max_input_tokens</c>. An Anthropic model's provider is <c>anthropic</c> (as it was under
     /// the removed Anthropic backend, so the model picker's group and <c>provider:anthropic</c> instruction variants still apply) and
@@ -583,7 +610,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
             {
                 info.Family = family;
             }
-            int contextLength = model.Value<int?>("max_input_tokens") ?? -1;
+            int contextLength = ContextLengthOf(model);
             if (contextLength > 0)
             {
                 info.ContextLength = contextLength;

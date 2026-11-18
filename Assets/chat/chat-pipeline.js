@@ -27,6 +27,15 @@
             return;
         }
 
+        // /compact summarizes the start of the chat now instead of sending a message.
+        if (!LLMAState.attachedImage && llmaContext.tryCommand(message)) {
+            input.value = '';
+            input.style.height = 'auto';
+            llmaUpdateCharCount('');
+            if (typeof llmaPickerClose === 'function') llmaPickerClose();
+            return;
+        }
+
         // Option B: a leading "/toolId ..." forces that tool; strip it for the model payload (the backend
         // adds a "call this tool" directive); the bubble still shows what the user typed.
         const forced = (typeof llmaPickerExtractForceTool === 'function') ? llmaPickerExtractForceTool(message) : null;
@@ -166,6 +175,10 @@
 
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
+                // Before the reply starts, a long chat may be summarized (compacting / compaction / compactionFailed).
+                if (llmaContext.onFrame(data)) {
+                    return;
+                }
                 if (data.error) {
                     renderer.cancelPendingRender();
                     llmaShowErrorInBubble(bubble, data.error);
@@ -274,6 +287,7 @@
                         if (data.reason) msg.meta.reason = data.reason;
                         if (data.stopReason) msg.meta.stopReason = data.stopReason;
                         if (data.failure) msg.meta.error = data.failure;
+                        if (data.usage) msg.meta.usage = data.usage;
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;

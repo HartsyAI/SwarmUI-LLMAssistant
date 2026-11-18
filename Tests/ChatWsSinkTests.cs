@@ -40,6 +40,30 @@ public class ChatWsSinkTests
     }
 
     [Fact]
+    public async Task TheDoneFrameCarriesTheTurnsTokenUsageWhenThereIsSome()
+    {
+        (ChatWsSink sink, List<JObject> frames) = Make();
+        Hartsy.Extensions.LLMAssistant.LLMs.LLMUsage usage = new();
+        usage.Add(100, 20);
+
+        await sink.Done(new ToolTurnOutcome("hi", null, false, null, [], SpokenText: "hi", Usage: usage));
+
+        JObject only = Assert.Single(frames);
+        Assert.Equal(100, only["usage"]!.Value<long>("promptTokens"));
+        Assert.Equal(120, only["usage"]!.Value<long>("contextTokens"));
+    }
+
+    [Fact]
+    public async Task TheDoneFrameHasNoUsageWhenTheProviderReportedNone()
+    {
+        (ChatWsSink sink, List<JObject> frames) = Make();
+
+        await sink.Done(new ToolTurnOutcome("hi", null, false, null, [], SpokenText: "hi"));
+
+        Assert.Null(Assert.Single(frames)["usage"]);
+    }
+
+    [Fact]
     public async Task ReasoningOnlyEngineFailureIsAnErrorFrame()
     {
         (ChatWsSink sink, List<JObject> frames) = Make();

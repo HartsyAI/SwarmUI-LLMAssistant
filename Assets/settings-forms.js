@@ -18,6 +18,11 @@ class LLMASettingsForms {
                 this.checkbox('llma-s-stream', 'Stream', 'Show a reply as it is written instead of all at once.', true),
                 this.slider('llma-s-image-max', 'Vision Image Max Size', 'Longest edge, in pixels, an attached image is shrunk to before it is sent. Lower means fewer vision tokens.', 1536, 256, 2048, 128)
             ]),
+            this.group('llma_general_context', 'Context', 'How a long chat is kept within the model\'s memory. When it grows near the limit, the start of it is replaced by a short summary the model writes, so the chat can go on.', [
+                this.number('llma-s-context-window', 'Context Window', 'The most tokens the model can hold, if you know better than the model\'s own listing. 0 uses the model\'s figure, and with none known, chats are never shortened on their own.', 0, 0, 2000000, 1024),
+                this.checkbox('llma-s-auto-compact', 'Shorten Long Chats', 'Summarize the start of a chat on its own when it nears the limit. You can also type /compact in a chat.', true),
+                this.slider('llma-s-compact-threshold', 'Shorten At', 'The share of the context window a chat may fill before it is shortened.', 0.8, 0.5, 0.95, 0.05)
+            ]),
             this.group('llma_general_interface', 'Interface', 'Place LLM model files in Models/llm/. Configure an LLM backend under Server > Backends.', [
                 this.checkbox('llma-s-markdown', 'Markdown Rendering', 'Render replies as formatted text.', true),
                 this.checkbox('llma-s-enter-send', 'Enter to Send', 'Enter sends the message and Shift+Enter makes a new line. Off swaps them. Ctrl+Enter always sends.', true),

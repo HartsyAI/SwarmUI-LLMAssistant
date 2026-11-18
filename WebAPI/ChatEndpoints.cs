@@ -6,6 +6,7 @@ using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.ToolCalling;
@@ -886,6 +887,8 @@ public static class ChatEndpoints
             // Resolve model facts once so per-model instruction variants can pick the right text.
             LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+            // A conversation near the model's window is summarized first, so this request fits.
+            thread = await AutoCompactIfDueAsync(socket, session, threadId, thread, model, modelInfo, settings, systemPrompt, cts.Token);
             // Build LLM input from the active branch (truncated to maxContextMessages).
             List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
             ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
@@ -1221,11 +1224,14 @@ public static class ChatEndpoints
     /// Source of truth is the saved thread; the client cannot inject fake history.
     /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
     /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.</summary>
-    private static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
+    internal static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
     {
         List<ChatMessageData> history = [];
         // Branch model: the LLM only ever sees the ACTIVE path (root → active leaf), never off-path siblings.
-        foreach (JObject msg in ThreadStorageService.GetActivePath(thread))
+        // A saved summary of the start of the conversation stands in for the messages it covers, when it still applies to this path.
+        List<JObject> activePath = ThreadStorageService.GetActivePath(thread);
+        List<JObject> sentPath = CompactionPlanner.Apply(activePath, CompactionPlanner.FindActive(thread, activePath));
+        foreach (JObject msg in sentPath)
         {
             ChatMessageData entry = new()
             {
@@ -1274,7 +1280,105 @@ public static class ChatEndpoints
             }
             history.Add(entry);
         }
-        return TruncateHistory(history, settings, rawInput);
+        // The summary is what makes the dropped messages' content reachable, so the message-count limit never cuts it.
+        bool leadsWithSummary = sentPath.Count > 0 && sentPath[0]["compaction"] is not null;
+        return leadsWithSummary
+            ? [history[0], .. TruncateHistory(history.GetRange(1, history.Count - 1), settings, rawInput)]
+            : TruncateHistory(history, settings, rawInput);
+    }
+
+    /// <summary>Summarizes the start of the active branch first when the conversation has grown to the configured share of the model's window
+    /// (<c>parameters.autoCompact</c>, <c>parameters.compactThreshold</c>), and says so on the socket (<c>compacting</c>, then <c>compaction</c>).
+    /// A model with no known window, a short conversation or a switched-off setting does nothing. A failed summary never fails the reply: the
+    /// chat goes on with its full history and the client is told (<c>compactionFailed</c>). Returns the thread as it should now be read.</summary>
+    private static async Task<JObject> AutoCompactIfDueAsync(WebSocket socket, Session session, string threadId, JObject thread, string model, LLMModelInfo modelInfo,
+        JObject settings, string systemPrompt, CancellationToken ct)
+    {
+        if (!CompactionPlanner.AutoEnabled(settings) || ct.IsCancellationRequested)
+        {
+            return thread;
+        }
+        List<JObject> path = ThreadStorageService.GetActivePath(thread);
+        CompactionRecord active = CompactionPlanner.FindActive(thread, path);
+        (long tokens, _) = CompactionPlanner.EstimateContext(path, active, ContextWindowService.EstimateTokens(systemPrompt));
+        if (!CompactionPlanner.IsDue(tokens, ContextWindowService.Resolve(modelInfo, settings), CompactionPlanner.Threshold(settings)))
+        {
+            return thread;
+        }
+        await SendWsFrame(socket, new JObject { ["compacting"] = true });
+        try
+        {
+            CompactionRecord record = await CompactionService.CompactAsync(session, threadId, model, null, ct);
+            if (record is null)
+            {
+                return thread;
+            }
+            await SendWsFrame(socket, new JObject { ["compaction"] = CompactionJson(record) });
+            return ThreadStorageService.GetThread(session.User, threadId) ?? thread;
+        }
+        catch (OperationCanceledException)
+        {
+            return thread;
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] Compacting chat {threadId} failed, so the reply goes on with the full history: {ex.Message}");
+            await SendWsFrame(socket, new JObject { ["compactionFailed"] = ex.Message });
+            return thread;
+        }
+    }
+
+    /// <summary>The part of a compaction record the client needs: what it covers, how big the conversation was, and the summary text.</summary>
+    internal static JObject CompactionJson(CompactionRecord record) => new()
+    {
+        ["id"] = record.Id,
+        ["upToMessageId"] = record.UpToMessageId,
+        ["messageCount"] = record.MessageCount,
+        ["tokensBefore"] = record.TokensBefore,
+        ["summary"] = record.Summary,
+        ["createdAt"] = record.CreatedAt,
+    };
+
+    /// <summary>Compacts a chat now (the <c>/compact</c> command): summarizes the start of the active branch with <c>model</c> (the first available
+    /// model when empty) and saves the summary on the chat. <c>instructions</c> asks the summary to dwell on something. Returns
+    /// <c>{success, compacted, compaction?}</c>; <c>compacted: false</c> means there was nothing worth compacting yet.</summary>
+    public static async Task<JObject> LLMAssistantCompactThread(Session session, string threadId, string model = "", string instructions = "")
+    {
+        try
+        {
+            if (ThreadStorageService.GetThread(session.User, threadId) is null)
+            {
+                return Fail($"Chat '{threadId}' not found.");
+            }
+            string useModel = string.IsNullOrWhiteSpace(model) ? (await LLMModelLookup.GetFirstAvailableAsync(session))?.Id : model;
+            if (string.IsNullOrEmpty(useModel))
+            {
+                return Fail("No model is available to write the summary.");
+            }
+            CompactionRecord record = await CompactionService.CompactAsync(session, threadId, useModel, instructions, Program.GlobalProgramCancel);
+            return record is null
+                ? new JObject { ["success"] = true, ["compacted"] = false }
+                : new JObject { ["success"] = true, ["compacted"] = true, ["compaction"] = CompactionJson(record) };
+        }
+        catch (SwarmReadableErrorException ex)
+        {
+            return Fail(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Logs.Error($"[LLMAssistant] Compacting chat {threadId} failed: {ex.Message}");
+            return Fail("Compacting failed: " + ex.Message);
+        }
+    }
+
+    /// <summary>Sends one JSON frame over the chat socket (when it is still open).</summary>
+    private static async Task SendWsFrame(WebSocket socket, JObject frame)
+    {
+        if (socket.State == WebSocketState.Open)
+        {
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(frame.ToString(Newtonsoft.Json.Formatting.None));
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+        }
     }
 
     /// <summary>Resolves instruction text for a request, routing through AssistantService for

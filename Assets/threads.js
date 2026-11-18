@@ -615,6 +615,7 @@ async function llmaCreateThread(assistantId) {
     });
 
     LLMAState.activeThreadId    = thread.id;
+    llmaContext.activeCompaction = null;
     LLMAState.messages          = [];
     LLMAState.allNodes          = [];
     LLMAState.activeLeafId      = null;
@@ -667,6 +668,8 @@ async function llmaSwitchThread(threadId) {
 
         LLMAState.activeThreadId    = thread.id;
         llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
+        // The summary standing in for the start of this chat on the branch showing; the marker is drawn with the messages.
+        llmaContext.activeCompaction = result.activeCompaction || null;
         LLMAState.activeAssistantId = thread.assistantId || LLMAState.activeAssistantId;
         // null when the thread has no override (inherits the assistant's toolsEnabled default).
         LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
@@ -729,14 +732,17 @@ async function llmaSwitchThread(threadId) {
 async function llmaReloadActiveThread() {
     if (!LLMAState.activeThreadId) return;
     let thread = null;
+    let compaction = null;
     try {
         const result = await llmaRequest('LLMAssistantGetThread', { threadId: LLMAState.activeThreadId });
         if (result?.thread) {
             thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
+            compaction = result.activeCompaction || null;
         }
     } catch { /* fall through */ }
     if (!thread) return;
     llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
+    llmaContext.activeCompaction = compaction;
     LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
@@ -949,31 +955,5 @@ function llmaShowChatPanel() {
 }
 
 function llmaUpdateContextBar() {
-    const bar    = document.querySelector('.llma-context-bar');
-    const label  = document.getElementById('llma-ctx-label');
-    const fill   = document.getElementById('llma-ctx-fill');
-    const tokens = document.getElementById('llma-ctx-tokens');
-
-    // Nothing meaningful to show without a conversation — hide the whole bar rather than displaying a
-    // contradictory "No active thread" line + empty track next to the top-bar heading.
-    if (!LLMAState.activeThreadId || LLMAState.messages.length === 0) {
-        if (bar) bar.style.display = 'none';
-        return;
-    }
-    if (bar) bar.style.display = '';
-
-    const count     = LLMAState.messages.length;
-    const maxCtx    = LLMAState.settings?.parameters?.maxContextMessages || 0;
-    // Prefer the exact token count when it's valid for the current conversation length.
-    const useExact = typeof LLMAState.exactTokenCount === 'number'
-        && LLMAState.exactTokenCountForLen === count;
-    const tokCount  = useExact ? LLMAState.exactTokenCount : llmaApproxTokens(LLMAState.messages);
-    const pct       = maxCtx > 0 ? Math.min(100, (count / maxCtx) * 100) : Math.min(100, (tokCount / 4096) * 100);
-
-    if (label)  label.textContent  = `${count} ${count !== 1 ? translate('messages') : translate('message')}`;
-    if (fill)   fill.style.width   = `${pct.toFixed(0)}%`;
-    if (tokens && LLMAState.showTokens) {
-        const prefix = useExact && LLMAState.exactTokenCountIsExact ? '' : '~';
-        tokens.textContent = `${prefix}${tokCount.toLocaleString()} ${translate('tokens')}`;
-    }
+    llmaContext.updateBar();
 }

@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 // A scripted OpenAI-compatible server for browser e2e tests. No model, no GPU.
 //
-//   GET    /v1/models              the model list ("mock-model", "mock-model-b")
+//   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated)
 //   POST   /v1/chat/completions    streaming (SSE) or plain; the reply comes from the active scenario
 //   PUT    /__scenarios            replace the scenario list (JSON array of rules, see below)
 //   GET    /__requests             every request body seen, oldest first
@@ -72,7 +72,8 @@ app.MapDelete("/__requests", () =>
 app.MapGet("/v1/models", () => Results.Json(new
 {
     @object = "list",
-    data = new[] { new { id = "mock-model", @object = "model", owned_by = "mock" }, new { id = "mock-model-b", @object = "model", owned_by = "mock" } }
+    // mock-model states a small window (so a long scripted chat crosses the compaction threshold); mock-model-b states none.
+    data = new object[] { new { id = "mock-model", @object = "model", owned_by = "mock", context_length = 4000 }, new { id = "mock-model-b", @object = "model", owned_by = "mock" } }
 }));
 
 app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>

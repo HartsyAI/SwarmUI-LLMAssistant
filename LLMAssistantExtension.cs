@@ -37,6 +37,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/settings-forms.js");
         // The Hooks tab of the settings dialog (list, editor and tester).
         ScriptFiles.Add("Assets/hooks.js");
+        // The context bar, the marker where a long chat was summarized, and /compact.
+        ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
         ScriptFiles.Add("Assets/chat/chat-render.js");

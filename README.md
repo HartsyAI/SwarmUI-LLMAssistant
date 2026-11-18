@@ -24,6 +24,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Quick start](#quick-start)
 - [The interface](#the-interface)
 - [Assistants](#assistants)
+- [Long chats](#long-chats)
 - [Tool calling](#tool-calling)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
@@ -218,6 +219,17 @@ Both split bars are draggable and remember their width; double-click resets them
 Click the compare icon next to the model picker, choose a second model, and send once. Both lanes stream in parallel over one socket; each reply is persisted as a sibling of your message, tagged with the device it ran on. **Keep this one** promotes a lane to the thread's main path.
 
 ![Side-by-side model comparison](Assets/screenshots/compare-mode.png)
+
+### Long chats <a id="long-chats"></a>
+
+The bar above the chat shows how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own.
+
+When a chat reaches **80%** of the window (`Shorten At`), the start of it is replaced, for the next request, by a short **summary** the model writes (`Shorten Long Chats`, on by default). The newest messages are kept as they are. You can also type **`/compact`** in the composer to do it now, and add what the summary should dwell on (`/compact keep the file names`). A marker row in the chat shows where the summary ends and opens to show its text.
+
+- Nothing is deleted. The summary is a side record on the chat, not a message in the tree, so branching, editing and deleting work as before. The full conversation stays on screen and in exports; only what is **sent to the model** is shortened.
+- A summary applies only while the messages it covers are exactly the start of the branch showing. Fork the chat before it, or edit one of those messages, and the summary quietly stops applying (the full history is sent again). A later compaction builds on the earlier summary rather than starting over.
+- If writing the summary fails, the reply goes ahead with the whole chat and the failure is shown. Compare mode applies an existing summary but does not start one.
+- The summary is written by the chat's own model, with no tools, in a request of its own, so it cannot call anything and does not disturb the chat's prompt cache beyond the one time the history changes.
 
 ### Branching
 
@@ -447,6 +459,9 @@ Example:
 | Seed | `-1` | `-1` = random. Only providers that honor a seed use it. |
 | Loops | `0` | Recurrent-block passes for a looped model such as Nemotron Dory, 1 to 4; `0` = not set (the local backend's **Default Loops**, `RecurrentLoops`, applies). Other models ignore it. |
 | Context Messages | `0` | Prior messages included per request; `0` = all. |
+| Context Window | `0` | The most tokens the model can hold, if the model's own listing is wrong or silent; `0` uses the listing. |
+| Shorten Long Chats | `true` | Summarize the start of a chat on its own once it fills **Shorten At** of the window. See [Long chats](#long-chats). |
+| Shorten At | `0.8` | The share of the window (0.5 to 0.95) that triggers it. |
 | Stream | `true` | WebSocket streaming. |
 | Vision Image Max Size | `1536` | Long-edge cap in px, clamped to 256–2048. |
 | Markdown Rendering | `true` | |
@@ -540,6 +555,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantUploadChatVideo` | POST | `threadId`, `messageId`, `videoData` (data URI; mp4, webm or mov, up to 64 MB) | `{success, url, mediaType, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
+| `LLMAssistantCompactThread` | POST | `threadId`, `model?`, `instructions?` | `{success, compacted, compaction?}`; summarizes the start of the chat now (`/compact`). `compacted: false` means there was nothing worth compacting yet. `compaction` is `{id, upToMessageId, messageCount, tokensBefore, summary, createdAt}` |
 
 Pass a `models` array of `{model, device?, backendId?, assistantMessageId?}` with **two or more** entries to `LLMAssistantSendMessageWS` and it runs compare mode instead of a single reply.
 
@@ -555,7 +571,10 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"tool_call": {id, name, arguments}}` | A tool call was resolved and is about to run. |
 | `{"tool_approval": {approvalId, id, name, arguments, risk, mode}}` | A tool call is waiting for the user's approval (Ask mode). Answer it with `LLMAssistantResolveToolApproval`. `id` is the call's id from `tool_call`; `risk` is `write`, `exec` or `network`. |
 | `{"tool_result": {id, name, result}}` | That tool finished. A refused call has `success: false, denied: true` and a message for the model. |
-| `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. |
+| `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. When the provider reported token counts, `usage` is `{promptTokens, completionTokens, cachedTokens, contextTokens, rounds}`: the sums over the turn's model rounds, and `contextTokens` the size of the conversation after the turn. The same object is saved on the reply as `meta.usage`. |
+| `{"compacting": true}` | The chat is near the model's window and is being summarized before this reply (see [Long chats](#long-chats)). Followed by `compaction`, or `compactionFailed`. |
+| `{"compaction": {id, upToMessageId, messageCount, tokensBefore, summary, createdAt}}` | The summary was written and saved; this reply is sent with it. |
+| `{"compactionFailed": "…"}` | The summary could not be written; the reply goes ahead with the whole chat. |
 | `failure` on `done` | The reply stopped on an error after some text: the message is shown under that text, which stays. The reply still ends with this `done` frame. |
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
