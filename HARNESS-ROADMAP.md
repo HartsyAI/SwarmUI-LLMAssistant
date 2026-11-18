@@ -34,7 +34,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 5 | **Skills** | On-demand `SKILL.md`, user / project / bundled scopes, anthropics/skills layout (OpenHarness, LibreChat) | Assistant instructions only, always loaded | `AssistantResolver`, a new skill loader plus a `skill` tool |
 | 6 | **Subagents** | Agent tool, SendMessage, teams, background tasks (OpenHarness, Goose, LibreChat) | None. The loop is single-agent. | A nested `ToolTurnRunner.RunAsync` with its own sink |
 | 7 | **Plan mode and a task list** | EnterPlanMode / ExitPlanMode, TaskCreate/Update (OpenHarness, OpenCode) | None | Mode on the turn context, `todo` tool, a UI card |
-| 8 | **Workspace / project context** | CLAUDE.md / AGENTS.md discovery injected into the prompt; worktrees (OpenHarness, OpenCode) | None. Every file tool is hard-wired to `Data/` or `Output/`. | New per-user workspace root (see section 3) |
+| 8 | **Workspace / project context** (back end done in Phase 5, see the README) | CLAUDE.md / AGENTS.md discovery injected into the prompt; worktrees (OpenHarness, OpenCode) | None. Every file tool is hard-wired to `Data/` or `Output/`. | New per-user workspace root (see section 3) |
 | 9 | **Code-grade file tools** | Read, Write, **Edit**, Glob, Grep, LSP, notebook | `file_read` (Data only), `file_write` (Output only, extension allowlist), no edit-in-place, no glob, no grep. `shell_exec` runs `cmd.exe`/`sh` in `Data/`. | New handlers beside `FileReadTool` |
 | 10 | **Custom slash commands** | `commands/*.md`, `/` palette of commands + skills | `/` opens a tool picker only | `tool-picker.js` |
 | 11 | **RAG / file search** | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |

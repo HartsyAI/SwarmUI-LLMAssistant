@@ -34,6 +34,13 @@ public static class ToolExecutorService
         [ToolConstants.SetVolume] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.Mcp] = LLMAssistantAPI.PermToolMcp,
+        [ToolConstants.CodeRead] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeWrite] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeEdit] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeGlob] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeGrep] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeBash] = LLMAssistantAPI.PermCodeMode,
+        [ToolConstants.CodeTodo] = LLMAssistantAPI.PermCodeMode,
     };
 
     /// <summary>Executes a tool by ID with the given arguments and request context. <paramref name="gate"/> is the turn's approval gate

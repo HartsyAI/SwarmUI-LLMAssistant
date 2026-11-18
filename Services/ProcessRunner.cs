@@ -28,7 +28,10 @@ public static class ProcessRunner
     /// <param name="timeout">How long it may run before it is killed.</param>
     /// <param name="maxOutputChars">The most of each of standard output and standard error to keep.</param>
     /// <param name="ct">Cancelling kills the process and its children.</param>
-    public static async Task<ProcessResult> RunAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, string stdin, TimeSpan timeout, int maxOutputChars, CancellationToken ct)
+    /// <param name="rawArguments">The whole command line as one string, used instead of <paramref name="arguments"/> when set. Only for a program that does its own parsing
+    /// (<c>cmd.exe</c>, which does not understand the quoting that an argument list produces).</param>
+    public static async Task<ProcessResult> RunAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, string stdin, TimeSpan timeout, int maxOutputChars, CancellationToken ct,
+        string rawArguments = null)
     {
         ProcessStartInfo startInfo = new()
         {
@@ -43,9 +46,16 @@ public static class ProcessRunner
             StandardErrorEncoding = Encoding.UTF8,
             StandardInputEncoding = new UTF8Encoding(false),
         };
-        foreach (string argument in arguments ?? [])
+        if (rawArguments is not null)
         {
-            startInfo.ArgumentList.Add(argument);
+            startInfo.Arguments = rawArguments;
+        }
+        else
+        {
+            foreach (string argument in arguments ?? [])
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
         }
         using Process process = new() { StartInfo = startInfo };
         StringBuilder stdout = new();

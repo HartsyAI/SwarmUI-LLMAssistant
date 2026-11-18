@@ -56,6 +56,19 @@ public static class LLMAssistantAPI
         "Allows adding, editing and removing MCP servers. A stdio server is a program started on the SwarmUI host with the environment variables the admin sets, which is equivalent to shell access; an http server makes the host connect to the URL given. Only grant to fully trusted admin users.",
         PermissionDefault.ADMINS, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
 
+    /// <summary>Permission to use code mode: the tools that read, change and run things in a chat's workspace (<c>code_read</c>, <c>code_edit</c>,
+    /// <c>code_bash</c> and the rest). <c>code_bash</c> runs commands as the SwarmUI user, so this is the same power as shell access. Defaults to NOBODY.</summary>
+    public static readonly PermInfo PermCodeMode = Permissions.Register(new(
+        "llm_code_mode", "LLM Code Mode",
+        "Allows the LLM's code tools: reading, searching, writing and editing files in a chat's workspace, keeping a task list, and running shell commands (code_bash), which is equivalent to shell access as the SwarmUI user. A tool still has to be enabled and given to an assistant. Only grant to fully trusted users.",
+        PermissionDefault.NOBODY, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
+
+    /// <summary>Permission to allow folders elsewhere on the host as workspaces, which every user with code mode can then work in.</summary>
+    public static readonly PermInfo PermWorkspaceRoots = Permissions.Register(new(
+        "llm_workspace_roots", "LLM Workspace Roots",
+        "Allows choosing folders on the SwarmUI host (a project checkout, for example) that users with code mode can use as workspaces. Everything in an allowed folder can be read, and changed if the user can use the code tools that change files. Only grant to fully trusted admin users.",
+        PermissionDefault.ADMINS, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
+
     /// <summary>Permission to call the tools of the MCP servers an admin has set up. What they can do depends on the server; Ask mode still asks before
     /// any that is not read-only.</summary>
     public static readonly PermInfo PermToolMcp = Permissions.Register(new(
@@ -191,6 +204,12 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantGetWorkspaces, false, PermChat);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantCreateWorkspace, true, PermChat);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantSetThreadWorkspace, true, PermThreads);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantGetWorkspaceRoots, false, PermSettings);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantSaveWorkspaceRoot, true, PermSettings);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantDeleteWorkspaceRoot, true, PermSettings);
         API.RegisterAPICall(McpEndpoints.LLMAssistantGetMcpServers, false, PermSettings);
         API.RegisterAPICall(McpEndpoints.LLMAssistantSaveMcpServer, true, PermSettings);
         API.RegisterAPICall(McpEndpoints.LLMAssistantDeleteMcpServer, true, PermSettings);

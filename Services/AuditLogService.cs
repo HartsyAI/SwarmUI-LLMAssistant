@@ -30,6 +30,10 @@ public static class AuditLogService
         ToolConstants.HttpRequest,
         // An MCP server's tools can do anything its program does, so every call is recorded.
         ToolConstants.Mcp,
+        // The code tools that change files or run commands; reading is not recorded, as with file_read.
+        ToolConstants.CodeWrite,
+        ToolConstants.CodeEdit,
+        ToolConstants.CodeBash,
     ];
 
     private static readonly JsonSerializer Serializer = JsonSerializer.CreateDefault(new JsonSerializerSettings

@@ -823,7 +823,7 @@ public static class ToolRegistryService
                     ["maxOutputBytes"] = new JObject
                     {
                         ["type"] = "integer",
-                        ["description"] = "Max bytes of stdout+stderr to return (default 65536, hard cap 1048576).",
+                        ["description"] = "Max characters of stdout and of stderr (each) to return (default 65536, hard cap 1048576).",
                         ["default"] = 65536
                     }
                 },
@@ -836,6 +836,11 @@ public static class ToolRegistryService
             ["created"] = now,
             ["updated"] = now
         };
+
+        foreach (KeyValuePair<string, JToken> code in CodeToolDefinitions.Build(now))
+        {
+            tools[code.Key] = code.Value;
+        }
 
         return tools;
     }

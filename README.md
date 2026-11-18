@@ -27,6 +27,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Long chats](#long-chats)
 - [Tool calling](#tool-calling)
 - [MCP servers](#mcp-servers)
+- [Code tools and workspaces](#code-tools)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -334,6 +335,28 @@ An **MCP server** gives the assistant extra tools: a program on this machine (**
 
 Not covered yet: a server's resources, prompts and requests for the client's help (sampling, roots), and per-user connections.
 
+### Code tools and workspaces <a id="code-tools"></a>
+
+The **code tools** let the assistant work on files the way a coding assistant does, inside a **workspace**: a folder that belongs to a chat. They are off by default and have no screen of their own yet (a code-mode interface follows); until then they are used through the chat and the routes below.
+
+| Tool | What it does | Needs approval in Ask mode |
+|---|---|---|
+| `code_read` | Read a text file a range of lines at a time, with its total line count | no |
+| `code_glob` | List files by pattern (`**/*.cs`, `src/*.js`; a pattern with no `/` matches the name anywhere) | no |
+| `code_grep` | Search file text with a regular expression, at most 200 lines, each with file and line | no |
+| `code_todo` | Keep the chat's task list (`content` and `status`); stored on the chat | no |
+| `code_write` | Create a file (or replace one with `overwrite: true`); folders are created | yes |
+| `code_edit` | Replace exact text; it must appear once unless `replaceAll`; returns a short diff | yes |
+| `code_bash` | Run a shell command starting in the workspace (`cmd.exe` on Windows, `/bin/sh` elsewhere) | yes |
+
+- **Three switches.** The user needs **`llm_code_mode`** (default **NOBODY**, *powerful*: `code_bash` runs as the SwarmUI user), the tool must be enabled on the Tools tab, and the assistant must have it in its tool list. None of them is on for any assistant until someone does it.
+- **Workspaces.** Every user has their own under `Output/<user>/llm_assistant/workspaces/`, created on demand (`default` is used when a chat has none picked). An admin with **`llm_workspace_roots`** (ADMINS, *powerful*) can also **allow a folder** elsewhere on the host, such as a project checkout, as `root:<id>`; nothing outside the user's own folder and the allowed folders is ever a workspace, and a chat can only be pointed at one the user may use.
+- **Paths stay inside.** One check (`PathSandbox`) is used by every code tool: it refuses `..`, an absolute path that is not inside the workspace, network paths, Windows device names and alternate streams, and it follows symbolic links and junctions, so a link inside the workspace that points outside cannot be used to reach what is beyond (SwarmUI's own `CheckFilePath` only checks the text of the path). Errors name no host paths. Nothing is written inside a `.git` folder.
+- **`code_bash` is not a fence.** The workspace is where the command starts, not a limit on what it can reach. Output is cut at 30,000 characters each for standard output and error, and a command is stopped after 120 seconds by default (at most 600), with its whole process tree killed on a timeout or a Stop.
+- **Edits are exact.** `code_edit` matches the text byte for byte, except that line endings follow the file's own (a model that writes `\n` edits a Windows file correctly and the file keeps its `\r\n`). A byte-order mark is kept. Writes go through a temporary file, so a failure never leaves half a file.
+- **Project instructions.** When a chat has a code tool, the workspace's `AGENTS.md` (or `CLAUDE.md` when there is none) is added to the system prompt, cut to 16,000 characters with line endings normalized so the prompt is the same text every turn until the file changes. An ordinary chat never reads a workspace file. Only a user's own workspaces and the folders an admin allowed can supply one; deciding whether to trust an instructions file from a folder someone else controls belongs to the skills work that follows.
+- **`shell_exec`** now runs through the same process runner (its working directory is still confined to `Data/`). Its `maxOutputBytes` now caps standard output and standard error each, in characters.
+
 ---
 
 ## Built-in tools
@@ -527,6 +550,8 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_hook_command` | **NOBODY** *(powerful)* | Creating a command hook (a program run around tool calls) |
 | `llm_mcp_manage` | **ADMINS** *(powerful)* | Adding, editing, testing and removing MCP servers (a stdio server is a program run on the host) |
 | `llm_tool_mcp` | **POWERUSERS** | Calling the tools MCP servers offer |
+| `llm_code_mode` | **NOBODY** *(powerful)* | The code tools: files in a chat's workspace, a task list and shell commands (`code_bash` is shell access) |
+| `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
 
@@ -640,6 +665,12 @@ they were sent with.
 | `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
 | `LLMAssistantSetThreadApprovalMode` | `threadId`, `mode` (`auto` \| `ask` \| `plan`) | `{success, mode}`; how this chat approves tool calls |
 | `LLMAssistantGetHooks` | none | `{success, hooks[], canWriteShared, canCommand}`; every hook the caller can see, each tagged `_scope` |
+| `LLMAssistantGetWorkspaces` | none | `{success, workspaces[], canUseCode, canManageRoots}`; the user's own workspaces and the allowed folders (labels only, no paths); empty without `llm_code_mode` |
+| `LLMAssistantCreateWorkspace` | `name` | `{success, id}`; one of the user's own (`user:name`); needs `llm_code_mode` |
+| `LLMAssistantSetThreadWorkspace` | `threadId`, `workspaceId` | `{success, workspace}`; empty `workspaceId` goes back to the default; only a workspace the user may use is accepted |
+| `LLMAssistantGetWorkspaceRoots` | none | `{success, roots[]}` with paths; needs `llm_workspace_roots` |
+| `LLMAssistantSaveWorkspaceRoot` | `id`, `path`, `label?` | `{success, id}`; the path must be the full path of an existing folder (not a drive root); needs `llm_workspace_roots` |
+| `LLMAssistantDeleteWorkspaceRoot` | `id` | `{success}`; needs `llm_workspace_roots` |
 | `LLMAssistantGetMcpServers` | none | `{success, servers[], canManage, canCall}`; each server is its configuration (secrets shown as `••••••`) plus `state` (`disabled`, `connecting`, `ready`, `failed`), `error`, `serverName` and `tools[]` (`{name, id, description, enabled, readOnly, openWorld}`) |
 | `LLMAssistantSaveMcpServer` | `server` (object or JSON string) | `{success, id, server}`; needs `llm_mcp_manage`. Connects it; a server that saves but cannot connect says why in `server.error` |
 | `LLMAssistantDeleteMcpServer` | `serverId` | `{success}`; needs `llm_mcp_manage` |
