@@ -144,7 +144,8 @@ public static class McpEndpoints
         JObject json = config.ToPublicJson(manage);
         McpState state = live?.State ?? (config.Enabled ? McpState.Connecting : McpState.Disabled);
         json["state"] = state.ToString().ToLowerInvariant();
-        json["error"] = live?.Error ?? "";
+        // A failure message can name host paths and the program's own output, which only someone who manages servers needs.
+        json["error"] = manage ? live?.Error ?? "" : (live?.State == McpState.Failed ? "The server could not be reached." : "");
         json["serverName"] = live?.ServerName ?? "";
         // The id of a tool that is on is the one the manager gave it (a name that collided got a suffix); a tool that is off has none yet.
         Dictionary<McpTool, string> ids = (live?.ById ?? []).ToDictionary(pair => pair.Value, pair => pair.Key);
