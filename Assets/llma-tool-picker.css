@@ -40,7 +40,7 @@
     font-size: 12.5px;
     font-weight: 600;
     color: var(--text);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-monospace);
 }
 .llma-tool-popup-desc {
     font-size: 11px;
@@ -86,7 +86,7 @@
 }
 .llma-tool-form-title { font-size: 12.5px; color: var(--text); }
 .llma-tool-form-title code {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-monospace);
     color: var(--emphasis);
 }
 .llma-tool-form-body {

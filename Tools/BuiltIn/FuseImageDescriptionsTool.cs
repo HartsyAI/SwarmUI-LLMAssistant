@@ -13,6 +13,9 @@ public class FuseImageDescriptionsTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FuseImageDescriptions;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     private static readonly Dictionary<string, string> RolePrompts = new()
     {
         ["style"]     = "Describe ONLY the artistic style of this image — medium, technique, color treatment, line work, rendering. Skip the subject and setting. Output one or two sentences.",

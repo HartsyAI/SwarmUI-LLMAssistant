@@ -48,6 +48,9 @@ const LLMAState = {
     // The composer's Thinking toggle: 'auto' sends no enableThinking (the model's template default: on for Dory and Qwen3),
     // 'on' and 'off' send true and false. Kept per browser; see llmaNextThinkingMode()/llmaThinkingRequestValue().
     thinkingMode:      'auto',
+    // How tool calls are approved in this chat: 'auto' (everything runs), 'ask' (anything that changes something asks first) or 'plan'
+    // (read-only). Sent with every request; saved on the chat so it survives a reload. See llmaSetApprovalMode().
+    approvalMode:      'auto',
 };
 
 // -- Thinking toggle --
@@ -859,6 +862,14 @@ function llmaSetEl(id, value, type = 'value') {
         el.textContent = String(rounded);
     } else {
         el.value = value;
+        // Core's number, slider and dropdown inputs size themselves and keep a slider in step on these events.
+        if (el.classList.contains('auto-slider-number') || el.classList.contains('auto-number')) {
+            el.dispatchEvent(new Event('input'));
+            el.dispatchEvent(new Event('change'));
+        }
+        else if (el.classList.contains('auto-dropdown') && typeof autoSelectWidth == 'function') {
+            autoSelectWidth(el);
+        }
     }
 }
 

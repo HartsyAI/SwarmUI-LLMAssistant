@@ -15,6 +15,9 @@ public class BatchCaptionFolderTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.BatchCaptionFolder;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Write;
+
     /// <summary>Hard cap on how many images one invocation will process. Avoids runaway batches
     /// that could chew through quota or take hours.</summary>
     public const int MaxImagesPerRun = 200;

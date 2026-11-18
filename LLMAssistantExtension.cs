@@ -31,6 +31,10 @@ public class LLMAssistantExtension : Extension
         Logs.Info($"[LLMAssistant] Version {ExtensionVersion} loading...");
         // Extension JS (vendored libs under Assets/vendor are lazy-loaded by utils.js; no CDN).
         ScriptFiles.Add("Assets/utils.js");
+        // The one place the front end touches core through a non-documented route (see the file header).
+        ScriptFiles.Add("Assets/core-bridge.js");
+        // Settings and parameter forms, built from core's make*Input helpers and input groups.
+        ScriptFiles.Add("Assets/settings-forms.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
         ScriptFiles.Add("Assets/chat/chat-render.js");
@@ -99,9 +103,8 @@ public class LLMAssistantExtension : Extension
 
     public override void OnInit()
     {
-        RegisterLLMModelType();
-        // Core clears T2IModelSets on any model-path settings save; re-register or the LLM type vanishes.
-        Program.ModelPathsChangedEvent += OnModelPathsChanged;
+        // Core has no model-type registration call and clears its sets on any model-path save; CoreBridge keeps the type registered.
+        CoreBridge.RegisterModelType("LLM", "llm");
         // Removable backend pack: supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
         Backends.LLMBackendPack.Register();
@@ -136,43 +139,8 @@ public class LLMAssistantExtension : Extension
         }
     }
 
-    /// <summary>The event fires after core's refresh pass, so the re-registered set must Refresh() itself.</summary>
-    private static void OnModelPathsChanged()
-    {
-        RegisterLLMModelType();
-        if (Program.T2IModelSets.TryGetValue("LLM", out T2IModelHandler handler))
-        {
-            handler.Refresh();
-        }
-    }
-
     public override void OnShutdown()
     {
-        Program.ModelPathsChangedEvent -= OnModelPathsChanged;
-    }
-
-    /// <summary>Registers the "LLM" model type in SwarmUI's model registry so LLM models
-    /// are discoverable just like image models (Stable-Diffusion, LoRA, etc.).</summary>
-    private static void RegisterLLMModelType()
-    {
-        if (Program.T2IModelSets.ContainsKey("LLM"))
-        {
-            return;
-        }
-        T2IModelHandler handler = new() { ModelType = "LLM" };
-        List<string> paths = [];
-        foreach (string root in Program.ServerSettings.Paths.ActualModelRoots)
-        {
-            string llmPath = Path.Combine(root, "llm");
-            Directory.CreateDirectory(llmPath);
-            paths.Add(llmPath);
-        }
-        if (paths.Count > 0)
-        {
-            handler.FolderPaths = [.. paths];
-            handler.DownloadFolderPath = paths[0];
-        }
-        Program.T2IModelSets["LLM"] = handler;
-        Logs.Info($"[LLMAssistant] Registered LLM model type with {paths.Count} folder(s).");
+        CoreBridge.Shutdown();
     }
 }

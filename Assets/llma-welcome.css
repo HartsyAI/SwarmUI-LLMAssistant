@@ -151,7 +151,7 @@
     border-radius: 4px;
     border: 1px solid var(--light-border);
     background: var(--background-panel-subtle);
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-monospace);
     font-size: 11px;
     color: var(--text-strong);
     line-height: 1.4;

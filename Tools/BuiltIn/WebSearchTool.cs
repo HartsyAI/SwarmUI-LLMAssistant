@@ -12,6 +12,9 @@ public partial class WebSearchTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.WebSearch;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     private static readonly HttpClient Http = new()
     {
         Timeout = TimeSpan.FromSeconds(15)

@@ -14,6 +14,9 @@ public class CaptionImageTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.CaptionImage;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     /// <summary>Per-user, per-tool config key for the assistant's preferred default style.</summary>
     public const string ConfigDefaultStyle = "defaultStyle";
 

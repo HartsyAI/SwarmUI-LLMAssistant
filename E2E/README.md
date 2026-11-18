@@ -61,5 +61,5 @@ Round fields: `text`, `reasoning`, `toolCalls`, `usage`, `delayMs`, `chunkDelayM
 
 ## Known gaps
 
-- `<llmprompt:...>` expansion happens during an image generation, which needs a text-to-image backend. The harness has none; Phase 0b adds coverage for it.
+- The harness has no text-to-image backend, so nothing here generates an image. `<llmprompt:...>` expansion is covered through core's `TestPromptFill` route, which runs the same prompt preparation without one. Image-bound features (the companion's reactions to a finished generation, `generate_image`) are not exercised end to end.
 - The Playwright suite checks behaviour, not looks. Each PR also gets a manual pass in a browser at desktop and mobile widths and in light and dark themes.

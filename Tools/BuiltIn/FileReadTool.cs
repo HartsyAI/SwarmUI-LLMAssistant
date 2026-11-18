@@ -13,6 +13,9 @@ public class FileReadTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.FileRead;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Read;
+
     public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
         JObject args = ctx.Args;

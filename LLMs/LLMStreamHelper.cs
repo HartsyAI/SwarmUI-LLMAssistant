@@ -10,9 +10,10 @@ public static class LLMStreamHelper
 {
     /// <summary>Streams one reply over a WebSocket and saves it to the thread. <paramref name="lane"/> is the compare-mode column (-1 for a
     /// single reply); <paramref name="parentMessageId"/> and <paramref name="compareGroupId"/> make compare lanes siblings;
-    /// <paramref name="setActiveLeaf"/> is true for lane 0 only.</summary>
+    /// <paramref name="setActiveLeaf"/> is true for lane 0 only; <paramref name="approvalMode"/> is how tool calls are approved
+    /// (<c>auto</c>, <c>ask</c> or <c>plan</c>; anything else is auto).</summary>
     public static Task StreamToWebSocket(WebSocket socket, ExtendedLLMInput input, Session session = null, string threadId = null, string assistantId = null, CancellationToken ct = default, string clientAssistantMessageId = null,
-        int lane = -1, SemaphoreSlim sendLock = null, string parentMessageId = null, string compareGroupId = null, string deviceLabel = null, bool setActiveLeaf = true)
+        int lane = -1, SemaphoreSlim sendLock = null, string parentMessageId = null, string compareGroupId = null, string deviceLabel = null, bool setActiveLeaf = true, string approvalMode = null)
     {
         ToolTurnContext context = new()
         {
@@ -25,6 +26,7 @@ public static class LLMStreamHelper
             CompareGroupId = compareGroupId,
             DeviceLabel = deviceLabel,
             SetActiveLeaf = setActiveLeaf,
+            ApprovalMode = ApprovalPolicy.Normalize(approvalMode),
         };
         return ToolTurnRunner.RunAsync(input, context, ChatWsSink.ForSocket(socket, lane, sendLock), ct);
     }

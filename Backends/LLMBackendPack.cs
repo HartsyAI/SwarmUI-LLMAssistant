@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Html;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Core;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
@@ -28,8 +29,8 @@ public static class LLMBackendPack
             new("To use Claude through the Remote (OpenAI-Compatible) LLM backend at https://api.anthropic.com, set your API key below.<br>This allows you to use Claude models for text generation.")));
         RegisterApiKey(new("openai_api", "openai", "OpenAI", "https://platform.openai.com/api-keys",
             new("To use OpenAI (or other OpenAI-compatible) models via the Remote LLM backend, set your API key below.<br>This allows you to use GPT models for text generation.")));
-        BasicAPIFeatures.AcceptedAPIKeyTypes.Add("anthropic_api");
-        BasicAPIFeatures.AcceptedAPIKeyTypes.Add("openai_api");
+        CoreBridge.AcceptApiKeyType("anthropic_api");
+        CoreBridge.AcceptApiKeyType("openai_api");
         // Claude now runs through the OpenAI-compatible backend; saved backends of the old Anthropic type are converted before core loads them.
         AnthropicBackendMigration.Run();
         // isStandard: true, so these show in the Server > Backends type row without "Show Advanced" and

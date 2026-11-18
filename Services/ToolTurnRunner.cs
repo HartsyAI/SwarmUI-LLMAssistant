@@ -46,6 +46,9 @@ public sealed class ToolTurnContext
     /// <summary>Model rounds allowed for one turn.</summary>
     public int MaxRounds = ToolLoop.DefaultMaxRounds;
 
+    /// <summary>How tool calls are approved this turn: <c>auto</c> (the default, everything runs), <c>ask</c> or <c>plan</c>. See <see cref="ApprovalPolicy"/>.</summary>
+    public string ApprovalMode = ApprovalModes.Auto;
+
     /// <summary>Provider lookup for the request (defaults to <see cref="LLMDispatcher.GetProvider"/>).</summary>
     public Func<ExtendedLLMInput, Task<ILLMProvider>> ResolveProvider;
 
@@ -98,8 +101,12 @@ public interface IToolTurnSink
     /// <summary>A call the turn never ran (the round limit, an error or a stop), with its stand-in result: <c>{id, name, result}</c>.</summary>
     Task ToolNotRun(JObject result);
 
-    /// <summary>Reserved for code mode: a gated tool call is waiting for the user's approval, <c>{id, name, arguments}</c>.
-    /// Nothing raises it yet; the default does nothing, so existing sinks are unaffected.</summary>
+    /// <summary>Whether the user on the other end can answer an approval request. A sink that cannot (a voice call, a collector) makes a
+    /// call that needs approval fail with an explanation instead of waiting for an answer that will never come.</summary>
+    bool CanApprove => false;
+
+    /// <summary>A tool call is waiting for the user's approval: <c>{approvalId, id, name, arguments, risk, mode}</c>. The answer comes back
+    /// through <c>LLMAssistantResolveToolApproval</c>, not through this sink.</summary>
     Task ToolApproval(JObject request) => Task.CompletedTask;
 
     /// <summary>The turn ended.</summary>
@@ -123,7 +130,7 @@ public static class ToolTurnRunner
         using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(Program.GlobalProgramCancel, ct);
         DateTime startTime = DateTime.UtcNow;
         ILLMProvider provider = await (ctx.ResolveProvider ?? LLMDispatcher.GetProvider)(input);
-        ToolTurnContext resolved = WithDefaults(ctx, input.Model);
+        ToolTurnContext resolved = WithDefaults(ctx, input.Model, sink);
         StringBuilder fullText = new();
         StringBuilder spokenText = new();
         ThinkSpanFilter speech = new();
@@ -357,7 +364,7 @@ public static class ToolTurnRunner
     }
 
     /// <summary>A copy of <paramref name="ctx"/> with the live host's dispatch and save filled in where the caller set none.</summary>
-    private static ToolTurnContext WithDefaults(ToolTurnContext ctx, string model) => new()
+    private static ToolTurnContext WithDefaults(ToolTurnContext ctx, string model, IToolTurnSink sink) => new()
     {
         Session = ctx.Session,
         ThreadId = ctx.ThreadId,
@@ -369,18 +376,25 @@ public static class ToolTurnRunner
         DeviceLabel = ctx.DeviceLabel,
         SetActiveLeaf = ctx.SetActiveLeaf,
         MaxRounds = ctx.MaxRounds,
+        ApprovalMode = ctx.ApprovalMode,
         ResolveProvider = ctx.ResolveProvider,
-        Dispatch = ctx.Dispatch ?? DefaultDispatch(ctx, model),
+        Dispatch = ctx.Dispatch ?? DefaultDispatch(ctx, model, sink),
         Persist = ctx.Persist ?? (message => SaveToThread(ctx.Session, ctx.ThreadId, ctx, message)),
     };
 
     /// <summary>Runs a call through <see cref="ToolExecutorService"/>; a handler failure becomes the call's error result.</summary>
-    private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model) => async (call, cancel) =>
+    private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model, IToolTurnSink sink)
+    {
+        // Auto mode (the default) needs no gate, so a turn that does not use approval runs exactly as before.
+        ToolApprovalGate gate = ApprovalPolicy.Normalize(ctx.ApprovalMode) == ApprovalModes.Auto
+            ? null
+            : new ToolApprovalGate(ctx.ApprovalMode, ctx.Session?.User?.UserID, ctx.ThreadId, sink);
+        return async (call, cancel) =>
     {
         try
         {
             // The model id is the turn's own model: a handler that starts a nested request (captioning) must stay on it.
-            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel);
+            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -388,6 +402,7 @@ public static class ToolTurnRunner
             return new JObject { ["success"] = false, ["error"] = ex.Message };
         }
     };
+    }
 
     /// <summary>The engine request the loop starts from: its messages stand for the conversation so far (the round streams use the
     /// extension's own messages), and it carries the offered tools and the forced one.</summary>

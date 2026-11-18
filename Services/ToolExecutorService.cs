@@ -36,8 +36,10 @@ public static class ToolExecutorService
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
     };
 
-    /// <summary>Executes a tool by ID with the given arguments and request context.</summary>
-    public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default)
+    /// <summary>Executes a tool by ID with the given arguments and request context. <paramref name="gate"/> is the turn's approval gate
+    /// (null for a call the user made themselves, which is never gated) and <paramref name="callId"/> is the model's id for the call.</summary>
+    public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default,
+        ToolApprovalGate gate = null, string callId = null)
     {
         try
         {
@@ -77,6 +79,24 @@ public static class ToolExecutorService
                     return Error($"You do not have permission to use the '{toolId}' tool (handler: {handlerId}). Ask an admin to grant '{requiredPerm.DisplayName}'.");
                 }
             }
+            // Basic validation: ensure required params are present
+            string validationError = ValidateArgs(tool["parameters"] as JObject, args);
+            if (validationError is not null)
+            {
+                return Error(validationError);
+            }
+            // Approval: ask the user (or refuse, in plan mode) before anything that changes something. Placed after permissions, so a user who may
+            // not run the tool is never asked, and before the rate limit, so a refused call does not use up the budget. Waiting here is not
+            // part of the tool's own timeout, which starts below.
+            if (gate is not null)
+            {
+                JObject refusal = await gate.CheckAsync(toolId, handler.Risk, args, callId, ct);
+                if (refusal is not null)
+                {
+                    AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);
+                    return refusal;
+                }
+            }
             // Per-user-per-hour rate limit. Applied AFTER perms so a permission-denied caller
             // doesn't poison their own rate budget. No-op for handlers without a default limit
             // and for users who explicitly disabled the limit via their tool config.
@@ -93,12 +113,6 @@ public static class ToolExecutorService
                     ["rateLimited"] = true,
                     ["retryAfterSeconds"] = (int)retryAfter.TotalSeconds,
                 };
-            }
-            // Basic validation: ensure required params are present
-            string validationError = ValidateArgs(tool["parameters"] as JObject, args);
-            if (validationError is not null)
-            {
-                return Error(validationError);
             }
             Logs.Debug($"[LLMAssistant] Executing tool {toolId} (handler {handlerId}, assistant {assistantId ?? "<none>"}) with args: {args?.ToString(Newtonsoft.Json.Formatting.None)}");
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);

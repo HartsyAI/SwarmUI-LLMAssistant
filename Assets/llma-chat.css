@@ -61,7 +61,7 @@
 .llma-compare-device {
     flex-shrink: 0;
     font-size: 10.5px;
-    font-family: var(--code-font, monospace);
+    font-family: var(--font-monospace);
     font-weight: 500;
     letter-spacing: 0.02em;
     color: var(--text-soft);
@@ -76,7 +76,7 @@
 .llma-compare-device-sel {
     flex-shrink: 0;
     font-size: 10.5px;
-    font-family: var(--code-font, monospace);
+    font-family: var(--font-monospace);
     font-weight: 500;
     letter-spacing: 0.02em;
     color: var(--text);
@@ -813,6 +813,8 @@ video.llma-msg-image {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    /* Wrap on a narrow screen so the model chip and Send button stay on it instead of running off the edge. */
+    flex-wrap: wrap;
     width: 100%;
     gap: 8px;
 }
@@ -822,6 +824,7 @@ video.llma-msg-image {
     align-items: center;
     gap: 4px;
 }
+.llma-input-actions-left { flex-wrap: wrap; }
 /* Claude-style "/" tools button — opens the tool picker without typing a slash. Bottom-left row. */
 .llma-tools-btn {
     width: 32px;
@@ -869,7 +872,7 @@ video.llma-msg-image {
     display: none;
 }
 .llma-tools-toggle-btn.off {
-    color: var(--warning, #d9822b);
+    color: var(--bs-warning);
 }
 .llma-tools-toggle-btn.off .llma-tools-toggle-slash {
     display: inline;
@@ -902,8 +905,8 @@ video.llma-msg-image {
     border-color: color-mix(in srgb, var(--emphasis) 60%, transparent);
 }
 .llma-thinking-toggle-btn.off {
-    color: var(--warning, #d9822b);
-    border-color: color-mix(in srgb, var(--warning, #d9822b) 60%, transparent);
+    color: var(--bs-warning);
+    border-color: color-mix(in srgb, var(--bs-warning) 60%, transparent);
 }
 .llma-input-actions .llma-icon-btn {
     width: 32px;
@@ -1105,8 +1108,8 @@ mark.llma-find-mark.active {
     font-size: 0.82em;
     line-height: 1.35;
     color: var(--text);
-    background: color-mix(in srgb, var(--warning, #e0a800) 16%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warning, #e0a800) 40%, transparent);
+    background: color-mix(in srgb, var(--bs-warning) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--bs-warning) 40%, transparent);
     border-radius: 8px;
 }
 .llma-attach-warn::before { content: '⚠'; opacity: 0.9; }

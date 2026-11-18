@@ -13,6 +13,9 @@ public class CreateImagePresetTool : ToolHandler
 {
     public override string HandlerId => ToolConstants.CreateImagePreset;
 
+    /// <inheritdoc/>
+    public override ToolRisk Risk => ToolRisk.Write;
+
     public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
         JObject args = ctx.Args;

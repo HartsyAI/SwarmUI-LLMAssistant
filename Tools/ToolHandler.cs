@@ -31,11 +31,28 @@ public class ToolExecutionContext
     public System.Threading.CancellationToken Ct;
 }
 
+/// <summary>What a tool call can do, which approval modes use to decide whether to ask first.</summary>
+public enum ToolRisk
+{
+    /// <summary>Only reads or looks things up; changes nothing the user would want to review.</summary>
+    Read,
+    /// <summary>Changes something: writes a file, saves settings or memory, spends resources, drives a device.</summary>
+    Write,
+    /// <summary>Runs a command on the host.</summary>
+    Exec,
+    /// <summary>Sends an arbitrary request to another server.</summary>
+    Network,
+}
+
 /// <summary>Abstract base class for tool handlers. Each concrete handler implements a single tool's execution logic.</summary>
 public abstract class ToolHandler
 {
     /// <summary>Unique identifier used to look up this handler via ToolRegistryService.</summary>
     public abstract string HandlerId { get; }
+
+    /// <summary>What a call to this handler can do. Approval modes ask before anything but <see cref="ToolRisk.Read"/>, and plan mode
+    /// allows only that, so a handler that does not say is treated as a change.</summary>
+    public virtual ToolRisk Risk => ToolRisk.Write;
 
     /// <summary>Executes the tool with the given context and returns a JSON result.</summary>
     /// <returns>A JObject with at minimum a "success" boolean; may include additional result fields.</returns>

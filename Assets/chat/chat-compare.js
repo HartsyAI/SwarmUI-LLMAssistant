@@ -323,6 +323,7 @@
                 if (data.chunk)  { ctl.chunk(data.chunk); }
                 if (data.iteration !== undefined) ctl.newIteration();
                 if (data.tool_call)   ctl.toolCall(data.tool_call);
+                if (data.tool_approval) ctl.toolApproval(data.tool_approval);
                 if (data.tool_result) ctl.toolResult(data.tool_result);
                 if (data.done) { ctl.done(data); if (++doneCount >= ctls.length) finalizeGroup(); }
             }, 0, err => {
@@ -372,6 +373,9 @@
                 L.node.toolCalls = L.node.toolCalls || [];
                 L.node.toolCalls.push({ id: tc.id, name: tc.name, arguments: tc.arguments, result: null });
                 if (bubble && typeof llmaRenderToolCall === 'function') llmaRenderToolCall(bubble, tc);
+            },
+            toolApproval(req) {
+                if (bubble && typeof llmaRenderToolApproval === 'function') llmaRenderToolApproval(bubble, req);
             },
             toolResult(tr) {
                 const entry = (L.node.toolCalls || []).find(t => t.id === tr.id);

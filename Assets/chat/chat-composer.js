@@ -39,6 +39,16 @@
         });
         llmaUpdateThinkingToggleBtn();
 
+        // Approval mode (Ask / Auto / Plan): a request carries it, and the chat remembers it.
+        for (const radio of document.querySelectorAll('input[name="llma-approval"]')) {
+            radio.addEventListener('change', () => {
+                if (radio.checked) {
+                    llmaSetApprovalMode(radio.value, true);
+                }
+            });
+        }
+        llmaUpdateApprovalControl();
+
         if (input) {
             input.addEventListener('keydown', e => {
                 // Let the "/" tool picker consume navigation/select/close keys first (plain Enter falls through).
@@ -185,6 +195,28 @@
         llmaSaveActiveThread();
     }
 
+    /** Sets how this chat approves tool calls ('ask', 'auto' or 'plan'), updates the control, and saves it on the chat when asked to. */
+    function llmaSetApprovalMode(mode, persist) {
+        if (!['ask', 'auto', 'plan'].includes(mode)) {
+            mode = 'auto';
+        }
+        LLMAState.approvalMode = mode;
+        llmaUpdateApprovalControl();
+        if (persist && LLMAState.activeThreadId) {
+            llmaRequest('LLMAssistantSetThreadApprovalMode', { threadId: LLMAState.activeThreadId, mode: mode }).catch(() => {
+                llmaShowToast(translate('Could not save the approval mode for this chat'), 'error');
+            });
+        }
+    }
+
+    /** Shows the current approval mode in the Ask / Auto / Plan control. */
+    function llmaUpdateApprovalControl() {
+        const radio = document.getElementById(`llma-approval-${LLMAState.approvalMode}`);
+        if (radio) {
+            radio.checked = true;
+        }
+    }
+
     /** Inline-edit a message (optimistic local update; revert on failure). */
     function llmaStartEdit(msgId) {
         const msg = LLMAState.messages.find(m => m.id === msgId);
@@ -272,6 +304,8 @@
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSetupInput        = llmaSetupInput;
     window.llmaUpdateThinkingToggleBtn = llmaUpdateThinkingToggleBtn;
+    window.llmaSetApprovalMode   = llmaSetApprovalMode;
+    window.llmaUpdateApprovalControl = llmaUpdateApprovalControl;
     window.llmaUpdateCharCount   = llmaUpdateCharCount;
     window.llmaCopyMessage       = llmaCopyMessage;
     window.llmaDeleteMessage     = llmaDeleteMessage;
