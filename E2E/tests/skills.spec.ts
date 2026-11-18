@@ -113,8 +113,7 @@ test('a tool wins when a command has its name, and an unknown name is sent as ty
     expect((await lastRequest()).lastUser).toBe('hello there');
 
     await send(llm, '/nothing-like-this at all');
-    await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(2);
-    expect((await lastRequest()).lastUser).toBe('/nothing-like-this at all');
+    await expect.poll(async () => (await lastRequest()).lastUser).toBe('/nothing-like-this at all');
 });
 
 test('the model is told about skills and loads one with the skill tool', async ({ llm }) => {
@@ -157,7 +156,7 @@ test('a skill only the user may run is refused to the model, and works when the 
 
     await clearRequests();
     await send(llm, '/mine-only do the thing');
-    await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(2);
+    await expect(lastAssistant(llm)).toContainText('Ran it.');
     let sent = (await lastRequest()).lastUser as string;
     expect(sent).toContain('Use the "mine-only" skill for the request below.');
     expect(sent).toContain('Secret steps.');
@@ -288,7 +287,7 @@ test.describe('workspace skills and commands', () => {
         await clearRequests();
         await setScenarios([turn('use the workspace skill', [{ name: 'skill', arguments: { name: 'ws-skill' } }], 'Done.')]);
         await send(llm, 'use the workspace skill');
-        await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(2);
+        await expect(lastAssistant(llm)).toContainText('Done.');
         expect((await mockRequests())[0].tools.map((t: any) => t.function.name)).not.toContain('skill');
         expect((await mockRequests())[0].messages.map((m: any) => JSON.stringify(m.content)).join('\n')).not.toContain('ws-skill');
         let refused = await api(llm, 'LLMAssistantExpandPromptAsset', { kind: 'command', name: 'ws-cmd', threadId });
