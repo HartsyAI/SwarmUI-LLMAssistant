@@ -22,6 +22,12 @@ public class ToolExecutionContext
     /// attach side-effects to a thread (eg orphan-file GC keys off thread membership).</summary>
     public string ThreadId;
 
+    /// <summary>The id of the tool being called (what the model named, which for a tool from a source is not the handler's id).</summary>
+    public string ToolId;
+
+    /// <summary>The tool's definition as the user sees it, so a handler that serves many tools can tell which one this is.</summary>
+    public JObject ToolDef;
+
     /// <summary>The model id this LLM call is using. Lets tools tune their output for the model
     /// (eg shorter completions for context-limited models).</summary>
     public string ModelId;
@@ -53,6 +59,13 @@ public abstract class ToolHandler
     /// <summary>What a call to this handler can do. Approval modes ask before anything but <see cref="ToolRisk.Read"/>, and plan mode
     /// allows only that, so a handler that does not say is treated as a change.</summary>
     public virtual ToolRisk Risk => ToolRisk.Write;
+
+    /// <summary>What a call to the tool described by <paramref name="toolDef"/> can do. Defaults to <see cref="Risk"/>; a handler that serves many tools
+    /// with different effects (an MCP server's) overrides it.</summary>
+    public virtual ToolRisk RiskFor(JObject toolDef) => Risk;
+
+    /// <summary>How long a call to the tool described by <paramref name="toolDef"/> may run before it is cancelled.</summary>
+    public virtual TimeSpan TimeoutFor(JObject toolDef) => TimeSpan.FromSeconds(60);
 
     /// <summary>Executes the tool with the given context and returns a JSON result.</summary>
     /// <returns>A JObject with at minimum a "success" boolean; may include additional result fields.</returns>

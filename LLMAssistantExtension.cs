@@ -1,6 +1,7 @@
 using System.IO;
 using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Mcp;
 using Hartsy.Extensions.LLMAssistant.T2I;
 using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -37,6 +38,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/settings-forms.js");
         // The Hooks tab of the settings dialog (list, editor and tester).
         ScriptFiles.Add("Assets/hooks.js");
+        // The MCP Servers tab of the settings dialog.
+        ScriptFiles.Add("Assets/mcp.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
@@ -136,6 +139,21 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());
         ToolRegistryService.RegisterHandler(new MemoryReadTool());
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
+        // MCP: one handler for every tool an MCP server offers, and the source that lists them. The servers connect in the background, so a slow
+        // or broken one never holds up start-up; its tools appear once it is ready.
+        ToolRegistryService.RegisterHandler(new McpToolHandler());
+        ToolSources.Register(new McpToolSource(McpServerManager.Instance));
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await McpServerManager.Instance.SyncAsync();
+            }
+            catch (Exception ex)
+            {
+                Logs.Warning($"[LLMAssistant] Starting MCP servers failed: {ex.Message}");
+            }
+        });
         // One handler instance per device action; they share an implementation and differ only by id.
         foreach (string deviceTool in DeviceActionTool.Ids)
         {
@@ -145,6 +163,7 @@ public class LLMAssistantExtension : Extension
 
     public override void OnShutdown()
     {
+        McpServerManager.Instance.DisposeAll();
         CoreBridge.Shutdown();
     }
 }

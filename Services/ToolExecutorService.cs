@@ -10,8 +10,6 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 /// <summary>Validates and executes tools by ID with args. Wraps exceptions into structured error results.</summary>
 public static class ToolExecutorService
 {
-    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(60);
-
     /// <summary>Maps built-in tool <b>handler IDs</b> to the permission required to execute them.
     /// Keyed on the handler (the code that actually runs), not the tool definition's id alias —
     /// otherwise a user could define a custom tool <c>{ id: "harmless", handlerId: "shell_exec" }</c>
@@ -35,6 +33,7 @@ public static class ToolExecutorService
         [ToolConstants.SetLedProfile] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.SetVolume] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
+        [ToolConstants.Mcp] = LLMAssistantAPI.PermToolMcp,
     };
 
     /// <summary>Executes a tool by ID with the given arguments and request context. <paramref name="gate"/> is the turn's approval gate
@@ -110,7 +109,7 @@ public static class ToolExecutorService
             // part of the tool's own timeout, which starts below.
             if (gate is not null)
             {
-                JObject refusal = await gate.CheckAsync(toolId, handler.Risk, args, callId, ct, forceAsk);
+                JObject refusal = await gate.CheckAsync(toolId, handler.RiskFor(tool), args, callId, ct, forceAsk);
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);
@@ -136,7 +135,7 @@ public static class ToolExecutorService
             }
             Logs.Debug($"[LLMAssistant] Executing tool {toolId} (handler {handlerId}, assistant {assistantId ?? "<none>"}) with args: {args?.ToString(Newtonsoft.Json.Formatting.None)}");
             using CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(DefaultTimeout);
+            timeoutCts.CancelAfter(handler.TimeoutFor(tool));
             ToolExecutionContext context = new()
             {
                 Args = args ?? new JObject(),
@@ -144,6 +143,8 @@ public static class ToolExecutorService
                 AssistantId = assistantId,
                 ThreadId = threadId,
                 ModelId = modelId,
+                ToolId = toolId,
+                ToolDef = tool,
                 Ct = timeoutCts.Token
             };
             JObject result = await handler.Execute(context);

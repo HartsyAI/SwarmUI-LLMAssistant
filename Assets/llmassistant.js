@@ -85,6 +85,7 @@ async function llmaInit() {
     if (typeof llmaSetupBulkBar === 'function') llmaSetupBulkBar();
     llmaSetupSettingsModal();
     llmaSetupHooksTab();
+    llmaSetupMcpTab();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
@@ -1349,6 +1350,7 @@ function llmaSetupSettingsModal() {
             if (panel) panel.style.display = '';
             if (tab.dataset.tab === 'tools') llmaLoadTools();
             if (tab.dataset.tab === 'hooks') llmaHooks.load();
+            if (tab.dataset.tab === 'mcp') llmaMcp.load();
         });
     });
 

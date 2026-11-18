@@ -94,11 +94,8 @@ public static class ToolConstants
     /// <summary>Handler type: built-in C# ToolHandler implementation.</summary>
     public const string HandlerBuiltIn = "builtin";
 
-    /// <summary>Reserved: MCP server over stdio.</summary>
-    public const string HandlerMcpStdio = "mcp_stdio";
-
-    /// <summary>Reserved: MCP server over HTTP.</summary>
-    public const string HandlerMcpHttp = "mcp_http";
+    /// <summary>The handler id of every tool an MCP server offers (one handler serves them all; the tool's definition says which).</summary>
+    public const string Mcp = "mcp";
 
     /// <summary>ID of the built-in image-generation tool.</summary>
     public const string GenerateImage = "generate_image";

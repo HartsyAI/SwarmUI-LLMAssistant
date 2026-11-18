@@ -28,6 +28,8 @@ public static class AuditLogService
         ToolConstants.ShellExec,
         ToolConstants.FileWrite,
         ToolConstants.HttpRequest,
+        // An MCP server's tools can do anything its program does, so every call is recorded.
+        ToolConstants.Mcp,
     ];
 
     private static readonly JsonSerializer Serializer = JsonSerializer.CreateDefault(new JsonSerializerSettings
