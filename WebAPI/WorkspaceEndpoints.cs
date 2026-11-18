@@ -1,6 +1,7 @@
 using Hartsy.Extensions.LLMAssistant.Services;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Core;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
@@ -54,6 +55,101 @@ public static class WorkspaceEndpoints
         return Task.FromResult(thread is null
             ? new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." }
             : new JObject { ["success"] = true, ["workspace"] = thread["workspace"] });
+    }
+
+    /// <summary>The most entries one folder listing returns.</summary>
+    public const int MaxListed = 1000;
+
+    /// <summary>Lists one folder of a chat's workspace, for the files panel. Request: <c>{ threadId, path? }</c> (empty is the workspace's top). Returns
+    /// <c>{success, path, entries[], truncated}</c>, each entry <c>{name, type, size}</c> with <c>type</c> <c>dir</c> or <c>file</c>, folders first. Links are left out
+    /// (they could lead outside), and nothing names a host path. Needs <c>llm_code_mode</c>; not a model call, so it is not approved, hooked or audited.</summary>
+    public static Task<JObject> LLMAssistantListWorkspaceFiles(Session session, string threadId, string path = "")
+    {
+        Workspace workspace = WorkspaceFor(session, threadId, out JObject failure);
+        if (workspace is null)
+        {
+            return Task.FromResult(failure);
+        }
+        return Task.FromResult(ListFolder(workspace, path));
+    }
+
+    /// <summary>The listing of one folder in <paramref name="workspace"/>; separate from the route so it can be tested without a session.</summary>
+    internal static JObject ListFolder(Workspace workspace, string path)
+    {
+        if (!PathSandbox.TryResolve(workspace.Root, path, out string full, out string error))
+        {
+            return new JObject { ["success"] = false, ["error"] = error };
+        }
+        if (!System.IO.Directory.Exists(full))
+        {
+            return new JObject { ["success"] = false, ["error"] = "That folder does not exist." };
+        }
+        List<JObject> entries = [];
+        try
+        {
+            foreach (string directory in System.IO.Directory.EnumerateDirectories(full))
+            {
+                if (new System.IO.DirectoryInfo(directory).LinkTarget is null)
+                {
+                    entries.Add(new JObject { ["name"] = System.IO.Path.GetFileName(directory), ["type"] = "dir", ["size"] = 0 });
+                }
+            }
+            foreach (string file in System.IO.Directory.EnumerateFiles(full))
+            {
+                System.IO.FileInfo info = new(file);
+                if (info.LinkTarget is null && !info.Name.StartsWith(".llma-", StringComparison.Ordinal))
+                {
+                    entries.Add(new JObject { ["name"] = info.Name, ["type"] = "file", ["size"] = info.Length });
+                }
+            }
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException)
+        {
+            return new JObject { ["success"] = false, ["error"] = "That folder cannot be read." };
+        }
+        List<JObject> sorted = [.. entries.OrderBy(e => e["type"]!.ToString() == "dir" ? 0 : 1).ThenBy(e => e["name"]!.ToString(), StringComparer.OrdinalIgnoreCase)];
+        return new JObject
+        {
+            ["success"] = true,
+            ["path"] = PathSandbox.Relative(workspace.Root, full),
+            ["entries"] = new JArray(sorted.Take(MaxListed)),
+            ["truncated"] = sorted.Count > MaxListed,
+        };
+    }
+
+    /// <summary>Reads a text file of a chat's workspace for the viewer, a range of lines at a time (the same reader the model's <c>code_read</c> uses). Request:
+    /// <c>{ threadId, path, offset?, limit? }</c>. Returns <c>{success, path, content, startLine, endLine, totalLines, truncated}</c>. Needs <c>llm_code_mode</c>.</summary>
+    public static async Task<JObject> LLMAssistantReadWorkspaceFile(Session session, string threadId, string path, int offset = 1, int limit = 2000)
+    {
+        Workspace workspace = WorkspaceFor(session, threadId, out JObject failure);
+        if (workspace is null)
+        {
+            return failure;
+        }
+        return await Tools.BuiltIn.CodeReadTool.Run(workspace, new JObject { ["path"] = path, ["offset"] = offset, ["limit"] = limit }, Program.GlobalProgramCancel);
+    }
+
+    /// <summary>The workspace of one of the caller's chats, or null with the failure to return. The caller needs <c>llm_code_mode</c> and must own the chat.</summary>
+    private static Workspace WorkspaceFor(Session session, string threadId, out JObject failure)
+    {
+        failure = null;
+        if (session.User is null || !session.User.HasPermission(LLMAssistantAPI.PermCodeMode))
+        {
+            failure = new JObject { ["success"] = false, ["error"] = "The workspace needs the LLM Code Mode permission." };
+            return null;
+        }
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            failure = new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+            return null;
+        }
+        Workspace workspace = WorkspaceService.ResolveForThread(session.User, thread);
+        if (workspace is null)
+        {
+            failure = new JObject { ["success"] = false, ["error"] = "This chat's workspace is not available. Pick another one for the chat." };
+        }
+        return workspace;
     }
 
     /// <summary>The folders an admin has allowed, with their paths. Request: none. Needs <c>llm_workspace_roots</c>. Returns <c>{success, roots[]}</c>,

@@ -106,6 +106,9 @@ public static class WorkspaceService
         return List(user).FirstOrDefault(w => w.Id == id);
     }
 
+    /// <summary>The workspace a thread works in: the one saved on it, or the user's default when it has none. Null when it names one the user may no longer use.</summary>
+    public static Workspace ResolveForThread(User user, JObject thread) => Resolve(user, thread?["workspace"]?.ToString());
+
     /// <summary>The folders an admin allowed, as (id, label, path). A stored entry that does not validate is skipped.</summary>
     public static List<(string Id, string Label, string Path)> AllowedRoots()
     {

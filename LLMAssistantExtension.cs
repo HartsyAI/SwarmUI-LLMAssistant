@@ -38,6 +38,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/settings-forms.js");
         // The Hooks tab of the settings dialog (list, editor and tester).
         ScriptFiles.Add("Assets/hooks.js");
+        // Code mode: the Chat / Code switch, the workspace picker and panel, the plan card.
+        ScriptFiles.Add("Assets/code-mode.js");
         // The MCP Servers tab of the settings dialog.
         ScriptFiles.Add("Assets/mcp.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
@@ -72,6 +74,7 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-companion.css");
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
         StyleSheetFiles.Add("Assets/llma-backend-cards.css");
+        StyleSheetFiles.Add("Assets/llma-code.css");
         // Static asset files (images), served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
         OtherAssets.Add("Assets/swarmui-logo.jpg");

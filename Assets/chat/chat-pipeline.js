@@ -27,6 +27,7 @@
             return;
         }
 
+        llmaCodeMode.hidePlanCard();
         // /compact summarizes the start of the chat now instead of sending a message.
         if (!LLMAState.attachedImage && llmaContext.tryCommand(message)) {
             input.value = '';
@@ -257,6 +258,7 @@
                     }
                 }
                 if (data.tool_result) {
+                    llmaCodeMode.onToolResult(data.tool_result);
                     const msgObj = LLMAState.messages.find(m => m.id === assistantMsgId);
                     if (msgObj && msgObj.toolCalls) {
                         const entry = msgObj.toolCalls.find(tc => tc.id === data.tool_result.id);
@@ -392,6 +394,7 @@
         llmaSetStreaming(false);
         llmaSaveActiveThread();
         llmaUpdateContextBar();
+        llmaCodeMode.onTurnFinished();
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
         // Fire-and-forget exact-count refresh: lands async and patches the sidebar/context bar once the server responds.
         if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();

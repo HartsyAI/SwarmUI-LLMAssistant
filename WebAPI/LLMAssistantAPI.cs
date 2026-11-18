@@ -204,6 +204,9 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantListWorkspaceFiles, false, PermChat);
+        API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantReadWorkspaceFile, false, PermChat);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadMode, true, PermThreads);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantGetWorkspaces, false, PermChat);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantCreateWorkspace, true, PermChat);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantSetThreadWorkspace, true, PermThreads);

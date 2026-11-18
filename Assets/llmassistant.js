@@ -86,6 +86,7 @@ async function llmaInit() {
     llmaSetupSettingsModal();
     llmaSetupHooksTab();
     llmaSetupMcpTab();
+    llmaCodeMode.setup();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
@@ -853,6 +854,11 @@ function llmaSetupSplitBars() {
 }
 
 function llmaRenderAssistantPanel(assistantId) {
+    // In code mode the right panel is the workspace's, not the assistant's.
+    if (llmaCodeMode.isCode) {
+        llmaCodeMode.renderPanel();
+        return;
+    }
     const inner = document.getElementById('llma-panel-inner');
     if (!inner) return;
     const assistant = LLMAState.assistants.find(a => a.id === assistantId);
@@ -914,6 +920,10 @@ function llmaRenderAssistantPanel(assistantId) {
 }
 
 function llmaRenderAssistantPanelEmpty() {
+    if (llmaCodeMode.isCode) {
+        llmaCodeMode.renderPanel();
+        return;
+    }
     const inner = document.getElementById('llma-panel-inner');
     if (inner) inner.innerHTML = `<div class="llma-panel-empty">${translate('Select an assistant to see details.')}</div>`;
 }

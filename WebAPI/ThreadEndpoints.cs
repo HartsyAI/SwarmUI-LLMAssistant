@@ -145,6 +145,32 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Switches a chat between an ordinary chat and a coding session. Request: <c>{ threadId, mode }</c>, <c>mode</c> being <c>chat</c> or <c>code</c>. Code
+    /// mode needs <c>llm_code_mode</c>. A chat in code mode brings the code tools and shows the workspace panel; nothing already in the chat changes.</summary>
+    public static async Task<JObject> LLMAssistantSetThreadMode(Session session, JObject rawInput)
+    {
+        string threadId = rawInput["threadId"]?.ToString();
+        string mode = (rawInput["mode"]?.ToString() ?? "").Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (!ThreadModes.IsValid(mode))
+        {
+            return new JObject { ["success"] = false, ["error"] = "mode must be chat or code." };
+        }
+        if (mode == ThreadModes.Code && (session.User is null || !session.User.HasPermission(LLMAssistantAPI.PermCodeMode)))
+        {
+            return new JObject { ["success"] = false, ["error"] = "Code mode needs the LLM Code Mode permission." };
+        }
+        JObject thread = ThreadStorageService.SetMode(session.User, threadId, mode);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        return new JObject { ["success"] = true, ["mode"] = mode };
+    }
+
     /// <summary>Saves how this chat approves tool calls: <c>auto</c> (everything runs, the default), <c>ask</c> (anything that changes something
     /// asks first) or <c>plan</c> (read-only). Request: <c>{ threadId, mode }</c>. A reply streamed after this uses it unless the request names
     /// its own <c>approvalMode</c>.</summary>

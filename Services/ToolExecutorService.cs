@@ -65,7 +65,7 @@ public static class ToolExecutorService
             if (!string.IsNullOrEmpty(assistantId))
             {
                 ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, session?.User);
-                if (!resolved.EnabledToolIds.Contains(toolId))
+                if (!resolved.EnabledToolIds.Contains(toolId) && !CodeModeService.GrantsTool(toolId, session?.User, threadId))
                 {
                     return Error($"Tool '{toolId}' is not enabled for assistant '{assistantId}'.");
                 }
