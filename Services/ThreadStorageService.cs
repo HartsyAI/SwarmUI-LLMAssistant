@@ -618,6 +618,8 @@ public static class ThreadStorageService
         {
             bool blobDeleted = user.DeleteGenericData(DataName, ThreadPrefix + threadId);
             bool indexHadEntry = RemoveFromIndex(user, threadId);
+            // What the chat's file tools changed (the saved earlier versions) goes with it.
+            ChangeJournalService.DeleteForThread(user, threadId);
             return blobDeleted || indexHadEntry;
         }
     }

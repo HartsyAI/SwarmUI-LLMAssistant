@@ -6,17 +6,21 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>The chat socket's events: text, rounds, status, tool calls and results, and the done frame. In compare mode every frame is tagged
 /// with its lane and writes go through the shared lock.</summary>
-public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IToolTurnSink
+public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen, bool streamsToolOutput = true) : IToolTurnSink
 {
-    /// <summary>The sink for one chat socket and lane: frames are lane-tagged and written under the shared lock.</summary>
+    /// <summary>The sink for one chat socket and lane: frames are lane-tagged and written under the shared lock. The side-by-side lanes of compare mode have no terminal to
+    /// show live output in, so only a single chat streams it.</summary>
     public static ChatWsSink ForSocket(WebSocket socket, int lane, SemaphoreSlim sendLock)
-        => new(data => SendJson(socket, data, lane, sendLock), () => socket.State == WebSocketState.Open);
+        => new(data => SendJson(socket, data, lane, sendLock), () => socket.State == WebSocketState.Open, streamsToolOutput: lane < 0);
 
     /// <inheritdoc/>
     public bool IsOpen => isOpen();
 
     /// <inheritdoc/>
     public bool CanApprove => true;
+
+    /// <inheritdoc/>
+    public bool StreamsToolOutput => streamsToolOutput;
 
     /// <summary>Whether a <c>&lt;think&gt;</c> block is open on the socket.</summary>
     private bool _inThink;
@@ -60,6 +64,9 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
 
     /// <inheritdoc/>
     public Task ToolApproval(JObject request) => Send(new JObject { ["tool_approval"] = request });
+
+    /// <inheritdoc/>
+    public Task ToolOutput(JObject output) => Send(new JObject { ["tool_output"] = output });
 
     /// <inheritdoc/>
     public Task ToolResult(JObject result)

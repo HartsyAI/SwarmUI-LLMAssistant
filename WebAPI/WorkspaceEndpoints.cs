@@ -129,6 +129,82 @@ public static class WorkspaceEndpoints
         return await Tools.BuiltIn.CodeReadTool.Run(workspace, new JObject { ["path"] = path, ["offset"] = offset, ["limit"] = limit }, Program.GlobalProgramCancel);
     }
 
+    /// <summary>The files the chat's file tools changed that now differ from before: <c>{success, changes[]}</c>, each <c>{path, status (created | modified | deleted), added, removed,
+    /// binary, large, revertable, conflict}</c>. Request: <c>{ threadId }</c>. Needs <c>llm_code_mode</c>. Changes made by <c>code_bash</c> commands are not tracked.</summary>
+    public static Task<JObject> LLMAssistantListWorkspaceChanges(Session session, string threadId)
+    {
+        Workspace workspace = WorkspaceFor(session, threadId, out JObject failure);
+        if (workspace is null)
+        {
+            return Task.FromResult(failure);
+        }
+        List<ChangeJournalService.FileChange> changes = ChangeJournalService.List(session.User, threadId, workspace);
+        return Task.FromResult(new JObject { ["success"] = true, ["changes"] = new JArray(changes.Select(ChangeJson)) });
+    }
+
+    /// <summary>One changed file with its diff: <c>{success, change}</c>, the change as in <see cref="LLMAssistantListWorkspaceChanges"/> plus <c>diff</c> (unified, drawn as coloured
+    /// rows) and <c>diffTruncated</c>. Request: <c>{ threadId, path }</c>. Needs <c>llm_code_mode</c>.</summary>
+    public static Task<JObject> LLMAssistantGetWorkspaceChange(Session session, string threadId, string path)
+    {
+        Workspace workspace = WorkspaceFor(session, threadId, out JObject failure);
+        if (workspace is null)
+        {
+            return Task.FromResult(failure);
+        }
+        ChangeJournalService.FileChange change = ChangeJournalService.List(session.User, threadId, workspace, withDiff: true, onlyPath: path ?? "").FirstOrDefault();
+        return Task.FromResult(change is null
+            ? new JObject { ["success"] = false, ["error"] = "That file has no change to show (it may have been put back already)." }
+            : new JObject { ["success"] = true, ["change"] = ChangeJson(change, includeDiff: true) });
+    }
+
+    /// <summary>Puts a changed file back as it was before the chat's file tools touched it (a file the assistant created is deleted). Request: <c>{ threadId, path?, force? }</c>;
+    /// with no <c>path</c> every changed file is put back. A file that changed since the assistant last wrote it (by the user, or by a command) is left alone unless <c>force</c>
+    /// is true, and reported under <c>conflicts</c>. Returns <c>{success, reverted[], conflicts[], failed[]}</c>. Needs <c>llm_code_mode</c>.</summary>
+    public static Task<JObject> LLMAssistantRevertWorkspaceChange(Session session, string threadId, string path = "", bool force = false)
+    {
+        Workspace workspace = WorkspaceFor(session, threadId, out JObject failure);
+        if (workspace is null)
+        {
+            return Task.FromResult(failure);
+        }
+        ChangeJournalService.RevertResult result = ChangeJournalService.Revert(session.User, threadId, workspace, string.IsNullOrEmpty(path) ? null : path, force);
+        bool nothing = result.Reverted.Count == 0 && result.Conflicts.Count == 0 && result.Failed.Count == 0;
+        return Task.FromResult(new JObject
+        {
+            // A revert where some files went back and one did not is still a result to show (the failures are listed), not a failure of the call.
+            ["success"] = !nothing && (result.Failed.Count == 0 || result.Reverted.Count > 0),
+            ["error"] = nothing ? "There is nothing to put back." : result.Failed.Count > 0 && result.Reverted.Count == 0 ? result.Failed[0].Error : null,
+            ["reverted"] = new JArray(result.Reverted),
+            ["conflicts"] = new JArray(result.Conflicts),
+            ["failed"] = new JArray(result.Failed.Select(f => new JObject { ["path"] = f.Path, ["error"] = f.Error })),
+        });
+    }
+
+    /// <summary>A file change as the routes return it.</summary>
+    private static JObject ChangeJson(ChangeJournalService.FileChange change) => ChangeJson(change, includeDiff: false);
+
+    /// <summary>A file change as the routes return it, with its diff when asked.</summary>
+    private static JObject ChangeJson(ChangeJournalService.FileChange change, bool includeDiff)
+    {
+        JObject json = new()
+        {
+            ["path"] = change.Path,
+            ["status"] = change.Status,
+            ["added"] = change.Added,
+            ["removed"] = change.Removed,
+            ["binary"] = change.Binary,
+            ["large"] = change.Large,
+            ["revertable"] = change.Revertable,
+            ["conflict"] = change.Conflict,
+        };
+        if (includeDiff)
+        {
+            json["diff"] = change.Diff;
+            json["diffTruncated"] = change.DiffTruncated;
+        }
+        return json;
+    }
+
     /// <summary>The workspace of one of the caller's chats, or null with the failure to return. The caller needs <c>llm_code_mode</c> and must own the chat.</summary>
     private static Workspace WorkspaceFor(Session session, string threadId, out JObject failure)
     {

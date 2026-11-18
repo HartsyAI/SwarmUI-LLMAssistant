@@ -249,6 +249,11 @@
                         llmaRenderToolCall(bubble, data.tool_call);
                         llmaScrollToBottom();
                     }
+                    llmaCodeMode.onToolCall(data.tool_call);
+                }
+                if (data.tool_output) {
+                    // What a running command prints, as it prints it: the Terminal tab shows it live.
+                    llmaCodeMode.onToolOutput(data.tool_output);
                 }
                 if (data.tool_approval) {
                     // A tool call is waiting for the user: show Allow / Deny on its step.
@@ -258,12 +263,13 @@
                     }
                 }
                 if (data.tool_result) {
-                    llmaCodeMode.onToolResult(data.tool_result);
                     const msgObj = LLMAState.messages.find(m => m.id === assistantMsgId);
                     if (msgObj && msgObj.toolCalls) {
                         const entry = msgObj.toolCalls.find(tc => tc.id === data.tool_result.id);
                         if (entry) entry.result = data.tool_result.result;
                     }
+                    // After the result is saved on the message: the Terminal tab reads it from there.
+                    llmaCodeMode.onToolResult(data.tool_result);
                     if (bubble) {
                         llmaRenderToolResult(bubble, data.tool_result);
                         llmaScrollToBottom();

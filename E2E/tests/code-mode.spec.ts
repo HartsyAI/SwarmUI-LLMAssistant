@@ -31,7 +31,7 @@ test('the Code segment is on for a user who may use it, and switching shows the 
     await expect(llm.locator('#llma-container')).toHaveClass(/llma-code-mode/);
     await expect(llm.locator('#llma-workspace-select')).toBeVisible();
     await expect(llm.locator('.llma-panel-header-label')).toHaveText('Workspace');
-    await expect(llm.locator('.llma-code-tabs .nav-link')).toHaveText(['Files', 'Tasks']);
+    await expect(llm.locator('.llma-code-tabs .nav-link')).toHaveText(['Files', 'Changes', 'Terminal', 'Tasks']);
     // A coding session starts careful: changes and commands ask first.
     await expect(llm.locator('#llma-approval-ask')).toBeChecked();
     await llm.locator('label[for="llma-mode-chat"]').click();

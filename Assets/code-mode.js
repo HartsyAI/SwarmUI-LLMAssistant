@@ -1,6 +1,7 @@
 /**
- * Code mode: the Chat / Code switch, the workspace picker in the composer, and the Workspace panel on the right (the workspace's files and the
- * chat's task list), plus the "plan ready" card and the Chat / Code filter of the chat list.
+ * Code mode: the Chat / Code switch, the workspace picker in the composer, and the Workspace panel on the right (the workspace's files, what the
+ * assistant changed with a way to undo it, a live terminal for its commands, and the chat's task list), plus the "plan ready" card and the Chat / Code
+ * filter of the chat list.
  *
  * A chat in code mode works in a workspace folder and brings the code tools with it (see the README, "Code tools and workspaces"). The panel is built
  * from Bootstrap's nav-tabs, list-group and badge, so it carries almost no styling of its own (llma-code.css only lays out the two areas).
@@ -22,8 +23,15 @@ class LLMACodeMode {
         this.pendingWorkspace = '';
         /** The chat's task list: [{content, status}]. */
         this.todos = [];
-        /** The panel tab showing: 'files' or 'tasks'. */
+        /** The panel tab showing: 'files', 'changes', 'terminal' or 'tasks'. */
         this.tab = 'files';
+        /** The files the assistant's file tools changed, as the server lists them: {path, status, added, removed, binary, large, revertable, conflict}. */
+        this.changes = [];
+        /** Paths of the changes whose diff is open, and the diffs loaded for them (by path). */
+        this.openDiffs = new Set();
+        this.diffs = new Map();
+        /** What commands printed while they ran, by tool call id: {lines: [{stream, text}]}. A reloaded chat has only each command's saved result. */
+        this.live = new Map();
         /** Folder listings by path ('' is the top), as the server sent them. */
         this.listings = new Map();
         /** Paths of the folders opened in the tree. */
@@ -60,6 +68,7 @@ class LLMACodeMode {
         // A chat restored while the permission was still unknown: now that it is, a code chat is a code chat.
         if (this.canUse && this.savedMode == 'code' && LLMAState.activeThreadId) {
             this.mode = 'code';
+            this.refreshChanges();
         }
         this.apply();
     }
@@ -97,6 +106,9 @@ class LLMACodeMode {
         this.apply();
         if (mode == 'code' && persist) {
             this.openPanel();
+        }
+        if (mode == 'code' && LLMAState.activeThreadId) {
+            this.refreshChanges();
         }
         if (persist && LLMAState.activeThreadId) {
             let reply = await llmaUserAction(() => llmaRequest('LLMAssistantSetThreadMode', { threadId: LLMAState.activeThreadId, mode: mode }), translate('Could not change the mode of this chat'));
@@ -136,8 +148,15 @@ class LLMACodeMode {
         this.listings.clear();
         this.openFolders.clear();
         this.viewing = null;
+        this.changes = [];
+        this.openDiffs.clear();
+        this.diffs.clear();
+        this.live.clear();
         this.hidePlanCard();
         this.apply();
+        if (this.isCode) {
+            this.refreshChanges(thread?.id);
+        }
     }
 
     /** Called right after a new chat was created: the workspace picked before it existed is saved on it. */
@@ -241,6 +260,11 @@ class LLMACodeMode {
             this.listings.clear();
             this.openFolders.clear();
             this.viewing = null;
+            // The changes belong to the workspace they were made in: the list starts over.
+            this.changes = [];
+            this.openDiffs.clear();
+            this.diffs.clear();
+            this.refreshChanges();
         }
         this.fillPicker();
         this.renderPanel();
@@ -248,37 +272,340 @@ class LLMACodeMode {
 
     // ---- the panel ----------------------------------------------------------------------------------------
 
-    /** Draws the Workspace panel: Files and Tasks tabs. */
+    /** Draws the Workspace panel: Files, Changes, Terminal and Tasks tabs. */
     renderPanel() {
         let inner = document.getElementById('llma-panel-inner');
         if (!inner || !this.isCode) {
             return;
         }
         let open = n => (this.tab == n ? ' active' : '');
+        let badge = n => (n > 0 ? ` <span class="badge text-bg-secondary">${n}</span>` : '');
         inner.innerHTML = `<ul class="nav nav-tabs llma-code-tabs" role="tablist">`
             + `<li class="nav-item"><button type="button" class="nav-link${open('files')}" data-code-tab="files" role="tab">${translate('Files')}</button></li>`
-            + `<li class="nav-item"><button type="button" class="nav-link${open('tasks')}" data-code-tab="tasks" role="tab">${translate('Tasks')}${this.todos.length ? ` <span class="badge text-bg-secondary">${this.todos.length}</span>` : ''}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('changes')}" data-code-tab="changes" role="tab">${translate('Changes')}${badge(this.changes.length)}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('terminal')}" data-code-tab="terminal" role="tab">${translate('Terminal')}${badge(this.bashCalls().length)}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('tasks')}" data-code-tab="tasks" role="tab">${translate('Tasks')}${badge(this.todos.length)}</button></li>`
             + `<li class="nav-item ms-auto"><button type="button" class="btn btn-sm llma-code-refresh" title="${translate('Reload the file list')}" aria-label="${translate('Reload the file list')}">&#x21BB;</button></li>`
             + '</ul><div class="llma-code-body" id="llma-code-body"></div>';
         for (let button of inner.querySelectorAll('[data-code-tab]')) {
             button.addEventListener('click', () => {
                 this.tab = button.dataset.codeTab;
                 this.renderPanel();
+                if (this.tab == 'changes') {
+                    // Files change outside the chat too (the user's editor, a command): opening the tab looks again.
+                    this.refreshChanges();
+                }
             });
         }
         inner.querySelector('.llma-code-refresh').addEventListener('click', () => this.reload());
         if (this.tab == 'tasks') {
             this.renderTasks();
         }
+        else if (this.tab == 'changes') {
+            this.renderChanges();
+        }
+        else if (this.tab == 'terminal') {
+            this.renderTerminal();
+        }
         else {
             this.renderFiles();
         }
     }
 
-    /** Drops what was loaded and shows the tree again. */
+    /** Drops what was loaded and shows the tab again (the tree, or the list of changes). */
     async reload() {
         this.listings.clear();
-        await this.renderFiles();
+        if (this.tab == 'changes') {
+            await this.refreshChanges();
+            return;
+        }
+        if (this.tab == 'files') {
+            await this.renderFiles();
+        }
+    }
+
+    // ---- changes ------------------------------------------------------------------------------------------
+
+    /** Asks the server which files the assistant's file tools changed, and redraws the tab (and its badge). */
+    async refreshChanges(threadId) {
+        threadId = threadId || LLMAState.activeThreadId;
+        if (!threadId || !this.canUse) {
+            this.changes = [];
+            return;
+        }
+        let reply = null;
+        try {
+            reply = await llmaRequest('LLMAssistantListWorkspaceChanges', { threadId: threadId });
+        }
+        catch (ex) {
+            reply = null;
+        }
+        if (threadId != LLMAState.activeThreadId) {
+            return;
+        }
+        this.changes = reply?.success ? reply.changes : [];
+        this.diffs.clear();
+        if (this.isCode) {
+            this.renderPanel();
+        }
+    }
+
+    /** The Changes tab: every file the assistant changed, each with its diff to open and a way to put it back. */
+    renderChanges() {
+        let body = document.getElementById('llma-code-body');
+        if (!body) {
+            return;
+        }
+        if (this.changes.length == 0) {
+            body.innerHTML = `<div class="text-muted p-2">${translate('No changes. Files the assistant writes or edits show here with what changed, and can be put back.')}<br><span class="small">${translate('Changes made by commands it runs are not tracked.')}</span></div>`;
+            return;
+        }
+        let kinds = { created: ['text-bg-success', translate('new')], modified: ['text-bg-primary', translate('edited')], deleted: ['text-bg-danger', translate('deleted')] };
+        let rows = this.changes.map(change => {
+            let [style, label] = kinds[change.status] || kinds.modified;
+            let counts = change.added == null ? '' : `<span class="text-success">+${change.added}</span> <span class="text-danger">&minus;${change.removed}</span>`;
+            let note = change.binary ? translate('binary file') : change.large ? translate('too large to show') : '';
+            let open = this.openDiffs.has(change.path);
+            return `<li class="list-group-item bg-transparent llma-change" data-path="${llmaEscapeHtml(change.path)}">`
+                + `<div class="d-flex align-items-center gap-2">`
+                + `<button type="button" class="btn btn-sm llma-change-toggle" aria-expanded="${open}" title="${translate('Show what changed')}">${open ? '&#9662;' : '&#9656;'}</button>`
+                + `<span class="badge ${style}">${label}</span>`
+                + `<span class="flex-grow-1 text-truncate llma-change-path" title="${llmaEscapeHtml(change.path)}">${llmaEscapeHtml(change.path)}</span></div>`
+                // The panel is narrow: the path gets a row of its own and the counts and the button sit under it.
+                + `<div class="d-flex align-items-center gap-2 ps-4 pt-1">`
+                + `<span class="small flex-grow-1">${counts || llmaEscapeHtml(note)}</span>`
+                + `<button type="button" class="basic-button llma-change-revert"${change.revertable ? '' : ' disabled'} title="${change.revertable ? translate('Put the file back as it was before the assistant changed it') : translate('The earlier version was too large to keep')}">${translate('Revert')}</button>`
+                + `</div>`
+                + `${change.conflict ? `<div class="small text-warning ps-4">${translate('Changed since the assistant last wrote it.')}</div>` : ''}`
+                + `<div class="llma-change-diff"></div></li>`;
+        }).join('');
+        body.innerHTML = `<div class="d-flex align-items-center gap-2 border-bottom px-2 py-1">`
+            + `<span class="flex-grow-1 small">${this.changes.length == 1 ? translate('1 file changed') : translate('{0} files changed').replace('{0}', this.changes.length)}</span>`
+            + `<button type="button" class="basic-button llma-change-revert-all">${translate('Revert all')}</button></div>`
+            + `<ul class="list-group list-group-flush llma-changes-list">${rows}</ul>`;
+        for (let row of body.querySelectorAll('.llma-change')) {
+            let path = row.dataset.path;
+            row.querySelector('.llma-change-toggle').addEventListener('click', () => this.toggleDiff(path));
+            row.querySelector('.llma-change-path').addEventListener('click', () => this.toggleDiff(path));
+            row.querySelector('.llma-change-revert').addEventListener('click', () => this.revert(path));
+            if (this.openDiffs.has(path)) {
+                this.drawDiff(row, path);
+            }
+        }
+        body.querySelector('.llma-change-revert-all').addEventListener('click', () => this.revert(''));
+    }
+
+    /** Opens or closes one file's diff. */
+    async toggleDiff(path) {
+        if (this.openDiffs.has(path)) {
+            this.openDiffs.delete(path);
+        }
+        else {
+            this.openDiffs.add(path);
+        }
+        this.renderChanges();
+    }
+
+    /** Fills a change row with its diff, loading it the first time. */
+    async drawDiff(row, path) {
+        let holder = row.querySelector('.llma-change-diff');
+        if (!this.diffs.has(path)) {
+            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantGetWorkspaceChange', { threadId: LLMAState.activeThreadId, path: path }), translate('Could not load the change'));
+            if (!reply) {
+                this.openDiffs.delete(path);
+                return;
+            }
+            this.diffs.set(path, reply.change);
+        }
+        let change = this.diffs.get(path);
+        if (!holder || !document.body.contains(holder)) {
+            return;
+        }
+        if (change.diff) {
+            holder.appendChild(llmaRenderDiff(change.diff));
+            if (change.diffTruncated) {
+                let note = document.createElement('div');
+                note.className = 'small text-muted px-2';
+                note.textContent = translate('Only the first part of the change is shown.');
+                holder.appendChild(note);
+            }
+        }
+        else {
+            holder.innerHTML = `<div class="small text-muted px-2 py-1">${change.binary ? translate('This is not a text file, so there is no diff to show.') : change.large ? translate('The file is too large to show a diff.') : translate('Nothing differs in the lines.')}</div>`;
+        }
+    }
+
+    /** Puts one file (or, with an empty path, every changed file) back as it was. A file changed since the assistant wrote it asks before it is overwritten. */
+    async revert(path) {
+        let what = path == '' ? translate('Put every changed file back as it was before the assistant changed it?') : translate('Put {0} back as it was before the assistant changed it?').replace('{0}', path);
+        if (!confirm(what)) {
+            return;
+        }
+        let reply = await llmaUserAction(() => llmaRequest('LLMAssistantRevertWorkspaceChange', { threadId: LLMAState.activeThreadId, path: path }), translate('Could not revert'));
+        if (reply && reply.failed?.length > 0) {
+            // Some files were put back and some could not be: say which.
+            llmaShowToast(`${translate('Could not put back')} ${reply.failed.map(f => f.path).join(', ')}: ${reply.failed[0].error}`, 'error');
+        }
+        if (reply && reply.conflicts?.length > 0) {
+            let list = reply.conflicts.join(', ');
+            if (confirm(translate('{0} changed since the assistant last wrote it. Reverting would undo that too. Revert anyway?').replace('{0}', list))) {
+                await llmaUserAction(() => llmaRequest('LLMAssistantRevertWorkspaceChange', { threadId: LLMAState.activeThreadId, path: path, force: true }), translate('Could not revert'));
+            }
+        }
+        this.listings.clear();
+        this.viewing = null;
+        await this.refreshChanges();
+    }
+
+    // ---- terminal -----------------------------------------------------------------------------------------
+
+    /** The commands of this chat, in order: {id, command, workingDirectory, result}, from the saved tool calls of the messages showing. */
+    bashCalls() {
+        let calls = [];
+        for (let message of LLMAState.messages || []) {
+            for (let call of message.toolCalls || []) {
+                if (call.name != 'code_bash') {
+                    continue;
+                }
+                let args = call.arguments;
+                if (typeof args == 'string') {
+                    try {
+                        args = JSON.parse(args);
+                    }
+                    catch (ex) {
+                        args = {};
+                    }
+                }
+                calls.push({ id: call.id, command: args?.command || '', result: call.result || null });
+            }
+        }
+        return calls;
+    }
+
+    /** The Terminal tab: each command the assistant ran, with what it printed (live while it runs) and how it ended. */
+    renderTerminal() {
+        let body = document.getElementById('llma-code-body');
+        if (!body) {
+            return;
+        }
+        let calls = this.bashCalls();
+        if (calls.length == 0) {
+            body.innerHTML = `<div class="text-muted p-2">${translate('No commands yet. When the assistant runs a command, its output shows here as it happens.')}</div>`;
+            return;
+        }
+        body.innerHTML = `<div class="llma-terminal" tabindex="0" role="log" aria-label="${translate('Terminal')}"></div>`;
+        let screen = body.querySelector('.llma-terminal');
+        for (let call of calls) {
+            screen.appendChild(this.terminalEntry(call));
+        }
+        screen.scrollTop = screen.scrollHeight;
+    }
+
+    /** One command as terminal rows: the prompt line, its output, and its status. */
+    terminalEntry(call) {
+        let entry = document.createElement('div');
+        entry.className = 'llma-terminal-entry';
+        entry.dataset.id = call.id;
+        let prompt = document.createElement('div');
+        prompt.className = 'llma-terminal-cmd';
+        prompt.textContent = `$ ${call.command}`;
+        entry.appendChild(prompt);
+        let result = call.result;
+        // The live lines keep stdout and stderr in the order they came; a reloaded chat has only the saved result, which holds them apart.
+        let lines = this.live.get(call.id)?.lines || [];
+        if (lines.length == 0 && result) {
+            lines = [...this.splitLines(result.stdout, 'stdout'), ...this.splitLines(result.stderr, 'stderr')];
+        }
+        let out = document.createElement('div');
+        out.className = 'llma-terminal-out';
+        for (let line of lines) {
+            out.appendChild(this.terminalRow(line.stream, line.text));
+        }
+        entry.appendChild(out);
+        let status = document.createElement('div');
+        status.className = 'llma-terminal-status';
+        if (!result) {
+            status.textContent = translate('running…');
+        }
+        else if (result.timedOut) {
+            status.textContent = translate('stopped: it took too long');
+        }
+        else if (result.exitCode != null) {
+            status.textContent = `[${translate('exit')} ${result.exitCode}]`;
+        }
+        else {
+            status.textContent = result.error || translate('did not run');
+        }
+        entry.appendChild(status);
+        return entry;
+    }
+
+    /** One line of output as a row. */
+    terminalRow(stream, text) {
+        let row = document.createElement('div');
+        row.className = stream == 'stderr' ? 'llma-terminal-err' : 'llma-terminal-line';
+        row.textContent = text;
+        return row;
+    }
+
+    /** Text split into lines for the terminal, without the empty line a final newline leaves. */
+    splitLines(text, stream) {
+        if (!text) {
+            return [];
+        }
+        return text.replace(/\n$/, '').split('\n').map(line => ({ stream: stream, text: line }));
+    }
+
+    /** A tool call began: a command gets its row in the Terminal tab at once. */
+    onToolCall(call) {
+        if (call?.name == 'code_bash' && this.isCode) {
+            if (this.tab == 'terminal') {
+                this.renderTerminal();
+            }
+            this.updateTerminalBadge();
+        }
+    }
+
+    /** Rewrites the command count on the Terminal tab without redrawing the panel (which would reset the tree's scroll and the viewer). */
+    updateTerminalBadge() {
+        let button = document.querySelector('.llma-code-tabs [data-code-tab="terminal"]');
+        if (!button) {
+            return;
+        }
+        let count = this.bashCalls().length;
+        button.innerHTML = `${translate('Terminal')}${count > 0 ? ` <span class="badge text-bg-secondary">${count}</span>` : ''}`;
+    }
+
+    /** A running command printed something: it is kept, and shown at once when the Terminal tab is open. */
+    onToolOutput(output) {
+        if (!output?.id || typeof output.text != 'string') {
+            return;
+        }
+        let record = this.live.get(output.id);
+        if (!record) {
+            record = { lines: [] };
+            this.live.set(output.id, record);
+        }
+        let added = this.splitLines(output.text, output.stream);
+        record.lines.push(...added);
+        if (!this.isCode || this.tab != 'terminal') {
+            return;
+        }
+        let screen = document.querySelector('#llma-code-body .llma-terminal');
+        let entry = screen?.querySelector(`.llma-terminal-entry[data-id="${CSS.escape(output.id)}"]`);
+        if (!screen || !entry) {
+            this.renderTerminal();
+            return;
+        }
+        // Follow the output only while the user is at the bottom: scrolling up to read must not be undone.
+        let atBottom = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 40;
+        let out = entry.querySelector('.llma-terminal-out');
+        for (let line of added) {
+            out.appendChild(this.terminalRow(line.stream, line.text));
+        }
+        if (atBottom) {
+            screen.scrollTop = screen.scrollHeight;
+        }
     }
 
     /** The Tasks tab: the chat's task list, with a badge for each status. */
@@ -441,6 +768,10 @@ class LLMACodeMode {
         if (['code_write', 'code_edit', 'code_bash'].includes(name)) {
             this.dirty = true;
         }
+        if (name == 'code_bash' && this.isCode && this.tab == 'terminal') {
+            // The command ended: its row gets its status.
+            this.renderTerminal();
+        }
     }
 
     /** A reply ended: the tree catches up with what the assistant changed, and a plan made in Plan mode offers to be accepted. */
@@ -454,6 +785,7 @@ class LLMACodeMode {
             if (this.tab == 'files') {
                 this.renderFiles();
             }
+            this.refreshChanges();
         }
         let last = [...LLMAState.messages].reverse().find(m => m.role == 'assistant');
         let planned = LLMAState.approvalMode == 'plan' && last && ((last.content || '').trim() != '' || (last.toolCalls || []).length > 0);

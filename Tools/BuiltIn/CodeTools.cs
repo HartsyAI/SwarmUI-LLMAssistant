@@ -214,11 +214,11 @@ public sealed class CodeWriteTool : CodeToolBase
         {
             return Task.FromResult(failure);
         }
-        return Run(workspace, ctx.Args, ctx.Ct);
+        return Run(workspace, ctx.Args, ctx.Ct, ChangeJournalService.RecorderFor(ctx.Session?.User, ctx.ThreadId, workspace));
     }
 
-    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session.</summary>
-    internal static Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct)
+    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session. A <paramref name="recorder"/> notes the change in the chat's journal.</summary>
+    internal static Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct, ChangeRecorder recorder = null)
     {
         JObject failure;
         string content = args["content"]?.ToString();
@@ -249,8 +249,10 @@ public sealed class CodeWriteTool : CodeToolBase
         {
             return Task.FromResult(Fail("The file already exists. To replace it, call again with overwrite=true; to change part of it, use code_edit."));
         }
+        recorder?.Before(full);
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         WriteAtomically(full, content, bom: false);
+        recorder?.After(full);
         return Task.FromResult(new JObject
         {
             ["success"] = true,
@@ -301,11 +303,11 @@ public sealed class CodeEditTool : CodeToolBase
         {
             return Task.FromResult(failure);
         }
-        return Run(workspace, ctx.Args, ctx.Ct);
+        return Run(workspace, ctx.Args, ctx.Ct, ChangeJournalService.RecorderFor(ctx.Session?.User, ctx.ThreadId, workspace));
     }
 
-    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session.</summary>
-    internal static Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct)
+    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session. A <paramref name="recorder"/> notes the change in the chat's journal.</summary>
+    internal static Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct, ChangeRecorder recorder = null)
     {
         JObject failure;
         string oldText = args["oldText"]?.ToString();
@@ -366,7 +368,9 @@ public sealed class CodeEditTool : CodeToolBase
         {
             return Task.FromResult(Fail("The result would be too large."));
         }
+        recorder?.Before(full);
         CodeWriteTool.WriteAtomically(full, updated, bom);
+        recorder?.After(full);
         return Task.FromResult(new JObject
         {
             ["success"] = true,
@@ -641,11 +645,12 @@ public sealed class CodeBashTool : CodeToolBase
         {
             return failure;
         }
-        return await Run(workspace, ctx.Args, ctx.Ct);
+        return await Run(workspace, ctx.Args, ctx.Ct, ctx.Output);
     }
 
-    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session.</summary>
-    internal static async Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct)
+    /// <summary>Does the work in <paramref name="workspace"/>; separate from <see cref="Execute"/> so it can be run without a session. <paramref name="onOutput"/>
+    /// gets each line of output (stream name and text) as the command writes it.</summary>
+    internal static async Task<JObject> Run(Workspace workspace, JObject args, CancellationToken ct, Action<string, string> onOutput = null)
     {
         JObject failure;
         string command = args["command"]?.ToString();
@@ -665,8 +670,8 @@ public sealed class CodeBashTool : CodeToolBase
         int seconds = Math.Clamp(args["timeoutSeconds"]?.Value<int?>() ?? DefaultSeconds, 1, MaxSeconds);
         bool windows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         ProcessResult result = windows
-            ? await ProcessRunner.RunAsync("cmd.exe", [], folder, null, TimeSpan.FromSeconds(seconds), MaxOutputChars, ct, rawArguments: $"/d /s /c \"{command}\"")
-            : await ProcessRunner.RunAsync("/bin/sh", ["-c", command], folder, null, TimeSpan.FromSeconds(seconds), MaxOutputChars, ct);
+            ? await ProcessRunner.RunAsync("cmd.exe", [], folder, null, TimeSpan.FromSeconds(seconds), MaxOutputChars, ct, rawArguments: $"/d /s /c \"{command}\"", onOutput: onOutput)
+            : await ProcessRunner.RunAsync("/bin/sh", ["-c", command], folder, null, TimeSpan.FromSeconds(seconds), MaxOutputChars, ct, onOutput: onOutput);
         if (result.StartError is not null)
         {
             return Fail($"The command could not be started: {result.StartError}");

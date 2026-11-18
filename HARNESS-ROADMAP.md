@@ -72,7 +72,7 @@ Reservations only; no behaviour changes.
 | `ThreadModes` (`chat`, `code`) and `ApprovalModes` (`ask`, `auto`, `plan`) constants | `Constants.cs` |
 | `mode` field on new threads (`chat`); old threads read as `chat` | `ThreadStorageService.CreateThread` |
 | `IToolTurnSink.ToolApproval` with a no-op default, so the approval event has a place on the wire | `ToolTurnRunner.cs` |
-| Chat / Code mode switch in the top bar (live since Phase 6a: it opens the Workspace panel; the Changes tab and Terminal are Phase 6b) | `Tabs/Text2Image/LLM Assistant.html`, `Assets/llma-topbar.css` |
+| Chat / Code mode switch in the top bar (live since Phase 6a: it opens the Workspace panel; the Changes tab and Terminal followed in Phase 6b) | `Tabs/Text2Image/LLM Assistant.html`, `Assets/llma-topbar.css` |
 
 Not verified in a running SwarmUI.
 

@@ -30,8 +30,10 @@ public static class ProcessRunner
     /// <param name="ct">Cancelling kills the process and its children.</param>
     /// <param name="rawArguments">The whole command line as one string, used instead of <paramref name="arguments"/> when set. Only for a program that does its own parsing
     /// (<c>cmd.exe</c>, which does not understand the quoting that an argument list produces).</param>
+    /// <param name="onOutput">Called with the stream (<c>stdout</c> or <c>stderr</c>) and each line as the process writes it, for a live view. It runs on a reader thread and must
+    /// not block; it sees every line, even those past <paramref name="maxOutputChars"/> that the result no longer keeps.</param>
     public static async Task<ProcessResult> RunAsync(string fileName, IReadOnlyList<string> arguments, string workingDirectory, string stdin, TimeSpan timeout, int maxOutputChars, CancellationToken ct,
-        string rawArguments = null)
+        string rawArguments = null, Action<string, string> onOutput = null)
     {
         ProcessStartInfo startInfo = new()
         {
@@ -62,12 +64,13 @@ public static class ProcessRunner
         StringBuilder stderr = new();
         bool truncated = false;
         object gate = new();
-        void Collect(StringBuilder target, string line)
+        void Collect(StringBuilder target, string stream, string line)
         {
             if (line is null)
             {
                 return;
             }
+            onOutput?.Invoke(stream, line);
             lock (gate)
             {
                 if (target.Length >= maxOutputChars)
@@ -83,8 +86,8 @@ public static class ProcessRunner
                 }
             }
         }
-        process.OutputDataReceived += (_, e) => Collect(stdout, e.Data);
-        process.ErrorDataReceived += (_, e) => Collect(stderr, e.Data);
+        process.OutputDataReceived += (_, e) => Collect(stdout, "stdout", e.Data);
+        process.ErrorDataReceived += (_, e) => Collect(stderr, "stderr", e.Data);
         try
         {
             if (!process.Start())
