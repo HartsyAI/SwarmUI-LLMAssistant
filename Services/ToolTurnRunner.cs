@@ -111,6 +111,12 @@ public interface IToolTurnSink
     /// through <c>LLMAssistantResolveToolApproval</c>, not through this sink.</summary>
     Task ToolApproval(JObject request) => Task.CompletedTask;
 
+    /// <summary>Whether the client shows what a running tool prints (a command's output) as it happens. A sink that does not leaves the output to the call's result.</summary>
+    bool StreamsToolOutput => false;
+
+    /// <summary>Some of what a running tool printed: <c>{id, name, stream, text}</c> (stream is <c>stdout</c> or <c>stderr</c>). Sent before the call's result.</summary>
+    Task ToolOutput(JObject output) => Task.CompletedTask;
+
     /// <summary>The turn ended.</summary>
     Task Done(ToolTurnOutcome outcome);
 }
@@ -401,15 +407,24 @@ public static class ToolTurnRunner
         ToolHookRunner hooks = ToolHookRunner.For(ctx.Session?.User);
         return async (call, cancel) =>
     {
+        // A client that shows live output gets a pump for the call; it is drained before the result goes out, so the output always comes first.
+        ToolOutputPump pump = sink.StreamsToolOutput ? new ToolOutputPump(sink, call.Id, call.Name) : null;
         try
         {
             // The model id is the turn's own model: a handler that starts a nested request (captioning) must stay on it.
-            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id, hooks);
+            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id, hooks, pump is null ? null : pump.Enqueue);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             Logs.Error($"[LLMAssistant] Tool {call.Name} threw: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        finally
+        {
+            if (pump is not null)
+            {
+                await pump.CompleteAsync();
+            }
         }
     };
     }

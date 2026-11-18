@@ -35,6 +35,10 @@ public class ToolExecutionContext
     /// <summary>Cancellation token. Linked to the WebSocket lifecycle by the chat endpoint —
     /// honoring it is required for cancellation to actually work end-to-end.</summary>
     public System.Threading.CancellationToken Ct;
+
+    /// <summary>Where a tool that runs for a while can send what it prints as it goes (the stream name, <c>stdout</c> or <c>stderr</c>, and a line of text), for a live view.
+    /// Null when nothing is watching; the final result carries the output either way.</summary>
+    public Action<string, string> Output;
 }
 
 /// <summary>What a tool call can do, which approval modes use to decide whether to ask first.</summary>

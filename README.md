@@ -343,14 +343,16 @@ The **code tools** let the assistant work on files the way a coding assistant do
 
 - **brings the code tools with it.** A chat in Code mode is offered every code tool that is switched on in the Tools tab, whether or not its assistant lists them, and may run them (so there is no assistant to edit first). It still needs `llm_code_mode`, and tool calling not pinned off for the chat. A chat in Chat mode gets code tools only the old way, from its assistant's list;
 - **starts careful**: the approval control moves from Auto to **Ask**, so changes and commands ask first (pick Auto or Plan yourself);
-- **opens the Workspace panel** on the right, with a **Files** tab (a folder tree and a read-only viewer with line numbers; it reloads after each reply that changed something) and a **Tasks** tab (the task list the assistant keeps with `code_todo`, saved on the chat);
+- **opens the Workspace panel** on the right, with four tabs: **Files** (a folder tree and a read-only viewer with line numbers; it reloads after each reply that changed something), **Changes** (below), **Terminal** (below) and **Tasks** (the task list the assistant keeps with `code_todo`, saved on the chat);
 - **adds a workspace picker** in the composer: the user's workspaces, any folders an admin allowed, and **New workspace…**;
 - **shows a plan card** after a reply made in **Plan** mode: *Accept plan* switches the chat to Ask and tells the assistant to carry the plan out; *Keep planning* dismisses it;
 - **shows edits as diffs** in the transcript (`code_edit` results), and a failed code tool has no *Retry* (a standalone retry would run outside the chat's workspace).
 
 The chat list gets an **All / Chats / Code** filter (for users who can use code mode), and a coding session carries a *code* badge. The mode is saved on the chat, so reopening it brings the panel back; a mode chosen before the first message applies to the chat that message creates.
 
-Not in the interface yet: a **Changes** tab (per-file diffs with revert) and a live **Terminal** are next.
+**Changes tab.** Every file the assistant changed with `code_write` or `code_edit` is listed with a *new*, *edited* or *deleted* badge and its added and removed line counts, and opens as a diff. The first time a chat's tools change a file, its earlier content is saved aside (up to 5 MB per file, 100 MB and 300 files per chat; a bigger file is still changed but cannot be reverted, and says so). What the tab shows is that saved original compared with the file as it is now, so ten edits to one file are one change, and a file edited back to how it was is no change. **Revert** puts one file back (a file the assistant created is deleted); **Revert all** does every one. A file that changed *after* the assistant last wrote it (you edited it, or a command did) is not overwritten without asking. The saved originals live under `Output/<user>/llm_assistant/changes/<chat id>/` and are removed with the chat. Changing the chat's workspace starts the list over. **Not tracked:** anything a `code_bash` command changes, and edits made outside the chat.
+
+**Terminal tab.** Each command the assistant ran with `code_bash`, with the output as it is printed (standard error in the error colour), `running…` while it goes and `[exit N]` when it ends. The output is sent as it happens, a few frames at a time, before the command's result, and stops being streamed after about 200,000 characters (the saved result keeps what fits in its own limit). A reloaded chat shows each command's saved result. It is read-only: stopping a command is the Stop button, which kills its whole process tree.
 
 | Tool | What it does | Needs approval in Ask mode |
 |---|---|---|
@@ -627,6 +629,7 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"status": …}` | Backend progress (e.g. model loading). Forwarded verbatim. |
 | `{"iteration": n}` | The agentic loop started round *n*. |
 | `{"tool_call": {id, name, arguments}}` | A tool call was resolved and is about to run. |
+| `{"tool_output": {id, name, stream, text}}` | Part of what a running tool printed (a `code_bash` command). `id` is the call's id from `tool_call`, `stream` is `stdout` or `stderr`, `text` is one or more whole lines. Sent before that call's `tool_result`; the result still carries the output. |
 | `{"tool_approval": {approvalId, id, name, arguments, risk, mode}}` | A tool call is waiting for the user's approval (Ask mode). Answer it with `LLMAssistantResolveToolApproval`. `id` is the call's id from `tool_call`; `risk` is `write`, `exec` or `network`. |
 | `{"tool_result": {id, name, result}}` | That tool finished. A refused call has `success: false, denied: true` and a message for the model. |
 | `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. When the provider reported token counts, `usage` is `{promptTokens, completionTokens, cachedTokens, contextTokens, rounds}`: the sums over the turn's model rounds, and `contextTokens` the size of the conversation after the turn. The same object is saved on the reply as `meta.usage`. |
@@ -682,6 +685,9 @@ they were sent with.
 | `LLMAssistantCreateWorkspace` | `name` | `{success, id}`; one of the user's own (`user:name`); needs `llm_code_mode` |
 | `LLMAssistantSetThreadMode` | `threadId`, `mode` (`chat` \| `code`) | `{success, mode}`; code mode needs `llm_code_mode` |
 | `LLMAssistantListWorkspaceFiles` | `threadId`, `path?` | `{success, path, entries[], truncated}`; one folder of the chat's workspace for the files panel (each entry `{name, type: dir \| file, size}`, folders first, links left out, at most 1000). Needs `llm_code_mode`; not a model call, so it is not approved, hooked or audited |
+| `LLMAssistantListWorkspaceChanges` | `threadId` | `{success, changes[]}`, each `{path, status (created \| modified \| deleted), added, removed, binary, large, revertable, conflict}`: the files the chat's file tools changed that now differ from before. Needs `llm_code_mode`; changes made by `code_bash` are not tracked |
+| `LLMAssistantGetWorkspaceChange` | `threadId`, `path` | `{success, change}`: one entry as above plus `diff` (unified) and `diffTruncated` |
+| `LLMAssistantRevertWorkspaceChange` | `threadId`, `path?`, `force?` | Puts a file back as before (deletes one the assistant created); with no `path`, every changed file. A file changed since the assistant wrote it is left alone unless `force`. `{success, reverted[], conflicts[], failed[]}` |
 | `LLMAssistantReadWorkspaceFile` | `threadId`, `path`, `offset?`, `limit?` | what `code_read` returns: `{success, path, content, startLine, endLine, totalLines, truncated}` |
 | `LLMAssistantSetThreadWorkspace` | `threadId`, `workspaceId` | `{success, workspace}`; empty `workspaceId` goes back to the default; only a workspace the user may use is accepted |
 | `LLMAssistantGetWorkspaceRoots` | none | `{success, roots[]}` with paths; needs `llm_workspace_roots` |

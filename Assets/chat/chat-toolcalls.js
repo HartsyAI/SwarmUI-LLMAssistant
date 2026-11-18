@@ -683,5 +683,6 @@
     window.llmaRenderToolCall   = llmaRenderToolCall;
     window.llmaRenderToolResult = llmaRenderToolResult;
     window.llmaRenderToolApproval = llmaRenderToolApproval;
+    window.llmaRenderDiff       = llmaRenderDiff;
     window.llmaReplayToolCalls  = llmaReplayToolCalls;
 })();

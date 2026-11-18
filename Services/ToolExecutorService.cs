@@ -47,7 +47,7 @@ public static class ToolExecutorService
     /// (null for a call the user made themselves, which is never gated), <paramref name="callId"/> is the model's id for the call and
     /// <paramref name="hooks"/> is the turn's hooks (null for a call the user made themselves, which hooks never touch).</summary>
     public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default,
-        ToolApprovalGate gate = null, string callId = null, ToolHookRunner hooks = null)
+        ToolApprovalGate gate = null, string callId = null, ToolHookRunner hooks = null, Action<string, string> output = null)
     {
         try
         {
@@ -152,7 +152,8 @@ public static class ToolExecutorService
                 ModelId = modelId,
                 ToolId = toolId,
                 ToolDef = tool,
-                Ct = timeoutCts.Token
+                Ct = timeoutCts.Token,
+                Output = output
             };
             JObject result = await handler.Execute(context);
             if (result is null)
