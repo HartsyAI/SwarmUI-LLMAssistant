@@ -35,6 +35,13 @@ public static class ToolExecutorService
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.Mcp] = LLMAssistantAPI.PermToolMcp,
         [ToolConstants.Skill] = LLMAssistantAPI.PermToolSkills,
+        [ToolConstants.SessionStart] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionSend] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionList] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionRead] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionWait] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionStop] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SessionArchive] = LLMAssistantAPI.PermToolSessions,
         [ToolConstants.CodeRead] = LLMAssistantAPI.PermCodeMode,
         [ToolConstants.CodeWrite] = LLMAssistantAPI.PermCodeMode,
         [ToolConstants.CodeEdit] = LLMAssistantAPI.PermCodeMode,
@@ -69,6 +76,11 @@ public static class ToolExecutorService
                 if (!resolved.EnabledToolIds.Contains(toolId) && !CodeModeService.GrantsTool(toolId, session?.User, threadId) && !PromptAssets.PromptAssetService.GrantsTool(toolId, session?.User, threadId))
                 {
                     return Error($"Tool '{toolId}' is not enabled for assistant '{assistantId}'.");
+                }
+                // A session the assistant started has its own, narrower list, fixed when it was made.
+                if (!Sessions.SessionManager.AllowsTool(session?.User, threadId, toolId))
+                {
+                    return Error($"Tool '{toolId}' is not available to this session.");
                 }
             }
             string handlerId = tool["handlerId"]?.ToString();
@@ -152,6 +164,7 @@ public static class ToolExecutorService
                 ThreadId = threadId,
                 ModelId = modelId,
                 ToolId = toolId,
+                CallId = callId,
                 ToolDef = tool,
                 Ct = timeoutCts.Token,
                 Output = output

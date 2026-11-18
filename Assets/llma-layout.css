@@ -394,3 +394,9 @@
 .llma-bulk-bar { gap: 4px; min-width: 0; margin-left: 6px; margin-right: 6px; }
 .llma-bulk-count { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .llma-bulk-all, .llma-bulk-delete, .llma-bulk-cancel { flex: none; }
+
+/* Sessions the assistant started: a nested row, the status dot's width (so a spinner and a badge line up), and the count beside a chat that has some. */
+.llma-thread-child { margin-left: 14px; }
+.llma-session-dot { display: inline-flex; flex: none; width: 14px; align-items: center; justify-content: center; }
+.llma-session-count { flex: none; }
+.llma-session-card-dot { flex: none; }

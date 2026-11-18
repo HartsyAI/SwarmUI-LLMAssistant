@@ -57,6 +57,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/chat/chat-composer.js");
         ScriptFiles.Add("Assets/chat/chat-pipeline.js");
         ScriptFiles.Add("Assets/chat/chat-compare.js");
+        // Sessions the assistant started: nested rows in the chat list, the banner on an open session, the cards in the chat that started them.
+        ScriptFiles.Add("Assets/sessions.js");
         ScriptFiles.Add("Assets/threads.js");
         ScriptFiles.Add("Assets/tools.js");
         ScriptFiles.Add("Assets/tool-picker.js");
@@ -158,6 +160,13 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new CodeTodoTool());
         // Skills: the tool that loads one. A chat is given it when the user has a skill the model may load.
         ToolRegistryService.RegisterHandler(new SkillTool());
+        ToolRegistryService.RegisterHandler(new SessionStartTool());
+        ToolRegistryService.RegisterHandler(new SessionSendTool());
+        ToolRegistryService.RegisterHandler(new SessionListTool());
+        ToolRegistryService.RegisterHandler(new SessionReadTool());
+        ToolRegistryService.RegisterHandler(new SessionWaitTool());
+        ToolRegistryService.RegisterHandler(new SessionStopTool());
+        ToolRegistryService.RegisterHandler(new SessionArchiveTool());
         // MCP: one handler for every tool an MCP server offers, and the source that lists them. The servers connect in the background, so a slow
         // or broken one never holds up start-up; its tools appear once it is ready.
         ToolRegistryService.RegisterHandler(new McpToolHandler());

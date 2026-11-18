@@ -25,6 +25,9 @@ public class ToolExecutionContext
     /// <summary>The id of the tool being called (what the model named, which for a tool from a source is not the handler's id).</summary>
     public string ToolId;
 
+    /// <summary>The model's id for this call (the tool call's id), when a model made it; null for a call the user ran themselves.</summary>
+    public string CallId;
+
     /// <summary>The tool's definition as the user sees it, so a handler that serves many tools can tell which one this is.</summary>
     public JObject ToolDef;
 

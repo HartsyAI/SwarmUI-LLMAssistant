@@ -8,6 +8,7 @@ using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
+using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.ToolCalling;
@@ -695,6 +696,11 @@ public static class ChatEndpoints
         {
             return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = false });
         }
+        // A session working in the background (or waiting its turn) is stopped through its own service, which also drops what was queued for it.
+        if (BackgroundTurnService.IsLive(session.User.UserID, threadId))
+        {
+            return BackgroundTurnService.StopAsync(session.User, threadId).ContinueWith(t => new JObject { ["success"] = true, ["cancelled"] = t.Result });
+        }
         bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
         return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
     }
@@ -738,6 +744,13 @@ public static class ChatEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "message is required." };
             }
+            // A session still working in the background is stopped first (what it had is saved), so the user's message lands after it and not before its partial reply.
+            // Reports from sessions that finished since the last turn go in just before the message, where the model reads them with it.
+            if (BackgroundTurnService.IsLive(session.User.UserID, threadId))
+            {
+                await BackgroundTurnService.StopAsync(session.User, threadId);
+            }
+            SessionManager.DeliverReports(session.User, threadId);
             // Append the user message to the thread BEFORE generation so it persists even if generation
             // fails or the client disconnects mid-stream. In the branch model this hangs off the current
             // active leaf. Image attachments are persisted as URLs (uploaded earlier), never base64.
@@ -858,18 +871,8 @@ public static class ChatEndpoints
     /// for regenerate).</summary>
     private static async Task StreamReplyForThread(WebSocket socket, Session session, string threadId, JObject rawInput)
     {
-        string instructionId = rawInput["instructionId"]?.ToString();
         string assistantMessageId = rawInput["assistantMessageId"]?.ToString();
         string model = rawInput["model"]?.ToString();
-        // Option B (in-chat tool picker): a forced tool id nudges the model to call exactly that tool.
-        string forceToolId = rawInput["forceToolId"]?.ToString();
-        double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
-        int maxTokens = rawInput["maxTokens"]?.Value<int>() ?? -1;
-        long seed = rawInput["seed"]?.Value<long>() ?? -1;
-        int loops = ReadPositiveInt(rawInput, "loops");
-        // The composer's Thinking toggle: true or false, or absent for the model's template default.
-        bool? enableThinking = ReadOptionalBool(rawInput, "enableThinking");
-
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         string approvalMode = ResolveApprovalMode(rawInput, thread);
         SaveApprovalModeIfChanged(session, threadId, thread, approvalMode);
@@ -878,14 +881,6 @@ public static class ChatEndpoints
             await SendWsError(socket, $"Chat '{threadId}' not found.");
             return;
         }
-        // Assistant is locked to the thread (set at creation). Per-message override would make history
-        // confusing; assistant identity is part of the thread's identity.
-        string assistantId = thread["assistantId"]?.ToString();
-        JObject settings = SettingsService.GetMergedSettings(session.User);
-        if (string.IsNullOrEmpty(assistantId))
-        {
-            assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
-        }
         // Registered before the setup below (not just before streaming): a model-cache-miss lookup or a
         // slow tool resolution can each take a while, and a Stop clicked during that window needs
         // somewhere to land. Setup itself isn't interruptible mid-call, but registering early means Stop
@@ -893,42 +888,29 @@ public static class ChatEndpoints
         // instead of ignoring the Stop and running the full generation anyway.
         CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
         bool stopped;
+        // A session the assistant started shows as running while the user works in it, and reports to its parent when the reply ends.
+        bool isSession = SessionManager.IsSession(thread);
+        if (isSession)
+        {
+            SessionManager.SetStatus(session.User, threadId, SessionStatuses.Running);
+        }
+        string sessionOutcome = SessionStatuses.Done;
         try
         {
-            // Resolve model facts once so per-model instruction variants can pick the right text.
-            LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
-            string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
-            // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant
-            // (see EffectiveToolsEnabled).
-            bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
-            List<JObject> enabledTools = toolsOn
-                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-                : [];
-            // A chat in code mode brings the code tools along (see CodeModeService).
-            enabledTools = CodeModeService.WithCodeTools(enabledTools, thread, settings, session.User);
-            // A chat with skills to offer gets the skill tool and a one-line-per-skill index (see PromptAssetService).
-            enabledTools = PromptAssetService.WithSkillTool(enabledTools, thread, settings, session.User, toolsOn);
-            systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
-            // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
-            systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
-            // A conversation near the model's window is summarized first, so this request fits.
-            thread = await AutoCompactIfDueAsync(socket, session, threadId, thread, model, modelInfo, settings, systemPrompt, cts.Token);
-            // Build LLM input from the active branch (truncated to maxContextMessages).
-            List<ChatMessageData> history = BuildHistoryFromThread(thread, settings, rawInput);
-            ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
-            input.RequestSession = session;
-            input.ConversationId = ThreadConversationId(threadId);
-            input.EnableThinking = enableThinking;
-            JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-            ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-            AttachTools(input, enabledTools, session, assistantId, forceToolId);
-            if (cts.IsCancellationRequested)
+            PreparedTurn prepared = await TurnSetupService.PrepareAsync(session, threadId, thread, rawInput, frame => SendWsFrame(socket, frame), cts.Token);
+            if (prepared is null)
             {
                 // Stopped during setup, before a single token was ever requested: nothing to persist.
+                sessionOutcome = SessionStatuses.Idle;
                 return;
             }
-            CancelToolTurnOnClose(socket, cts, enabledTools.Count > 0);
-            await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
+            CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0);
+            await LLMStreamHelper.StreamToWebSocket(socket, prepared.Input, session, threadId, prepared.AssistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
+        }
+        catch
+        {
+            sessionOutcome = SessionStatuses.Failed;
+            throw;
         }
         finally
         {
@@ -937,6 +919,10 @@ public static class ChatEndpoints
             // user actually asked to stop, as opposed to a normal finish.
             stopped = cts.IsCancellationRequested;
             GenerationCancellationRegistry.End(threadId, cts);
+            if (isSession)
+            {
+                SessionManager.FinishTurn(session.User, threadId, stopped ? SessionStatuses.Idle : sessionOutcome);
+            }
         }
         if (!stopped)
         {
@@ -1054,7 +1040,7 @@ public static class ChatEndpoints
     /// resolved assistant's master switch. Callers must pass an empty tools list when this is false so
     /// tools are never attached to the request; small local GGUF models get confused by tool descriptions
     /// they should not see.</summary>
-    private static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
+    internal static bool EffectiveToolsEnabled(JObject thread, string assistantId, JObject settings, User user)
     {
         if (thread["toolsEnabled"]?.Type == JTokenType.Boolean)
         {
@@ -1066,7 +1052,7 @@ public static class ChatEndpoints
     /// <summary>Puts the enabled tools on the request: each tool's handler may enrich its definition for this user, and a forced tool
     /// is kept only when it is one of the enabled tools. The model learns the tools from the request itself; the engine writes the
     /// tool prompt for templates that have no tools slot.</summary>
-    private static void AttachTools(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
+    internal static void AttachTools(ExtendedLLMInput input, List<JObject> enabledTools, Session session, string assistantId, string forceToolId)
     {
         if (enabledTools is null || enabledTools.Count == 0)
         {
@@ -1315,7 +1301,7 @@ public static class ChatEndpoints
     /// (<c>parameters.autoCompact</c>, <c>parameters.compactThreshold</c>), and says so on the socket (<c>compacting</c>, then <c>compaction</c>).
     /// A model with no known window, a short conversation or a switched-off setting does nothing. A failed summary never fails the reply: the
     /// chat goes on with its full history and the client is told (<c>compactionFailed</c>). Returns the thread as it should now be read.</summary>
-    private static async Task<JObject> AutoCompactIfDueAsync(WebSocket socket, Session session, string threadId, JObject thread, string model, LLMModelInfo modelInfo,
+    internal static async Task<JObject> AutoCompactIfDueAsync(Func<JObject, Task> notify, Session session, string threadId, JObject thread, string model, LLMModelInfo modelInfo,
         JObject settings, string systemPrompt, CancellationToken ct)
     {
         if (!CompactionPlanner.AutoEnabled(settings) || ct.IsCancellationRequested)
@@ -1329,7 +1315,7 @@ public static class ChatEndpoints
         {
             return thread;
         }
-        await SendWsFrame(socket, new JObject { ["compacting"] = true });
+        await Notify(notify, new JObject { ["compacting"] = true });
         try
         {
             CompactionRecord record = await CompactionService.CompactAsync(session, threadId, model, null, ct);
@@ -1337,7 +1323,7 @@ public static class ChatEndpoints
             {
                 return thread;
             }
-            await SendWsFrame(socket, new JObject { ["compaction"] = CompactionJson(record) });
+            await Notify(notify, new JObject { ["compaction"] = CompactionJson(record) });
             return ThreadStorageService.GetThread(session.User, threadId) ?? thread;
         }
         catch (OperationCanceledException)
@@ -1347,7 +1333,7 @@ public static class ChatEndpoints
         catch (Exception ex)
         {
             Logs.Warning($"[LLMAssistant] Compacting chat {threadId} failed, so the reply goes on with the full history: {ex.Message}");
-            await SendWsFrame(socket, new JObject { ["compactionFailed"] = ex.Message });
+            await Notify(notify, new JObject { ["compactionFailed"] = ex.Message });
             return thread;
         }
     }
@@ -1395,6 +1381,9 @@ public static class ChatEndpoints
         }
     }
 
+    /// <summary>Passes a progress frame to the caller's listener, when it has one.</summary>
+    private static Task Notify(Func<JObject, Task> notify, JObject frame) => notify is null ? Task.CompletedTask : notify(frame);
+
     /// <summary>Sends one JSON frame over the chat socket (when it is still open).</summary>
     private static async Task SendWsFrame(WebSocket socket, JObject frame)
     {
@@ -1410,7 +1399,7 @@ public static class ChatEndpoints
     /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's profile.
     /// User-profile lookups are scoped strictly to <paramref name="user"/>. Pass
     /// <paramref name="modelInfo"/> to enable per-model instruction variants.</summary>
-    private static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null)
+    internal static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null)
     {
         if (string.IsNullOrEmpty(instructionId))
         {

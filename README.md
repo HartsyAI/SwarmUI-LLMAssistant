@@ -29,6 +29,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [MCP servers](#mcp-servers)
 - [Code tools and workspaces](#code-tools)
 - [Skills and commands](#skills-and-commands)
+- [Sessions](#sessions)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -400,6 +401,28 @@ Not covered: a skill that restricts the tools the model may use while it runs, s
 
 ---
 
+## Sessions <a id="sessions"></a>
+
+A **session** is a chat the assistant starts and directs: it works on one job in the background, with a model and tools of its own, while the assistant goes on with its own work, and it reports back when it is done. It is an ordinary chat with a parent, so you can open it, read it, talk to it, stop it or archive it. The assistant does this with seven tools, which are off until you switch them on (the permission `llm_tool_sessions`, the tools on the Tools tab, and each assistant's own list):
+
+| Tool | What it does | Risk |
+|---|---|---|
+| `session_start` | `title`, `prompt`, and optionally `model`, `assistantId`, `approvalMode`, `tools`. Starts a session and returns its id | runs something (asks in Ask mode, refused in Plan mode) |
+| `session_send` | Sends a message. A working session reads it when its turn ends; a finished or stopped one starts a new turn from it | runs something |
+| `session_list`, `session_read` | How each session is doing, its report, and the end of its conversation | reads |
+| `session_wait` | Waits (up to 600 seconds) for a session to finish and returns its report. Returns sooner when the session needs you to approve a call, since only you can clear that | reads |
+| `session_stop`, `session_archive` | Stops a working session (what it had is kept); archives one: stopped, hidden from the list, kept on disk | changes something |
+
+- **A session can never do more than the chat that started it.** Its tools are a subset of that chat's (fixed when it is made; a model that names another tool gets a refusal), its approval mode is the stricter of what it asked for and the chat's own (a chat in Ask mode cannot start an Auto session), it runs as the same user in the same workspace, and it is the same model unless it asks for another. A model reaches only the sessions its own chat started, and an id that is missing, someone else's or not a session all give the same answer.
+- **Limits** (the defaults; they can be changed in the `sessions` object of the settings, within hard maximums of 3 levels, 32 sessions per chat and 8 working at once): sessions nest one level (a session cannot start sessions of its own), a chat has at most 8 that are not archived, and a user has at most 3 working at once, the rest waiting in a queue. A session that is only waiting on others (`session_wait`) does not hold one of the places.
+- **They run with no browser attached.** A session keeps going if you close the tab, but not if the server stops: what was working then is marked `interrupted` the next time the chat list is read, and turns do not resume. While a session works its chat shows only what it has saved (its reply is saved when its turn ends).
+- **Approvals.** A session working in the background cannot ask on screen. In Ask mode a call that changes something waits: the session's status becomes `awaiting_approval`, the chat list shows it, and opening the session shows the call with Allow once, Allow for this chat and Deny (the same answers as in any chat). Nobody answering for 15 minutes refuses the call, and the session carries on without it.
+- **Reports.** When a session finishes, its last message is kept as its report and the chat that started it is told. The report is put into that chat, as a saved message marked as a session update, just before your next message, so the model reads it with the conversation and a reload or a branch sees the same thing; `session_wait` and `session_read` give the report directly and it is not given again. Reports are cut to 4,000 characters.
+- **The chat list.** Sessions are listed under the chat that started them, with a fold toggle, a count and, for each, a dot for how it is doing (a spinner while working, a warning colour when it needs you). The list is read again every few seconds only while a session is working. Opening a session shows a banner with its state, who started it, Stop and Archive, and the call it is waiting on. Sending it a message while it works stops that turn first (what it had is saved), so your message lands after it. Deleting a chat deletes the sessions it started, and stops those that were working; stopping a chat does not stop its sessions.
+- **Not included:** a session cannot be woken by another chat finishing (a parent sees reports at its next message or when it waits), and messages to a working session are read between turns, not between its tool calls.
+
+---
+
 ## Built-in tools
 
 Thirteen tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
@@ -592,6 +615,7 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_mcp_manage` | **ADMINS** *(powerful)* | Adding, editing, testing and removing MCP servers (a stdio server is a program run on the host) |
 | `llm_tool_mcp` | **POWERUSERS** | Calling the tools MCP servers offer |
 | `llm_tool_skills` | POWERUSERS | The `skill` tool: letting the model load skills |
+| `llm_tool_sessions` | POWERUSERS | The `session_*` tools: letting the model start sessions (chats that run in the background) and direct them |
 | `llm_code_mode` | **NOBODY** *(powerful)* | The code tools: files in a chat's workspace, a task list and shell commands (`code_bash` is shell access) |
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
@@ -698,9 +722,10 @@ they were sent with.
 
 | Route | Request | Returns |
 |---|---|---|
-| `LLMAssistantGetThreads` | none | `{success, threads[]}` (index only) |
+| `LLMAssistantGetThreads` | none | `{success, threads[]}` (index only; a session's row also has `parentThreadId`, `sessionStatus` and `depth`). Marks sessions the server lost track of as `interrupted` first |
 | `LLMAssistantGetThread` | `threadId` | `{success, thread}` |
-| `LLMAssistantDeleteThread` | `threadId` | `{success}` |
+| `LLMAssistantDeleteThread` | `threadId` | `{success}`; also deletes the sessions the chat started, and stops those working |
+| `LLMAssistantArchiveSession` | `threadId` | `{success}`; stops a session and hides it from the list (refused for a chat that is not a session) |
 | `LLMAssistantRenameThread` | `threadId`, `title` | `{success, thread}`, also settable with `F2` in the sidebar |
 | `LLMAssistantEditMessage` | `threadId`, `messageId`, `content` | `{success, thread}` |
 | `LLMAssistantDeleteMessage` | `threadId`, `messageId` | `{success, thread}` |

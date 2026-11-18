@@ -377,6 +377,26 @@ public static class ThreadStorageService
         }
     }
 
+    /// <summary>Changes a thread under the write lock: <paramref name="change"/> edits the loaded thread and returns whether to save it. Returns the thread as
+    /// it now is (saved or not), or null if it was not found. The one place a feature that adds fields to a thread (sessions) goes through, so none of
+    /// them does its own get-edit-save.</summary>
+    public static JObject Mutate(User user, string threadId, Func<JObject, bool> change)
+    {
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            if (change(thread))
+            {
+                SaveThread(user, thread);
+            }
+            return thread;
+        }
+    }
+
     /// <summary>Saves whether the chat is an ordinary chat or a coding session (<see cref="ThreadModes"/>). Returns the updated thread, or null if not found or the mode is unknown.</summary>
     public static JObject SetMode(User user, string threadId, string mode)
     {
@@ -681,6 +701,14 @@ public static class ThreadStorageService
         if (thread["workspace"] is not null)
         {
             summary["workspace"] = thread["workspace"];
+        }
+        // A chat the assistant started: where it hangs in the list and how it is doing, so the sidebar needs no thread loads.
+        foreach (string field in new[] { Sessions.SessionFields.Parent, Sessions.SessionFields.Status, Sessions.SessionFields.Depth })
+        {
+            if (thread[field] is { Type: not JTokenType.Null } value)
+            {
+                summary[field] = value;
+            }
         }
         // Insert at beginning (most recent first)
         index.Insert(0, summary);

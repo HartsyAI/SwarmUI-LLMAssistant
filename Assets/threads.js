@@ -143,6 +143,7 @@ async function llmaLoadThreads() {
         LLMAState.threads = [];
     }
     llmaRenderThreadList(LLMAState.threads);
+    llmaSessions.onThreadsLoaded(LLMAState.threads);
 }
 
 // -- Branch picker (sidebar) --
@@ -245,14 +246,28 @@ function llmaRenderThreadList(threads) {
         return;
     }
 
-    const newestFirst = [...threads].filter(t => llmaCodeMode.showsThread(t)).sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+    // Sessions the assistant started are listed under the chat that started them (and archived ones not at all), so only the others are grouped.
+    const { roots, kids } = llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
+    const newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
     const groups = llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(newestFirst) : llmaGroupByDate(newestFirst);
     let html = '';
 
     for (const [label, group] of Object.entries(groups)) {
         if (group.length === 0) continue;
         html += `<div class="llma-thread-group-label${llmaThreadSelectMode ? ' selectable' : ''}" data-ids="${llmaEscapeHtml(group.map(t => t.id).join(','))}"${llmaThreadSelectMode ? ` title="${llmaEscapeHtml(translate('Select this group'))}"` : ''}>${llmaEscapeHtml(translate(label))}</div>`;
+        const rows = [];
+        const addRows = (thread, depth) => {
+            rows.push([thread, depth]);
+            if (!llmaSessions.collapsed.has(thread.id)) {
+                for (const kid of kids.get(thread.id) || []) {
+                    addRows(kid, depth + 1);
+                }
+            }
+        };
         for (const thread of group) {
+            addRows(thread, 0);
+        }
+        for (const [thread, depth] of rows) {
             const isActive  = thread.id === LLMAState.activeThreadId;
             const checked = llmaSelectedThreadIds.has(thread.id) ? 'checked' : '';
             const checkbox = llmaThreadSelectMode
@@ -269,13 +284,15 @@ function llmaRenderThreadList(threads) {
                 : '';
             const displayTitle = thread.title || translate('Untitled');
             html += `
-                <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}"
+                <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}${depth > 0 ? ' llma-thread-child' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
+                     data-depth="${depth}"
                      title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}"
                      role="button" tabindex="0">
                     ${checkbox}
-                    ${badge}
+                    ${llmaSessions.isSession(thread) ? llmaSessions.dotHtml(thread.sessionStatus) : badge}
                     <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
+                    ${llmaSessions.parentAddonsHtml(thread, kids)}
                     ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
                     ${branchToggle}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
@@ -305,7 +322,7 @@ function llmaBindThreadListEvents(list) {
     list.querySelectorAll('.llma-thread-item').forEach(item => {
         item.addEventListener('click', (e) => {
             // Swallow clicks on hover-only action buttons; they handle their own events.
-            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-rename-input, .llma-thread-branch-toggle')) return;
+            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-rename-input, .llma-thread-branch-toggle, .llma-session-toggle')) return;
             // In select mode, clicking the row toggles the checkbox instead of switching threads.
             if (llmaThreadSelectMode) {
                 if (!e.target.classList.contains('llma-thread-checkbox')) {
@@ -347,7 +364,8 @@ function llmaBindThreadListEvents(list) {
             if (item) llmaBeginRenameThread(item);
         });
     });
-    list.querySelectorAll('.llma-thread-branch-toggle').forEach(btn => {
+    llmaSessions.bind(list);
+    list.querySelectorAll('.llma-thread-branch-toggle:not(.llma-session-toggle)').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             llmaToggleBranchExpand(btn.dataset.id);
@@ -488,6 +506,15 @@ async function llmaBulkDeleteThreads() {
     }));
     llmaSelectedThreadIds.clear();
     llmaToggleThreadSelectMode(false);
+    // The sessions the deleted chats started went with them: read the list again, and leave a chat that is gone.
+    await llmaLoadThreads();
+    if (LLMAState.activeThreadId && LLMAState.threads.length > 0 && !LLMAState.threads.some(t => t.id === LLMAState.activeThreadId)) {
+        LLMAState.activeThreadId = null;
+        LLMAState.messages = [];
+        LLMAState.assets = [];
+        llmaSetSessionState({ activeThreadId: null });
+        llmaShowWelcome();
+    }
     if (failed === 0) llmaShowToast(`${translate('Deleted')} ${ok} ${ok === 1 ? translate('chat') : translate('chats')}.`, 'info');
     else llmaShowToast(`${translate('Deleted')} ${ok}, ${translate('failed')} ${failed}.`, failed === ok + failed ? 'error' : 'info');
 }
@@ -679,6 +706,7 @@ async function llmaSwitchThread(threadId) {
         if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         llmaCodeMode.onThreadLoaded(thread);
+        llmaSessions.onThreadLoaded(thread);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
@@ -751,6 +779,7 @@ async function llmaReloadActiveThread() {
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
+    llmaSessions.onThreadLoaded(thread);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
@@ -799,9 +828,21 @@ async function llmaDeleteThread(threadId) {
         return;
     }
 
-    LLMAState.threads = LLMAState.threads.filter(t => t.id !== threadId);
+    // The sessions the chat started went with it, at any depth.
+    const gone = new Set([threadId]);
+    let grew = true;
+    while (grew) {
+        grew = false;
+        for (const t of LLMAState.threads) {
+            if (t.parentThreadId && gone.has(t.parentThreadId) && !gone.has(t.id)) {
+                gone.add(t.id);
+                grew = true;
+            }
+        }
+    }
+    LLMAState.threads = LLMAState.threads.filter(t => !gone.has(t.id));
 
-    if (LLMAState.activeThreadId === threadId) {
+    if (gone.has(LLMAState.activeThreadId)) {
         LLMAState.activeThreadId = null;
         LLMAState.messages       = [];
         LLMAState.assets         = [];
@@ -833,6 +874,10 @@ async function llmaSaveActiveThread() {
         return;
     }
     if (!saved) return;
+    // A report from a session that finished was put in this chat just before the message that was sent: show it (and the branch it sits on).
+    if (Array.isArray(saved.messages) && saved.messages.some(m => m.kind == 'session_report' && !(LLMAState.allNodes || []).some(n => n.id == m.id))) {
+        llmaReloadActiveThread();
+    }
     // Trust the server's view of the thread.
     meta.title        = saved.title || meta.title;
     meta.updatedAt    = saved.updatedAt || meta.updatedAt;

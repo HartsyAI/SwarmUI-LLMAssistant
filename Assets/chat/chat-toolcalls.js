@@ -36,6 +36,13 @@
         code_grep: ['Searched the files', 'searched the files {n} times'],
         code_bash: ['Ran a command', 'ran {n} commands'],
         code_todo: ['Updated the task list', 'updated the task list {n} times'],
+        session_start: ['Started a session', 'started {n} sessions'],
+        session_send: ['Messaged a session', 'messaged sessions {n} times'],
+        session_list: ['Listed the sessions', 'listed the sessions {n} times'],
+        session_read: ['Read a session', 'read sessions {n} times'],
+        session_wait: ['Waited for a session', 'waited for sessions {n} times'],
+        session_stop: ['Stopped a session', 'stopped {n} sessions'],
+        session_archive: ['Archived a session', 'archived {n} sessions'],
     };
 
     /** Short activity title for one tool call ("Ran a command", or "Used Foo Bar" for unknown tools). */
@@ -536,6 +543,8 @@
             pre.className = 'llma-tool-result-filecontent';
             pre.textContent = result.todos.map(t => `${marks[t.status] || '[ ]'} ${t.content}`).join('\n');
             resultWrap.appendChild(pre);
+        } else if (success && name.startsWith('session_') && typeof llmaSessions != 'undefined') {
+            llmaSessions.renderResultCard(resultWrap, name, result);
         } else if (name === 'shell_exec' || name === 'code_bash') {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
