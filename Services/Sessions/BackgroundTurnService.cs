@@ -339,6 +339,8 @@ public sealed class BackgroundSink(User user, string threadId, SessionLimits lim
         JObject pending = (JObject)request.DeepClone();
         pending["askedAt"] = DateTime.UtcNow.ToString("o");
         SessionManager.SetPendingApproval(user, threadId, pending);
+        // A session waiting for the user is not using the model, so it does not hold one of the user's places (or unattended runs waiting for an answer could use them all up).
+        BackgroundTurnService.SetWaiting(user.UserID, threadId, true);
         // Nobody may ever open the session: refuse the call after a while rather than hold the session forever.
         string approvalId = request["approvalId"]?.ToString();
         CancellationTokenSource timeout = new();
@@ -377,6 +379,7 @@ public sealed class BackgroundSink(User user, string threadId, SessionLimits lim
         {
             timeout.Cancel();
             SessionManager.SetPendingApproval(user, threadId, null);
+            BackgroundTurnService.SetWaiting(user.UserID, threadId, false);
         }
         return Task.CompletedTask;
     }

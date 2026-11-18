@@ -90,6 +90,19 @@ public static class LLMAssistantAPI
         "Allows the LLM to start sessions (chats of their own that run in the background), send them messages, read their reports, and stop or archive them, by calling the session tools. A session can use only the tools, and be no less careful about approvals, than the chat that started it.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to have schedules: prompts that run on a timetable as sessions, with no one watching. It is for the Schedules tab and its routes; the assistant's own
+    /// <c>schedule_*</c> tools take <see cref="PermToolSchedules"/> as well.</summary>
+    public static readonly PermInfo PermSchedules = Permissions.Register(new(
+        "llm_schedules", "[LLM] Schedules",
+        "Allows the user to make schedules: prompts that run later, on a timetable, in the background as sessions, with the user's tools and no one watching. Each run uses the tools saved on the schedule and its approval mode.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
+    /// <summary>Permission to let the LLM make schedules (the <c>schedule_*</c> tools). What it makes is saved switched off, and the user turns it on.</summary>
+    public static readonly PermInfo PermToolSchedules = Permissions.Register(new(
+        "llm_tool_schedules", "[LLM Tool] Schedules",
+        "Allows the LLM to make schedules (prompts that run later in the background), list and cancel the ones it made, by calling the schedule tools. What it makes starts switched off, until the user turns it on in Settings.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -246,6 +259,11 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantDeletePromptAsset, true, PermSettings);
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSetWorkspaceTrust, true, PermSettings);
         API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
+        API.RegisterAPICall(ScheduleEndpoints.LLMAssistantGetSchedules, false, PermSchedules);
+        API.RegisterAPICall(ScheduleEndpoints.LLMAssistantSaveSchedule, true, PermSchedules);
+        API.RegisterAPICall(ScheduleEndpoints.LLMAssistantDeleteSchedule, true, PermSchedules);
+        API.RegisterAPICall(ScheduleEndpoints.LLMAssistantRunSchedule, true, PermSchedules);
+        API.RegisterAPICall(ScheduleEndpoints.LLMAssistantPreviewSchedule, false, PermSchedules);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadApprovalMode, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);

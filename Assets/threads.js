@@ -294,6 +294,7 @@ function llmaRenderThreadList(threads) {
                     <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
                     ${llmaSessions.parentAddonsHtml(thread, kids)}
                     ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
+                    ${thread.scheduleId ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('schedule')}</span>` : ''}
                     ${branchToggle}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
                             title="${llmaEscapeHtml(translate('Rename chat'))}" aria-label="${llmaEscapeHtml(translate('Rename chat'))}">&#9998;</button>

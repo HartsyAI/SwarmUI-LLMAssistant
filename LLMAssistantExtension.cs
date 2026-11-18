@@ -46,6 +46,8 @@ public class LLMAssistantExtension : Extension
         // Skills and commands: the list the "/" picker reads (before tool-picker.js) and the settings tab.
         ScriptFiles.Add("Assets/prompt-assets.js");
         ScriptFiles.Add("Assets/skills.js");
+        // The Schedules tab of the settings dialog (needs sessions.js for the status dots).
+        ScriptFiles.Add("Assets/schedules.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
@@ -131,6 +133,8 @@ public class LLMAssistantExtension : Extension
         PromptTagHandler.RegisterAll();
         MigrationService.RunIfNeeded();
         OrphanedFileGC.Start();
+        // Runs schedules on time (nothing happens until a user has one).
+        Services.Schedules.ScheduleService.Start();
         Logs.Info("[LLMAssistant] Initialized.");
     }
 
@@ -167,6 +171,9 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new SessionWaitTool());
         ToolRegistryService.RegisterHandler(new SessionStopTool());
         ToolRegistryService.RegisterHandler(new SessionArchiveTool());
+        ToolRegistryService.RegisterHandler(new ScheduleCreateTool());
+        ToolRegistryService.RegisterHandler(new ScheduleListTool());
+        ToolRegistryService.RegisterHandler(new ScheduleCancelTool());
         // MCP: one handler for every tool an MCP server offers, and the source that lists them. The servers connect in the background, so a slow
         // or broken one never holds up start-up; its tools appear once it is ready.
         ToolRegistryService.RegisterHandler(new McpToolHandler());

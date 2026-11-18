@@ -152,6 +152,13 @@ public static class ToolConstants
     /// <summary>All the session tool IDs (each is its own handler id).</summary>
     public static readonly string[] SessionIds = [SessionStart, SessionSend, SessionList, SessionRead, SessionWait, SessionStop, SessionArchive];
 
+    /// <summary>IDs of the schedule tools: they let an assistant make runs that happen later, on a timetable, with no one watching (see <see cref="Services.Schedules.ScheduleService"/>). Like the session
+    /// tools they are off by default; a schedule the assistant makes starts switched off until the user turns it on. A scheduled run never has them.</summary>
+    public const string ScheduleCreate = "schedule_create", ScheduleList = "schedule_list", ScheduleCancel = "schedule_cancel";
+
+    /// <summary>All the schedule tool IDs (each is its own handler id).</summary>
+    public static readonly string[] ScheduleIds = [ScheduleCreate, ScheduleList, ScheduleCancel];
+
     /// <summary>All built-in tool IDs.
     public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
 }
