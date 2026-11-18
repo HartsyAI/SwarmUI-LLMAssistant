@@ -287,7 +287,7 @@ public static class SettingsService
 
     /// <summary>Settings keys that are only for the server: MCP servers (environment values and headers are secrets) and hooks (a command hook's
     /// program and arguments). Each has its own route that decides what a caller may see.</summary>
-    public static readonly string[] ServerOnlyKeys = ["mcpServers", "hooks", "workspaceRoots"];
+    public static readonly string[] ServerOnlyKeys = ["mcpServers", "hooks", "workspaceRoots", "trustedWorkspaces"];
 
     /// <summary>A copy of <paramref name="settings"/> that is safe to send to a browser: without <see cref="ServerOnlyKeys"/>.</summary>
     public static JObject ForClient(JObject settings)
