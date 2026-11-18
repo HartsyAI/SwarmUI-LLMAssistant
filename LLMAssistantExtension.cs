@@ -139,6 +139,14 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());
         ToolRegistryService.RegisterHandler(new MemoryReadTool());
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
+        // The code tools: off by default, behind llm_code_mode, and working only inside a chat's workspace.
+        ToolRegistryService.RegisterHandler(new CodeReadTool());
+        ToolRegistryService.RegisterHandler(new CodeWriteTool());
+        ToolRegistryService.RegisterHandler(new CodeEditTool());
+        ToolRegistryService.RegisterHandler(new CodeGlobTool());
+        ToolRegistryService.RegisterHandler(new CodeGrepTool());
+        ToolRegistryService.RegisterHandler(new CodeBashTool());
+        ToolRegistryService.RegisterHandler(new CodeTodoTool());
         // MCP: one handler for every tool an MCP server offers, and the source that lists them. The servers connect in the background, so a slow
         // or broken one never holds up start-up; its tools appear once it is ready.
         ToolRegistryService.RegisterHandler(new McpToolHandler());

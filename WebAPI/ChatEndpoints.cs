@@ -887,6 +887,13 @@ public static class ChatEndpoints
             // Resolve model facts once so per-model instruction variants can pick the right text.
             LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+            // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant
+            // (see EffectiveToolsEnabled).
+            List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
+            // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
+            systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
             // A conversation near the model's window is summarized first, so this request fits.
             thread = await AutoCompactIfDueAsync(socket, session, threadId, thread, model, modelInfo, settings, systemPrompt, cts.Token);
             // Build LLM input from the active branch (truncated to maxContextMessages).
@@ -897,11 +904,6 @@ public static class ChatEndpoints
             input.EnableThinking = enableThinking;
             JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
             ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-            // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant
-            // (see EffectiveToolsEnabled).
-            List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
-                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-                : [];
             AttachTools(input, enabledTools, session, assistantId, forceToolId);
             if (cts.IsCancellationRequested)
             {
@@ -1142,6 +1144,7 @@ public static class ChatEndpoints
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+                systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;
                 input.ConversationId = ThreadConversationId(threadId);

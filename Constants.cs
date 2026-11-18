@@ -131,6 +131,13 @@ public static class ToolConstants
     /// <summary>ID of the voice-satellite microphone-mute tool. Executed by the device, not the server.</summary>
     public const string MuteMic = "mute_mic";
 
-    /// <summary>All built-in tool IDs.</summary>
+    /// <summary>IDs of the code tools: they work in a chat's workspace, are off by default and need <c>llm_code_mode</c>. They are not in
+    /// <see cref="BuiltInIds"/>, so no assistant has them until someone switches them on.</summary>
+    public const string CodeRead = "code_read", CodeWrite = "code_write", CodeEdit = "code_edit", CodeGlob = "code_glob", CodeGrep = "code_grep", CodeBash = "code_bash", CodeTodo = "code_todo";
+
+    /// <summary>All the code tool IDs (each is its own handler id).</summary>
+    public static readonly string[] CodeIds = [CodeRead, CodeWrite, CodeEdit, CodeGlob, CodeGrep, CodeBash, CodeTodo];
+
+    /// <summary>All built-in tool IDs.
     public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
 }

@@ -377,6 +377,47 @@ public static class ThreadStorageService
         }
     }
 
+    /// <summary>Saves which workspace the chat's code tools work in (a <see cref="Workspace"/> id; null or empty clears it back to the user's default).
+    /// Returns the updated thread, or null if not found.</summary>
+    public static JObject SetWorkspace(User user, string threadId, string workspaceId)
+    {
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            if (string.IsNullOrEmpty(workspaceId))
+            {
+                thread.Remove("workspace");
+            }
+            else
+            {
+                thread["workspace"] = workspaceId;
+            }
+            SaveThread(user, thread);
+            return thread;
+        }
+    }
+
+    /// <summary>Replaces the chat's task list (<c>[{content, status}]</c>), which the model keeps up to date as it works through a job. Returns the
+    /// updated thread, or null if not found.</summary>
+    public static JObject SetTodos(User user, string threadId, JArray todos)
+    {
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            thread["todos"] = todos;
+            SaveThread(user, thread);
+            return thread;
+        }
+    }
+
     /// <summary>Saves how the thread approves tool calls (<c>auto</c>, <c>ask</c> or <c>plan</c>). Returns the updated thread, or null if not found.</summary>
     public static JObject SetApprovalMode(User user, string threadId, string mode)
     {
