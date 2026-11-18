@@ -876,6 +876,10 @@ public static class ToolRegistryService
         {
             tools[session.Key] = session.Value;
         }
+        foreach (KeyValuePair<string, JToken> schedule in ScheduleToolDefinitions.Build(now))
+        {
+            tools[schedule.Key] = schedule.Value;
+        }
 
         return tools;
     }

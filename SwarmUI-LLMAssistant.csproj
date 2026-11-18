@@ -26,6 +26,12 @@
     <Compile Remove="E2E/**" />
   </ItemGroup>
 
+  <!-- Time zones for schedules. NodaTime carries the IANA zone data itself: SwarmUI runs with invariant globalization, under which Windows cannot look up an IANA name such as Europe/Paris
+       (which is what a browser reports) in the operating system's zones. -->
+  <ItemGroup>
+    <PackageReference Include="NodaTime" Version="3.2.1" />
+  </ItemGroup>
+
   <!-- RELEASE: the published meta-package, https://www.nuget.org/packages/HartsyInference. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
     <!-- Always the newest engine published on nuget.org, as SwarmUI-AudioLab and SwarmUI-HartsyInference do: SwarmUI rebuilds

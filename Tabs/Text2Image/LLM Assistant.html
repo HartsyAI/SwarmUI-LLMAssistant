@@ -287,6 +287,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="hooks" role="tab" aria-selected="false">Hooks</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="mcp" role="tab" aria-selected="false">MCP Servers</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="skills" role="tab" aria-selected="false">Skills</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="schedules" role="tab" aria-selected="false">Schedules</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -524,6 +525,13 @@
                     <button type="button" class="basic-button translate" id="llma-skills-add">+ Add Skill or Command</button>
                     <div id="llma-skills-editor" style="display:none;"></div>
                     <div id="llma-skills-trust"></div>
+                </div>
+
+                <!-- Schedules: prompts that run later, on a timetable, as sessions (schedules.js; the editor is built from core's input helpers) -->
+                <div class="llma-modal-panel" id="llma-settings-schedules" style="display:none;">
+                    <div id="llma-schedules-list"></div>
+                    <button type="button" class="basic-button translate" id="llma-schedules-add">+ Add Schedule</button>
+                    <div id="llma-schedules-editor" style="display:none;"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

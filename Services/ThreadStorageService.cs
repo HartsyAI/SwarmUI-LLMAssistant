@@ -703,7 +703,7 @@ public static class ThreadStorageService
             summary["workspace"] = thread["workspace"];
         }
         // A chat the assistant started: where it hangs in the list and how it is doing, so the sidebar needs no thread loads.
-        foreach (string field in new[] { Sessions.SessionFields.Parent, Sessions.SessionFields.Status, Sessions.SessionFields.Depth })
+        foreach (string field in new[] { Sessions.SessionFields.Parent, Sessions.SessionFields.Status, Sessions.SessionFields.Depth, Schedules.ScheduleFields.HostMarker })
         {
             if (thread[field] is { Type: not JTokenType.Null } value)
             {

@@ -165,6 +165,41 @@ export async function resetSessionTools(page: Page) {
     await api(page, 'LLMAssistantDeleteAssistant', { assistantId: 'default', scope: 'personal' });
 }
 
+export const SCHEDULE = ['schedule_create', 'schedule_list', 'schedule_cancel'];
+
+/** Switches the schedule and session tools on for everyone and gives them to the default assistant. */
+export async function enableScheduleTools(page: Page) {
+    await enableSessionTools(page);
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    for (let id of SCHEDULE) {
+        let saved = await api(page, 'LLMAssistantSaveTool', { tool: { ...tools.find(t => t.id === id), enabled: true }, scope: 'shared' });
+        expect(saved.success, `${id}: ${JSON.stringify(saved)}`).toBe(true);
+    }
+    let current = (await api(page, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant;
+    let saved = await api(page, 'LLMAssistantSaveAssistant', { assistant: { ...current, enabledToolIds: [...BUILTINS, ...SESSION, ...SCHEDULE] }, scope: 'personal' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+}
+
+/** Puts the schedule and session tools back off and the default assistant back as it was. */
+export async function resetScheduleTools(page: Page) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    for (let id of SCHEDULE) {
+        let tool = tools.find(t => t.id === id);
+        if (tool?.enabled) {
+            await api(page, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: false }, scope: 'shared' });
+        }
+    }
+    await resetSessionTools(page);
+}
+
+/** Deletes every schedule the user has, so one that is still due cannot start a run in the next spec. */
+export async function clearSchedules(page: Page) {
+    let listed = await api(page, 'LLMAssistantGetSchedules');
+    for (let schedule of listed.schedules ?? []) {
+        await api(page, 'LLMAssistantDeleteSchedule', { scheduleId: schedule.id });
+    }
+}
+
 /** Switches the code tools on for everyone but leaves every assistant's own list alone: a chat in code mode brings them itself. */
 export async function enableCodeToolsGlobally(page: Page) {
     let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
@@ -185,6 +220,7 @@ export const test = base.extend<{ llm: Page }>({
         // The server keeps threads and UI state (active thread, compare mode) per user, so wipe both between tests.
         let listed = await api(page, 'LLMAssistantGetThreads');
         expect(listed.success).toBe(true);
+        await clearSchedules(page);
         // Deleting a chat deletes the sessions it started, so only the chats with no parent in the list are deleted.
         let ids = new Set((listed.threads ?? []).map((t: any) => t.id));
         for (let thread of listed.threads ?? []) {

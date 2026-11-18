@@ -30,6 +30,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Code tools and workspaces](#code-tools)
 - [Skills and commands](#skills-and-commands)
 - [Sessions](#sessions)
+- [Schedules](#schedules)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -423,6 +424,21 @@ A **session** is a chat the assistant starts and directs: it works on one job in
 
 ---
 
+## Schedules <a id="schedules"></a>
+
+A **schedule** runs a prompt later, or again and again, in the background, with no one watching. Each run is a [session](#sessions) under a chat of the schedule's own (named `Schedule: <name>`, with a `schedule` badge in the chat list), so a run has everything a session has: the per-user limit and queue, approvals that wait for you, a report, a status dot and a Stop button. Manage them in `Settings > Schedules`: a switch per schedule, **Run now**, **Open** (the chat its runs are listed under), Edit and Delete, and an editor that can show the next few run times before you save.
+
+- **When.** Every N minutes (at least 5, at most 30 days), a daily time, a weekly day and time, a cron expression, or once at a date and time. Daily and weekly are cron underneath. A cron expression has five fields (`minute hour day-of-month month day-of-week`) and takes `*`, numbers, ranges, lists, steps (`*/15`) and month and weekday names; when both day-of-month and day-of-week are given, a day matches if either does, as in standard cron. It is read in the schedule's time zone (an IANA name such as `Europe/Paris`; an unknown one is refused, not turned into UTC). A time the clock skips when it goes forward is skipped that day, and a time that happens twice when it goes back runs once. A cron whose runs come closer than 5 minutes (for example `* * * * *`) is refused. "Every" counts from when the schedule was made, so a restart does not move it.
+- **After downtime.** A schedule that was due while the server was off runs once when it comes back, if it was due within the last 6 hours; it never runs once per missed time. A time later than that is skipped, and the schedule says so.
+- **No overlap.** A time that comes while the previous run is still working is skipped and the schedule says why ("The previous run is still working."). Only the last 6 runs of a schedule are kept; the oldest finished ones are deleted as new ones start. Deleting a schedule leaves its chat and runs.
+- **What a run can do.** A run uses the model, the tools and the approval mode saved on the schedule (Ask by default). It can use only those tools, which are only tools the schedule's maker could use, and **never a schedule or session tool**, so a run cannot make more runs. It runs as the user, in the background, and a call that needs approval waits for you to open the run (it does not hold one of your places, and it is refused after 15 minutes). Auto is available and means what it says: the run does everything with no one asking.
+- **The assistant can make them, but they start off.** With `schedule_create`, `schedule_list` and `schedule_cancel` (off until you switch them on: the permission `llm_tool_schedules`, the tools on the Tools tab, and the assistant's list), the assistant can make a schedule, list and cancel the ones its chat made. What it makes is always saved **switched off**: it is listed in the tab with a "From the assistant" badge, and does nothing until you turn it on. A recurring job that runs with no one watching is not something a model should be able to start on its own, least of all one that read a hostile web page. Its tools are no more than the chat's, and its approval mode no looser than the chat's. It sees only the schedules its own chat made, not yours.
+- **Limits.** 20 schedules per user; a prompt of up to 20,000 characters. The permission `llm_schedules` (POWERUSERS) is needed for the tab and its routes.
+- **How it runs.** A loop started with the extension looks every 10 seconds at the users that have schedules (kept in a short list in the shared user's data, so it finds them after a restart with nobody logged in) and starts what is due. The next time is saved before the run starts, so a run that takes the server down is not started a second time. Runs are made under one background session per user, opened with `Program.Sessions.CreateSession`, and users are found with `Program.Sessions.GetUser(id, makeNew: false)`.
+- **Not included:** triggers from outside (a webhook), a schedule that runs a chat's own conversation rather than a fresh prompt, and notifying you when a run finishes beyond the chat list.
+
+---
+
 ## Built-in tools
 
 Thirteen tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
@@ -616,6 +632,8 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_tool_mcp` | **POWERUSERS** | Calling the tools MCP servers offer |
 | `llm_tool_skills` | POWERUSERS | The `skill` tool: letting the model load skills |
 | `llm_tool_sessions` | POWERUSERS | The `session_*` tools: letting the model start sessions (chats that run in the background) and direct them |
+| `llm_schedules` | POWERUSERS | The Schedules tab and its routes: prompts that run later, on a timetable, as sessions |
+| `llm_tool_schedules` | POWERUSERS | The `schedule_*` tools: letting the model make (switched off), list and cancel schedules |
 | `llm_code_mode` | **NOBODY** *(powerful)* | The code tools: files in a chat's workspace, a task list and shell commands (`code_bash` is shell access) |
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
@@ -726,6 +744,11 @@ they were sent with.
 | `LLMAssistantGetThread` | `threadId` | `{success, thread}` |
 | `LLMAssistantDeleteThread` | `threadId` | `{success}`; also deletes the sessions the chat started, and stops those working |
 | `LLMAssistantArchiveSession` | `threadId` | `{success}`; stops a session and hides it from the list (refused for a chat that is not a session) |
+| `LLMAssistantGetSchedules` | none | `{success, schedules[], toolChoices[], max}`; each schedule is its stored fields plus `triggerText`, `lastStatus` (how its last run went) and `threadId` (the chat its runs are under). Needs `llm_schedules` |
+| `LLMAssistantSaveSchedule` | `schedule` (object or JSON string: `id?`, `title`, `prompt`, `trigger` `{kind: every \| cron \| at, everyMinutes?, cron?, at?}`, `timezone?`, `enabled?`, `approvalMode?`, `model?`, `assistantId?`, `toolIds?`) | `{success, id}`; with `id` it changes that schedule, keeping what the scheduler recorded on it. Refuses a trigger that is not allowed, with the reason |
+| `LLMAssistantDeleteSchedule` | `scheduleId` | `{success}`; its chat and runs stay |
+| `LLMAssistantRunSchedule` | `scheduleId` | `{success, started, threadId?, status?, reason?}`; starts a run now, without moving the next time |
+| `LLMAssistantPreviewSchedule` | `trigger`, `timezone?`, `count?` (up to 10) | `{success, times[{utc, local}], zone}` or the reason the trigger is refused |
 | `LLMAssistantRenameThread` | `threadId`, `title` | `{success, thread}`, also settable with `F2` in the sidebar |
 | `LLMAssistantEditMessage` | `threadId`, `messageId`, `content` | `{success, thread}` |
 | `LLMAssistantDeleteMessage` | `threadId`, `messageId` | `{success, thread}` |

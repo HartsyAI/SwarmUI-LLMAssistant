@@ -63,6 +63,8 @@ public static class SessionManager
         {
             allowed.ExceptWith(ToolConstants.SessionIds);
         }
+        // Making schedules is for the chats the user opened: a session (and so a scheduled run) never has the schedule tools, or a run could make more runs.
+        allowed.ExceptWith(ToolConstants.ScheduleIds);
         return [.. allowed.Order(StringComparer.Ordinal)];
     }
 
@@ -318,6 +320,11 @@ public static class SessionManager
     private static void AddNotice(User user, string parentId, JObject child)
         => ThreadStorageService.Mutate(user, parentId, parent =>
         {
+            // The runs of a schedule are many and nobody is waiting on them: they are listed under the schedule's chat, and each has its own report.
+            if (parent[Schedules.ScheduleFields.HostMarker] is not null)
+            {
+                return false;
+            }
             JArray notices = parent[SessionFields.Notices] as JArray ?? [];
             string childId = child["id"].ToString();
             foreach (JToken old in notices.Where(n => n["childId"]?.ToString() == childId).ToList())

@@ -38,7 +38,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 9 | **Code-grade file tools** | Read, Write, **Edit**, Glob, Grep, LSP, notebook | `file_read` (Data only), `file_write` (Output only, extension allowlist), no edit-in-place, no glob, no grep. `shell_exec` runs `cmd.exe`/`sh` in `Data/`. | New handlers beside `FileReadTool` |
 | 10 | **Custom slash commands** (done in Phase 7) | `commands/*.md`, `/` palette of commands + skills | `/` opens a tool picker only | `tool-picker.js` |
 | 11 | **RAG / file search** | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |
-| 12 | **Scheduling and background tasks** | Cron create/list/delete, remote trigger (OpenHarness), recipes (Goose) | None | Hosted service |
+| 12 | **Scheduling and background tasks** (done in Phase 10 as schedules that start sessions, see the README, "Schedules") | Cron create/list/delete, remote trigger (OpenHarness), recipes (Goose) | None | Hosted service |
 | 13 | **Cost and usage tracking** | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
 | 14 | **Run non-interactively / dry run** | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
 | 15 | **Artifacts and code interpreter** | React/HTML/Mermaid artifacts, sandboxed code exec (LibreChat) | Asset index with HTML/SVG/Mermaid preview; no code execution | Part of Code mode |

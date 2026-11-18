@@ -111,7 +111,9 @@ const LLMA_CONSTANTS = Object.freeze({
 // -- API Helper --
 function llmaRequest(route, args) {
     return new Promise((resolve, reject) => {
-        genericRequest(route, args, resolve, (err) => {
+        // Core's genericRequest is (url, data, callback, depth, errorHandle): the error handler is the fifth argument. In the fourth it would be taken for the retry depth,
+        // and a failed request would raise core's own error popup and never settle, so none of the catch blocks (or llmaUserAction's toast) would ever run.
+        genericRequest(route, args, resolve, 0, (err) => {
             console.error(`[LLMAssistant] API error on ${route}:`, err);
             reject(err);
         });
