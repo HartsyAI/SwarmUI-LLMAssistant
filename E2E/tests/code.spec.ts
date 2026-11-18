@@ -143,7 +143,8 @@ test('no path leads out of the workspace', async ({ llm }) => {
     expect(results.every(r => r.success === false)).toBe(true);
     expect(results[0].error).toContain('..');
     expect(results[1].error).toContain('..');
-    expect(results[2].error).toContain('outside');
+    // A Windows drive path is outside the workspace on Windows and, on Linux, a relative name with a colon in it: refused either way.
+    expect(results[2].error).toMatch(/outside|invalid character/);
     expect(results[3].error).toContain('outside');
     expect(results[4].error).toContain('.git');
     expect(results[5].error).toContain('..');
