@@ -2,10 +2,10 @@ import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, ope
 
 // Baseline: the behaviour that exists today. Every later phase must keep these green.
 
-test('the tab loads, lists the mock models, and shows the reserved Code switch disabled', async ({ llm }) => {
+test('the tab loads, lists the mock models, and opens in Chat mode with the Code switch live', async ({ llm }) => {
     await expect(llm.locator('#llma-model-select option')).toHaveCount(2);
     await expect(llm.locator('#llma-mode-chat')).toBeChecked();
-    await expect(llm.locator('#llma-mode-code')).toBeDisabled();
+    await expect(llm.locator('#llma-mode-code')).toBeEnabled();
 });
 
 test('a message streams a reply and the model receives the system prompt and the user text', async ({ llm }) => {
