@@ -103,4 +103,30 @@ public class ProcessRunnerTests
         Assert.False(result.Ok);
         Assert.Contains("could not start", result.Error);
     }
+
+    [Fact]
+    public async Task AProgramThatNeverReadsItsInputIsStillStoppedByTheTimeLimit()
+    {
+        // The input is far larger than a pipe holds, and the program never reads it, so the write blocks; the limit must still apply.
+        (string file, string[] args) = Sleeper(30);
+        DateTime start = DateTime.UtcNow;
+
+        ProcessResult result = await ProcessRunner.RunAsync(file, args, null, new string('x', 4_000_000), TimeSpan.FromMilliseconds(800), 1000, CancellationToken.None);
+
+        Assert.True(result.TimedOut);
+        Assert.True(DateTime.UtcNow - start < TimeSpan.FromSeconds(15), "A blocked write must not outlast the time limit.");
+    }
+
+    [Fact]
+    public async Task StopCancelsAProgramThatNeverReadsItsInput()
+    {
+        (string file, string[] args) = Sleeper(30);
+        using CancellationTokenSource stop = new(TimeSpan.FromMilliseconds(500));
+        DateTime start = DateTime.UtcNow;
+
+        ProcessResult result = await ProcessRunner.RunAsync(file, args, null, new string('x', 4_000_000), TimeSpan.FromSeconds(60), 1000, stop.Token);
+
+        Assert.True(result.Cancelled);
+        Assert.True(DateTime.UtcNow - start < TimeSpan.FromSeconds(15));
+    }
 }

@@ -88,18 +88,27 @@ public static class ProcessRunner
         }
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
-        try
+        // Written beside the wait below, not before it: a program that never reads its input leaves a large write blocked on a full pipe, and
+        // that must not outlast the time limit or a Stop. Killing the process breaks the pipe, which ends the write.
+        Task writeInput = Task.Run(async () =>
         {
-            if (stdin is not null)
+            try
             {
-                await process.StandardInput.WriteAsync(stdin);
+                if (stdin is not null)
+                {
+                    await process.StandardInput.WriteAsync(stdin);
+                }
+                process.StandardInput.Close();
             }
-            process.StandardInput.Close();
-        }
-        catch (IOException)
-        {
-            // The process ended or closed its input before reading it all; its exit code says what happened.
-        }
+            catch (IOException)
+            {
+                // The process ended or closed its input before reading it all; its exit code says what happened.
+            }
+            catch (ObjectDisposedException)
+            {
+                // The process was torn down while the write was still going.
+            }
+        }, CancellationToken.None);
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(timeout);
         bool timedOut = false;
@@ -117,6 +126,7 @@ public static class ProcessRunner
         }
         // Standard output and error are read on their own threads; a final wait with no token lets them finish.
         process.WaitForExit();
+        await writeInput;
         lock (gate)
         {
             return new ProcessResult(timedOut || cancelled ? -1 : process.ExitCode, stdout.ToString().TrimEnd('\n'), stderr.ToString().TrimEnd('\n'), timedOut, cancelled, truncated);
