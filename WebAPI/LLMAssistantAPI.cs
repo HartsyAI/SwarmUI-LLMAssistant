@@ -49,6 +49,20 @@ public static class LLMAssistantAPI
         "Allows creating hooks that run a program on the SwarmUI host before or after the LLM's tool calls. This is equivalent to shell access for whoever writes the hook. Only grant to fully trusted admin users.",
         PermissionDefault.NOBODY, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
 
+    /// <summary>Permission to add, change and remove MCP servers. A stdio server is a program the host starts, so this is the same power as shell
+    /// access for whoever holds it; an http server makes the host connect to a URL of their choosing.</summary>
+    public static readonly PermInfo PermMcpManage = Permissions.Register(new(
+        "llm_mcp_manage", "LLM MCP Manage",
+        "Allows adding, editing and removing MCP servers. A stdio server is a program started on the SwarmUI host with the environment variables the admin sets, which is equivalent to shell access; an http server makes the host connect to the URL given. Only grant to fully trusted admin users.",
+        PermissionDefault.ADMINS, LLMAssistantPermGroup, PermSafetyLevel.POWERFUL));
+
+    /// <summary>Permission to call the tools of the MCP servers an admin has set up. What they can do depends on the server; Ask mode still asks before
+    /// any that is not read-only.</summary>
+    public static readonly PermInfo PermToolMcp = Permissions.Register(new(
+        "llm_tool_mcp", "[LLM Tool] MCP Servers",
+        "Allows the LLM to call the tools offered by the MCP servers an admin has set up. What those tools can do depends on the server. Each assistant still has to have a tool switched on before it can use it.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -177,6 +191,11 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(McpEndpoints.LLMAssistantGetMcpServers, false, PermSettings);
+        API.RegisterAPICall(McpEndpoints.LLMAssistantSaveMcpServer, true, PermSettings);
+        API.RegisterAPICall(McpEndpoints.LLMAssistantDeleteMcpServer, true, PermSettings);
+        API.RegisterAPICall(McpEndpoints.LLMAssistantTestMcpServer, true, PermSettings);
+        API.RegisterAPICall(McpEndpoints.LLMAssistantReconnectMcpServer, true, PermSettings);
         API.RegisterAPICall(HookEndpoints.LLMAssistantGetHooks, false, PermSettings);
         API.RegisterAPICall(HookEndpoints.LLMAssistantSaveHook, true, PermSettings);
         API.RegisterAPICall(HookEndpoints.LLMAssistantDeleteHook, true, PermSettings);

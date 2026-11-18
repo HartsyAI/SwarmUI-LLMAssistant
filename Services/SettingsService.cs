@@ -285,6 +285,21 @@ public static class SettingsService
         }
     }
 
+    /// <summary>Settings keys that are only for the server: MCP servers (environment values and headers are secrets) and hooks (a command hook's
+    /// program and arguments). Each has its own route that decides what a caller may see.</summary>
+    public static readonly string[] ServerOnlyKeys = ["mcpServers", "hooks"];
+
+    /// <summary>A copy of <paramref name="settings"/> that is safe to send to a browser: without <see cref="ServerOnlyKeys"/>.</summary>
+    public static JObject ForClient(JObject settings)
+    {
+        JObject copy = (JObject)settings.DeepClone();
+        foreach (string key in ServerOnlyKeys)
+        {
+            copy.Remove(key);
+        }
+        return copy;
+    }
+
     /// <summary>Returns the effective settings for a user: shared baseline ⊕ user overrides.
     /// Dict-valued fields (<c>assistants</c>, <c>tools</c>) are unioned with per-entry <c>_scope</c> tags;
     /// personal entries win on ID collision. Scalar fields and object fields use the standard merge rules
@@ -303,6 +318,8 @@ public static class SettingsService
         JObject mergedTools = UnionMergeDict(shared["tools"] as JObject, personal["tools"] as JObject);
         // Everything else: shallow merge with personal winning
         JObject result = (JObject)shared.DeepClone();
+        // Tools a source offers (an MCP server's) exist only while it is up, so they are added to the view, never stored in a layer.
+        ToolSources.AddTo(mergedTools, user);
         result["assistants"] = mergedAssistants;
         result["tools"] = mergedTools;
         // Merge scalar + object fields (instructions, parameters, featureMappings, preferredModel, etc.)

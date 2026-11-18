@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using Hartsy.Extensions.LLMAssistant.Services.Mcp;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
@@ -109,6 +110,11 @@ public static class ToolRegistryService
         }
         scope = NormalizeScope(scope);
         if (scope == SettingsService.ScopeShared && !CanWriteShared(user))
+        {
+            return null;
+        }
+        // The MCP handler and the mcp__ ids belong to the MCP source: a stored tool cannot claim either.
+        if (toolData["handlerId"]?.ToString() == ToolConstants.Mcp || (toolData["id"]?.ToString() ?? "").StartsWith(McpToolNaming.Prefix, StringComparison.Ordinal))
         {
             return null;
         }

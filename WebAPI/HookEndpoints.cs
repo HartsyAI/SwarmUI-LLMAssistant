@@ -70,8 +70,8 @@ public static class HookEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "toolId is required." };
         }
-        JObject args = ReadObject(rawInput["arguments"]) ?? [];
-        JObject result = ReadObject(rawInput["result"]);
+        JObject args = JsonInput.ReadObject(rawInput["arguments"]) ?? [];
+        JObject result = JsonInput.ReadObject(rawInput["result"]);
         HookEngine engine = new(new ProcessHookCommandRunner());
         using CancellationTokenSource timeout = new(TimeSpan.FromSeconds(ToolHook.MaxTimeoutSeconds + 5));
         if (hook.Phase == ToolHook.PhasePost)
@@ -93,26 +93,5 @@ public static class HookEndpoints
     }
 
     /// <summary>Reads the <c>hook</c> field, which the browser sends as an object or as a JSON string.</summary>
-    private static JObject ReadHook(JObject rawInput) => ReadObject(rawInput["hook"]);
-
-    /// <summary>Reads a JSON object from a token that is an object or a string holding one; null when it is neither.</summary>
-    private static JObject ReadObject(JToken token)
-    {
-        if (token is JObject obj)
-        {
-            return obj;
-        }
-        if (token?.Type == JTokenType.String && !string.IsNullOrWhiteSpace(token.ToString()))
-        {
-            try
-            {
-                return JObject.Parse(token.ToString());
-            }
-            catch (Newtonsoft.Json.JsonException)
-            {
-                return null;
-            }
-        }
-        return null;
-    }
+    private static JObject ReadHook(JObject rawInput) => JsonInput.ReadObject(rawInput["hook"]);
 }

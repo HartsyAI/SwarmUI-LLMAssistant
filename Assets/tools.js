@@ -54,13 +54,15 @@ function llmaRenderToolList() {
     for (const tool of LLMAState.tools) {
         const disabled = tool.enabled === false;
         const builtInBadge = tool.isBuiltIn ? ` <span class="llma-builtin-badge">(${translate('built-in')})</span>` : '';
+        // A tool from an MCP server is managed on the MCP Servers tab: it says which server it is from and offers no edit or delete here.
+        const sourceBadge = tool.isDynamic ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('From an MCP server. Manage it on the MCP Servers tab.')}">${llmaEscapeHtml(tool.serverName || tool.source)}</span>` : '';
         const scopeBadge = tool._scope === 'shared'
             ? ` <span class="llma-scope-badge llma-scope-shared" title="${translate('Shared — visible to all users on this instance')}">${translate('shared')}</span>`
             : (tool._scope === 'personal' ? ` <span class="llma-scope-badge llma-scope-personal" title="${translate('Personal — only visible to you')}">${translate('personal')}</span>` : '');
         html += `
             <div class="llma-tool-list-item${disabled ? ' disabled' : ''}" data-tool-id="${llmaEscapeHtml(tool.id)}">
                 <div class="llma-tool-list-info">
-                    <div class="llma-tool-list-name">${llmaEscapeHtml(tool.name || tool.id)}${builtInBadge}${scopeBadge}</div>
+                    <div class="llma-tool-list-name">${llmaEscapeHtml(tool.name || tool.id)}${builtInBadge}${sourceBadge}${tool.isDynamic ? '' : scopeBadge}</div>
                     <div class="llma-tool-list-desc">${llmaEscapeHtml(tool.description || '')}</div>
                     <div class="llma-tool-list-meta">
                         <span class="llma-tool-badge">${llmaEscapeHtml(tool.handlerType || 'builtin')}</span>
@@ -68,12 +70,12 @@ function llmaRenderToolList() {
                     </div>
                 </div>
                 <div class="llma-tool-list-actions">
-                    <label class="llma-tool-toggle" title="${translate(disabled ? 'Disabled' : 'Enabled')}">
+                    ${tool.isDynamic ? '' : `<label class="llma-tool-toggle" title="${translate(disabled ? 'Disabled' : 'Enabled')}">
                         <input type="checkbox" class="llma-tool-enable" data-tool-id="${llmaEscapeHtml(tool.id)}" ${disabled ? '' : 'checked'}>
                         <span>${translate(disabled ? 'Off' : 'On')}</span>
                     </label>
-                    <button class="basic-button llma-tool-edit" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Edit')}</button>
-                    ${tool.isBuiltIn ? '' : `<button class="basic-button llma-tool-delete" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Delete')}</button>`}
+                    <button class="basic-button llma-tool-edit" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Edit')}</button>`}
+                    ${tool.isBuiltIn || tool.isDynamic ? '' : `<button class="basic-button llma-tool-delete" data-tool-id="${llmaEscapeHtml(tool.id)}">${translate('Delete')}</button>`}
                 </div>
             </div>`;
     }
@@ -440,6 +442,7 @@ function llmaRenderAssistantToolsChecklist(enabledToolIds) {
                 <input type="checkbox" class="llma-assist-tool-check" data-tool-id="${llmaEscapeHtml(tool.id)}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}>
                 <span class="llma-tool-check-name">${llmaEscapeHtml(tool.name || tool.id)}</span>
                 ${tool.isBuiltIn ? `<span class="llma-builtin-badge">${translate('built-in')}</span>` : ''}
+                ${tool.isDynamic ? `<span class="llma-scope-badge llma-scope-shared">${llmaEscapeHtml(tool.serverName || tool.source)}</span>` : ''}
             </label>`;
     }
     html += '</div>';

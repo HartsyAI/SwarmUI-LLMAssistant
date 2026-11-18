@@ -2,6 +2,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Mcp;
 using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -24,7 +25,7 @@ public static class SettingsEndpoints
         return new JObject
         {
             ["success"] = true,
-            ["settings"] = SettingsService.GetMergedSettings(session.User),
+            ["settings"] = SettingsService.ForClient(SettingsService.GetMergedSettings(session.User)),
             ["canWriteShared"] = session.User?.HasPermission(LLMAssistantAPI.PermSharedWrite) ?? false
         };
     }
@@ -63,10 +64,11 @@ public static class SettingsEndpoints
     }
 
     /// <summary>The keys that are never saved through <c>LLMAssistantSaveSettings</c>: the dicts that have their own routes with explicit scope
-    /// (<c>assistants</c>, <c>tools</c>) and <c>hooks</c>, whose routes check <c>llm_hook_command</c> and <c>llm_shared_write</c> per hook. The
+    /// (<c>assistants</c>, <c>tools</c>), <c>hooks</c> and <c>mcpServers</c>, whose routes check <c>llm_hook_command</c>, <c>llm_mcp_manage</c> and
+    /// <c>llm_shared_write</c>. The
     /// client sends back the merged settings it was given, so without this an ordinary save would copy the shared layer's hooks into the user's
     /// own, resurrect a hook deleted since the page loaded, and let a shared write plant a command hook without the command permission.</summary>
-    internal static readonly string[] OwnRouteKeys = ["assistants", "tools", "hooks"];
+    internal static readonly string[] OwnRouteKeys = ["assistants", "tools", "hooks", "mcpServers"];
 
     /// <summary>A copy of a saved settings payload without <see cref="OwnRouteKeys"/>.</summary>
     internal static JObject FilterIncoming(JObject incoming)
@@ -121,7 +123,7 @@ public static class SettingsEndpoints
         return new JObject
         {
             ["success"] = true,
-            ["settings"] = saved,
+            ["settings"] = SettingsService.ForClient(saved),
             ["scope"] = wantsShared ? SettingsService.ScopeShared : SettingsService.ScopePersonal
         };
     }
@@ -142,6 +144,8 @@ public static class SettingsEndpoints
             }
             JObject defaults = SettingsService.ResetSettings();
             AssistantResolver.InvalidateAll();
+            // The reset removed the stored MCP servers, so their connections have to go with them.
+            await McpServerManager.Instance.SyncAsync();
             AuditLogService.RecordSharedWrite("reset", "settings", session.User);
             return new JObject { ["success"] = true, ["settings"] = defaults, ["scope"] = SettingsService.ScopeShared };
         }
@@ -150,7 +154,7 @@ public static class SettingsEndpoints
         return new JObject
         {
             ["success"] = true,
-            ["settings"] = SettingsService.GetMergedSettings(session.User),
+            ["settings"] = SettingsService.ForClient(SettingsService.GetMergedSettings(session.User)),
             ["scope"] = SettingsService.ScopePersonal
         };
     }

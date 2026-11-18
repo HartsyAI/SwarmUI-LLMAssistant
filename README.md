@@ -26,6 +26,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Assistants](#assistants)
 - [Long chats](#long-chats)
 - [Tool calling](#tool-calling)
+- [MCP servers](#mcp-servers)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -317,6 +318,22 @@ Hooks live in the same two layers as assistants and tools. A **shared** hook (ne
 
 Hooks apply to calls the **model** makes, and are loaded once when a turn starts. A tool you run yourself from the `/` picker, the Run Test panel or the API is never touched. Rule matching is case-insensitive, and a regular expression that takes too long to evaluate is treated as not matching.
 
+### MCP servers <a id="mcp-servers"></a>
+
+An **MCP server** gives the assistant extra tools: a program on this machine (**stdio**) or a URL (**http**, the Streamable HTTP transport; the older HTTP+SSE transport is not supported). Admins set them up in `Settings > MCP Servers`, with a **Test** button that connects and lists the tools before anything is saved.
+
+- **Who can do what.** Adding, editing, testing and removing a server needs `llm_mcp_manage` (**ADMINS**, *powerful*): a stdio server is a program started on the SwarmUI host, which is the same power as shell access, and an http server makes the host connect to a URL of the admin's choosing. Calling the tools needs `llm_tool_mcp` (**POWERUSERS**). A user without it is not shown the tools. Anyone who can open settings sees the server list; only someone who may manage servers sees a stdio server's program, arguments or full URL.
+- **One shared connection per server.** Servers live in the shared settings layer and are connected once for everyone, not once per user. (Personal servers, with per-user secrets, are not offered yet.)
+- **Secrets.** Environment variables and headers are secrets: they are never sent to the browser. The editor shows them as `••••••`, and saving that text back keeps the stored value.
+- **Safe environment.** A stdio program is started with a small environment (`PATH`, home and temp folders and the like), not the SwarmUI process's own, plus the variables the admin sets. It and its children are killed when the connection closes or SwarmUI shuts down. On Windows a command such as `npx` is found on the `PATH` and run through `cmd.exe`.
+- **Tool ids.** A server's tool `read_file` on a server with the id `files` is offered to the model as `mcp__files__read_file` (letters, digits, dashes and underscores only, at most 64 characters; a longer or colliding name is shortened with a short hash). Each tool can be switched off on the server's row.
+- **Nothing is on by default.** An assistant has an explicit list of tools, so a server's tools appear in no assistant's list until you switch them on in the assistant's editor. They show with the server's name beside them.
+- **Approval, hooks, plan mode.** They apply as to any tool. A tool the server marks `readOnlyHint` is free to run; one that reaches outside systems (`openWorldHint`) or changes things asks first in Ask mode and is refused in Plan mode. A hook can match on the id (`mcp__*__write_note`). Every call is recorded in the audit log when it is on.
+- **Failure and recovery.** A server that cannot start, or whose program dies, shows as **Failed** with the reason; the next call (or the **Reconnect** button) tries again, waiting 2, 4, 8 seconds and so on up to a minute after each failure. A call that takes longer than the server's **Time limit** (default 60 seconds) is given up on and the server stays up. When a server says its tool list changed, the list is refreshed.
+- **What a result looks like to the model.** Text parts are joined and cut at 50,000 characters, a structured result is passed along, and images, audio and files are not (the model is told how many were left out).
+
+Not covered yet: a server's resources, prompts and requests for the client's help (sampling, roots), and per-user connections.
+
 ---
 
 ## Built-in tools
@@ -480,6 +497,7 @@ Per SwarmUI's extension standards, everything this extension can send over the n
 |---|---|---|
 | `html.duckduckgo.com` | Only when the model (or you, via `/`) calls the `web_search` tool | Disable the tool, or deny `llm_tool_web_search` |
 | Any public URL | Only when the `http_request` tool is called (SSRF-guarded: loopback/private/link-local/metadata addresses are blocked) | Disable the tool, or deny `llm_tool_http_request` |
+| An MCP server's URL | Only for an **http** MCP server an admin set up: when it connects, lists tools or a tool is called. A **stdio** server is a program started on the host, which can make its own connections | Switch the server off or delete it, or deny `llm_tool_mcp` |
 | Your configured `Address` | When an OpenAI-compatible backend you added starts, serves a chat request or lists its models (for the model picker, and for the card's Default Model when `Server > Backends` opens) | Don't add the backend |
 
 Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, so **the UI itself makes zero outbound connections.**
@@ -507,6 +525,8 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_tool_http_request` | POWERUSERS *(risky)* | `http_request` |
 | `llm_tool_shell_exec` | **NOBODY** *(powerful)* | `shell_exec` |
 | `llm_hook_command` | **NOBODY** *(powerful)* | Creating a command hook (a program run around tool calls) |
+| `llm_mcp_manage` | **ADMINS** *(powerful)* | Adding, editing, testing and removing MCP servers (a stdio server is a program run on the host) |
+| `llm_tool_mcp` | **POWERUSERS** | Calling the tools MCP servers offer |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
 
@@ -620,6 +640,11 @@ they were sent with.
 | `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
 | `LLMAssistantSetThreadApprovalMode` | `threadId`, `mode` (`auto` \| `ask` \| `plan`) | `{success, mode}`; how this chat approves tool calls |
 | `LLMAssistantGetHooks` | none | `{success, hooks[], canWriteShared, canCommand}`; every hook the caller can see, each tagged `_scope` |
+| `LLMAssistantGetMcpServers` | none | `{success, servers[], canManage, canCall}`; each server is its configuration (secrets shown as `••••••`) plus `state` (`disabled`, `connecting`, `ready`, `failed`), `error`, `serverName` and `tools[]` (`{name, id, description, enabled, readOnly, openWorld}`) |
+| `LLMAssistantSaveMcpServer` | `server` (object or JSON string) | `{success, id, server}`; needs `llm_mcp_manage`. Connects it; a server that saves but cannot connect says why in `server.error` |
+| `LLMAssistantDeleteMcpServer` | `serverId` | `{success}`; needs `llm_mcp_manage` |
+| `LLMAssistantTestMcpServer` | `server` | `{success, serverName, tools[]}`; connects and closes again, saving nothing. Needs `llm_mcp_manage` |
+| `LLMAssistantReconnectMcpServer` | `serverId` | `{success, server}`; reconnects now, ignoring any wait after a failure. Needs `llm_mcp_manage` |
 | `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
 | `LLMAssistantDeleteHook` | `hookId`, `scope?` | `{success}` |
 | `LLMAssistantTestHook` | `hook`, `toolId`, `arguments`, `result?` | `{success, phase, denied?, message?, forceAsk?, arguments?, notes[]}`; what the hook would do to the sample call, with no tool run. Testing a command hook runs its program, so it needs `llm_hook_command` |
