@@ -99,8 +99,8 @@ test('an argument that contains the token is not expanded again, and one with no
     expect((await lastRequest()).lastUser).toBe('Say: $ARGUMENTS');
 
     await send(llm, '/plain of the meeting');
-    await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(2);
-    expect((await lastRequest()).lastUser).toBe('Write a summary.\n\nARGUMENTS: of the meeting');
+    // The second reply's bubble appears as the request goes out, so wait for the model to have been sent it rather than for the bubble.
+    await expect.poll(async () => (await lastRequest()).lastUser).toBe('Write a summary.\n\nARGUMENTS: of the meeting');
 });
 
 test('a tool wins when a command has its name, and an unknown name is sent as typed', async ({ llm }) => {
