@@ -145,6 +145,13 @@ public static class ToolConstants
     /// <summary>All the code tool IDs (each is its own handler id).</summary>
     public static readonly string[] CodeIds = [CodeRead, CodeWrite, CodeEdit, CodeGlob, CodeGrep, CodeBash, CodeTodo];
 
+    /// <summary>IDs of the session tools: they let an assistant start chats of its own and direct them (see <see cref="Services.Sessions.SessionManager"/>). Like the code tools they are
+    /// not in <see cref="BuiltInIds"/> and are off by default; an assistant lists the ones it may use, and each needs <c>llm_tool_sessions</c>.</summary>
+    public const string SessionStart = "session_start", SessionSend = "session_send", SessionList = "session_list", SessionRead = "session_read", SessionWait = "session_wait", SessionStop = "session_stop", SessionArchive = "session_archive";
+
+    /// <summary>All the session tool IDs (each is its own handler id).</summary>
+    public static readonly string[] SessionIds = [SessionStart, SessionSend, SessionList, SessionRead, SessionWait, SessionStop, SessionArchive];
+
     /// <summary>All built-in tool IDs.
     public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
 }

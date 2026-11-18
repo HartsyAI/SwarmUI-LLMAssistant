@@ -83,6 +83,13 @@ public static class LLMAssistantAPI
         "Allows the LLM to load the skills (written instructions for particular tasks) that the user, an admin, or a trusted workspace provides, by calling the skill tool.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to let the LLM start and direct sessions of its own (the <c>session_*</c> tools). Each session runs in the background with the user's tools, so this is
+    /// a permission an admin grants deliberately; a session can never use more than the chat that started it.</summary>
+    public static readonly PermInfo PermToolSessions = Permissions.Register(new(
+        "llm_tool_sessions", "[LLM Tool] Sessions",
+        "Allows the LLM to start sessions (chats of their own that run in the background), send them messages, read their reports, and stop or archive them, by calling the session tools. A session can use only the tools, and be no less careful about approvals, than the chat that started it.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -238,6 +245,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSavePromptAsset, true, PermSettings);
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantDeletePromptAsset, true, PermSettings);
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSetWorkspaceTrust, true, PermSettings);
+        API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadApprovalMode, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);

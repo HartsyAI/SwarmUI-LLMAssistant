@@ -1135,3 +1135,6 @@ mark.llma-find-mark.active {
     cursor: pointer;
 }
 .llma-attach-warn-dismiss:hover { color: var(--text); }
+
+/* A report from a session, put in the chat for the model: keep the line breaks it was written with. */
+.llma-session-update { white-space: pre-wrap; }

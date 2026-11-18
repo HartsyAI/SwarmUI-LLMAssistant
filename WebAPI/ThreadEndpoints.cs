@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
+using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
@@ -12,6 +13,9 @@ public static class ThreadEndpoints
 {
     public static async Task<JObject> LLMAssistantGetThreads(Session session)
     {
+        // A session that says it is working while nothing is (the server restarted) is marked interrupted before the list goes out.
+        string userId = session.User.UserID;
+        SessionManager.Reconcile(session.User, id => BackgroundTurnService.IsLive(userId, id) || GenerationCancellationRegistry.IsActive(id));
         JArray threads = ThreadStorageService.GetThreadIndex(session.User);
         return new JObject
         {
@@ -42,6 +46,15 @@ public static class ThreadEndpoints
 
     public static async Task<JObject> LLMAssistantDeleteThread(Session session, string threadId)
     {
+        // Deleting a chat deletes the sessions it started, deepest first, and stops any that are working: they have nobody to report to.
+        foreach (string id in SessionManager.DescendantIds(session.User, threadId))
+        {
+            await BackgroundTurnService.StopAsync(session.User, id);
+            ToolApprovals.Pending.CancelScope(session.User.UserID, id);
+            ToolApprovals.Grants.Clear(session.User.UserID, id);
+            ThreadStorageService.DeleteThread(session.User, id);
+        }
+        await BackgroundTurnService.StopAsync(session.User, threadId);
         bool deleted = ThreadStorageService.DeleteThread(session.User, threadId);
         // A chat that is gone has nobody to answer for it: end any call still waiting for approval and forget what was allowed.
         ToolApprovals.Pending.CancelScope(session.User.UserID, threadId);

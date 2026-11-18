@@ -60,6 +60,9 @@ public static class GenerationCancellationRegistry
         }
     }
 
+    /// <summary>Whether a generation is in flight for a thread (a reply on a chat socket or a session working in the background).</summary>
+    public static bool IsActive(string threadId) => !string.IsNullOrEmpty(threadId) && Active.ContainsKey(threadId);
+
     /// <summary>Cancels and removes the in-flight generation for a thread, if any. Returns true if
     /// something was actually cancelled, false if nothing was in flight for that thread. Removes the
     /// entry immediately (rather than leaving it for the generation's own <see cref="End"/> call) so a

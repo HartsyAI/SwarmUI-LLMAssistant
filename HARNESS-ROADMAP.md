@@ -32,7 +32,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 3 | **Hooks** (done in Phase 2, see the README) | PreToolUse / PostToolUse, defined by plugins (OpenHarness) | None | `ToolExecutorService` is the single chokepoint |
 | 4 | **Context management** (done in Phase 3, see the README, "Long chats") | Auto-compaction, preserved task state (OpenHarness) | Only a "Context Messages" count, which truncates. No summarising compaction. A long agent run just overflows. | `ExtendedLLMInput` build, `LLMStreamHelper` |
 | 5 | **Skills** (done in Phase 7, see the README, "Skills and commands") | On-demand `SKILL.md`, user / project / bundled scopes, anthropics/skills layout (OpenHarness, LibreChat) | Assistant instructions only, always loaded | `AssistantResolver`, a new skill loader plus a `skill` tool |
-| 6 | **Subagents** | Agent tool, SendMessage, teams, background tasks (OpenHarness, Goose, LibreChat) | None. The loop is single-agent. | A nested `ToolTurnRunner.RunAsync` with its own sink |
+| 6 | **Subagents** (done in Phase 8 as sessions: real chats the assistant starts and directs, see the README, "Sessions") | Agent tool, SendMessage, teams, background tasks (OpenHarness, Goose, LibreChat) | None. The loop is single-agent. | A nested `ToolTurnRunner.RunAsync` with its own sink |
 | 7 | **Plan mode and a task list** | EnterPlanMode / ExitPlanMode, TaskCreate/Update (OpenHarness, OpenCode) | None | Mode on the turn context, `todo` tool, a UI card |
 | 8 | **Workspace / project context** (back end done in Phase 5, see the README) | CLAUDE.md / AGENTS.md discovery injected into the prompt; worktrees (OpenHarness, OpenCode) | None. Every file tool is hard-wired to `Data/` or `Output/`. | New per-user workspace root (see section 3) |
 | 9 | **Code-grade file tools** | Read, Write, **Edit**, Glob, Grep, LSP, notebook | `file_read` (Data only), `file_write` (Output only, extension allowlist), no edit-in-place, no glob, no grep. `shell_exec` runs `cmd.exe`/`sh` in `Data/`. | New handlers beside `FileReadTool` |
@@ -87,7 +87,7 @@ Each step ships on its own and is useful without the next.
 5. **Workspace root + code toolset** (gaps 8, 9). Turns on Code mode behind `llm_code_mode`.
 6. **Code mode UI** (section 3): mode switch live, Workspace panel, diff view, inline approvals, plan mode, todo card.
 7. **Skills** (gap 5) and **custom slash commands** (gap 10), sharing one loader.
-8. **Subagents** (gap 6) once compaction exists, since each subagent needs its own context budget.
+8. **Subagents** (gap 6, done in Phase 8 as sessions) once compaction exists, since each subagent needs its own context budget.
 9. **RAG, scheduling, cost tracking, dry run** (gaps 11-14) as demand appears.
 
 ## 5. Risks to settle before step 5

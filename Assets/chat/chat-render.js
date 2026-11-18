@@ -20,6 +20,15 @@
             // Prefer the persisted media entries (server-authoritative: url + mediaType) over a legacy/in-memory
             // base64 image; <img src> handles both transparently.
             const media = (Array.isArray(msg.media) && msg.media.length > 0) ? msg.media : (msg.imageBase64 || null);
+            if (msg.kind == 'session_report') {
+                // A report from a session that finished, put in the chat for the model to read: shown as a note, not as something the user typed.
+                const note = document.createElement('div');
+                note.className = 'llma-session-update alert alert-secondary py-2 px-3 my-2 small text-break';
+                note.dataset.msgId = msg.id;
+                note.textContent = msg.content || '';
+                container.appendChild(note);
+                continue;
+            }
             llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta);
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
                 const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);

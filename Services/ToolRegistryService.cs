@@ -872,6 +872,10 @@ public static class ToolRegistryService
         {
             tools[code.Key] = code.Value;
         }
+        foreach (KeyValuePair<string, JToken> session in SessionToolDefinitions.Build(now))
+        {
+            tools[session.Key] = session.Value;
+        }
 
         return tools;
     }

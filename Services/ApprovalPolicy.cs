@@ -34,6 +34,13 @@ public static class ApprovalPolicy
         return IsValid(lower) ? lower : DefaultMode;
     }
 
+    /// <summary>The stricter of two modes (plan, then ask, then auto), for a chat that may not be looser than the one that started it.</summary>
+    public static string Stricter(string a, string b)
+    {
+        static int Rank(string mode) => Normalize(mode) switch { ApprovalModes.Plan => 0, ApprovalModes.Ask => 1, _ => 2 };
+        return Rank(a) <= Rank(b) ? Normalize(a) : Normalize(b);
+    }
+
     /// <summary>Decides one call. <paramref name="allowedForChat"/> is whether the user already allowed this tool for the rest of the chat.</summary>
     public static ApprovalDecision Decide(string mode, ToolRisk risk, bool allowedForChat)
     {
