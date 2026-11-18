@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using Hartsy.Extensions.LLMAssistant.Services.Hooks;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Utils;
@@ -37,9 +38,10 @@ public static class ToolExecutorService
     };
 
     /// <summary>Executes a tool by ID with the given arguments and request context. <paramref name="gate"/> is the turn's approval gate
-    /// (null for a call the user made themselves, which is never gated) and <paramref name="callId"/> is the model's id for the call.</summary>
+    /// (null for a call the user made themselves, which is never gated), <paramref name="callId"/> is the model's id for the call and
+    /// <paramref name="hooks"/> is the turn's hooks (null for a call the user made themselves, which hooks never touch).</summary>
     public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default,
-        ToolApprovalGate gate = null, string callId = null)
+        ToolApprovalGate gate = null, string callId = null, ToolHookRunner hooks = null)
     {
         try
         {
@@ -79,6 +81,24 @@ public static class ToolExecutorService
                     return Error($"You do not have permission to use the '{toolId}' tool (handler: {handlerId}). Ask an admin to grant '{requiredPerm.DisplayName}'.");
                 }
             }
+            // Pre hooks: policy written by an admin or the user. They run after permissions (so a user who may not run the tool is not
+            // told about it by a hook) and before validation and approval, and can refuse the call, change its arguments or force the
+            // user to be asked.
+            bool forceAsk = false;
+            List<string> hookNotes = [];
+            if (hooks is { IsEmpty: false })
+            {
+                PreHookOutcome pre = await hooks.PreAsync(toolId, handlerId, args, ct);
+                if (pre.Denied)
+                {
+                    JObject blocked = new() { ["success"] = false, ["denied"] = true, ["deniedBy"] = "hook", ["hook"] = pre.HookName, ["error"] = pre.Message };
+                    AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, blocked);
+                    return blocked;
+                }
+                args = pre.Arguments;
+                forceAsk = pre.ForceAsk;
+                hookNotes.AddRange(pre.Notes);
+            }
             // Basic validation: ensure required params are present
             string validationError = ValidateArgs(tool["parameters"] as JObject, args);
             if (validationError is not null)
@@ -90,7 +110,7 @@ public static class ToolExecutorService
             // part of the tool's own timeout, which starts below.
             if (gate is not null)
             {
-                JObject refusal = await gate.CheckAsync(toolId, handler.Risk, args, callId, ct);
+                JObject refusal = await gate.CheckAsync(toolId, handler.Risk, args, callId, ct, forceAsk);
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);
@@ -134,6 +154,15 @@ public static class ToolExecutorService
             if (result["success"] is null)
             {
                 result["success"] = true;
+            }
+            // Post hooks see the finished result and can add notes to it. A note travels with the result, so the model reads it next round.
+            if (hooks is { IsEmpty: false })
+            {
+                hookNotes.AddRange(await hooks.PostAsync(toolId, handlerId, args, result, ct));
+            }
+            if (hookNotes.Count > 0)
+            {
+                result["hookNotes"] = new JArray(hookNotes);
             }
             // Audit the call after execution so we capture the outcome (success/failure + error).
             // No-op for non-audited handlers and when the audit flag is off.

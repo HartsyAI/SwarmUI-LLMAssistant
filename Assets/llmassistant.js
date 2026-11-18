@@ -84,6 +84,7 @@ async function llmaInit() {
     if (typeof llmaSetupFindBar === 'function') llmaSetupFindBar();
     if (typeof llmaSetupBulkBar === 'function') llmaSetupBulkBar();
     llmaSetupSettingsModal();
+    llmaSetupHooksTab();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
     llmaSetupKeyboardShortcuts();
@@ -1347,6 +1348,7 @@ function llmaSetupSettingsModal() {
             const panel = document.getElementById(`llma-settings-${tab.dataset.tab}`);
             if (panel) panel.style.display = '';
             if (tab.dataset.tab === 'tools') llmaLoadTools();
+            if (tab.dataset.tab === 'hooks') llmaHooks.load();
         });
     });
 
@@ -1462,6 +1464,9 @@ function llmaReadSettingsFromModal() {
     g.maxContextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)    || 0;
     g.loops              = llmaReadBoundedInt('llma-s-loops') || 0;
     g.imageMaxDimension  = parseInt(document.getElementById('llma-s-image-max')?.value, 10)  || 1536;
+    g.contextWindow      = Math.max(0, parseInt(document.getElementById('llma-s-context-window')?.value, 10) || 0);
+    g.autoCompact        = document.getElementById('llma-s-auto-compact')?.checked ?? true;
+    g.compactThreshold   = parseFloat(document.getElementById('llma-s-compact-threshold')?.value) || 0.8;
     g.stream             = document.getElementById('llma-s-stream')?.checked ?? true;
     LLMAState.settings.parameters = g;
 
@@ -1507,6 +1512,9 @@ function llmaWriteSettingsToModal() {
     llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
     llmaSetEl('llma-s-loops',               g.loops              ?? 0);
     llmaSetEl('llma-s-image-max',           g.imageMaxDimension  ?? 1536);
+    llmaSetEl('llma-s-context-window',      g.contextWindow      ?? 0);
+    llmaSetElChecked('llma-s-auto-compact', g.autoCompact        !== false);
+    llmaSetEl('llma-s-compact-threshold',   g.compactThreshold   ?? 0.8);
     llmaSetElChecked('llma-s-stream',       g.stream             !== false);
 
     const u = LLMAState.settings?.ui || LLMA_DEFAULT_SETTINGS.ui;

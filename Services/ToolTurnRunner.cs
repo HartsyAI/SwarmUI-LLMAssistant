@@ -5,6 +5,7 @@ using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.ToolCalling;
 using ToolDefinition = HartsyInference.Engine.Requests.ToolDefinition;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Hooks;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
@@ -62,9 +63,10 @@ public sealed class ToolTurnContext
 /// <summary>What a finished turn produced: its visible text, why it ended, whether the round limit cut it, and its tool events.</summary>
 /// <remarks><see cref="SpokenText"/> is the visible text alone (no reasoning), for speech; <see cref="Rounds"/> is each round's
 /// <c>{text, toolCallIds}</c>, in order; <see cref="RoundLimit"/> is the loop's limit detail (<c>max_rounds=8</c>) when it cut the turn;
-/// <see cref="Error"/> is the provider's message when the turn stopped on an error.</remarks>
+/// <see cref="Error"/> is the provider's message when the turn stopped on an error; <see cref="Usage"/> is what the turn cost in tokens, or null
+/// when the provider reported none.</remarks>
 public sealed record ToolTurnOutcome(string FullText, string StopReason, bool Truncated, string Reason, JArray ToolEvents, string SpokenText = null, JArray Rounds = null,
-    string RoundLimit = null, string Error = null)
+    string RoundLimit = null, string Error = null, LLMUsage Usage = null)
 {
     /// <summary>The engine stopped on an error and nothing was said aloud or written: its message is what the user gets.</summary>
     public bool SilentFailure => StopReason == "error" && string.IsNullOrWhiteSpace(SpokenText) && !string.IsNullOrEmpty(Error);
@@ -138,6 +140,7 @@ public static class ToolTurnRunner
         List<string> roundCallIds = [];
         JArray toolEvents = [];
         JArray rounds = [];
+        LLMUsage usage = new();
         string stopReason = null;
         bool truncated = false;
         string roundLimit = null;
@@ -229,6 +232,9 @@ public static class ToolTurnRunner
                     case TextChunkKind.Status when chunk.Status is { } status:
                         await sink.Status(status.Phase);
                         break;
+                    case TextChunkKind.Usage when chunk.Usage is { } reported:
+                        usage.Add(reported);
+                        break;
                     case TextChunkKind.StopReason:
                         stopReason = ToStopReason(chunk.Stop);
                         if (chunk.Stop == StopReason.Error)
@@ -275,7 +281,7 @@ public static class ToolTurnRunner
         }
         spokenText.Append(speech.Flush());
         ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
-            spokenText.ToString(), rounds, roundLimit, error);
+            spokenText.ToString(), rounds, roundLimit, error, usage.Any ? usage : null);
         if (fullText.Length > 0 || toolEvents.Count > 0)
         {
             resolved.Persist(BuildMessage(outcome, input.Model, startTime, ctx, outcome.Truncated ? "tool_round_limit" : outcome.StopReason));
@@ -313,6 +319,10 @@ public static class ToolTurnRunner
         if (outcome.Error is not null)
         {
             meta["error"] = outcome.Error;
+        }
+        if (outcome.Usage is { Any: true })
+        {
+            meta["usage"] = outcome.Usage.ToJson();
         }
         JObject message = new()
         {
@@ -385,16 +395,16 @@ public static class ToolTurnRunner
     /// <summary>Runs a call through <see cref="ToolExecutorService"/>; a handler failure becomes the call's error result.</summary>
     private static Func<NativeToolCall, CancellationToken, Task<JObject>> DefaultDispatch(ToolTurnContext ctx, string model, IToolTurnSink sink)
     {
-        // Auto mode (the default) needs no gate, so a turn that does not use approval runs exactly as before.
-        ToolApprovalGate gate = ApprovalPolicy.Normalize(ctx.ApprovalMode) == ApprovalModes.Auto
-            ? null
-            : new ToolApprovalGate(ctx.ApprovalMode, ctx.Session?.User?.UserID, ctx.ThreadId, sink);
+        // The gate is always there: in Auto mode it lets everything through, but a hook can still make it ask. Hooks are loaded once per turn,
+        // and only for calls the model makes (a tool the user runs themselves never reaches here).
+        ToolApprovalGate gate = new(ctx.ApprovalMode, ctx.Session?.User?.UserID, ctx.ThreadId, sink);
+        ToolHookRunner hooks = ToolHookRunner.For(ctx.Session?.User);
         return async (call, cancel) =>
     {
         try
         {
             // The model id is the turn's own model: a handler that starts a nested request (captioning) must stay on it.
-            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id);
+            return await ToolExecutorService.ExecuteTool(call.Name, ParseObject(call.Arguments), ctx.Session, ctx.AssistantId, ctx.ThreadId, model, cancel, gate, call.Id, hooks);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

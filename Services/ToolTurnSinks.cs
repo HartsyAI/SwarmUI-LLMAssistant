@@ -92,6 +92,10 @@ public sealed class ChatWsSink(Func<JObject, Task> send, Func<bool> isOpen) : IT
         {
             frame["failure"] = outcome.Error;
         }
+        if (outcome.Usage is { Any: true })
+        {
+            frame["usage"] = outcome.Usage.ToJson();
+        }
         return Send(frame);
     }
 

@@ -18,6 +18,11 @@ class LLMASettingsForms {
                 this.checkbox('llma-s-stream', 'Stream', 'Show a reply as it is written instead of all at once.', true),
                 this.slider('llma-s-image-max', 'Vision Image Max Size', 'Longest edge, in pixels, an attached image is shrunk to before it is sent. Lower means fewer vision tokens.', 1536, 256, 2048, 128)
             ]),
+            this.group('llma_general_context', 'Context', 'How a long chat is kept within the model\'s memory. When it grows near the limit, the start of it is replaced by a short summary the model writes, so the chat can go on.', [
+                this.number('llma-s-context-window', 'Context Window', 'The most tokens the model can hold, if you know better than the model\'s own listing. 0 uses the model\'s figure, and with none known, chats are never shortened on their own.', 0, 0, 2000000, 1024),
+                this.checkbox('llma-s-auto-compact', 'Shorten Long Chats', 'Summarize the start of a chat on its own when it nears the limit. You can also type /compact in a chat.', true),
+                this.slider('llma-s-compact-threshold', 'Shorten At', 'The share of the context window a chat may fill before it is shortened.', 0.8, 0.5, 0.95, 0.05)
+            ]),
             this.group('llma_general_interface', 'Interface', 'Place LLM model files in Models/llm/. Configure an LLM backend under Server > Backends.', [
                 this.checkbox('llma-s-markdown', 'Markdown Rendering', 'Render replies as formatted text.', true),
                 this.checkbox('llma-s-enter-send', 'Enter to Send', 'Enter sends the message and Shift+Enter makes a new line. Off swaps them. Ctrl+Enter always sends.', true),
@@ -80,6 +85,11 @@ class LLMASettingsForms {
             button = `<span class="auto-input-qbutton info-popover-button" onclick="doPopover('group_${id}', arguments[0])">?</span>`;
         }
         return `${popover}<div class="input-group input-group-open" id="auto-group-${id}"><span id="input_group_${id}" class="input-group-header input-group-shrinkable"><span class="header-label-wrap"><span class="auto-symbol">&#x2B9F;</span><span class="header-label">${translateableHtml(escapeHtml(title))}</span>${button}</span></span><div class="input-group-content" id="input_group_content_${id}" data-do_not_save="true">${inputs.join('')}</div></div>`;
+    }
+
+    /** A text box (core's makeTextInput, which adds its own popover). <paramref name="format"/> is 'normal' for one line or 'big' for several. */
+    text(id, name, description, value, format = 'normal') {
+        return makeTextInput(null, id, id, name, description, value, format, '', false, true);
     }
 
     /** A decimal or integer slider with its number box (core's makeSliderInput), plus its popover. */

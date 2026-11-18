@@ -11,9 +11,9 @@ async function openSettings(page: any, tab = 'general') {
 test('the general settings are core input groups made of core inputs', async ({ llm }) => {
     await openSettings(llm);
     let form = llm.locator('#llma-settings-general-form');
-    await expect(form.locator('.input-group')).toHaveCount(2);
-    await expect(form.locator('.auto-slider-box')).toHaveCount(3);
-    await expect(form.locator('.auto-checkbox')).toHaveCount(4);
+    await expect(form.locator('.input-group')).toHaveCount(3);
+    await expect(form.locator('.auto-slider-box')).toHaveCount(4);
+    await expect(form.locator('.auto-checkbox')).toHaveCount(5);
     // Core's tab and toggle markup, not custom classes.
     await expect(llm.locator('.llma-modal-tabs.nav.nav-tabs .nav-link').first()).toBeVisible();
 });

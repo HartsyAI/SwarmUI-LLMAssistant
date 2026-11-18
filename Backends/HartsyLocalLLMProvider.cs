@@ -664,6 +664,12 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 case TextChunkKind.Chunk:
                     await onChunk(new JObject() { ["chunk"] = chunk.Text });
                     break;
+                case TextChunkKind.Usage:
+                    if (chunk.Usage is { } usage)
+                    {
+                        await onChunk(new JObject() { ["usage"] = LLMUsage.EngineToFrame(usage) });
+                    }
+                    break;
                 case TextChunkKind.NativeToolCall:
                     // Only for a request that offered tools; the chat's tool loop reads calls from StreamAsync, and a one-shot reply leaves them out.
                     if (chunk.ToolCall is { } nativeCall)
@@ -701,7 +707,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                     // Result duplicates the text already streamed as Chunk events: LLMProviderBackend.Generate's
                     // non-streaming accumulator appends both "chunk" and "result", so forwarding Result here would
                     // double the text.
-                    // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), Usage has no wire field, and only ToolLoop emits ToolResult.
+                    // ToolCallDelta/ToolCallAbort are dropped (the completed NativeToolCall is what consumers read), and only ToolLoop emits ToolResult.
             }
         }
     }

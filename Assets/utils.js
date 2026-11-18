@@ -800,6 +800,10 @@ const LLMA_DEFAULT_SETTINGS = {
         // Recurrent-block passes for a looped model (Dory); 0 = the backend's default.
         loops:              0,
         imageMaxDimension:  1536,
+        // Context management: 0 = use the model's own window; summarize the start of a long chat near the limit.
+        contextWindow:      0,
+        autoCompact:        true,
+        compactThreshold:   0.8,
         stream:             true,
     },
     ui: {

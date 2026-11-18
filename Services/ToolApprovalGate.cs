@@ -53,12 +53,18 @@ public sealed class ToolApprovalGate(string mode, string owner, string threadId,
     /// <summary>The mode this turn runs in.</summary>
     public string Mode { get; } = ApprovalPolicy.Normalize(mode);
 
-    /// <summary>Checks one call. Returns null when it may run, or the result to give the model instead when it may not. Waits while the user
+    /// <summary>Checks one call; <paramref name="forceAsk"/> asks the user even when the mode would allow it. Returns null when it may run, or the result to give the model instead when it may not. Waits while the user
     /// decides. A Stop or closed tab while waiting cancels the wait (<see cref="OperationCanceledException"/>).</summary>
-    public async Task<JObject> CheckAsync(string toolId, ToolRisk risk, JObject args, string callId, CancellationToken ct)
+    public async Task<JObject> CheckAsync(string toolId, ToolRisk risk, JObject args, string callId, CancellationToken ct, bool forceAsk = false)
     {
         bool allowedForChat = !string.IsNullOrEmpty(threadId) && _grants.Has(owner, threadId, toolId);
-        switch (ApprovalPolicy.Decide(Mode, risk, allowedForChat))
+        ApprovalDecision decision = ApprovalPolicy.Decide(Mode, risk, allowedForChat);
+        // A hook can insist the user is asked even when the mode (or an earlier "allow for this chat") would let the call through.
+        if (forceAsk && decision == ApprovalDecision.Allow)
+        {
+            decision = ApprovalDecision.Ask;
+        }
+        switch (decision)
         {
             case ApprovalDecision.Allow:
                 return null;

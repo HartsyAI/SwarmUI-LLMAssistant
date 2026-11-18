@@ -24,6 +24,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Quick start](#quick-start)
 - [The interface](#the-interface)
 - [Assistants](#assistants)
+- [Long chats](#long-chats)
 - [Tool calling](#tool-calling)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
@@ -219,6 +220,17 @@ Click the compare icon next to the model picker, choose a second model, and send
 
 ![Side-by-side model comparison](Assets/screenshots/compare-mode.png)
 
+### Long chats <a id="long-chats"></a>
+
+The bar above the chat shows how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own.
+
+When a chat reaches **80%** of the window (`Shorten At`), the start of it is replaced, for the next request, by a short **summary** the model writes (`Shorten Long Chats`, on by default). The newest messages are kept as they are. You can also type **`/compact`** in the composer to do it now, and add what the summary should dwell on (`/compact keep the file names`). A marker row in the chat shows where the summary ends and opens to show its text.
+
+- Nothing is deleted. The summary is a side record on the chat, not a message in the tree, so branching, editing and deleting work as before. The full conversation stays on screen and in exports; only what is **sent to the model** is shortened.
+- A summary applies only while the messages it covers are exactly the start of the branch showing. Fork the chat before it, or edit one of those messages, and the summary quietly stops applying (the full history is sent again). A later compaction builds on the earlier summary rather than starting over.
+- If writing the summary fails, the reply goes ahead with the whole chat and the failure is shown. Compare mode applies an existing summary but does not start one.
+- The summary is written by the chat's own model, with no tools, in a request of its own, so it cannot call anything and does not disturb the chat's prompt cache beyond the one time the history changes.
+
 ### Branching
 
 Editing one of your messages, or regenerating a reply, creates a **new branch** rather than overwriting. The old version stays reachable through the pager on the message. Under the hood the thread is a tree with an `activeLeafId`; the conversation you see is the root→leaf path.
@@ -291,6 +303,19 @@ The **Ask / Auto / Plan** control in the composer sets how this chat approves to
 **Allow for this chat** covers that one tool until the chat is deleted or the server restarts. A denied call gives the model a refusal result it can act on, so it carries on without the tool. Stop, closing the tab or deleting the chat while a call waits ends the wait. You are asked only about tools you are allowed to use, and a tool you run yourself from the `/` picker is never asked about. Voice turns have nobody to ask, so they always run in Auto.
 
 Each tool declares what it can do, which is what the modes read: `file_read`, `memory_read`, `swarm_docs`, `web_search`, `caption_image` and `fuse_image_descriptions` only read; `generate_image`, `create_image_preset`, `batch_caption_folder`, `file_write` and `memory_write` change something; `http_request` sends a request; `shell_exec` runs a command. A tool that does not say counts as a change.
+
+### Hooks
+
+A **hook** is a policy that runs around a tool call the model makes. Write them in `Settings > Hooks`, which also has a tester that shows what a hook would do to a sample call without running any tool.
+
+- A **pre** hook runs before the call and can **refuse** it (the model is told why), make the user be **asked** first whatever the approval mode is, **rewrite** its arguments, or add a **note** for the model.
+- A **post** hook runs after the call and can add a note to the result, which the model reads next round.
+- A **rule** hook is plain data: a tool (an id, or a pattern with `*` and `?` such as `file_*`), optionally one argument and how to compare it (present, glob, regular expression or contains), and what to do. It needs no permission beyond `llm_settings`.
+- A **command** hook runs a program (no shell). It gets the call as one JSON object on standard input (`{phase, tool, handler, arguments, result?}`) and answers with JSON on standard output (`{decision: allow|deny|ask, message, arguments, note}`, every field optional). Exit code 2 refuses the call with what it wrote to standard error; any other failure, or running past its time limit, follows its **If it fails** setting (refuse the call by default). Creating one needs `llm_hook_command`, which defaults to **NOBODY**: it is the same power as `shell_exec`.
+
+Hooks live in the same two layers as assistants and tools. A **shared** hook (needs `llm_shared_write`) applies to every user; a **personal** hook applies to you. Both apply, shared first, each by its order. The first refusal stops the rest, rewrites apply one after another, and notes pile up. A personal command hook stops running if its owner loses `llm_hook_command`.
+
+Hooks apply to calls the **model** makes, and are loaded once when a turn starts. A tool you run yourself from the `/` picker, the Run Test panel or the API is never touched. Rule matching is case-insensitive, and a regular expression that takes too long to evaluate is treated as not matching.
 
 ---
 
@@ -434,6 +459,9 @@ Example:
 | Seed | `-1` | `-1` = random. Only providers that honor a seed use it. |
 | Loops | `0` | Recurrent-block passes for a looped model such as Nemotron Dory, 1 to 4; `0` = not set (the local backend's **Default Loops**, `RecurrentLoops`, applies). Other models ignore it. |
 | Context Messages | `0` | Prior messages included per request; `0` = all. |
+| Context Window | `0` | The most tokens the model can hold, if the model's own listing is wrong or silent; `0` uses the listing. |
+| Shorten Long Chats | `true` | Summarize the start of a chat on its own once it fills **Shorten At** of the window. See [Long chats](#long-chats). |
+| Shorten At | `0.8` | The share of the window (0.5 to 0.95) that triggers it. |
 | Stream | `true` | WebSocket streaming. |
 | Vision Image Max Size | `1536` | Long-edge cap in px, clamped to 256–2048. |
 | Markdown Rendering | `true` | |
@@ -460,7 +488,7 @@ Everything else is local: the HartsyInference engine runs in-process with no net
 
 ## Permissions
 
-Sixteen permissions, all under the **LLMAssistant** group in `Server > Users`. Defaults are deliberately conservative.
+These permissions are all under the **LLMAssistant** group in `Server > Users`. Defaults are deliberately conservative.
 
 | Permission | Default | Covers |
 |---|---|---|
@@ -478,6 +506,7 @@ Sixteen permissions, all under the **LLMAssistant** group in `Server > Users`. D
 | `llm_tool_file_write` | POWERUSERS *(risky)* | `file_write` |
 | `llm_tool_http_request` | POWERUSERS *(risky)* | `http_request` |
 | `llm_tool_shell_exec` | **NOBODY** *(powerful)* | `shell_exec` |
+| `llm_hook_command` | **NOBODY** *(powerful)* | Creating a command hook (a program run around tool calls) |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
 
@@ -526,6 +555,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantUploadChatVideo` | POST | `threadId`, `messageId`, `videoData` (data URI; mp4, webm or mov, up to 64 MB) | `{success, url, mediaType, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
+| `LLMAssistantCompactThread` | POST | `threadId`, `model?`, `instructions?` | `{success, compacted, compaction?}`; summarizes the start of the chat now (`/compact`). `compacted: false` means there was nothing worth compacting yet. `compaction` is `{id, upToMessageId, messageCount, tokensBefore, summary, createdAt}` |
 
 Pass a `models` array of `{model, device?, backendId?, assistantMessageId?}` with **two or more** entries to `LLMAssistantSendMessageWS` and it runs compare mode instead of a single reply.
 
@@ -541,7 +571,10 @@ Each WebSocket frame is one JSON object. In compare mode every frame also carrie
 | `{"tool_call": {id, name, arguments}}` | A tool call was resolved and is about to run. |
 | `{"tool_approval": {approvalId, id, name, arguments, risk, mode}}` | A tool call is waiting for the user's approval (Ask mode). Answer it with `LLMAssistantResolveToolApproval`. `id` is the call's id from `tool_call`; `risk` is `write`, `exec` or `network`. |
 | `{"tool_result": {id, name, result}}` | That tool finished. A refused call has `success: false, denied: true` and a message for the model. |
-| `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. |
+| `{"done": true, "full_text": "…", "stopReason": …}` | Generation finished. `stopReason: "length"` means the token cap cut it off. When the provider reported token counts, `usage` is `{promptTokens, completionTokens, cachedTokens, contextTokens, rounds}`: the sums over the turn's model rounds, and `contextTokens` the size of the conversation after the turn. The same object is saved on the reply as `meta.usage`. |
+| `{"compacting": true}` | The chat is near the model's window and is being summarized before this reply (see [Long chats](#long-chats)). Followed by `compaction`, or `compactionFailed`. |
+| `{"compaction": {id, upToMessageId, messageCount, tokensBefore, summary, createdAt}}` | The summary was written and saved; this reply is sent with it. |
+| `{"compactionFailed": "…"}` | The summary could not be written; the reply goes ahead with the whole chat. |
 | `failure` on `done` | The reply stopped on an error after some text: the message is shown under that text, which stays. The reply still ends with this `done` frame. |
 | `{"done": true, "truncated": true, "reason": "max_iterations"}` | The 8-round agentic cap was hit. |
 | `{"titleUpdated": "…", "threadId": "…"}` | The chat was auto-titled from its first exchange. |
@@ -586,6 +619,10 @@ they were sent with.
 | `LLMAssistantSetActiveLeaf` | `threadId`, `messageId` | `{success, thread}`, switch branch |
 | `LLMAssistantSetThreadToolsEnabled` | `threadId`, `enabled?` | `{success, thread}`; omit `enabled` to clear the override |
 | `LLMAssistantSetThreadApprovalMode` | `threadId`, `mode` (`auto` \| `ask` \| `plan`) | `{success, mode}`; how this chat approves tool calls |
+| `LLMAssistantGetHooks` | none | `{success, hooks[], canWriteShared, canCommand}`; every hook the caller can see, each tagged `_scope` |
+| `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
+| `LLMAssistantDeleteHook` | `hookId`, `scope?` | `{success}` |
+| `LLMAssistantTestHook` | `hook`, `toolId`, `arguments`, `result?` | `{success, phase, denied?, message?, forceAsk?, arguments?, notes[]}`; what the hook would do to the sample call, with no tool run. Testing a command hook runs its program, so it needs `llm_hook_command` |
 | `LLMAssistantResolveToolApproval` | `approvalId`, `decision` (`allow` \| `allow_chat` \| `deny`) | `{success, resolved}`; answers a waiting `tool_approval`. A separate request, not a message on the chat socket. Only the user the call was for can answer; an unknown, finished or someone else's id gives `resolved: false` |
 | `LLMAssistantExportThread` | `threadId`, `format` (`json` \| `markdown`) | `{success, filename, content}` |
 

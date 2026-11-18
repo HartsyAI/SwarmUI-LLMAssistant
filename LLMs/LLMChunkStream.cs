@@ -8,7 +8,8 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// <summary>Turns a provider's JSON frame callback into the engine's <see cref="TextChunk"/> stream, so every provider can be
 /// consumed the same way. Frames map as: <c>chunk</c> to <see cref="TextChunkKind.Chunk"/>, <c>result</c> to
 /// <see cref="TextChunkKind.Result"/>, <c>native_tool_call</c> to <see cref="TextChunkKind.NativeToolCall"/>, <c>stopReason</c> to
-/// <see cref="TextChunkKind.StopReason"/>, and <c>status</c> to <see cref="TextChunkKind.Status"/>. Other frames are not part of the chunk
+/// <see cref="TextChunkKind.StopReason"/>, <c>status</c> to <see cref="TextChunkKind.Status"/>, and <c>usage</c> (<c>{promptTokens, completionTokens, cachedTokens}</c>)
+/// to <see cref="TextChunkKind.Usage"/>. Other frames are not part of the chunk
 /// vocabulary and are dropped.</summary>
 public static class LLMChunkStream
 {
@@ -108,6 +109,10 @@ public static class LLMChunkStream
         if (frame["status"] is { } status)
         {
             return new TextChunk { Kind = TextChunkKind.Status, Status = new TextStatus(status.ToString()) };
+        }
+        if (LLMUsage.FrameToEngine(frame["usage"]) is { } usage)
+        {
+            return new TextChunk { Kind = TextChunkKind.Usage, Usage = usage };
         }
         return null;
     }

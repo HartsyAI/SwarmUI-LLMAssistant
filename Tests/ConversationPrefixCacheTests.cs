@@ -291,7 +291,7 @@ public class ConversationPrefixCacheTests
         };
         ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("6f1d0c2b9a8e4f0f"), "llama3.2", (LLMRoles.User, "hi"));
         JObject body = provider.BuildRequestBody(input, stream: true);
-        Assert.Equal(["max_tokens", "messages", "model", "stream", "temperature", "top_p"], body.Properties().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["max_tokens", "messages", "model", "stream", "stream_options", "temperature", "top_p"], body.Properties().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.DoesNotContain("6f1d0c2b9a8e4f0f", body.ToString());
     }
 
@@ -304,7 +304,7 @@ public class ConversationPrefixCacheTests
         };
         ExtendedLLMInput input = Turn(ChatEndpoints.ThreadConversationId("6f1d0c2b9a8e4f0f"), "claude-opus-4-8", (LLMRoles.User, "hi"));
         JObject body = provider.BuildRequestBody(input, stream: true);
-        Assert.Equal(["max_tokens", "messages", "model", "stream"], body.Properties().Select(p => p.Name).Order(StringComparer.Ordinal));
+        Assert.Equal(["max_tokens", "messages", "model", "stream", "stream_options"], body.Properties().Select(p => p.Name).Order(StringComparer.Ordinal));
         Assert.DoesNotContain("6f1d0c2b9a8e4f0f", body.ToString());
     }
 }
