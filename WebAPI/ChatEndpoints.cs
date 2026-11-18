@@ -7,6 +7,7 @@ using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
+using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using HartsyInference.Engine.Requests;
 using HartsyInference.Engine.ToolCalling;
@@ -899,11 +900,15 @@ public static class ChatEndpoints
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
             // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant
             // (see EffectiveToolsEnabled).
-            List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+            bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
+            List<JObject> enabledTools = toolsOn
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
             // A chat in code mode brings the code tools along (see CodeModeService).
             enabledTools = CodeModeService.WithCodeTools(enabledTools, thread, settings, session.User);
+            // A chat with skills to offer gets the skill tool and a one-line-per-skill index (see PromptAssetService).
+            enabledTools = PromptAssetService.WithSkillTool(enabledTools, thread, settings, session.User, toolsOn);
+            systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
             // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
             systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
             // A conversation near the model's window is summarized first, so this request fits.
@@ -1117,10 +1122,12 @@ public static class ChatEndpoints
         // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
-        List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
+        bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
+        List<JObject> enabledTools = toolsOn
             ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
             : [];
         enabledTools = CodeModeService.WithCodeTools(enabledTools, thread, settings, session.User);
+        enabledTools = PromptAssetService.WithSkillTool(enabledTools, thread, settings, session.User, toolsOn);
         SemaphoreSlim sendLock = new(1, 1);
         // Parse lane descriptors: each is { model, device?, assistantMessageId? }.
         List<(string Model, string Device, int BackendId, string AssistantMessageId)> lanes = [];
@@ -1157,6 +1164,7 @@ public static class ChatEndpoints
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+                systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
                 input.RequestSession = session;

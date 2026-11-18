@@ -9,8 +9,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 /// conventions without being told each time. The file is <c>AGENTS.md</c>, or <c>CLAUDE.md</c> when there is none. The text is cut to a fixed size and
 /// has its line endings normalized, so the prompt is the same text every turn until the file changes, which keeps a local model's prompt cache valid.
 /// <para>Only workspaces a user may use are read (their own, or a folder an admin allowed), and only for a chat that has a code tool switched on, so an
-/// ordinary chat never takes in a workspace file. Whether to trust an instructions file from a folder someone else controls is a decision for the skills
-/// work that follows; until then, the files that can speak here are the ones in the user's own workspaces and the admin's allowed folders.</para></summary>
+/// ordinary chat never takes in a workspace file. The files that can speak here are the ones in the user's own workspaces and the admin's allowed folders. Skills and commands kept in a
+/// workspace are held to a stricter rule (the user must trust the workspace first, see <see cref="PromptAssets.PromptAssetService"/>); this file's behaviour is unchanged.</para></summary>
 public static class ProjectInstructionsService
 {
     /// <summary>The file names tried, in order.</summary>

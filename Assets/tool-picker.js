@@ -30,6 +30,22 @@ function llmaPickerTools() {
     return (LLMAState.tools || []).filter(t => enabledIds.includes(t.id) && t.enabled !== false);
 }
 
+// Everything the "/" picker lists: the user's own commands and skills first (there are few, and they would sit below a dozen tools), then the assistant's tools.
+// Commands and skills do not depend on tool calling being on: a command is only text put into the message.
+// Each item is { kind: 'tool' | 'command' | 'skill', id, name, description, tool? }.
+function llmaPickerItems() {
+    const tools = llmaPickerTools().map(t => ({ kind: 'tool', id: t.id, name: t.name, description: t.description, tool: t }));
+    return llmaPromptAssets.pickerItems().concat(tools);
+}
+
+// Called when the commands and skills were (re)loaded, so an open picker shows them.
+function llmaPickerOnListChanged() {
+    const input = document.getElementById('llma-input');
+    if (LLMAToolPicker.open && input && LLMAToolPicker.tokenStart >= 0) {
+        llmaPickerOnInput(input);
+    }
+}
+
 // -- Per-chat "Tools" master toggle (composer button, next to the "/" picker) --------------------
 
 // Effective state for the ACTIVE thread: an explicit per-thread override wins; otherwise falls back
@@ -132,8 +148,8 @@ function llmaPickerClose() {
 function llmaPickerOpenAll() {
     const input = document.getElementById('llma-input');
     if (LLMAToolPicker.open && LLMAToolPicker.tokenStart === -1) { llmaPickerClose(); return; }
-    const tools = llmaPickerTools();
-    if (tools.length === 0) {
+    const items = llmaPickerItems();
+    if (items.length === 0) {
         if (typeof llmaShowToast === 'function') {
             llmaShowToast(llmaEffectiveToolsEnabled()
                 ? 'No tools are enabled for this assistant.'
@@ -142,7 +158,7 @@ function llmaPickerOpenAll() {
         input?.focus();
         return;
     }
-    LLMAToolPicker.items = tools;
+    LLMAToolPicker.items = items;
     LLMAToolPicker.tokenStart = -1;
     LLMAToolPicker.active = 0;
     LLMAToolPicker.open = true;
@@ -167,15 +183,15 @@ function llmaPickerOpenAll() {
 function llmaPickerOnInput(input) {
     const tok = llmaPickerToken(input);
     if (!tok) { llmaPickerClose(); return; }
-    const tools = llmaPickerTools();
+    const all = llmaPickerItems();
     const items = tok.query
-        ? tools.filter(t => `${t.id} ${t.name || ''}`.toLowerCase().includes(tok.query))
-        : tools;
+        ? all.filter(t => `${t.id} ${t.name || ''}`.toLowerCase().includes(tok.query))
+        : all;
     // Keep the popup open with an explanatory empty state — silently closing looked broken.
     // Reassigned on every keystroke — translate() directly (never class="translate").
     // The "No tools match" case appends the user's own typed search text, which is never translated.
     LLMAToolPicker.emptyMessage = items.length === 0
-        ? (tools.length === 0
+        ? (all.length === 0
             ? (llmaEffectiveToolsEnabled() ? translate('No tools are enabled for this assistant.') : translate('Tool calling is off for this chat.'))
             : `${translate('No tools match')} "/${tok.query}".`)
         : null;
@@ -197,10 +213,10 @@ function llmaPickerRender() {
     el.innerHTML =
         LLMAToolPicker.items.map((t, i) => `
             <div class="llma-tool-popup-item${i === LLMAToolPicker.active ? ' active' : ''}" id="llma-tool-opt-${i}" data-idx="${i}" role="option" aria-selected="${i === LLMAToolPicker.active}">
-                <div class="llma-tool-popup-name">/${llmaEscapeHtml(t.id)}</div>
+                <div class="llma-tool-popup-name">/${llmaEscapeHtml(t.id)}${t.kind == 'tool' ? '' : ` <span class="badge text-bg-secondary">${translate(t.kind == 'skill' ? 'Skill' : 'Command')}</span>`}</div>
                 <div class="llma-tool-popup-desc">${llmaEscapeHtml(t.description || t.name || '')}</div>
             </div>`).join('') +
-        `<div class="llma-tool-popup-foot">${translate('↑↓ / Tab navigate · Ctrl+Enter or click to run · Enter to send')}</div>`;
+        `<div class="llma-tool-popup-foot">${translate('↑↓ / Tab navigate · Ctrl+Enter or click to run a tool or add a command · Enter to send')}</div>`;
     el.style.display = '';
     const input = document.getElementById('llma-input');
     if (input) {
@@ -242,17 +258,36 @@ function llmaPickerOnKeydown(e) {
     return false;
 }
 
-// Option A: strip the "/token" from the input and open the args form.
-function llmaPickerSelect(tool) {
-    if (!tool) return;
+// Option A: strip the "/token" from the input and open the args form. A command or skill is not run from here: its "/name " goes into the input,
+// ready for the arguments, and sending expands it (see llmaPromptAssets).
+function llmaPickerSelect(item) {
+    if (!item) return;
     const input = document.getElementById('llma-input');
+    if (item.kind != 'tool') {
+        if (input) {
+            const text = `/${item.id} `;
+            if (LLMAToolPicker.tokenStart >= 0) {
+                const pos = input.selectionStart ?? input.value.length;
+                input.value = input.value.slice(0, LLMAToolPicker.tokenStart) + text + input.value.slice(pos);
+                input.selectionStart = input.selectionEnd = LLMAToolPicker.tokenStart + text.length;
+            }
+            else {
+                input.value = text + input.value;
+                input.selectionStart = input.selectionEnd = text.length;
+            }
+            input.dispatchEvent(new Event('input'));
+            input.focus();
+        }
+        llmaPickerClose();
+        return;
+    }
     if (input && LLMAToolPicker.tokenStart >= 0) {
         const pos = input.selectionStart ?? input.value.length;
         input.value = input.value.slice(0, LLMAToolPicker.tokenStart) + input.value.slice(pos);
         input.dispatchEvent(new Event('input'));
     }
     llmaPickerClose();
-    llmaToolFormOpen(tool);
+    llmaToolFormOpen(item.tool);
 }
 
 // ── Option A: schema-driven args form, inline above the input ──────────────────────────────────

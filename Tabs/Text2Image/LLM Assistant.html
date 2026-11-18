@@ -286,6 +286,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="tools" role="tab" aria-selected="false">Tools</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="hooks" role="tab" aria-selected="false">Hooks</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="mcp" role="tab" aria-selected="false">MCP Servers</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="skills" role="tab" aria-selected="false">Skills</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -515,6 +516,14 @@
                     <div id="llma-mcp-list"></div>
                     <button type="button" class="basic-button translate" id="llma-mcp-add" style="display:none;">+ Add MCP Server</button>
                     <div id="llma-mcp-editor" style="display:none;"></div>
+                </div>
+
+                <!-- Skills and commands: prompts the user runs with "/" and instructions the assistant can load (skills.js; the editor is built from core's input helpers) -->
+                <div class="llma-modal-panel" id="llma-settings-skills" style="display:none;">
+                    <div id="llma-skills-list"></div>
+                    <button type="button" class="basic-button translate" id="llma-skills-add">+ Add Skill or Command</button>
+                    <div id="llma-skills-editor" style="display:none;"></div>
+                    <div id="llma-skills-trust"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

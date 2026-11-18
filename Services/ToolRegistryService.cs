@@ -837,6 +837,37 @@ public static class ToolRegistryService
             ["updated"] = now
         };
 
+        tools[ToolConstants.Skill] = new JObject
+        {
+            ["id"] = ToolConstants.Skill,
+            ["name"] = "Skill",
+            ["description"] = "Load a skill: written instructions for a particular kind of task, listed under Skills in your instructions. Call it with the skill's name when the user's request matches, then follow what it returns. A skill may come with other files (references, templates); the result lists them, and `file` reads one.",
+            ["parameters"] = new JObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JObject
+                {
+                    ["name"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "The skill's name, as listed under Skills."
+                    },
+                    ["file"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Optional. A file from the skill's own folder to read instead of its instructions, as listed in an earlier result."
+                    }
+                },
+                ["required"] = new JArray("name")
+            },
+            ["handlerType"] = ToolConstants.HandlerBuiltIn,
+            ["handlerId"] = ToolConstants.Skill,
+            ["enabled"] = true,
+            ["isBuiltIn"] = true,
+            ["created"] = now,
+            ["updated"] = now
+        };
+
         foreach (KeyValuePair<string, JToken> code in CodeToolDefinitions.Build(now))
         {
             tools[code.Key] = code.Value;

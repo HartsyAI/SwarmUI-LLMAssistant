@@ -34,6 +34,7 @@ public static class ToolExecutorService
         [ToolConstants.SetVolume] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.Mcp] = LLMAssistantAPI.PermToolMcp,
+        [ToolConstants.Skill] = LLMAssistantAPI.PermToolSkills,
         [ToolConstants.CodeRead] = LLMAssistantAPI.PermCodeMode,
         [ToolConstants.CodeWrite] = LLMAssistantAPI.PermCodeMode,
         [ToolConstants.CodeEdit] = LLMAssistantAPI.PermCodeMode,
@@ -65,7 +66,7 @@ public static class ToolExecutorService
             if (!string.IsNullOrEmpty(assistantId))
             {
                 ResolvedAssistant resolved = AssistantResolver.Resolve(assistantId, session?.User);
-                if (!resolved.EnabledToolIds.Contains(toolId) && !CodeModeService.GrantsTool(toolId, session?.User, threadId))
+                if (!resolved.EnabledToolIds.Contains(toolId) && !CodeModeService.GrantsTool(toolId, session?.User, threadId) && !PromptAssets.PromptAssetService.GrantsTool(toolId, session?.User, threadId))
                 {
                     return Error($"Tool '{toolId}' is not enabled for assistant '{assistantId}'.");
                 }

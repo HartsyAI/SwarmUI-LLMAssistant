@@ -11,7 +11,7 @@
     async function llmaSendMessage() {
         const input = document.getElementById('llma-input');
         if (!input) return;
-        const message = input.value?.trim();
+        let message = input.value?.trim();
         if (!message && !LLMAState.attachedImage) return;
         if (LLMAState.isGenerating) return;
 
@@ -40,6 +40,18 @@
         // Option B: a leading "/toolId ..." forces that tool; strip it for the model payload (the backend
         // adds a "call this tool" directive); the bubble still shows what the user typed.
         const forced = (typeof llmaPickerExtractForceTool === 'function') ? llmaPickerExtractForceTool(message) : null;
+        // A leading "/name args" that is a command or skill (and not a tool, which wins a shared name) is expanded by the server into the text that is sent. The input
+        // is left as typed when it cannot be, so nothing is lost.
+        if (!forced) {
+            const invocation = await llmaPromptAssets.invocation(message);
+            if (invocation) {
+                const expanded = await llmaPromptAssets.expand(invocation);
+                if (expanded == null) {
+                    return;
+                }
+                message = expanded;
+            }
+        }
         const payloadMessage = forced ? forced.message : message;
         if (typeof llmaPickerClose === 'function') llmaPickerClose();
 

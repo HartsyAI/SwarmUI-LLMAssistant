@@ -76,6 +76,13 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the tools offered by the MCP servers an admin has set up. What those tools can do depends on the server. Each assistant still has to have a tool switched on before it can use it.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to let the LLM load skills (the <c>skill</c> tool). A skill is only text an admin or the user wrote, so this is low risk; it is a permission so
+    /// an admin can switch skills off for a role.</summary>
+    public static readonly PermInfo PermToolSkills = Permissions.Register(new(
+        "llm_tool_skills", "[LLM Tool] Skills",
+        "Allows the LLM to load the skills (written instructions for particular tasks) that the user, an admin, or a trusted workspace provides, by calling the skill tool.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -225,6 +232,12 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(HookEndpoints.LLMAssistantSaveHook, true, PermSettings);
         API.RegisterAPICall(HookEndpoints.LLMAssistantDeleteHook, true, PermSettings);
         API.RegisterAPICall(HookEndpoints.LLMAssistantTestHook, true, PermSettings);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantGetPromptAssets, false, PermChat);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantGetPromptAsset, false, PermChat);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantExpandPromptAsset, false, PermChat);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSavePromptAsset, true, PermSettings);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantDeletePromptAsset, true, PermSettings);
+        API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSetWorkspaceTrust, true, PermSettings);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadApprovalMode, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);

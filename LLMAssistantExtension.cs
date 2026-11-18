@@ -2,6 +2,7 @@ using System.IO;
 using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Mcp;
+using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.T2I;
 using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -42,6 +43,9 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/code-mode.js");
         // The MCP Servers tab of the settings dialog.
         ScriptFiles.Add("Assets/mcp.js");
+        // Skills and commands: the list the "/" picker reads (before tool-picker.js) and the settings tab.
+        ScriptFiles.Add("Assets/prompt-assets.js");
+        ScriptFiles.Add("Assets/skills.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
@@ -118,6 +122,8 @@ public class LLMAssistantExtension : Extension
         // Removable backend pack: supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
         Backends.LLMBackendPack.Register();
+        // Skills and commands that ship with the extension (none yet; the folder is looked at if it appears).
+        PromptAssetService.BundledRoot = Path.Combine(FilePath, "Assets", "prompt-assets");
         RegisterBuiltInTools();
         LLMAssistantAPI.Register();
         PromptTagHandler.RegisterAll();
@@ -150,6 +156,8 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new CodeGrepTool());
         ToolRegistryService.RegisterHandler(new CodeBashTool());
         ToolRegistryService.RegisterHandler(new CodeTodoTool());
+        // Skills: the tool that loads one. A chat is given it when the user has a skill the model may load.
+        ToolRegistryService.RegisterHandler(new SkillTool());
         // MCP: one handler for every tool an MCP server offers, and the source that lists them. The servers connect in the background, so a slow
         // or broken one never holds up start-up; its tools appear once it is ready.
         ToolRegistryService.RegisterHandler(new McpToolHandler());

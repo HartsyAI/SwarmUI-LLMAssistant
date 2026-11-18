@@ -28,6 +28,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Tool calling](#tool-calling)
 - [MCP servers](#mcp-servers)
 - [Code tools and workspaces](#code-tools)
+- [Skills and commands](#skills-and-commands)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -369,8 +370,33 @@ The chat list gets an **All / Chats / Code** filter (for users who can use code 
 - **Paths stay inside.** One check (`PathSandbox`) is used by every code tool: it refuses `..`, an absolute path that is not inside the workspace, network paths, Windows device names and alternate streams, and it follows symbolic links and junctions, so a link inside the workspace that points outside cannot be used to reach what is beyond (SwarmUI's own `CheckFilePath` only checks the text of the path). Errors name no host paths. Nothing is written inside a `.git` folder.
 - **`code_bash` is not a fence.** The workspace is where the command starts, not a limit on what it can reach. Output is cut at 30,000 characters each for standard output and error, and a command is stopped after 120 seconds by default (at most 600), with its whole process tree killed on a timeout or a Stop.
 - **Edits are exact.** `code_edit` matches the text byte for byte, except that line endings follow the file's own (a model that writes `\n` edits a Windows file correctly and the file keeps its `\r\n`). A byte-order mark is kept. Writes go through a temporary file, so a failure never leaves half a file.
-- **Project instructions.** When a chat has a code tool, the workspace's `AGENTS.md` (or `CLAUDE.md` when there is none) is added to the system prompt, cut to 16,000 characters with line endings normalized so the prompt is the same text every turn until the file changes. An ordinary chat never reads a workspace file. Only a user's own workspaces and the folders an admin allowed can supply one; deciding whether to trust an instructions file from a folder someone else controls belongs to the skills work that follows.
+- **Project instructions.** When a chat has a code tool, the workspace's `AGENTS.md` (or `CLAUDE.md` when there is none) is added to the system prompt, cut to 16,000 characters with line endings normalized so the prompt is the same text every turn until the file changes. An ordinary chat never reads a workspace file. Only a user's own workspaces and the folders an admin allowed can supply one. (Skills and commands kept in a workspace are different: they are used only after the user trusts that workspace, see [Skills and commands](#skills-and-commands).)
 - **`shell_exec`** now runs through the same process runner (its working directory is still confined to `Data/`). Its `maxOutputBytes` now caps standard output and standard error each, in characters.
+
+---
+
+## Skills and commands <a id="skills-and-commands"></a>
+
+Both are markdown files with an optional `---` front matter, managed in `Settings > Skills` and run from the `/` picker. The file layout matches the one other tools use (`skills/<name>/SKILL.md`, `commands/<name>.md`), so a skill written for them works here.
+
+- A **command** is a prompt template you run. Type `/`, pick it (or type `/name some text`), and the server turns it into the message that is sent: every `$ARGUMENTS` in the template is replaced by what you typed after the name, in one pass (an argument that itself contains `$ARGUMENTS` is not expanded again), and when the template has no token the arguments are added at the end as `ARGUMENTS: ...`. A template is only text: there is no `!command` or `@file` syntax, and nothing in it is run or read from disk. The message in the chat is the expanded text, and stays so after a reload.
+- A **skill** is instructions for a kind of task. The model is told about each one in a short **Skills** section of its system prompt (name and description, sorted by name, at most 40, so the prompt is the same text every turn and a local model's cache stays valid), and loads the rest by calling the **`skill`** tool with the name. The tool can also read another file from the skill's own folder (`file`; text only, confined to that folder, links not followed), and its result lists those files. You can run a skill yourself with `/name your request`: the skill's text is put in the message, so that works even where the model could not load it. A skill with `disable-model-invocation: true` is yours alone: the model is not told about it and the tool refuses it.
+- **Front matter.** `description` (what it is for; for a skill this is what the model decides on, and it falls back to the first line of the text), `argument-hint` (shown in the picker, for a command) and `disable-model-invocation`. A `name` key is ignored: the folder name (skill) or file name (command) is the name, lowercase letters, digits, dashes and underscores, up to 40. A value can continue on indented lines or be a `>` or `|` block; other keys are ignored. A file over 64 KB, a link, or an invalid name is skipped, and one folder holds at most 100.
+- **Where they live** (a later scope replaces a same-named one before it):
+
+  | Scope | Folder | Who sees it | Changed by |
+  |---|---|---|---|
+  | Built in | `Assets/prompt-assets/` in the extension | everyone | the extension (none ship yet) |
+  | Shared | `Data/LLMAssistant/prompt_assets/shared/` | everyone | `llm_shared_write` |
+  | Personal | `Data/LLMAssistant/prompt_assets/users/<user>/` | that user | that user, in Settings |
+  | Workspace | `.llma/` or `.claude/` in the chat's workspace | the chat, once trusted | whoever can write the workspace |
+
+  Personal skills are kept in the server's data folder and not in the user's output folder on purpose: the output folder is where the file tools write, so the model could otherwise plant a skill that goes into every later prompt.
+- **Workspace skills need trust.** The model can write files in a workspace, and a skill is text that goes into its instructions, so a workspace's own skills and commands are used only for a chat in Code mode, by a user holding `llm_code_mode`, and only after that user turns on **Trust this workspace** for it in `Settings > Skills` (off for every workspace until then; it is per user and saved in their own settings). A workspace's assets never replace a built-in, shared or personal one of the same name, and an untrusted workspace's are counted (the tab says how many) but not read into anything.
+- **When the `skill` tool is offered.** A chat is given it, and the index, when tool calling is on for the chat, the user holds `llm_tool_skills`, the tool is enabled on the Tools tab, and there is at least one skill the model may load. The assistant does not have to list it. It reads only (no approval in Ask mode, allowed in Plan mode), and hooks and the audit log apply as to any tool. Compare mode lanes get it and the index like a single chat does.
+- **The `/` precedence.** `/compact` first, then a tool id (the existing "run this tool" behaviour), then a command or skill; a command wins over a skill of the same name. The picker lists tools, commands and skills together, with a badge on the last two, and a command or skill works even when tool calling is off for the chat.
+
+Not covered: a skill that restricts the tools the model may use while it runs, skills fetched from a URL or a marketplace, and slash-command arguments by position (`$1`).
 
 ---
 
@@ -565,6 +591,7 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_hook_command` | **NOBODY** *(powerful)* | Creating a command hook (a program run around tool calls) |
 | `llm_mcp_manage` | **ADMINS** *(powerful)* | Adding, editing, testing and removing MCP servers (a stdio server is a program run on the host) |
 | `llm_tool_mcp` | **POWERUSERS** | Calling the tools MCP servers offer |
+| `llm_tool_skills` | POWERUSERS | The `skill` tool: letting the model load skills |
 | `llm_code_mode` | **NOBODY** *(powerful)* | The code tools: files in a chat's workspace, a task list and shell commands (`code_bash` is shell access) |
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
@@ -698,6 +725,12 @@ they were sent with.
 | `LLMAssistantDeleteMcpServer` | `serverId` | `{success}`; needs `llm_mcp_manage` |
 | `LLMAssistantTestMcpServer` | `server` | `{success, serverName, tools[]}`; connects and closes again, saving nothing. Needs `llm_mcp_manage` |
 | `LLMAssistantReconnectMcpServer` | `serverId` | `{success, server}`; reconnects now, ignoring any wait after a failure. Needs `llm_mcp_manage` |
+| `LLMAssistantGetPromptAssets` | `threadId?` | `{success, assets[], canWriteShared, workspace, workspaces[]}`; the skills and commands the caller can use (each `{kind, name, description, argumentHint, scope, userOnly}`, no text). With a code-mode `threadId`, a trusted workspace's are included; `workspace` is `{id, label, trusted, ignored}` (`ignored`: how many are left out because it is not trusted). `workspaces` lists the caller's workspaces with `trusted`. Needs `llm_chat` |
+| `LLMAssistantGetPromptAsset` | `kind`, `name`, `scope?`, `threadId?` | `{success, asset}` with `body`; a `scope` of `shared` or `personal` reads that folder's file even when another scope's of the same name takes precedence |
+| `LLMAssistantExpandPromptAsset` | `kind` (`skill` \| `command`), `name`, `arguments?`, `threadId?` | `{success, text}`; the message text for running it (arguments up to 20,000 characters). Needs `llm_chat` |
+| `LLMAssistantSavePromptAsset` | `kind`, `name`, `body`, `description?`, `argumentHint?`, `userOnly?`, `scope?` (`personal` \| `shared`) | `{success}`; writes `commands/<name>.md` or `skills/<name>/SKILL.md` (other files in a skill's folder are kept). Shared needs `llm_shared_write`. Needs `llm_settings` |
+| `LLMAssistantDeletePromptAsset` | `kind`, `name`, `scope?` | `{success}` |
+| `LLMAssistantSetWorkspaceTrust` | `workspaceId`, `trusted` | `{success}`; trusts a workspace's own skills and commands. Only a workspace the user can use; needs `llm_code_mode` and `llm_settings` |
 | `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
 | `LLMAssistantDeleteHook` | `hookId`, `scope?` | `{success}` |
 | `LLMAssistantTestHook` | `hook`, `toolId`, `arguments`, `result?` | `{success, phase, denied?, message?, forceAsk?, arguments?, notes[]}`; what the hook would do to the sample call, with no tool run. Testing a command hook runs its program, so it needs `llm_hook_command` |

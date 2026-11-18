@@ -134,6 +134,10 @@ public static class ToolConstants
     /// <summary>ID of the voice-satellite microphone-mute tool. Executed by the device, not the server.</summary>
     public const string MuteMic = "mute_mic";
 
+    /// <summary>ID of the tool that loads a skill. Like the code tools it is not in <see cref="BuiltInIds"/>: a chat is given it whenever the user has a skill the model may
+    /// load (see <see cref="Services.PromptAssets.PromptAssetService.WithSkillTool"/>), rather than each assistant listing it.</summary>
+    public const string Skill = "skill";
+
     /// <summary>IDs of the code tools: they work in a chat's workspace, are off by default and need <c>llm_code_mode</c>. They are not in
     /// <see cref="BuiltInIds"/>, so no assistant has them until someone switches them on.</summary>
     public const string CodeRead = "code_read", CodeWrite = "code_write", CodeEdit = "code_edit", CodeGlob = "code_glob", CodeGrep = "code_grep", CodeBash = "code_bash", CodeTodo = "code_todo";
