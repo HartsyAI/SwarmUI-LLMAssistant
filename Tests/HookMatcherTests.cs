@@ -101,4 +101,25 @@ public class HookMatcherTests
         Assert.False(matched);
         Assert.True(DateTime.UtcNow - start < TimeSpan.FromSeconds(5));
     }
+
+    [Fact]
+    public void AGlobThatTakesTooLongDoesNotMatchAndDoesNotThrow()
+    {
+        // Many wildcards against a long text with no way to match: the regex behind it backtracks until its time limit.
+        string pattern = "*a*a*a*a*a*a*a*a*a*a*b";
+        string text = new('a', 6000);
+
+        Assert.False(HookMatcher.Glob(pattern, text));
+        Assert.False(HookMatcher.ToolMatches(pattern, text));
+    }
+
+    [Fact]
+    public void ARepeatedGlobGivesTheSameAnswerFromItsCachedForm()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            Assert.True(HookMatcher.Glob("file_*", "FILE_write"));
+            Assert.False(HookMatcher.Glob("file_*", "shell_exec"));
+        }
+    }
 }

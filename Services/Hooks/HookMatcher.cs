@@ -12,15 +12,38 @@ public static class HookMatcher
     /// <summary>Whether a tool pattern (<c>*</c> any run of characters, <c>?</c> any one) matches a tool id, ignoring case.</summary>
     public static bool ToolMatches(string pattern, string toolId) => Glob(pattern, toolId);
 
-    /// <summary>Whether a glob (<c>*</c> any run of characters, <c>?</c> any one) matches the whole text, ignoring case.</summary>
+    /// <summary>The compiled form of each glob seen, so a pattern is built once rather than on every call of every tool. Bounded: when it fills it is
+    /// emptied, since a hook layer holds few patterns and the next calls rebuild the ones in use.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> GlobCache = new();
+
+    /// <summary>Most globs kept at once.</summary>
+    private const int MaxCachedGlobs = 512;
+
+    /// <summary>Whether a glob (<c>*</c> any run of characters, <c>?</c> any one) matches the whole text, ignoring case. A pattern that takes
+    /// longer than the time limit on this text does not match, rather than failing the call it was checking.</summary>
     public static bool Glob(string pattern, string text)
     {
         if (string.IsNullOrEmpty(pattern))
         {
             return false;
         }
-        string regex = "^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-        return Regex.IsMatch(text ?? "", regex, RegexOptions.IgnoreCase | RegexOptions.Singleline, RegexTimeout);
+        if (!GlobCache.TryGetValue(pattern, out Regex regex))
+        {
+            if (GlobCache.Count >= MaxCachedGlobs)
+            {
+                GlobCache.Clear();
+            }
+            regex = new Regex("^" + Regex.Escape(pattern).Replace("\\*", ".*").Replace("\\?", ".") + "$", RegexOptions.IgnoreCase | RegexOptions.Singleline, RegexTimeout);
+            GlobCache[pattern] = regex;
+        }
+        try
+        {
+            return regex.IsMatch(text ?? "");
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Compiles a regular expression the way hooks run it; false when it is not valid.</summary>

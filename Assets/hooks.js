@@ -42,12 +42,14 @@ class LLMAHooks {
         for (let hook of this.hooks) {
             let id = escapeHtml(hook.id);
             let scope = hook._scope == 'shared' ? 'text-bg-secondary' : 'text-bg-light';
+            // A shared hook can only be changed by someone who may write the shared layer; for everyone else it is read-only.
+            let locked = hook._scope == 'shared' && !this.canWriteShared ? ` disabled title="${translate('Only an admin can change a shared hook.')}"` : '';
             html += `<li class="list-group-item d-flex align-items-center gap-2 bg-transparent" data-hook-id="${id}" data-hook-scope="${escapeHtml(hook._scope)}">`
-                + `<span class="form-check form-switch toggle-switch m-0"><input class="form-check-input llma-hook-enabled" type="checkbox" ${hook.enabled ? 'checked' : ''} title="${translate('Enabled')}" autocomplete="off"></span>`
+                + `<span class="form-check form-switch toggle-switch m-0"><input class="form-check-input llma-hook-enabled" type="checkbox" ${hook.enabled ? 'checked' : ''}${locked || ` title="${translate('Enabled')}"`} autocomplete="off"></span>`
                 + `<span class="flex-grow-1"><b>${escapeHtml(hook.name)}</b> <span class="badge ${scope}">${translate(hook._scope == 'shared' ? 'Shared' : 'Personal')}</span>`
                 + `<br><small class="text-muted">${escapeHtml(this.describe(hook))}</small></span>`
-                + `<button type="button" class="basic-button llma-hook-edit">${translate('Edit')}</button>`
-                + `<button type="button" class="basic-button llma-hook-delete">${translate('Delete')}</button></li>`;
+                + `<button type="button" class="basic-button llma-hook-edit"${locked}>${translate('Edit')}</button>`
+                + `<button type="button" class="basic-button llma-hook-delete"${locked}>${translate('Delete')}</button></li>`;
         }
         html += '</ul>';
         list.innerHTML = html;

@@ -26,9 +26,16 @@ public static class HookService
     public static JArray GetHookList(User user)
     {
         JArray list = [];
+        bool mayManageShared = user is not null && user.HasPermission(LLMAssistantAPI.PermSharedWrite);
         foreach (ToolHook hook in ReadLayer(SettingsService.GetSettings(), SettingsService.ScopeShared).Concat(ReadLayer(SettingsService.GetUserSettings(user), SettingsService.ScopePersonal)))
         {
             JObject json = hook.ToJson();
+            if (hook.Scope == SettingsService.ScopeShared && hook.Kind == ToolHook.KindCommand && !mayManageShared)
+            {
+                // Its arguments can carry a path or a token an admin put there; the user only needs to know it exists.
+                json["args"] = new JArray();
+                json["command"] = "(set by an admin)";
+            }
             json["_scope"] = hook.Scope;
             list.Add(json);
         }

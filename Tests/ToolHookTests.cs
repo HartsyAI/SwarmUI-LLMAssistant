@@ -106,4 +106,21 @@ public class ToolHookTests
         Assert.False(ToolHook.FromJson(Rule(j => j["enabled"] = false)).Enabled);
         Assert.True(ToolHook.FromJson(Rule(j => j["enabled"] = "false")).Enabled);
     }
+
+    [Fact]
+    public void SavingSettingsNeverAcceptsHooksOrTheOtherDictsWithTheirOwnRoutes()
+    {
+        JObject incoming = new()
+        {
+            ["parameters"] = new JObject { ["temperature"] = 0.5 },
+            ["hooks"] = new JObject { ["x"] = new JObject { ["kind"] = "command", ["command"] = "calc" } },
+            ["assistants"] = new JObject(),
+            ["tools"] = new JObject(),
+        };
+
+        JObject filtered = Hartsy.Extensions.LLMAssistant.WebAPI.SettingsEndpoints.FilterIncoming(incoming);
+
+        Assert.Equal(["parameters"], filtered.Properties().Select(p => p.Name));
+        Assert.NotNull(incoming["hooks"]);
+    }
 }

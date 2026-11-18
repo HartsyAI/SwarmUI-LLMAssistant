@@ -62,6 +62,23 @@ public static class SettingsEndpoints
         return topLevel;
     }
 
+    /// <summary>The keys that are never saved through <c>LLMAssistantSaveSettings</c>: the dicts that have their own routes with explicit scope
+    /// (<c>assistants</c>, <c>tools</c>) and <c>hooks</c>, whose routes check <c>llm_hook_command</c> and <c>llm_shared_write</c> per hook. The
+    /// client sends back the merged settings it was given, so without this an ordinary save would copy the shared layer's hooks into the user's
+    /// own, resurrect a hook deleted since the page loaded, and let a shared write plant a command hook without the command permission.</summary>
+    internal static readonly string[] OwnRouteKeys = ["assistants", "tools", "hooks"];
+
+    /// <summary>A copy of a saved settings payload without <see cref="OwnRouteKeys"/>.</summary>
+    internal static JObject FilterIncoming(JObject incoming)
+    {
+        JObject filtered = (JObject)incoming.DeepClone();
+        foreach (string key in OwnRouteKeys)
+        {
+            filtered.Remove(key);
+        }
+        return filtered;
+    }
+
     public static async Task<JObject> LLMAssistantSaveSettings(Session session, JObject rawInput)
     {
         JObject incoming = ParseSettingsPayload(rawInput);
@@ -79,9 +96,7 @@ public static class SettingsEndpoints
         // with explicit scope, so that a SaveSettings call doesn't accidentally wipe one layer's
         // dicts when the UI sends a merged view back. This keeps SaveSettings focused on scalar
         // preferences like preferredModel, parameters, activeAssistantId, instructions, featureMappings.
-        JObject filtered = (JObject)incoming.DeepClone();
-        filtered.Remove("assistants");
-        filtered.Remove("tools");
+        JObject filtered = FilterIncoming(incoming);
         JObject saved;
         if (wantsShared)
         {

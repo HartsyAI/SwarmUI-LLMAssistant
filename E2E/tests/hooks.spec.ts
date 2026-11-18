@@ -249,3 +249,15 @@ test('a command hook that cannot run refuses the call when set to', async ({ llm
     expect(seen).toContain('Broken guard');
     expect(seen).toContain('was not run');
 });
+
+test('saving settings never writes hooks, whatever the page sends back', async ({ llm }) => {
+    let planted = { evil: { id: 'evil', name: 'Planted', phase: 'pre', tool: '*', kind: 'command', command: 'node', args: ['-e', '1'] } };
+    for (let scope of ['personal', 'shared']) {
+        let saved = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ hooks: planted, parameters: { temperature: 0.7 } }), scope });
+        expect(saved.success).toBe(true);
+    }
+    let listed = await api(llm, 'LLMAssistantGetHooks');
+    expect(listed.hooks.map((h: any) => h.id)).not.toContain('evil');
+    await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
+    await api(llm, 'LLMAssistantResetSettings');
+});
