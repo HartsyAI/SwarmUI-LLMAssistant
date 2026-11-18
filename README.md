@@ -337,7 +337,20 @@ Not covered yet: a server's resources, prompts and requests for the client's hel
 
 ### Code tools and workspaces <a id="code-tools"></a>
 
-The **code tools** let the assistant work on files the way a coding assistant does, inside a **workspace**: a folder that belongs to a chat. They are off by default and have no screen of their own yet (a code-mode interface follows); until then they are used through the chat and the routes below.
+The **code tools** let the assistant work on files the way a coding assistant does, inside a **workspace**: a folder that belongs to a chat. They are off by default.
+
+**Code mode** is the Chat / Code switch at the top left of the chat. It is on for a user who holds `llm_code_mode`. Switching a chat to Code:
+
+- **brings the code tools with it.** A chat in Code mode is offered every code tool that is switched on in the Tools tab, whether or not its assistant lists them, and may run them (so there is no assistant to edit first). It still needs `llm_code_mode`, and tool calling not pinned off for the chat. A chat in Chat mode gets code tools only the old way, from its assistant's list;
+- **starts careful**: the approval control moves from Auto to **Ask**, so changes and commands ask first (pick Auto or Plan yourself);
+- **opens the Workspace panel** on the right, with a **Files** tab (a folder tree and a read-only viewer with line numbers; it reloads after each reply that changed something) and a **Tasks** tab (the task list the assistant keeps with `code_todo`, saved on the chat);
+- **adds a workspace picker** in the composer: the user's workspaces, any folders an admin allowed, and **New workspace…**;
+- **shows a plan card** after a reply made in **Plan** mode: *Accept plan* switches the chat to Ask and tells the assistant to carry the plan out; *Keep planning* dismisses it;
+- **shows edits as diffs** in the transcript (`code_edit` results), and a failed code tool has no *Retry* (a standalone retry would run outside the chat's workspace).
+
+The chat list gets an **All / Chats / Code** filter (for users who can use code mode), and a coding session carries a *code* badge. The mode is saved on the chat, so reopening it brings the panel back; a mode chosen before the first message applies to the chat that message creates.
+
+Not in the interface yet: a **Changes** tab (per-file diffs with revert) and a live **Terminal** are next.
 
 | Tool | What it does | Needs approval in Ask mode |
 |---|---|---|
@@ -590,7 +603,7 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 
 | Route | Method | Request | Returns |
 |---|---|---|---|
-| `LLMAssistantCreateThread` | POST | `assistantId?`, `title?` | `{success, thread}` |
+| `LLMAssistantCreateThread` | POST | `assistantId?`, `title?`, `mode?` (`chat` \| `code`) | `{success, thread}` |
 | `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `approvalMode?` | streaming frames (below); `approvalMode` (`auto`, `ask` or `plan`) comes from the composer's Ask / Auto / Plan control, defaults to the mode saved on the chat, and is saved there when it differs; `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
@@ -667,6 +680,9 @@ they were sent with.
 | `LLMAssistantGetHooks` | none | `{success, hooks[], canWriteShared, canCommand}`; every hook the caller can see, each tagged `_scope` |
 | `LLMAssistantGetWorkspaces` | none | `{success, workspaces[], canUseCode, canManageRoots}`; the user's own workspaces and the allowed folders (labels only, no paths); empty without `llm_code_mode` |
 | `LLMAssistantCreateWorkspace` | `name` | `{success, id}`; one of the user's own (`user:name`); needs `llm_code_mode` |
+| `LLMAssistantSetThreadMode` | `threadId`, `mode` (`chat` \| `code`) | `{success, mode}`; code mode needs `llm_code_mode` |
+| `LLMAssistantListWorkspaceFiles` | `threadId`, `path?` | `{success, path, entries[], truncated}`; one folder of the chat's workspace for the files panel (each entry `{name, type: dir \| file, size}`, folders first, links left out, at most 1000). Needs `llm_code_mode`; not a model call, so it is not approved, hooked or audited |
+| `LLMAssistantReadWorkspaceFile` | `threadId`, `path`, `offset?`, `limit?` | what `code_read` returns: `{success, path, content, startLine, endLine, totalLines, truncated}` |
 | `LLMAssistantSetThreadWorkspace` | `threadId`, `workspaceId` | `{success, workspace}`; empty `workspaceId` goes back to the default; only a workspace the user may use is accepted |
 | `LLMAssistantGetWorkspaceRoots` | none | `{success, roots[]}` with paths; needs `llm_workspace_roots` |
 | `LLMAssistantSaveWorkspaceRoot` | `id`, `path`, `label?` | `{success, id}`; the path must be the full path of an existing folder (not a drive root); needs `llm_workspace_roots` |

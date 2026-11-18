@@ -1,0 +1,65 @@
+/* Code mode. The panel is Bootstrap's nav-tabs, list-group and badge; this only lays out the two areas of the Files tab and sets the file viewer's type. */
+
+.llma-code-body {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1 1 auto;
+}
+
+.llma-code-tree {
+    flex: 0 1 45%;
+    min-height: 6rem;
+    overflow: auto;
+}
+
+.llma-code-viewer {
+    flex: 1 1 55%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.llma-code-file {
+    flex: 1 1 auto;
+    margin: 0;
+    padding: 0.4rem 0.5rem;
+    overflow: auto;
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    color: var(--text);
+    background: var(--background-soft);
+    white-space: pre;
+}
+
+.llma-code-entry.active {
+    color: var(--emphasis-text);
+    background: var(--emphasis) !important;
+}
+
+.llma-workspace-select {
+    width: auto;
+    max-width: 11rem;
+}
+
+/* A diff in a tool result: the removed and added lines. */
+.llma-diff div { white-space: pre; }
+.llma-diff .llma-diff-add { color: var(--bs-success, #2a9d5c); }
+.llma-diff .llma-diff-del { color: var(--bs-danger, #d4533b); }
+.llma-diff .llma-diff-hunk { color: var(--text-soft); }
+
+.llma-thread-mode-filter {
+    margin: 0 0.5rem 0.4rem;
+}
+
+/* The tabs sit on one line and are the size of the rest of the panel, not of a page-level tab strip. */
+.llma-code-tabs {
+    flex-wrap: nowrap;
+    align-items: flex-end;
+}
+
+.llma-code-tabs .nav-link {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.75rem;
+    white-space: nowrap;
+}

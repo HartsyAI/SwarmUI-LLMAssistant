@@ -29,6 +29,13 @@
         file_write: ['Wrote a file', 'wrote {n} files'],
         shell_exec: ['Ran a command', 'ran {n} commands'],
         http_request: ['Made a request', 'made {n} requests'],
+        code_read: ['Read a file', 'read {n} files'],
+        code_write: ['Wrote a file', 'wrote {n} files'],
+        code_edit: ['Edited a file', 'edited {n} files'],
+        code_glob: ['Listed files', 'listed files {n} times'],
+        code_grep: ['Searched the files', 'searched the files {n} times'],
+        code_bash: ['Ran a command', 'ran {n} commands'],
+        code_todo: ['Updated the task list', 'updated the task list {n} times'],
     };
 
     /** Short activity title for one tool call ("Ran a command", or "Used Foo Bar" for unknown tools). */
@@ -491,11 +498,59 @@
                 pre.textContent = result.body.length > 4000 ? result.body.slice(0, 4000) + '\n…' : result.body;
                 resultWrap.appendChild(pre);
             }
-        } else if (name === 'shell_exec') {
+        } else if (success && name === 'code_edit') {
+            let info = document.createElement('div');
+            info.className = 'llma-tool-result-fileinfo';
+            info.textContent = `${result.path || ''} (${result.replacements ?? 1} ${translate(result.replacements == 1 ? 'change' : 'changes')})`;
+            resultWrap.appendChild(info);
+            if (typeof result.diff == 'string' && result.diff.length) {
+                resultWrap.appendChild(llmaRenderDiff(result.diff));
+            }
+        } else if (success && name === 'code_write') {
+            let info = document.createElement('div');
+            info.className = 'llma-tool-result-fileinfo';
+            info.textContent = `${result.path || ''} (${result.created ? translate('created') : translate('replaced')}, ${result.bytes ?? '?'} ${translate('bytes')})`;
+            resultWrap.appendChild(info);
+        } else if (success && name === 'code_read' && typeof result.content === 'string') {
+            let info = document.createElement('div');
+            info.className = 'llma-tool-result-fileinfo';
+            info.textContent = `${result.path || ''} (${translate('lines')} ${result.startLine}-${result.endLine} / ${result.totalLines}${result.truncated ? ', ' + translate('truncated') : ''})`;
+            resultWrap.appendChild(info);
+            let pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.content.length > 4000 ? result.content.slice(0, 4000) + '\n…' : result.content;
+            resultWrap.appendChild(pre);
+        } else if (success && name === 'code_glob' && Array.isArray(result.files)) {
+            let pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.files.length ? result.files.join('\n') + (result.truncated ? '\n…' : '') : translate('No files match.');
+            resultWrap.appendChild(pre);
+        } else if (success && name === 'code_grep' && Array.isArray(result.matches)) {
+            let pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.matches.length ? result.matches.map(m => `${m.file}:${m.line}: ${m.text}`).join('\n') + (result.truncated ? '\n…' : '') : translate('No matches.');
+            resultWrap.appendChild(pre);
+        } else if (success && name === 'code_todo' && Array.isArray(result.todos)) {
+            let marks = { completed: '[x]', in_progress: '[~]', pending: '[ ]' };
+            let pre = document.createElement('pre');
+            pre.className = 'llma-tool-result-filecontent';
+            pre.textContent = result.todos.map(t => `${marks[t.status] || '[ ]'} ${t.content}`).join('\n');
+            resultWrap.appendChild(pre);
+        } else if (name === 'shell_exec' || name === 'code_bash') {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
             const exitTxt = result.killed ? translate('killed (timeout)') : `${translate('exit')} ${result.exitCode}`;
-            info.textContent = `$ ${result.command || ''}  [${exitTxt}${result.truncated ? ', ' + translate('truncated') : ''}]`;
+            let command = result.command || '';
+            if (!command && callBubble) {
+                // code_bash does not echo the command: take it from the call this result belongs to.
+                try {
+                    command = JSON.parse(callBubble.getAttribute('data-tool-args') || '{}').command || '';
+                }
+                catch (ex) {
+                    command = '';
+                }
+            }
+            info.textContent = `$ ${command}  [${exitTxt}${result.truncated ? ', ' + translate('truncated') : ''}]`;
             resultWrap.appendChild(info);
             if (typeof result.stdout === 'string' && result.stdout.length) {
                 const pre = document.createElement('pre');
@@ -535,7 +590,7 @@
         // Re-runs via LLMAssistantExecuteTool (the standalone tool runner) and shows the new
         // result in place. Does NOT amend the conversation history server-side — purely a manual
         // "did the tool start working?" check the user can fire without re-prompting the LLM.
-        if (!success && callBubble && !result.denied) {
+        if (!success && callBubble && !result.denied && !name.startsWith('code_')) {
             const retryBtn = document.createElement('button');
             retryBtn.className = 'basic-button llma-tool-retry-btn';
             retryBtn.type = 'button';
@@ -547,6 +602,27 @@
 
         slot.appendChild(resultWrap);
         llmaUpdateToolGroup(callBubble?.closest('.llma-tool-group'));
+    }
+
+    /** A diff (the lines a code_edit result carries) as coloured rows: removed lines red, added lines green. */
+    function llmaRenderDiff(diff) {
+        let wrap = document.createElement('pre');
+        wrap.className = 'llma-tool-result-filecontent llma-diff';
+        for (let line of diff.split('\n')) {
+            let row = document.createElement('div');
+            row.textContent = line;
+            if (line.startsWith('+')) {
+                row.className = 'llma-diff-add';
+            }
+            else if (line.startsWith('-')) {
+                row.className = 'llma-diff-del';
+            }
+            else if (line.startsWith('@@')) {
+                row.className = 'llma-diff-hunk';
+            }
+            wrap.appendChild(row);
+        }
+        return wrap;
     }
 
     /**

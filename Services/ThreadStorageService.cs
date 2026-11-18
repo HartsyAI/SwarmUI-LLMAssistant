@@ -251,7 +251,7 @@ public static class ThreadStorageService
     /// <summary>Creates a new empty thread for the given assistant and saves it. Used by the
     /// chat endpoint when the user sends a first message without an existing thread.
     /// Returns the freshly-created thread blob (caller can read the assigned <c>id</c>).</summary>
-    public static JObject CreateThread(User user, string assistantId, string title = null)
+    public static JObject CreateThread(User user, string assistantId, string title = null, string mode = null)
     {
         string threadId = GenerateThreadId();
         string now = DateTime.UtcNow.ToString("o");
@@ -260,7 +260,7 @@ public static class ThreadStorageService
             ["id"] = threadId,
             ["title"] = title ?? "New Thread",
             ["assistantId"] = assistantId ?? "",
-            ["mode"] = ThreadModes.Chat,
+            ["mode"] = ThreadModes.IsValid(mode) ? mode : ThreadModes.Chat,
             ["createdAt"] = now,
             ["updatedAt"] = now,
             ["messages"] = new JArray(),
@@ -372,6 +372,26 @@ public static class ThreadStorageService
                 return null;
             }
             thread["activeLeafId"] = messageId;
+            SaveThread(user, thread);
+            return thread;
+        }
+    }
+
+    /// <summary>Saves whether the chat is an ordinary chat or a coding session (<see cref="ThreadModes"/>). Returns the updated thread, or null if not found or the mode is unknown.</summary>
+    public static JObject SetMode(User user, string threadId, string mode)
+    {
+        if (!ThreadModes.IsValid(mode))
+        {
+            return null;
+        }
+        lock (ThreadWriteLock)
+        {
+            JObject thread = GetThread(user, threadId);
+            if (thread is null)
+            {
+                return null;
+            }
+            thread["mode"] = mode;
             SaveThread(user, thread);
             return thread;
         }
@@ -652,8 +672,14 @@ public static class ThreadStorageService
             ["updatedAt"] = thread["updatedAt"],
             ["messageCount"] = thread["messageCount"],
             ["assistantId"] = thread["assistantId"],
-            ["hasBranches"] = hasBranches
+            ["hasBranches"] = hasBranches,
+            // So the sidebar can filter code sessions from ordinary chats without loading each thread.
+            ["mode"] = thread["mode"] ?? ThreadModes.Chat,
         };
+        if (thread["workspace"] is not null)
+        {
+            summary["workspace"] = thread["workspace"];
+        }
         // Insert at beginning (most recent first)
         index.Insert(0, summary);
         GenericDataCache.Save(user, DataName, IndexKey, index.ToString(Formatting.None));

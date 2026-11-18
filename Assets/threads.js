@@ -245,7 +245,7 @@ function llmaRenderThreadList(threads) {
         return;
     }
 
-    const newestFirst = [...threads].sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+    const newestFirst = [...threads].filter(t => llmaCodeMode.showsThread(t)).sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
     const groups = llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(newestFirst) : llmaGroupByDate(newestFirst);
     let html = '';
 
@@ -276,6 +276,7 @@ function llmaRenderThreadList(threads) {
                     ${checkbox}
                     ${badge}
                     <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
+                    ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
                     ${branchToggle}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
                             title="${llmaEscapeHtml(translate('Rename chat'))}" aria-label="${llmaEscapeHtml(translate('Rename chat'))}">&#9998;</button>
@@ -594,7 +595,7 @@ async function llmaCreateThread(assistantId) {
 
     let thread;
     try {
-        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle });
+        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat });
         if (!result?.success || !result.thread) {
             llmaShowToast(result?.error || 'Failed to create chat', 'error');
             return;
@@ -612,6 +613,7 @@ async function llmaCreateThread(assistantId) {
         createdAt:    thread.createdAt,
         updatedAt:    thread.updatedAt,
         messageCount: 0,
+        mode:         thread.mode,
     });
 
     LLMAState.activeThreadId    = thread.id;
@@ -636,6 +638,7 @@ async function llmaCreateThread(assistantId) {
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
 
+    await llmaCodeMode.onThreadCreated(thread);
     llmaShowChatPanel();
     llmaRenderThreadList(LLMAState.threads);
     llmaUpdateContextBar();
@@ -675,6 +678,7 @@ async function llmaSwitchThread(threadId) {
         LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
         if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
+        llmaCodeMode.onThreadLoaded(thread);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;

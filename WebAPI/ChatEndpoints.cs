@@ -179,18 +179,28 @@ public static class ChatEndpoints
     /// <summary>Creates a new empty chat thread for the given assistant. The frontend calls this
     /// before sending the first message in a fresh chat; subsequent messages reference the returned
     /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used.</summary>
-    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null)
+    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null, string mode = null)
     {
         if (session?.User is null)
         {
             return new JObject { ["success"] = false, ["error"] = "Authentication required." };
+        }
+        // A chat can start in code mode (the Code switch was on before the first message), which takes the same permission as switching to it later.
+        mode = string.IsNullOrWhiteSpace(mode) ? ThreadModes.Chat : mode.Trim().ToLowerInvariant();
+        if (!ThreadModes.IsValid(mode))
+        {
+            return Fail("mode must be chat or code.");
+        }
+        if (mode == ThreadModes.Code && !session.User.HasPermission(LLMAssistantAPI.PermCodeMode))
+        {
+            return Fail("Code mode needs the LLM Code Mode permission.");
         }
         JObject settings = SettingsService.GetMergedSettings(session.User);
         if (string.IsNullOrEmpty(assistantId))
         {
             assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
         }
-        JObject thread = ThreadStorageService.CreateThread(session.User, assistantId, title);
+        JObject thread = ThreadStorageService.CreateThread(session.User, assistantId, title, mode);
         return new JObject
         {
             ["success"] = true,
@@ -892,6 +902,8 @@ public static class ChatEndpoints
             List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
                 ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
                 : [];
+            // A chat in code mode brings the code tools along (see CodeModeService).
+            enabledTools = CodeModeService.WithCodeTools(enabledTools, thread, settings, session.User);
             // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
             systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
             // A conversation near the model's window is summarized first, so this request fits.
@@ -1108,6 +1120,7 @@ public static class ChatEndpoints
         List<JObject> enabledTools = EffectiveToolsEnabled(thread, assistantId, settings, session.User)
             ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
             : [];
+        enabledTools = CodeModeService.WithCodeTools(enabledTools, thread, settings, session.User);
         SemaphoreSlim sendLock = new(1, 1);
         // Parse lane descriptors: each is { model, device?, assistantMessageId? }.
         List<(string Model, string Device, int BackendId, string AssistantMessageId)> lanes = [];

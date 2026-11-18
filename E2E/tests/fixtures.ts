@@ -1,5 +1,8 @@
 import { test as base, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export { expect };
 
@@ -66,6 +69,83 @@ export function lastAssistant(page: Page) {
 export async function openTab(page: Page) {
     await page.waitForSelector('#maintab_llmassistant', { state: 'attached' });
     await page.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
+}
+
+export const CODE = ['code_read', 'code_write', 'code_edit', 'code_glob', 'code_grep', 'code_bash', 'code_todo'];
+export const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'set_led_profile', 'set_volume', 'mute_mic'];
+
+/** One scripted turn: the model makes these calls in order, one per round, then answers. */
+export function turn(match: string, calls: { name: string; arguments: unknown }[], answer: string) {
+    return { match, rounds: [...calls.map(call => ({ toolCalls: [call] })), { text: answer }] };
+}
+
+/** The results the model was sent for its tool calls, in order, from the last request. */
+export async function toolResults(): Promise<any[]> {
+    // The newest request that carries tool results (the one after the title request is not it).
+    let requests = (await mockRequests()).filter(r => (r.messages ?? []).some((m: any) => m.role === 'tool'));
+    let last = requests[requests.length - 1];
+    // Earlier turns' results are in the history too; the newest turn's are the ones after the last user message.
+    let messages: any[] = last?.messages ?? [];
+    let lastUser = messages.map(m => m.role).lastIndexOf('user');
+    return messages.slice(lastUser + 1).filter((m: any) => m.role === 'tool').map((m: any) => JSON.parse(m.content));
+}
+
+/** Switches on the code tools (and shell_exec) for everyone and gives them to the default assistant. */
+export async function enableCodeTools(page: Page, extra: string[] = []) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    for (let id of [...CODE, ...extra]) {
+        let tool = tools.find(t => t.id === id);
+        let saved = await api(page, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: true }, scope: 'shared' });
+        expect(saved.success, `${id}: ${JSON.stringify(saved)}`).toBe(true);
+    }
+    let current = (await api(page, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant;
+    let saved = await api(page, 'LLMAssistantSaveAssistant', { assistant: { ...current, enabledToolIds: [...BUILTINS, ...CODE] }, scope: 'personal' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+}
+
+export async function reopen(page: Page) {
+    await page.reload();
+    await page.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
+    await expect(page.locator('#llma-model-select option[value="mock-model"]')).toHaveCount(1, { timeout: 30_000 });
+}
+
+export async function setMode(page: Page, mode: 'ask' | 'auto' | 'plan') {
+    await page.locator(`label[for="llma-approval-${mode}"]`).click();
+    await expect(page.locator(`#llma-approval-${mode}`)).toBeChecked();
+}
+
+
+/** Puts the code tools back off (and shell_exec, if a spec switched it on), and the default assistant back as it was. */
+export async function resetCodeTools(page: Page) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    for (let id of [...CODE, 'shell_exec']) {
+        let tool = tools.find(t => t.id === id);
+        if (tool?.enabled) {
+            await api(page, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: false }, scope: 'shared' });
+        }
+    }
+    await api(page, 'LLMAssistantDeleteAssistant', { assistantId: 'default', scope: 'personal' });
+    clearWorkspaces();
+}
+
+/** Empties every user's workspaces (they are folders under the harness's throwaway Output), so one spec's files never show up in the next. */
+export function clearWorkspaces() {
+    let output = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.run', 'output');
+    if (!fs.existsSync(output)) {
+        return;
+    }
+    for (let user of fs.readdirSync(output)) {
+        fs.rmSync(path.join(output, user, 'llm_assistant', 'workspaces'), { recursive: true, force: true });
+    }
+}
+
+/** Switches the code tools on for everyone but leaves every assistant's own list alone: a chat in code mode brings them itself. */
+export async function enableCodeToolsGlobally(page: Page) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    for (let id of CODE) {
+        let saved = await api(page, 'LLMAssistantSaveTool', { tool: { ...tools.find(t => t.id === id), enabled: true }, scope: 'shared' });
+        expect(saved.success, `${id}: ${JSON.stringify(saved)}`).toBe(true);
+    }
 }
 
 /** Test fixture: a page on the LLM Assistant tab with a clean thread list and a clean mock. */

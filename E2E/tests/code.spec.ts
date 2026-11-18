@@ -1,4 +1,4 @@
-import { test, expect, send, lastAssistant, setScenarios, mockRequests, api } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, CODE, BUILTINS, turn, toolResults, enableCodeTools, reopen, setMode, resetCodeTools } from './fixtures';
 import type { Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,64 +7,14 @@ import path from 'node:path';
 // Code mode's tools: a chat's workspace, the tools that read, change and search it, a task list, running commands, and the workspace's own
 // instructions. All of it is off until a tool is switched on and the user holds llm_code_mode.
 
-const CODE = ['code_read', 'code_write', 'code_edit', 'code_glob', 'code_grep', 'code_bash', 'code_todo'];
-const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'set_led_profile', 'set_volume', 'mute_mic'];
 const extraRoot = path.join(os.tmpdir(), `llma-e2e-root-${process.pid}`);
-
-/** One scripted turn: the model makes these calls in order, one per round, then answers. */
-function turn(match: string, calls: { name: string; arguments: unknown }[], answer: string) {
-    return { match, rounds: [...calls.map(call => ({ toolCalls: [call] })), { text: answer }] };
-}
-
-/** The results the model was sent for its tool calls, in order, from the last request. */
-async function toolResults(): Promise<any[]> {
-    // The newest request that carries tool results (the one after the title request is not it).
-    let requests = (await mockRequests()).filter(r => (r.messages ?? []).some((m: any) => m.role === 'tool'));
-    let last = requests[requests.length - 1];
-    // Earlier turns' results are in the history too; the newest turn's are the ones after the last user message.
-    let messages: any[] = last?.messages ?? [];
-    let lastUser = messages.map(m => m.role).lastIndexOf('user');
-    return messages.slice(lastUser + 1).filter((m: any) => m.role === 'tool').map((m: any) => JSON.parse(m.content));
-}
-
-/** Switches on the code tools (and shell_exec) for everyone and gives them to the default assistant. */
-async function enableCodeTools(page: Page, extra: string[] = []) {
-    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
-    for (let id of [...CODE, ...extra]) {
-        let tool = tools.find(t => t.id === id);
-        let saved = await api(page, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: true }, scope: 'shared' });
-        expect(saved.success, `${id}: ${JSON.stringify(saved)}`).toBe(true);
-    }
-    let current = (await api(page, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant;
-    let saved = await api(page, 'LLMAssistantSaveAssistant', { assistant: { ...current, enabledToolIds: [...BUILTINS, ...CODE] }, scope: 'personal' });
-    expect(saved.success, JSON.stringify(saved)).toBe(true);
-}
-
-async function reopen(page: Page) {
-    await page.reload();
-    await page.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
-    await expect(page.locator('#llma-model-select option[value="mock-model"]')).toHaveCount(1, { timeout: 30_000 });
-}
-
-async function setMode(page: Page, mode: 'ask' | 'auto' | 'plan') {
-    await page.locator(`label[for="llma-approval-${mode}"]`).click();
-    await expect(page.locator(`#llma-approval-${mode}`)).toBeChecked();
-}
-
 test.beforeEach(async ({ llm }) => {
     let listed = await api(llm, 'LLMAssistantGetWorkspaces');
     test.skip(!listed.canUseCode, 'This user does not hold llm_code_mode.');
 });
 
 test.afterEach(async ({ llm }) => {
-    let tools = (await api(llm, 'LLMAssistantGetTools')).tools as any[];
-    for (let id of [...CODE, 'shell_exec']) {
-        let tool = tools.find(t => t.id === id);
-        if (tool?.enabled) {
-            await api(llm, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: false }, scope: 'shared' });
-        }
-    }
-    await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: 'default', scope: 'personal' });
+    await resetCodeTools(llm);
     for (let root of (await api(llm, 'LLMAssistantGetWorkspaceRoots')).roots ?? []) {
         await api(llm, 'LLMAssistantDeleteWorkspaceRoot', { id: root.id });
     }

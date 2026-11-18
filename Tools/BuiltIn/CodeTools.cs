@@ -31,8 +31,8 @@ public abstract class CodeToolBase : ToolHandler
             failure = Fail("The code tools need an authenticated user.");
             return null;
         }
-        string id = string.IsNullOrEmpty(ctx.ThreadId) ? null : Services.ThreadStorageService.GetThread(user, ctx.ThreadId)?["workspace"]?.ToString();
-        Workspace workspace = WorkspaceService.Resolve(user, id);
+        JObject thread = string.IsNullOrEmpty(ctx.ThreadId) ? null : Services.ThreadStorageService.GetThread(user, ctx.ThreadId);
+        Workspace workspace = WorkspaceService.ResolveForThread(user, thread);
         if (workspace is null)
         {
             failure = Fail("This chat's workspace is not available (it was removed, or you may no longer use it). Pick another workspace for the chat.");
