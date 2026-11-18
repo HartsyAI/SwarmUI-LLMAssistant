@@ -155,12 +155,44 @@ public class CompactionPlannerTests
         JObject thread = Thread(12);
         List<JObject> path = Path(thread);
         List<JObject> applied = CompactionPlanner.Apply(path, RecordFor(path, 7));
-        Assert.Equal(5, applied.Count);
+        // m8 is the user's, so the summary opens it instead of standing as a second user message in a row.
+        Assert.Equal(4, applied.Count);
         Assert.Equal("user", applied[0]["role"]!.ToString());
+        Assert.Equal("m8", applied[0]["id"]!.ToString());
         Assert.StartsWith(CompactionPlanner.SummaryHeading, applied[0]["content"]!.ToString());
         Assert.Contains("the summary", applied[0]["content"]!.ToString());
-        Assert.Equal("m8", applied[1]["id"]!.ToString());
+        Assert.EndsWith("text 8", applied[0]["content"]!.ToString());
+        Assert.Equal("assistant", applied[1]["role"]!.ToString());
+        // The saved message itself is not changed.
+        Assert.Equal("text 8", path[8]["content"]!.ToString());
         Assert.Same(path, CompactionPlanner.Apply(path, null));
+    }
+
+    [Fact]
+    public void WhenTheNextMessageIsTheAssistantsTheSummaryIsAUserMessageOfItsOwn()
+    {
+        List<JObject> path = Path(Thread(12));
+        // A cut after m6 leaves m7 (the assistant's) next.
+        List<JObject> applied = CompactionPlanner.Apply(path, RecordFor(path, 6));
+        Assert.Equal(6, applied.Count);
+        Assert.Equal("user", applied[0]["role"]!.ToString());
+        Assert.Equal("assistant", applied[1]["role"]!.ToString());
+        Assert.Equal("m7", applied[1]["id"]!.ToString());
+    }
+
+    [Fact]
+    public void NoTwoUserMessagesAreEverSentInARow()
+    {
+        JObject thread = Thread(12);
+        List<JObject> path = Path(thread);
+        foreach (int anchor in new[] { 1, 2, 3, 6, 7 })
+        {
+            List<JObject> applied = CompactionPlanner.Apply(path, RecordFor(path, anchor));
+            for (int i = 1; i < applied.Count; i++)
+            {
+                Assert.False(applied[i]["role"]!.ToString() == "user" && applied[i - 1]["role"]!.ToString() == "user", $"anchor {anchor}, position {i}");
+            }
+        }
     }
 
     [Fact]
@@ -170,9 +202,9 @@ public class CompactionPlannerTests
         List<JObject> path = Path(thread);
         WithRecord(thread, RecordFor(path, 7));
         List<ChatMessageData> history = ChatEndpoints.BuildHistoryFromThread(thread, new JObject(), new JObject());
-        Assert.Equal(5, history.Count);
+        Assert.Equal(4, history.Count);
         Assert.Contains("the summary", history[0].Content);
-        Assert.DoesNotContain(history, m => m.Content == "text 3");
+        Assert.DoesNotContain(history, m => m.Content.Contains("text 3"));
     }
 
     [Fact]
@@ -217,6 +249,36 @@ public class CompactionPlannerTests
         (long tokens, bool reported) = CompactionPlanner.EstimateContext(path, RecordFor(path, 7), systemPromptTokens: 10);
         Assert.False(reported);
         Assert.True(tokens < 100);
+    }
+
+    [Fact]
+    public void ARepliesReportFromBeforeTheSummaryWasMadeIsStaleEvenWhenTheReplyIsAfterItsLastMessage()
+    {
+        // The last reply (m11) reported 90000 tokens, then the chat was compacted through m7. m11 is after m7, but its figure predates the summary.
+        JObject thread = Thread(12, (i, m) =>
+        {
+            if (i == 11)
+            {
+                m["meta"] = new JObject { ["usage"] = new JObject { ["contextTokens"] = 90000 } };
+            }
+        });
+        List<JObject> path = Path(thread);
+        CompactionRecord active = RecordFor(path, 7) with { TipMessageId = "m11" };
+        (long tokens, bool reported) = CompactionPlanner.EstimateContext(path, active);
+        Assert.False(reported);
+        Assert.True(tokens < 200);
+        // A reply after the summary reports again.
+        thread = Thread(14, (i, m) =>
+        {
+            if (i == 13)
+            {
+                m["meta"] = new JObject { ["usage"] = new JObject { ["contextTokens"] = 700 } };
+            }
+        });
+        path = Path(thread);
+        (tokens, reported) = CompactionPlanner.EstimateContext(path, RecordFor(path, 7) with { TipMessageId = "m11" });
+        Assert.True(reported);
+        Assert.Equal(700, tokens);
     }
 
     [Fact]
@@ -297,6 +359,7 @@ public class CompactionPlannerTests
         Assert.Null(seen.ConversationId);
         Assert.Equal("second summary", record.Summary);
         Assert.Equal(CompactionPlanner.Fingerprint(path.Take(record.MessageCount)), record.CoverHash);
+        Assert.Equal("m19", record.TipMessageId);
         Assert.True(record.MessageCount > 8);
     }
 

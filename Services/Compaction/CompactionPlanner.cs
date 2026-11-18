@@ -15,7 +15,10 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Compaction;
 /// <param name="TokensBefore">The conversation's size when it was summarized, or 0 when unknown.</param>
 /// <param name="Model">The model that wrote it.</param>
 /// <param name="CreatedAt">When it was made (ISO 8601).</param>
-public sealed record CompactionRecord(string Id, string UpToMessageId, string CoverHash, string Summary, int MessageCount, long TokensBefore, string Model, string CreatedAt)
+/// <param name="TipMessageId">The newest message the chat had when the summary was made. A reply at or before it reported its size from before the
+/// summary, so that figure no longer describes what is sent.</param>
+public sealed record CompactionRecord(string Id, string UpToMessageId, string CoverHash, string Summary, int MessageCount, long TokensBefore, string Model, string CreatedAt,
+    string TipMessageId = "")
 {
     /// <summary>The JSON a thread stores in its <c>compactions</c> list.</summary>
     public JObject ToJson() => new()
@@ -28,6 +31,7 @@ public sealed record CompactionRecord(string Id, string UpToMessageId, string Co
         ["tokensBefore"] = TokensBefore,
         ["model"] = Model,
         ["createdAt"] = CreatedAt,
+        ["tipMessageId"] = TipMessageId,
     };
 
     /// <summary>Reads <see cref="ToJson"/>'s form, or null when the entry is not a usable record.</summary>
@@ -39,7 +43,7 @@ public sealed record CompactionRecord(string Id, string UpToMessageId, string Co
         }
         return new CompactionRecord(obj.Value<string>("id") ?? "", obj.Value<string>("upToMessageId"), obj.Value<string>("coverHash") ?? "",
             obj.Value<string>("summary"), obj.Value<int?>("messageCount") ?? 0, obj.Value<long?>("tokensBefore") ?? 0, obj.Value<string>("model") ?? "",
-            obj.Value<string>("createdAt") ?? "");
+            obj.Value<string>("createdAt") ?? "", obj.Value<string>("tipMessageId") ?? "");
     }
 }
 
@@ -130,8 +134,10 @@ public static class CompactionPlanner
         return new CompactionPlan(anchor, previousIndex >= 0 ? active : null, path.Skip(previousIndex + 1).Take(anchor - previousIndex).ToList());
     }
 
-    /// <summary>The conversation <paramref name="path"/> with the messages <paramref name="active"/> covers replaced by one summary message
-    /// (a user message, flagged <c>compaction</c>). The path is returned unchanged when no summary applies.</summary>
+    /// <summary>The conversation <paramref name="path"/> with the messages <paramref name="active"/> covers replaced by the summary, flagged
+    /// <c>compaction</c>. When the next message is the user's, the summary opens that message, because some chat templates (several local models')
+    /// refuse two user messages in a row; otherwise it is a user message of its own, which the reply that follows keeps alternating. The path is
+    /// returned unchanged when no summary applies.</summary>
     public static List<JObject> Apply(List<JObject> path, CompactionRecord active)
     {
         int index = active is null ? -1 : IndexOf(path, active.UpToMessageId);
@@ -139,8 +145,17 @@ public static class CompactionPlanner
         {
             return path;
         }
+        List<JObject> kept = [.. path.Skip(index + 1)];
+        if (kept.Count > 0 && kept[0]["role"]?.ToString() == "user")
+        {
+            JObject merged = (JObject)kept[0].DeepClone();
+            merged["content"] = SummaryText(active.Summary) + "\n\n" + (kept[0]["content"]?.ToString() ?? "");
+            merged["compaction"] = true;
+            kept[0] = merged;
+            return kept;
+        }
         List<JObject> applied = [new JObject { ["id"] = active.Id, ["role"] = "user", ["content"] = SummaryText(active.Summary), ["compaction"] = true }];
-        applied.AddRange(path.Skip(index + 1));
+        applied.AddRange(kept);
         return applied;
     }
 
@@ -153,7 +168,9 @@ public static class CompactionPlanner
     public static (long Tokens, bool Reported) EstimateContext(List<JObject> path, CompactionRecord active, int systemPromptTokens = 0)
     {
         int anchor = active is null ? -1 : IndexOf(path, active.UpToMessageId);
-        for (int i = path.Count - 1; i > anchor; i--)
+        // A reply from before the summary was made reported a size that included what the summary has since replaced.
+        int staleThrough = Math.Max(anchor, active is null ? -1 : IndexOf(path, active.TipMessageId));
+        for (int i = path.Count - 1; i > staleThrough; i--)
         {
             long reported = path[i]["meta"]?["usage"]?.Value<long?>("contextTokens") ?? 0;
             if (reported > 0)

@@ -204,7 +204,8 @@ test('a summary that fails leaves the reply to go ahead with the whole chat, and
 });
 
 test('/compact summarizes the chat on request instead of sending a message', async ({ llm }) => {
-    await setScenarios([summarizer('SUMMARY: by hand.'), exchange('one', 'A.', 100), exchange('two', 'B.', 200), exchange('three', 'C.', 300)]);
+    // The last reply reports a chat past the 80% mark, which is exactly what /compact is for; the next message must not summarize again.
+    await setScenarios([summarizer('SUMMARY: by hand.'), exchange('one', 'A.', 100), exchange('two', 'B.', 200), exchange('three', 'C.', 3300)]);
     for (let [text, reply] of [['one', 'A.'], ['two', 'B.'], ['three', 'C.']]) {
         await exchangeWith(llm, text, reply);
     }
@@ -219,6 +220,8 @@ test('/compact summarizes the chat on request instead of sending a message', asy
     await exchangeWith(llm, 'four', 'Mock reply: four');
     let [chat] = await requestsFor('four');
     expect(conversation(chat)[0].content).toContain('SUMMARY: by hand.');
+    // Only the /compact itself wrote a summary: the stale 3,300 reported before it did not trigger a second one.
+    expect((await mockRequests()).filter(r => JSON.stringify(r.messages).includes('You shorten a conversation'))).toHaveLength(1);
 });
 
 test('/compact on a chat too short to shorten says so and sends nothing', async ({ llm }) => {

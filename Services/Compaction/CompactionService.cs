@@ -81,6 +81,6 @@ public static class CompactionService
         }
         (long before, _) = CompactionPlanner.EstimateContext(path, active);
         return new CompactionRecord(Guid.NewGuid().ToString("N"), path[plan.AnchorIndex]["id"]?.ToString(), CompactionPlanner.Fingerprint(path.Take(plan.AnchorIndex + 1)),
-            summary, plan.AnchorIndex + 1, before, model ?? "", DateTime.UtcNow.ToString("o"));
+            summary, plan.AnchorIndex + 1, before, model ?? "", DateTime.UtcNow.ToString("o"), path[^1]["id"]?.ToString() ?? "");
     }
 }
