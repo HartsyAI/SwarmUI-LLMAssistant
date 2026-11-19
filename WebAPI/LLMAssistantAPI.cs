@@ -272,6 +272,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantDeletePromptAsset, true, PermSettings);
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSetWorkspaceTrust, true, PermSettings);
         API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
+        API.RegisterAPICall(HeadlessEndpoints.LLMAssistantReadiness, false, PermChat);
+        API.RegisterAPICall(HeadlessEndpoints.LLMAssistantRunTurn, true, PermChat);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantGetKnowledge, false, PermKnowledge);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantAddKnowledge, true, PermKnowledge);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantDeleteKnowledge, true, PermKnowledge);

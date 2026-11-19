@@ -886,22 +886,17 @@ public static class ChatEndpoints
         // somewhere to land. Setup itself isn't interruptible mid-call, but registering early means Stop
         // is at least observed, and the check right before streaming turns that into a fast, clean bail
         // instead of ignoring the Stop and running the full generation anyway.
-        CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
+        // The reply is registered (and a session shown as working) for as long as it lasts; see TurnScope.
+        TurnScope scope = TurnScope.Begin(session, threadId, thread);
+        CancellationTokenSource cts = scope.Cts;
         bool stopped;
-        // A session the assistant started shows as running while the user works in it, and reports to its parent when the reply ends.
-        bool isSession = SessionManager.IsSession(thread);
-        if (isSession)
-        {
-            SessionManager.SetStatus(session.User, threadId, SessionStatuses.Running);
-        }
-        string sessionOutcome = SessionStatuses.Done;
         try
         {
             PreparedTurn prepared = await TurnSetupService.PrepareAsync(session, threadId, thread, rawInput, frame => SendWsFrame(socket, frame), cts.Token);
             if (prepared is null)
             {
                 // Stopped during setup, before a single token was ever requested: nothing to persist.
-                sessionOutcome = SessionStatuses.Idle;
+                scope.MarkIdle();
                 return;
             }
             CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0);
@@ -909,20 +904,13 @@ public static class ChatEndpoints
         }
         catch
         {
-            sessionOutcome = SessionStatuses.Failed;
+            scope.MarkFailed();
             throw;
         }
         finally
         {
-            // Captured before End() disposes the source: a Stop makes StreamToWebSocket return normally
-            // (it persists the partial reply itself), so this is the only signal left afterward that the
-            // user actually asked to stop, as opposed to a normal finish.
-            stopped = cts.IsCancellationRequested;
-            GenerationCancellationRegistry.End(threadId, cts);
-            if (isSession)
-            {
-                SessionManager.FinishTurn(session.User, threadId, stopped ? SessionStatuses.Idle : sessionOutcome);
-            }
+            // Whether the user asked to stop is only knowable before the source is disposed (see TurnScope.End).
+            stopped = scope.End();
         }
         if (!stopped)
         {
@@ -1297,6 +1285,20 @@ public static class ChatEndpoints
             : TruncateHistory(history, settings, rawInput);
     }
 
+    /// <summary>Whether the conversation has grown to the configured share of the model's window, so that a reply would summarize its start first. Only looks: it makes no model call
+    /// and writes nothing, which is what lets a dry run say "would compact" without doing it.</summary>
+    internal static bool CompactionDue(JObject thread, JObject settings, LLMModelInfo modelInfo, string systemPrompt)
+    {
+        if (!CompactionPlanner.AutoEnabled(settings))
+        {
+            return false;
+        }
+        List<JObject> path = ThreadStorageService.GetActivePath(thread);
+        CompactionRecord active = CompactionPlanner.FindActive(thread, path);
+        (long tokens, _) = CompactionPlanner.EstimateContext(path, active, ContextWindowService.EstimateTokens(systemPrompt));
+        return CompactionPlanner.IsDue(tokens, ContextWindowService.Resolve(modelInfo, settings), CompactionPlanner.Threshold(settings));
+    }
+
     /// <summary>Summarizes the start of the active branch first when the conversation has grown to the configured share of the model's window
     /// (<c>parameters.autoCompact</c>, <c>parameters.compactThreshold</c>), and says so on the socket (<c>compacting</c>, then <c>compaction</c>).
     /// A model with no known window, a short conversation or a switched-off setting does nothing. A failed summary never fails the reply: the
@@ -1304,14 +1306,7 @@ public static class ChatEndpoints
     internal static async Task<JObject> AutoCompactIfDueAsync(Func<JObject, Task> notify, Session session, string threadId, JObject thread, string model, LLMModelInfo modelInfo,
         JObject settings, string systemPrompt, CancellationToken ct)
     {
-        if (!CompactionPlanner.AutoEnabled(settings) || ct.IsCancellationRequested)
-        {
-            return thread;
-        }
-        List<JObject> path = ThreadStorageService.GetActivePath(thread);
-        CompactionRecord active = CompactionPlanner.FindActive(thread, path);
-        (long tokens, _) = CompactionPlanner.EstimateContext(path, active, ContextWindowService.EstimateTokens(systemPrompt));
-        if (!CompactionPlanner.IsDue(tokens, ContextWindowService.Resolve(modelInfo, settings), CompactionPlanner.Threshold(settings)))
+        if (ct.IsCancellationRequested || !CompactionDue(thread, settings, modelInfo, systemPrompt))
         {
             return thread;
         }

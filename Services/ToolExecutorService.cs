@@ -55,6 +55,10 @@ public static class ToolExecutorService
         [ToolConstants.CodeTodo] = LLMAssistantAPI.PermCodeMode,
     };
 
+    /// <summary>The permission a handler needs to run, or null when it needs none beyond being enabled. The same table <see cref="ExecuteTool"/> checks, so a report about who may run what
+    /// cannot disagree with what actually happens.</summary>
+    public static PermInfo RequiredPermission(string handlerId) => handlerId is not null && HandlerPermissions.TryGetValue(handlerId, out PermInfo permission) ? permission : null;
+
     /// <summary>Executes a tool by ID with the given arguments and request context. <paramref name="gate"/> is the turn's approval gate
     /// (null for a call the user made themselves, which is never gated), <paramref name="callId"/> is the model's id for the call and
     /// <paramref name="hooks"/> is the turn's hooks (null for a call the user made themselves, which hooks never touch).</summary>

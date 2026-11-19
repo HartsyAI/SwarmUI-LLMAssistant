@@ -39,8 +39,8 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 10 | **Custom slash commands** (done in Phase 7) | `commands/*.md`, `/` palette of commands + skills | `/` opens a tool picker only | `tool-picker.js` |
 | 11 | **RAG / file search** (done in Phase 9 as the knowledge library, see the README, "Knowledge library") | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |
 | 12 | **Scheduling and background tasks** (done in Phase 10 as schedules that start sessions, see the README, "Schedules") | Cron create/list/delete, remote trigger (OpenHarness), recipes (Goose) | None | Hosted service |
-| 13 | **Cost and usage tracking** | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
-| 14 | **Run non-interactively / dry run** | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
+| 13 | **Cost and usage tracking** (tokens per reply and per turn done in Phase 3, see the README, "Long chats"; there is no price table) | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
+| 14 | **Run non-interactively / dry run** (done in Phase 11: `LLMAssistantRunTurn`, its `dryRun`, and the setup check, see the README, "Setup check and headless turns") | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
 | 15 | **Artifacts and code interpreter** | React/HTML/Mermaid artifacts, sandboxed code exec (LibreChat) | Asset index with HTML/SVG/Mermaid preview; no code execution | Part of Code mode |
 
 Not worth copying: chat-channel gateways (OpenHarness's `ohmo` for Telegram/Slack), plugin marketplaces, 54 slash commands. They do not fit a SwarmUI tab.
