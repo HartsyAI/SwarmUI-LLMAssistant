@@ -31,6 +31,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Skills and commands](#skills-and-commands)
 - [Sessions](#sessions)
 - [Schedules](#schedules)
+- [Knowledge library](#knowledge)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -439,6 +440,19 @@ A **schedule** runs a prompt later, or again and again, in the background, with 
 
 ---
 
+## Knowledge library <a id="knowledge"></a>
+
+Your own documents, kept on the server and searched by the assistant. Add text files in `Settings > Knowledge` (notes, manuals, Markdown, HTML, CSV, JSON, logs, source code) and switch on the **Search Knowledge** tool: the assistant then looks things up in them when a question may be answered by something you wrote or saved, and quotes what it finds. The tab also has a search box that runs the same search the tool does, so you can see what the assistant would get.
+
+- **Searched by words, and by meaning if you want.** Search always works by keywords (BM25, with the document's title and headings counted too, accents and case ignored, and Chinese, Japanese and Korean searched by character and pair). If you pick an **embedding model**, documents are also searched by meaning, so a question finds text that does not use the same words ("feline" finds a document about cats); the two rankings are combined by reciprocal rank fusion. A search never needs a model and never fails because of one: with none set, with the backend down, or with documents embedded by another model, it uses words.
+- **The embedding model is your own choice, kept apart from the chat model.** Pick a backend that can embed (any OpenAI-compatible backend; Claude has no embeddings API and is not offered) and type the model id as that backend knows it (`text-embedding-3-small`, `nomic-embed-text` on Ollama, ...). It is tried when you save it (one short text is sent), so a wrong model is found then, with the reason. Vectors are stored with the backend, model and size they were made with and never compared across them: after changing the model, **Embed all documents again** brings the old ones across (until then they are searched by words). Backends are used through a small capability interface (`IEmbeddingProvider`), so another kind of backend, including the local engine, can offer embeddings later without changing the library.
+- **Documents.** Plain text only, read in the browser and sent as text: at most 1,000,000 characters each, 200 documents and 5,000 pieces (about 4 MB of text) in all, so a search stays quick. A file that is not text, or has no text, is refused with a reason. A page of HTML keeps its visible text (scripts, styles and tags are dropped). A document is cut along its own seams (blank lines, then sentences, then spaces) into pieces of about 900 characters that overlap a little, and a Markdown heading is kept with the pieces under it ("Guide > Install"). Not included: PDF and Word files (they need a parser), and attaching a document to a single chat; neither is needed to use the library.
+- **What the assistant gets.** `search_knowledge` takes a `query` and an optional `limit` (1 to 10) and returns the best pieces with their document's title, heading and a score, at most 1,500 characters each and 6,000 in all, at most three from one document. They come back **as quoted data with a note not to follow instructions that appear inside them**: a document can say anything, and the model is told so. The tool only reads, only your own library, and is off until you switch it on (the permission `llm_tool_knowledge`, the tool on the Tools tab, and the assistant's list); it also needs `llm_knowledge`.
+- **Where it lives.** `Data/LLMAssistant/knowledge/users/<user>/` on the server: `library.json` and one file per document. It is not in your output folder (the folder the file tools write to), so the assistant has no way to add to or change your library. Changes are written to a temporary file first and a file that is busy is retried, so neither a crash nor a scanner holding the file loses documents; a damaged list is kept as `library.json.damaged`. Links are never followed and no request names a path.
+- **Network.** With no embedding model set, the library sends nothing anywhere. With one set, adding a document sends its text, and each search sends the query, to that backend (see [Network connections](#network-connections)).
+
+---
+
 ## Built-in tools
 
 Thirteen tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
@@ -601,6 +615,7 @@ Per SwarmUI's extension standards, everything this extension can send over the n
 | `html.duckduckgo.com` | Only when the model (or you, via `/`) calls the `web_search` tool | Disable the tool, or deny `llm_tool_web_search` |
 | Any public URL | Only when the `http_request` tool is called (SSRF-guarded: loopback/private/link-local/metadata addresses are blocked) | Disable the tool, or deny `llm_tool_http_request` |
 | An MCP server's URL | Only for an **http** MCP server an admin set up: when it connects, lists tools or a tool is called. A **stdio** server is a program started on the host, which can make its own connections | Switch the server off or delete it, or deny `llm_tool_mcp` |
+| Your configured `Address` (embeddings) | Only when you have chosen an **embedding model** in `Settings > Knowledge`: adding a document sends its text, and each knowledge search sends the query, to that backend's `/v1/embeddings`; saving the setting sends one short test text. Nothing is sent while no model is set | Choose "None" in `Settings > Knowledge`, or deny `llm_knowledge` |
 | Your configured `Address` | When an OpenAI-compatible backend you added starts, serves a chat request or lists its models (for the model picker, and for the card's Default Model when `Server > Backends` opens) | Don't add the backend |
 
 Everything else is local: the HartsyInference engine runs in-process with no network access, and every front-end library (marked, highlight.js, KaTeX, Mermaid, DOMPurify) is bundled, so **the UI itself makes zero outbound connections.**
@@ -633,6 +648,8 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_tool_skills` | POWERUSERS | The `skill` tool: letting the model load skills |
 | `llm_tool_sessions` | POWERUSERS | The `session_*` tools: letting the model start sessions (chats that run in the background) and direct them |
 | `llm_schedules` | POWERUSERS | The Schedules tab and its routes: prompts that run later, on a timetable, as sessions |
+| `llm_knowledge` | POWERUSERS | The Knowledge tab and its routes: the user's documents, searched by words and (with an embedding model) by meaning |
+| `llm_tool_knowledge` | POWERUSERS | The `search_knowledge` tool: letting the model search the user's own documents |
 | `llm_tool_schedules` | POWERUSERS | The `schedule_*` tools: letting the model make (switched off), list and cancel schedules |
 | `llm_code_mode` | **NOBODY** *(powerful)* | The code tools: files in a chat's workspace, a task list and shell commands (`code_bash` is shell access) |
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
@@ -744,6 +761,12 @@ they were sent with.
 | `LLMAssistantGetThread` | `threadId` | `{success, thread}` |
 | `LLMAssistantDeleteThread` | `threadId` | `{success}`; also deletes the sessions the chat started, and stops those working |
 | `LLMAssistantArchiveSession` | `threadId` | `{success}`; stops a session and hides it from the list (refused for a chat that is not a session) |
+| `LLMAssistantGetKnowledge` | none | `{success, documents[], settings{providerId, model}, providers[{id, name}], limits, totals}`; each document is `{id, title, fileName, addedAt, chars, chunks, embedded, embedError}`. Needs `llm_knowledge` |
+| `LLMAssistantAddKnowledge` | `name`, `title?`, `text` | `{success, document}`; text only, up to 1,000,000 characters; a document that could not be embedded still succeeds, with the reason in `document.embedError` |
+| `LLMAssistantDeleteKnowledge` | `docId` | `{success}` |
+| `LLMAssistantSearchKnowledge` | `query`, `limit?` (up to 10) | `{success, mode (keyword \| hybrid), results[{title, docId, piece, heading, text, score, keyword, semantic}], embedError?}` |
+| `LLMAssistantSetKnowledgeSettings` | `providerId`, `model` | `{success, dimension}`; the model is tried first (one short text is sent) and nothing is saved if it fails; both empty switches embedding off |
+| `LLMAssistantReindexKnowledge` | none | `{success, embedded, failed}`; embeds every document again with the current setting (or removes their vectors when there is none) |
 | `LLMAssistantGetSchedules` | none | `{success, schedules[], toolChoices[], max}`; each schedule is its stored fields plus `triggerText`, `lastStatus` (how its last run went) and `threadId` (the chat its runs are under). Needs `llm_schedules` |
 | `LLMAssistantSaveSchedule` | `schedule` (object or JSON string: `id?`, `title`, `prompt`, `trigger` `{kind: every \| cron \| at, everyMinutes?, cron?, at?}`, `timezone?`, `enabled?`, `approvalMode?`, `model?`, `assistantId?`, `toolIds?`) | `{success, id}`; with `id` it changes that schedule, keeping what the scheduler recorded on it. Refuses a trigger that is not allowed, with the reason |
 | `LLMAssistantDeleteSchedule` | `scheduleId` | `{success}`; its chat and runs stay |

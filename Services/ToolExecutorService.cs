@@ -42,6 +42,7 @@ public static class ToolExecutorService
         [ToolConstants.SessionWait] = LLMAssistantAPI.PermToolSessions,
         [ToolConstants.SessionStop] = LLMAssistantAPI.PermToolSessions,
         [ToolConstants.SessionArchive] = LLMAssistantAPI.PermToolSessions,
+        [ToolConstants.SearchKnowledge] = LLMAssistantAPI.PermToolKnowledge,
         [ToolConstants.ScheduleCreate] = LLMAssistantAPI.PermToolSchedules,
         [ToolConstants.ScheduleList] = LLMAssistantAPI.PermToolSchedules,
         [ToolConstants.ScheduleCancel] = LLMAssistantAPI.PermToolSchedules,

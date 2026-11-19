@@ -159,6 +159,9 @@ public static class ToolConstants
     /// <summary>All the schedule tool IDs (each is its own handler id).</summary>
     public static readonly string[] ScheduleIds = [ScheduleCreate, ScheduleList, ScheduleCancel];
 
+    /// <summary>ID of the tool that searches the user's knowledge library (documents they added). Off by default; it needs <c>llm_tool_knowledge</c> and <c>llm_knowledge</c>.</summary>
+    public const string SearchKnowledge = "search_knowledge";
+
     /// <summary>All built-in tool IDs.
     public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
 }
