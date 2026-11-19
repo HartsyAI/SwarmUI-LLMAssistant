@@ -200,6 +200,54 @@ export async function clearSchedules(page: Page) {
     }
 }
 
+/** Every embeddings request the mock has seen ({model, inputs}), oldest first. Kept apart from chat requests, so mockRequests() is unchanged. */
+export async function embeddingRequests(): Promise<any[]> {
+    return await (await fetch(`${MOCK}/__embeddings`)).json();
+}
+
+/** Forgets the mock's recorded embeddings requests. */
+export async function clearEmbeddingRequests() {
+    await fetch(`${MOCK}/__embeddings`, { method: 'DELETE' });
+}
+
+/** Makes the mock's embeddings answer with this status (0 makes them work again). */
+export async function failEmbeddings(status: number) {
+    await fetch(`${MOCK}/__embeddings/fail`, { method: 'PUT', body: JSON.stringify({ status }) });
+}
+
+/** Empties the user's knowledge library, switches embedding off, and makes the mock's embeddings work and forget what it saw, so one spec's documents never answer another's search. */
+export async function clearKnowledge(page: Page) {
+    await failEmbeddings(0);
+    let listed = await api(page, 'LLMAssistantGetKnowledge');
+    for (let doc of listed.documents ?? []) {
+        await api(page, 'LLMAssistantDeleteKnowledge', { docId: doc.id });
+    }
+    if (listed.settings?.providerId || listed.settings?.model) {
+        await api(page, 'LLMAssistantSetKnowledgeSettings', { providerId: '', model: '' });
+    }
+    await clearEmbeddingRequests();
+}
+
+/** Switches the knowledge search tool on for everyone and gives it to the default assistant. */
+export async function enableKnowledgeTool(page: Page) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    let saved = await api(page, 'LLMAssistantSaveTool', { tool: { ...tools.find(t => t.id === 'search_knowledge'), enabled: true }, scope: 'shared' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    let current = (await api(page, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant;
+    let assistant = await api(page, 'LLMAssistantSaveAssistant', { assistant: { ...current, enabledToolIds: [...BUILTINS, 'search_knowledge'] }, scope: 'personal' });
+    expect(assistant.success, JSON.stringify(assistant)).toBe(true);
+}
+
+/** Puts the knowledge tool back off and the default assistant back as it was. */
+export async function resetKnowledgeTool(page: Page) {
+    let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
+    let tool = tools.find(t => t.id === 'search_knowledge');
+    if (tool?.enabled) {
+        await api(page, 'LLMAssistantSaveTool', { tool: { ...tool, enabled: false }, scope: 'shared' });
+    }
+    await api(page, 'LLMAssistantDeleteAssistant', { assistantId: 'default', scope: 'personal' });
+}
+
 /** Switches the code tools on for everyone but leaves every assistant's own list alone: a chat in code mode brings them itself. */
 export async function enableCodeToolsGlobally(page: Page) {
     let tools = (await api(page, 'LLMAssistantGetTools')).tools as any[];
@@ -221,6 +269,7 @@ export const test = base.extend<{ llm: Page }>({
         let listed = await api(page, 'LLMAssistantGetThreads');
         expect(listed.success).toBe(true);
         await clearSchedules(page);
+        await clearKnowledge(page);
         // Deleting a chat deletes the sessions it started, so only the chats with no parent in the list are deleted.
         let ids = new Set((listed.threads ?? []).map((t: any) => t.id));
         for (let thread of listed.threads ?? []) {

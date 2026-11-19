@@ -288,6 +288,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="mcp" role="tab" aria-selected="false">MCP Servers</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="skills" role="tab" aria-selected="false">Skills</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="schedules" role="tab" aria-selected="false">Schedules</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="knowledge" role="tab" aria-selected="false">Knowledge</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -532,6 +533,16 @@
                     <div id="llma-schedules-list"></div>
                     <button type="button" class="basic-button translate" id="llma-schedules-add">+ Add Schedule</button>
                     <div id="llma-schedules-editor" style="display:none;"></div>
+                </div>
+
+                <!-- Knowledge: the user's own documents the assistant can search (knowledge.js; the forms are built from core's input helpers) -->
+                <div class="llma-modal-panel" id="llma-settings-knowledge" style="display:none;">
+                    <div id="llma-knowledge-totals" class="text-muted small mb-2"></div>
+                    <div id="llma-knowledge-list"></div>
+                    <button type="button" class="basic-button translate" id="llma-knowledge-add">+ Add Documents</button>
+                    <input type="file" id="llma-knowledge-files" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.html,.htm,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.js,.ts,.py,.cs,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,text/*">
+                    <div id="llma-knowledge-embedding" class="mt-3"></div>
+                    <div id="llma-knowledge-search"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

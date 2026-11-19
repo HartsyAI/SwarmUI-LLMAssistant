@@ -10,6 +10,11 @@ using System.Text.Json.Nodes;
 //   GET    /__requests             every request body seen, oldest first
 //   DELETE /__requests             forget them
 //   GET    /__health               "ok"
+//   POST   /v1/embeddings          a deterministic stand-in: words of one group (cat, kitten, feline; dog, puppy; car, vehicle; invoice, bill) add to the same
+//                                  dimension, so a query can find text that shares no word with it. A model named "no-embed-model" is refused (404)
+//   GET    /__embeddings           every embeddings request seen ({model, inputs}), kept apart from chat requests
+//   DELETE /__embeddings           forget them
+//   PUT    /__embeddings/fail      { "status": 500 } makes embeddings answer with that status (0 = work again)
 //
 // A rule is { "match": "text", "regex": "pattern", "model": "id", "rounds": [ round, ... ] }.
 // A rule applies when the LAST USER message contains `match` (or matches `regex`) and the request's model equals `model`
@@ -67,6 +72,84 @@ app.MapDelete("/__requests", () =>
         requests.Clear();
     }
     return Results.Ok();
+});
+
+// ---- Embeddings ----
+List<JsonObject> embeddingRequests = [];
+int embeddingFail = 0;
+string[][] wordGroups = [["cat", "cats", "kitten", "feline", "tabby"], ["dog", "dogs", "puppy", "canine", "hound"], ["car", "cars", "vehicle", "automobile", "engine"], ["invoice", "bill", "payment", "receipt"]];
+const int EmbeddingDimension = 24;
+
+// A word's own dimension (or its group's), so the same text always gives the same vector, in any process.
+float[] Embed(string text)
+{
+    float[] vector = new float[EmbeddingDimension];
+    foreach (System.Text.RegularExpressions.Match word in System.Text.RegularExpressions.Regex.Matches((text ?? "").ToLowerInvariant(), @"[\p{L}\p{N}]+"))
+    {
+        int group = Array.FindIndex(wordGroups, g => g.Contains(word.Value));
+        int hash = 17;
+        foreach (char c in word.Value)
+        {
+            hash = unchecked(hash * 31 + c);
+        }
+        vector[group >= 0 ? group : wordGroups.Length + (hash & int.MaxValue) % (EmbeddingDimension - wordGroups.Length)] += 1;
+    }
+    return vector;
+}
+
+app.MapGet("/__embeddings", () =>
+{
+    lock (gate)
+    {
+        return Results.Json(embeddingRequests.Select(r => r.DeepClone()).ToArray());
+    }
+});
+
+app.MapDelete("/__embeddings", () =>
+{
+    lock (gate)
+    {
+        embeddingRequests.Clear();
+    }
+    return Results.Ok();
+});
+
+app.MapPut("/__embeddings/fail", async (HttpRequest req) =>
+{
+    using StreamReader reader = new(req.Body);
+    JsonNode node = JsonNode.Parse(await reader.ReadToEndAsync());
+    lock (gate)
+    {
+        embeddingFail = node?["status"]?.GetValue<int>() ?? 0;
+    }
+    return Results.Ok();
+});
+
+app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
+{
+    using StreamReader reader = new(ctx.Request.Body);
+    JsonObject body = JsonNode.Parse(await reader.ReadToEndAsync()) as JsonObject ?? [];
+    string model = body["model"]?.GetValue<string>() ?? "";
+    List<string> inputs = body["input"] is JsonArray many ? [.. many.Select(n => n?.GetValue<string>() ?? "")] : [body["input"]?.GetValue<string>() ?? ""];
+    int fail;
+    lock (gate)
+    {
+        embeddingRequests.Add(new JsonObject { ["model"] = model, ["inputs"] = new JsonArray([.. inputs.Select(i => (JsonNode)JsonValue.Create(i))]) });
+        fail = embeddingFail;
+    }
+    if (fail > 0 || model == "no-embed-model")
+    {
+        ctx.Response.StatusCode = fail > 0 ? fail : 404;
+        await ctx.Response.WriteAsJsonAsync(new { error = new { message = fail > 0 ? "mock embeddings failure" : $"model '{model}' not found", type = "mock_error" } });
+        return;
+    }
+    // Answered out of order on purpose when asked for more than one, so a client that ignores "index" is caught.
+    JsonArray data = [];
+    for (int i = inputs.Count - 1; i >= 0; i--)
+    {
+        data.Add(new JsonObject { ["object"] = "embedding", ["index"] = i, ["embedding"] = new JsonArray([.. Embed(inputs[i]).Select(v => (JsonNode)JsonValue.Create(v))]) });
+    }
+    await ctx.Response.WriteAsJsonAsync(new JsonObject { ["object"] = "list", ["model"] = model, ["data"] = data });
 });
 
 app.MapGet("/v1/models", () => Results.Json(new

@@ -103,6 +103,19 @@ public static class LLMAssistantAPI
         "Allows the LLM to make schedules (prompts that run later in the background), list and cancel the ones it made, by calling the schedule tools. What it makes starts switched off, until the user turns it on in Settings.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to have a knowledge library: documents the user adds (kept on the server, under the user's own folder) that are searched by keywords, and by meaning when an embedding
+    /// model is set (which sends the documents' text to that model's server).</summary>
+    public static readonly PermInfo PermKnowledge = Permissions.Register(new(
+        "llm_knowledge", "[LLM] Knowledge Library",
+        "Allows the user to add documents to a personal knowledge library and search it. When the user picks an embedding model, the documents' text is sent to that model's backend to make vectors for searching by meaning.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
+    /// <summary>Permission to let the LLM search the user's knowledge library (the <c>search_knowledge</c> tool). It only reads, and only the calling user's own library.</summary>
+    public static readonly PermInfo PermToolKnowledge = Permissions.Register(new(
+        "llm_tool_knowledge", "[LLM Tool] Search Knowledge",
+        "Allows the LLM to search the user's own knowledge library by calling the search_knowledge tool, and to read the excerpts it returns.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>generate_image</c> built-in tool.</summary>
     public static readonly PermInfo PermToolGenerateImage = Permissions.Register(new(
         "llm_tool_generate_image", "[LLM Tool] Generate Image",
@@ -259,6 +272,12 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantDeletePromptAsset, true, PermSettings);
         API.RegisterAPICall(PromptAssetEndpoints.LLMAssistantSetWorkspaceTrust, true, PermSettings);
         API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantGetKnowledge, false, PermKnowledge);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantAddKnowledge, true, PermKnowledge);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantDeleteKnowledge, true, PermKnowledge);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantSearchKnowledge, false, PermKnowledge);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantSetKnowledgeSettings, true, PermKnowledge);
+        API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantReindexKnowledge, true, PermKnowledge);
         API.RegisterAPICall(ScheduleEndpoints.LLMAssistantGetSchedules, false, PermSchedules);
         API.RegisterAPICall(ScheduleEndpoints.LLMAssistantSaveSchedule, true, PermSchedules);
         API.RegisterAPICall(ScheduleEndpoints.LLMAssistantDeleteSchedule, true, PermSchedules);

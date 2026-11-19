@@ -88,6 +88,7 @@ async function llmaInit() {
     llmaSetupMcpTab();
     llmaSetupSkillsTab();
     llmaSetupSchedulesTab();
+    llmaSetupKnowledgeTab();
     llmaCodeMode.setup();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();
@@ -1365,6 +1366,7 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'mcp') llmaMcp.load();
             if (tab.dataset.tab === 'skills') llmaSkillsSettings.load();
             if (tab.dataset.tab === 'schedules') llmaSchedulesSettings.load();
+            if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
         });
     });
 

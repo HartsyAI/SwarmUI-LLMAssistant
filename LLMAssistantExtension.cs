@@ -48,6 +48,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/skills.js");
         // The Schedules tab of the settings dialog (needs sessions.js for the status dots).
         ScriptFiles.Add("Assets/schedules.js");
+        // The Knowledge tab of the settings dialog: the user's documents, and the embedding model.
+        ScriptFiles.Add("Assets/knowledge.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
@@ -171,6 +173,7 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new SessionWaitTool());
         ToolRegistryService.RegisterHandler(new SessionStopTool());
         ToolRegistryService.RegisterHandler(new SessionArchiveTool());
+        ToolRegistryService.RegisterHandler(new KnowledgeTool());
         ToolRegistryService.RegisterHandler(new ScheduleCreateTool());
         ToolRegistryService.RegisterHandler(new ScheduleListTool());
         ToolRegistryService.RegisterHandler(new ScheduleCancelTool());

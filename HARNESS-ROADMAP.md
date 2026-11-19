@@ -37,7 +37,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 8 | **Workspace / project context** (back end done in Phase 5, see the README) | CLAUDE.md / AGENTS.md discovery injected into the prompt; worktrees (OpenHarness, OpenCode) | None. Every file tool is hard-wired to `Data/` or `Output/`. | New per-user workspace root (see section 3) |
 | 9 | **Code-grade file tools** | Read, Write, **Edit**, Glob, Grep, LSP, notebook | `file_read` (Data only), `file_write` (Output only, extension allowlist), no edit-in-place, no glob, no grep. `shell_exec` runs `cmd.exe`/`sh` in `Data/`. | New handlers beside `FileReadTool` |
 | 10 | **Custom slash commands** (done in Phase 7) | `commands/*.md`, `/` palette of commands + skills | `/` opens a tool picker only | `tool-picker.js` |
-| 11 | **RAG / file search** | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |
+| 11 | **RAG / file search** (done in Phase 9 as the knowledge library, see the README, "Knowledge library") | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |
 | 12 | **Scheduling and background tasks** (done in Phase 10 as schedules that start sessions, see the README, "Schedules") | Cron create/list/delete, remote trigger (OpenHarness), recipes (Goose) | None | Hosted service |
 | 13 | **Cost and usage tracking** | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
 | 14 | **Run non-interactively / dry run** | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |

@@ -17,7 +17,7 @@ namespace Hartsy.Extensions.LLMAssistant.Backends;
 /// <summary>LLM backend for any OpenAI API-compatible provider (OpenAI, Anthropic Claude, Ollama, LM Studio, vLLM,
 /// OpenRouter, …). A per-user key overrides the configured Authorization header: <c>anthropic_api</c> when the Address is
 /// Anthropic's API, <c>openai_api</c> otherwise.</summary>
-public class RemoteOpenAILLMProvider : LLMProviderBackend
+public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
 {
     /// <summary>Settings saved to Data/Backends.fds by field name, so renaming or retyping a field breaks every saved backend.</summary>
     /// <remarks>Assets/llm-backend-cards.js groups these fields into the card's sections.</remarks>
@@ -134,6 +134,55 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend
 
     /// <inheritdoc/>
     protected override async Task OnProviderShutdown() => Status = BackendStatus.DISABLED;
+
+    /// <inheritdoc/>
+    public string EmbeddingProviderId => Id;
+
+    /// <inheritdoc/>
+    public string EmbeddingProviderName => DisplayName;
+
+    /// <summary>Anthropic's API has no embeddings; every other OpenAI-compatible server is assumed to have <c>/v1/embeddings</c> and says so (with its own error) when it does not.</summary>
+    public bool SupportsEmbeddings => !IsAnthropic && !string.IsNullOrWhiteSpace(Settings.Address);
+
+    /// <inheritdoc/>
+    public async Task<float[][]> EmbedAsync(string model, IReadOnlyList<string> inputs, Session session, CancellationToken ct)
+    {
+        if (!SupportsEmbeddings)
+        {
+            throw new SwarmReadableErrorException(IsAnthropic ? "Claude has no embeddings API. Pick another backend for the knowledge library." : "This backend has no address set.");
+        }
+        JObject body = new() { ["model"] = model, ["input"] = new JArray(inputs) };
+        HttpRequestMessage request = new(HttpMethod.Post, $"{Settings.Address.TrimEnd('/')}/v1/embeddings") { Content = Utilities.JSONContent(body) };
+        // The same headers (and the user's own key) as a chat request to this backend.
+        ApplyHeaders(request, new ExtendedLLMInput { RequestSession = session });
+        using CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(120));
+        HttpResponseMessage response = await HttpClient.SendAsync(request, timeout.Token);
+        string text = await response.Content.ReadAsStringAsync(timeout.Token);
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new SwarmReadableErrorException($"The embeddings API returned {(int)response.StatusCode}: {(text.Length > 300 ? text[..300] : text)}");
+        }
+        JArray data = JObject.Parse(text)["data"] as JArray ?? throw new SwarmReadableErrorException("The embeddings API's reply had no data.");
+        // Each entry says which input it is for; an API that returns them out of order is put right.
+        float[][] vectors = new float[inputs.Count][];
+        int position = 0;
+        foreach (JObject entry in data.OfType<JObject>())
+        {
+            int index = entry["index"]?.Type == JTokenType.Integer ? entry["index"].Value<int>() : position;
+            position++;
+            if (index < 0 || index >= inputs.Count || entry["embedding"] is not JArray numbers)
+            {
+                throw new SwarmReadableErrorException("The embeddings API's reply was not in the expected shape.");
+            }
+            vectors[index] = [.. numbers.Select(n => n.Value<float>())];
+        }
+        if (vectors.Any(v => v is null))
+        {
+            throw new SwarmReadableErrorException($"The embeddings API returned {data.Count} vectors for {inputs.Count} inputs.");
+        }
+        return vectors;
+    }
 
     /// <summary>The model list URL. Anthropic's pages at 20 models unless asked for more.</summary>
     private string ModelsUrl(string address) => IsAnthropic ? $"{address}/v1/models?limit=1000" : $"{address}/v1/models";
