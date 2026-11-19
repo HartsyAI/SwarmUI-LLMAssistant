@@ -218,8 +218,10 @@ test('a chat with a reply being written is not interleaved with, and Stop ends a
     await setScenarios([{ match: 'slow headless', rounds: [{ text: 'Late.', delayMs: 15_000 }] }]);
     let chat = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default' })).thread.id;
     let slow = run(llm, { message: 'slow headless', threadId: chat });
-    // Once the first is in flight, a second for the same chat is refused.
-    await expect.poll(async () => (await run(llm, { message: 'second', threadId: chat })).error, { timeout: 20_000 }).toContain('already being written');
+    // Wait until the model has been sent the first one: by then its reply is registered. (Asking sooner would race it, and the second request would simply be the first.)
+    await expect.poll(async () => (await mockRequests()).some(r => JSON.stringify(r.messages ?? []).includes('slow headless')), { timeout: 20_000 }).toBe(true);
+    // With the first in flight, a second for the same chat is refused.
+    expect((await run(llm, { message: 'second', threadId: chat })).error).toContain('already being written');
     expect((await api(llm, 'LLMAssistantStopGeneration', { threadId: chat })).cancelled).toBe(true);
     let stopped = await slow;
     // What was in the chat stays: the first message, and nothing from the refused one.
