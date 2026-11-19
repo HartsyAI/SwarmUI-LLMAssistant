@@ -32,6 +32,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Sessions](#sessions)
 - [Schedules](#schedules)
 - [Knowledge library](#knowledge)
+- [Setup check and headless turns](#headless)
 - [Built-in tools](#built-in-tools)
 - [Vision](#vision)
 - [Assets](#assets)
@@ -453,6 +454,30 @@ Your own documents, kept on the server and searched by the assistant. Add text f
 
 ---
 
+## Setup check and headless turns <a id="headless"></a>
+
+Two things for knowing the setup works and for using the assistant from a script.
+
+**Setup check** (`Settings > General`, at the foot): **Check setup** looks at the whole setup and says, for each part, whether it is fine and what to do if it is not: LLM backends and models, the preferred model, tools (including a tool that points at a handler that does not exist, and tools the user may not run), MCP servers, hooks (including ones that cannot be read and so do nothing), skills, the knowledge library, schedules (including a scheduler that is not running and schedules that skipped runs), sessions, and whether the extension's data folder can be written. Each check has a status (`ok`, `warn`, `fail`, `info` for "not set up, which is fine"), a detail and a fix; the report has the worst one as `overall`.
+- **It only reads.** It starts no connection (an MCP server that is not connected is reported as it is, not connected for the check), loads no model, opens no session and changes nothing. **Deep check** also asks each backend for its model list again and tries the knowledge library's embedding model (one short text), which are requests to other servers, so it is a separate button and a separate flag (`deep: true`); the cached model lists are left alone.
+- **It does not leak.** Anyone with `llm_chat` can run it, so it gives counts and statuses: an MCP server's error text (which can hold a command line) is included only for a user who may manage MCP servers, and a storage failure says only that a file could not be created, never the folder.
+- Route `LLMAssistantReadiness` (`deep?`): `{success, overall, deep, checkedAt, checks[{id, title, status, detail, fix?}]}`. The ids are stable: `backends`, `model`, `tools`, `mcp`, `hooks`, `skills`, `knowledge`, `schedules`, `sessions`, `storage`. A part that cannot be looked at (a failure while gathering) shows as its own warning instead of failing the report.
+
+**Headless turn** (`LLMAssistantRunTurn`): one request, one reply, with no socket, for scripts and other programs. It is the same turn as in the chat, built by the same code (skills, tools, project instructions, summaries all behave identically), and it is kept in a chat, so a script can carry a conversation on by passing the `threadId` back, and the user can open it in the interface afterwards. Without a `threadId` it makes a chat (titled from the message, with no extra model call) and returns its id. For a stateless one-shot with device actions there is also `LLMAssistantVoiceTurn`.
+- **Nobody can approve.** A call that would need the user's approval is refused with that reason, so a script never hangs on a prompt. `approvalMode` is `ask` by default (tools that only read run, anything that changes something is refused), `plan`, or `auto` (everything runs; it must be asked for). It is never looser than the chat's own saved mode, and it is not saved onto the chat, so the interface does not later run in Auto because a script did.
+- **One reply at a time.** A chat that already has a reply being written is refused, not interleaved with (stop it with `LLMAssistantStopGeneration` first); a session still working in the background is stopped first, as for a message typed in the interface. Reports from sessions that finished are put into the chat before the message, as they are in the interface. Stop also ends a request that is waiting, but a request cannot tell that its caller disconnected, so a turn runs to its end unless stopped.
+- **Dry run** (`dryRun: true`): the request is built exactly as a real turn would build it and reported on, without calling the model, saving anything or changing the chat: `{success, dryRun, model, modelFound, assistantId, threadId?, approvalMode, tools[], historyMessages, systemPromptChars, estimatedPromptTokens, contextWindow, wouldCompact, warnings[]}`. `wouldCompact` says that the chat is long enough that a real turn would summarize its start first (a model call the dry run does not make). Warnings say when no backend offers the model, the request is bigger than the window, or an approval mode would refuse changes.
+- Request: `{message (required), threadId?, assistantId?, model?, approvalMode?, dryRun?, temperature?, maxTokens?, seed?, loops?, enableThinking?, instructionId?, forceToolId?}`. With no `model`, the chat's own (for a session), then the preferred one, then the first any backend offers. Reply: `{success, threadId, response, model, stopReason, toolCalls[{id, name, arguments, result}], usage?, truncated?, created?}`: `response` is the answer without the model's reasoning, each tool result is whole unless it is over 20,000 characters (then `{truncated, chars, preview}`; the chat keeps all of it), and `stopReason` is `tool_round_limit` when the round limit cut the turn. A failure is `{success: false, error, threadId?}`, with the `threadId` when a chat was made or used: what a failed turn produced is saved in it.
+- Not included: a streaming variant (the chat WebSocket routes stream, and `LLMAssistantVoiceTurnWS` streams a stateless turn).
+
+```bash
+# Ask a question, read the answer, continue the same conversation
+curl -s localhost:7801/API/LLMAssistantRunTurn -H 'Content-Type: application/json' \
+  -d '{"session_id":"...","message":"Summarize my notes on the router"}'
+```
+
+---
+
 ## Built-in tools
 
 Thirteen tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
@@ -696,6 +721,8 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `approvalMode?` | streaming frames (below); `approvalMode` (`auto`, `ask` or `plan`) comes from the composer's Ask / Auto / Plan control, defaults to the mode saved on the chat, and is saved there when it differs; `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
 | `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
+| `LLMAssistantReadiness` | `deep?` | `{success, overall, deep, checkedAt, checks[{id, title, status, detail, fix?}]}`; the setup check (see [Setup check and headless turns](#headless)). Reads only; counts and statuses, no error text an admin alone may see |
+| `LLMAssistantRunTurn` | `message`, `threadId?`, `assistantId?`, `model?`, `approvalMode?` (`ask` default), `dryRun?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `instructionId?`, `forceToolId?` | `{success, threadId, response, model, stopReason, toolCalls[], usage?, created?}`, or with `dryRun` the report on the request it would make. One request, one reply, kept in a chat; a call that needs approval is refused |
 | `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantUploadChatVideo` | POST | `threadId`, `messageId`, `videoData` (data URI; mp4, webm or mov, up to 64 MB) | `{success, url, mediaType, bytesWritten}` |

@@ -89,6 +89,7 @@ async function llmaInit() {
     llmaSetupSkillsTab();
     llmaSetupSchedulesTab();
     llmaSetupKnowledgeTab();
+    llmaSetupReadiness();
     llmaCodeMode.setup();
     llmaSetupAssistantPanel();
     llmaSetupSplitBars();

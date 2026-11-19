@@ -49,6 +49,33 @@ public static class LLMModelLookup
         return models;
     }
 
+    /// <summary>Every provider and every model they offer to <paramref name="session"/>'s user. With <paramref name="refresh"/> each provider is asked for its models again (bounded by the usual
+    /// timeout) instead of using the cached roster; the cache itself is left as it is, because it is shared and one user's check must not make everyone's next request wait on a slow endpoint.
+    /// For the readiness check, which must say what is there without waiting on a dead endpoint for long.</summary>
+    public static async Task<(int Providers, List<LLMModelInfo> Models)> ListAllAsync(Session session, bool refresh)
+    {
+        List<LLMModelInfo> all = [];
+        List<ILLMProvider> providers = [.. LLMProviderRegistry.All];
+        foreach (ILLMProvider provider in providers)
+        {
+            if (!refresh)
+            {
+                all.AddRange(await GetModelsCached(provider, session));
+                continue;
+            }
+            using CancellationTokenSource cts = new(ListTimeout);
+            try
+            {
+                all.AddRange(await (provider.ModelsVaryByUser && session?.User is not null ? provider.ListModelsFor(session, cts.Token) : provider.ListModels(cts.Token)) ?? []);
+            }
+            catch
+            {
+                // A provider that does not answer offers nothing this time, which is what the check is there to show.
+            }
+        }
+        return (providers.Count, all);
+    }
+
     /// <summary>The first model any registered provider advertises, or null when none does. For callers
     /// that cannot name a model because there is no one to pick one — a voice satellite sends an
     /// utterance and nothing else. Uses the same cached rosters as the lookups above, so it costs

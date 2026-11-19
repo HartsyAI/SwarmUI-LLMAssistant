@@ -63,6 +63,16 @@ public static class BackgroundTurnService
         }
     }
 
+    /// <summary>How many of a user's sessions are working (waiting for the user does not count: it is not using the model) and how many are waiting for a place.</summary>
+    public static (int Working, int Queued) CountFor(string userId)
+    {
+        lock (Gate)
+        {
+            List<Entry> mine = [.. Live.Values.Where(e => e.UserId == userId)];
+            return (mine.Count(e => e.Started && !e.Waiting), mine.Count(e => !e.Started));
+        }
+    }
+
     /// <summary>Hands a message to a session that is working, to go in when its turn ends. False when nothing is running for it (start one with <see cref="Start"/>).</summary>
     public static bool TryEnqueue(string userId, string threadId, string message)
     {

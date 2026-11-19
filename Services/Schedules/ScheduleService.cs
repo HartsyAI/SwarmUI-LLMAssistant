@@ -34,6 +34,9 @@ public static class ScheduleService
     /// <summary>The session each user's runs are made under, kept so every run does not open (and leak) another.</summary>
     private static readonly ConcurrentDictionary<string, Session> RunSessions = new();
 
+    /// <summary>Whether the loop has been started.</summary>
+    public static bool IsRunning => Volatile.Read(ref _started) != 0;
+
     /// <summary>Starts the loop once. Safe to call from the extension's <c>OnInit</c>.</summary>
     public static void Start()
     {

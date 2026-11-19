@@ -22,6 +22,36 @@ public static class HookService
         return hooks;
     }
 
+    /// <summary>How many hooks the user has (shared and personal) and how many of them cannot be used because they do not validate. Hooks that do not validate are left out of
+    /// <see cref="GetHooks"/> without a word, so this is how a report finds them.</summary>
+    public static (int Total, int Invalid) Health(User user)
+    {
+        int total = 0;
+        int invalid = 0;
+        foreach ((JObject layer, string scope) in new[] { (SettingsService.GetSettings(), SettingsService.ScopeShared), (SettingsService.GetUserSettings(user), SettingsService.ScopePersonal) })
+        {
+            if (layer?[SettingsKey] is not JObject hooks)
+            {
+                continue;
+            }
+            foreach (JProperty property in hooks.Properties())
+            {
+                total++;
+                if (property.Value is not JObject json)
+                {
+                    invalid++;
+                    continue;
+                }
+                json["id"] ??= property.Name;
+                if (ToolHook.FromJson(json, scope).Validate() is not null)
+                {
+                    invalid++;
+                }
+            }
+        }
+        return (total, invalid);
+    }
+
     /// <summary>Every hook the user can see, for the settings screen, as JSON tagged with its layer.</summary>
     public static JArray GetHookList(User user)
     {

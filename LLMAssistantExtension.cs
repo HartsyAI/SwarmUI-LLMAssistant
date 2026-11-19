@@ -50,6 +50,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/schedules.js");
         // The Knowledge tab of the settings dialog: the user's documents, and the embedding model.
         ScriptFiles.Add("Assets/knowledge.js");
+        // The setup check at the foot of the General tab.
+        ScriptFiles.Add("Assets/readiness.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
