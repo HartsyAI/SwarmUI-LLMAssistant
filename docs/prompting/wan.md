@@ -1,6 +1,6 @@
 # Wan 2.1 / Wan 2.2 prompting guide
 
-Status: P0 reference, video family. The official repos give prompt-extension guidance and a negative prompt, but no written prompt-writing guide in text form (the Wan 2.2 "prompting guide book" linked from Swarm's docs is an image-only DingTalk page that could not be read). Sources (retrieved 2026-11-19; most pages were read through a summarizer, so verify numbers before shipping a validator):
+Status: P0 reference, video family. The official repos give prompt-extension guidance and a negative prompt, but no written prompt-writing guide in text form (the Wan 2.2 "prompting guide book" linked from Swarm's docs is an image-only DingTalk page that could not be read). Sources (retrieved 2026-11-19; most pages were read through a summarizer, so check field names and schemas against the source before a validator relies on them):
 - Official: https://github.com/Wan-Video/Wan2.1 and https://github.com/Wan-Video/Wan2.2 (READMEs; `wan/utils/prompt_extend.py`, `wan/utils/system_prompt.py`)
 - Official: https://huggingface.co/Wan-AI/Wan2.2-T2V-A14B , https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B , https://huggingface.co/Wan-AI/Wan2.1-T2V-14B (model cards)
 - Official-adjacent: https://huggingface.co/docs/diffusers/api/pipelines/wan (Diffusers docs: UMT5 encoder, 512-token default, negative prompt example)
@@ -12,7 +12,7 @@ Status: P0 reference, video family. The official repos give prompt-extension gui
 - `wan-2_1-text2video-1_3b`, `wan-2_1-image2video-1_3b`, `wan-2_1-vace-1_3b`
 - `wan-2_1-text2video-14b` (the class sorter has no separate Wan 2.2 T2V 14B id, so the 2.2 high/low T2V pair most likely lands here; not confirmed), `wan-2_1-image2video-14b`, `wan-2_1-flf2v-14b`, `wan-2_1-vace-14b`
 - `wan-2_2-image2video-14b` (Wan 2.2 I2V high/low pair), `wan-2_2-ti2v-5b` (single dense model, T2V and I2V)
-- Compat classes: Wan 2.1 1.3B, Wan 2.1/2.2 14B, Wan 2.2 5B (separate VAE). Text-to-image is also possible with 1 frame (Swarm docs).
+- Compat classes: Wan 2.1 1.3B, Wan 2.1/2.2 14B, Wan 2.2 5B. Text-to-image is also possible (Swarm docs).
 
 ## Text encoder
 
@@ -31,14 +31,11 @@ Status: P0 reference, video family. The official repos give prompt-extension gui
 
 - Negative prompt: supported when CFG > 1. The repo's reference negative is a Chinese word list ("bright tones, overexposed, static, blurred details, subtitles, ... three legs, many people in the background, walking backwards" in the English rendering shown in Diffusers docs). Plain comma-separated descriptors, not sentences. With distilled/Lightning LoRAs at CFG 1 the negative has no effect.
 - Text rendering: Wan 2.1 card claims Chinese and English on-screen text. Wan 2.2: not stated. Put the literal text in quotes.
-- Resolution (Wan 2.1): 14B T2V 480P and 720P; 1.3B T2V 480P (720P "less stable"); I2V uses a separate 480P and 720P checkpoint; aspect follows the input image. Wan 2.2 A14B: 480P and 720P. Wan 2.2 5B: 1280x704 or 704x1280 at 24 fps. Swarm: 832x480 trained, 1280x720 for 14B, any aspect fine.
-- Frames: Swarm default 81; frame count should be 4n+1 (inferred from the 4x temporal VAE; the 5B VAE is 4x16x16 per its card). Quality degrades above ~81 (Swarm docs). FPS: Wan 2.1 base is 16, most variants and the 5B are 24; Swarm defaults to 24, so set 16 for original 2.1 and Wan 2.2 14B (Swarm docs; official READMEs state 24 only for the 5B).
 - Quality keywords ("masterpiece", "4k"): not documented; the official extender does not add them. Style words go first if used.
 
 ## Wan 2.2 high/low-noise design
 
-- A14B models are two experts (~14B each, ~27B total, ~14B active per step): high-noise sets layout early, low-noise refines detail. The switch is by SNR; Diffusers exposes it as `boundary_ratio`. Official README gives no numeric boundary.
-- In Swarm, T2V: high model as base, low as refiner, Refiner Method `StepSwap`, control percentage 0.5 or higher. I2V: high as Video Model, low as Video Swap Model, Video Swap Percent 0.5 or higher (Swarm docs). The 5B has no pair.
+- A14B models are two experts (~14B each, ~27B total, ~14B active per step): high-noise sets layout early, low-noise refines detail. The switch is by SNR.
 - Prompting consequence: write one prompt for both experts. Whether the two stages benefit from different text: not stated. Use `<videoswap>` only if the user explicitly wants stage-specific text or LoRAs.
 
 ## Swarm tag compatibility
@@ -56,7 +53,7 @@ Status: P0 reference, video family. The official repos give prompt-extension gui
 ## Motion, camera, duration
 
 - Camera terms from the community: pan, tilt, dolly in/out, orbit, crane, tracking/follow, handheld, static. One community ComfyUI test found orbit moves often ignored; keep to one camera move per clip and state it plainly.
-- Duration is set by frame count (81 frames ~ 5 s at 16 fps, ~3.4 s at 24). Keep the action achievable in that time; one main action per clip.
+- Keep the action achievable in a short clip; one main action per clip.
 
 ## Official prompt extender (format, our wording)
 
@@ -81,7 +78,7 @@ Wan 2.2 14B Lightning pair, T2V: "a red fox trots across fresh snow, tracking sh
 ## Open questions
 
 - Wan 2.2 official guide-book contents (image-only page).
-- Whether Wan 2.2 renders text as Wan 2.1 does; official FPS for the 14B A14B models.
-- Exact SNR boundary value; whether stage-specific prompts help the two experts.
+- Whether Wan 2.2 renders text as Wan 2.1 does.
+- Whether stage-specific prompts help the two experts.
 - Whether the Swarm class sorter assigns the 2.2 T2V high/low pair to `wan-2_1-text2video-14b`.
 - Whether the Wan 2.1 and 2.2 extender system prompts differ (only 2.2 was read).

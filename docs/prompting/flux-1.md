@@ -27,9 +27,7 @@ Compat class `flux-1` (short code Flux). Covers Flux.1 schnell, dev, and the Too
 - Negative prompts: do not work. Both models are distilled (dev guidance-distilled, schnell timestep-distilled); diffusers only applies a negative prompt when `true_cfg_scale > 1`, which Swarm does not normally use (Swarm docs: CFG 1, "negative prompt won't work"; dev may tolerate slightly higher CFG, community-level observation). Rewriter must phrase everything positively and emit no negative.
 - Weights: Swarm docs say T5-based models do not weight well. Do not add weights.
 - Text rendering: works for short quoted strings; the model cards state no limits. Not officially documented for Flux.1.
-- Resolution: Swarm docs say any size up to ~2MP; default 1024x1024. Official statement: not stated.
 - Quality keywords ("8k", "masterpiece"): the card example uses "detailed, 8k"; BFL's newer docs say such tags add little (those are for Flux.2/3, not Flux.1). Treat as optional.
-- Steps/CFG (Swarm docs, not BFL): schnell 4 steps (1-4 supported per the model card), dev 20+ steps; Flux Guidance Scale is a separate Swarm param for dev.
 
 ## Kontext dev (editing)
 
@@ -39,8 +37,8 @@ Compat class `flux-1` (short code Flux). Covers Flux.1 schnell, dev, and the Too
 
 ## Fill / Depth / Canny
 
-- Fill is an inpaint model: describe what should fill the masked area. Swarm docs: use large masks, Creativity 1, Flux Guidance up to ~30 may help.
-- Depth/Canny need a depth map / edge image as init image (Creativity 1); the prompt describes the desired result, not the control image. Diffusers examples use guidance 10 (depth) and 30 (canny); these are example values only.
+- Fill is an inpaint model: describe what should fill the masked area.
+- Depth/Canny need a depth map / edge image as init image; the prompt describes the desired result, not the control image.
 
 ## Swarm tag compatibility
 

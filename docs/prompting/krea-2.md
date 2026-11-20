@@ -9,10 +9,10 @@ Status: P0 reference. Sources retrieved 2026-11-19, obtained as tool-generated s
 - Core: SwarmUI `docs/Model Support.md`, `docs/Features/Prompt Syntax.md`, `WorkflowGenerator.cs`, `ExtraNodes/SwarmComfyCommon/SwarmText.py`.
 
 ## Swarm class ids
-`krea-2` (and `krea-2/lora`), default 1024x1024. Swarm supports the Turbo and the Raw (base) checkpoints.
+`krea-2` (and `krea-2/lora`).
 
 ## Text encoder
-Qwen3-VL (Krea's page: with multi-layer feature aggregation); Comfy's docs and Swarm name the 4B size. VAE: Qwen-Image VAE. LLM/VLM encoder, so no CLIP chunking.
+Qwen3-VL (Krea's page: with multi-layer feature aggregation); Comfy's docs and Swarm name the 4B size. LLM/VLM encoder, so no CLIP chunking.
 
 ## Prompt format
 - Natural language. Official guide: long, detailed prompts give the best results, but good images come with little effort. Two patterns appear in its examples: comma-separated descriptive phrases (subject, attributes, lighting, background) and full sentences.
@@ -27,8 +27,6 @@ Qwen3-VL (Krea's page: with multi-layer feature aggregation); Comfy's docs and S
 - Weights/emphasis: nothing in the official docs. See the Swarm hack below.
 - Layout and boxes: no JSON or bbox format documented. Describe placement in words.
 - Hosted-product features (Creativity levels, Generative Sliders, style references, moodboards, Medium/Large names): not applicable to the local checkpoints; the open weights are Raw and Turbo.
-- Resolution: Raw trained up to about 1K; Turbo about 1K to 2K; the official CLI accepts 1024 to 2048, padded to multiples of 16. Swarm docs say anywhere from 128 to 4096 works, default 1024.
-- Steps/CFG (official): Turbo 8 steps with guidance 0 and `--mu 1.15` (Swarm: sigma shift 1.15, CFG 1). Raw: full sampler with guidance (README example 52 steps at 3.5; CLI defaults 28 steps at 4.5); Swarm docs: 20+ steps, CFG around 4+ (untested).
 - Safety: the weights are gated and deployers must filter. Swarm docs say NSFW terms are stripped by a built-in text refiner (Swarm's claim, not upstream's).
 - Licence: code Apache-2.0; weights under the Krea 2 Community License (commercial licence available).
 

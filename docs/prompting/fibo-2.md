@@ -10,7 +10,7 @@ Status: P0 reference. Sources retrieved 2026-11-19. Most pages were obtained as 
 - Core: SwarmUI `src/Text2Image/T2IBoundingBoxFormat.cs` (`fibo-2`), `T2IPromptHandling.cs`, `docs/Model Support.md`.
 
 ## Swarm class ids
-`fibo-2` (compat class `fibo-2`, "Fibo 2.0", default 1024x1024). Covers the Dev and Edit checkpoints; Swarm docs say the Edit one also does plain text-to-image.
+`fibo-2` (compat class `fibo-2`, "Fibo 2.0"). Covers the Dev and Edit checkpoints; Swarm docs say the Edit one also does plain text-to-image.
 
 ## Text encoder
 Qwen3-VL-4B-Instruct (official). A Perceiver compresses its hidden states into gist tokens, and some transformer blocks also cross-attend to the encoder. It is an LLM/VLM encoder, so there is no CLIP chunking or CLIP-style weighting.
@@ -35,8 +35,6 @@ Top-level key order seen in the official diffusers example: `short_description`,
 - Negative prompt: the default is the null caption (same structure, every value empty). A free-text negative is not documented; avoid it. Hosted styles use their own structured negatives.
 - Text rendering: list each string in `text_render`. The pipeline also draws each text as an image for the encoder (black on white, one line, long text split at 256 characters); this is automatic in diffusers.
 - Layout: officially described with words (`location`, `relative_size`). Numeric boxes: see Open questions.
-- Resolution: multiples of 16 near 1 MP; 1024x1024 default, 1424x800 and 1248x832 shown. Swarm docs: 256 to 1536 works well.
-- Steps/CFG: official Dev defaults are 30 steps with guidance 5 (card text says 50); Edit Turbo uses 4 steps at guidance 1. Swarm docs recommend CFG 1 and 8+ steps for dev. These conflict; not resolved here.
 - Prompt rewriting: official route is Bria's prompt-to-JSON VLMs (`bria-vgl`, Gemini-based or a local VLM) which turn a short idea into the full caption. The mirrored skill says to fill `text_render` only when the user supplied the exact wording.
 - License: CC BY-NC 4.0 (commercial use needs a Bria agreement).
 
@@ -62,5 +60,5 @@ Plain short form (trained, weaker control): `A red kayak on a still alpine lake 
 ## Open questions
 - Core mismatch: core emits `{"description","bounding_box":[x,y,w,h]}` in 0-100 percent. The official Fibo 2.0 sources (diffusers page, card, fal schema) never show `bounding_box` and describe placement with `location` / `relative_size`. docs.bria.ai/vgl shows `[x, y, w, h]` "normalized" with no stated range, so 0-1 versus 0-100 is unconfirmed. Whether Fibo 2.0 reads numeric boxes at all is not stated. Prefer `location` words until tested. Also, core's element has no `location`.
 - Which VGL version Fibo 2.0 was trained on (key order, `color_scheme` vs `color_palette`).
-- Token limit for Fibo 2.0 captions; behaviour of a free-text negative; best steps/CFG (official 30-50 at 5 vs Swarm 8 at 1).
+- Token limit for Fibo 2.0 captions; behaviour of a free-text negative.
 - Whether numeric colors (RGB lists) help in this dialect.

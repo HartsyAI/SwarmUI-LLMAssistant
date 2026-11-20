@@ -8,7 +8,7 @@ Status: draft reference. The model card has one hard rule (quote rendered text) 
 Swarm class id: `longcat-image` (6B, by Meituan).
 
 ## Text encoder
-- Technical report: **Qwen2.5-VL-7B**, used as one unified encoder for generation and editing. The model card itself does not name it. Core loads `qwen_2.5_vl_7b_fp8_scaled` and the Flux.1 VAE.
+- Technical report: **Qwen2.5-VL-7B**, used as one unified encoder for generation and editing. The model card itself does not name it.
 - Quoted text gets a **character-level tokenizer**: "a character-level tokenizer specifically for content demarcated by quotation marks" (report).
 - Implication: natural language; quoting is functional, not cosmetic.
 
@@ -21,8 +21,6 @@ Swarm class id: `longcat-image` (6B, by Meituan).
 - **Weights:** not stated. Treat as unsupported.
 - **Negative prompt:** not stated. Normal CFG model, so Swarm's separate field is wired; effect unverified.
 - **Layout/boxes:** not stated.
-- **Resolution:** card example 768x1344. Swarm default 1024 and custom sizes work freely. Training aspect ratios were filtered to 0.25-4.0 (report).
-- **Settings (official):** 50 steps, guidance 4.0 (also `enable_cfg_renorm=True` in the example). Swarm doc: CFG 4, 20+ steps, Euler, Beta may be better.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

@@ -20,7 +20,7 @@ Sources:
 Three fixed encoders: OpenCLIP-ViT/G, CLIP-ViT/L, and T5-xxl. CLIP context is 77 tokens. T5 context is "77/256 tokens at different stages of training" (3.5 Large card). Diffusers defaults T5 to 256 tokens and shows `max_sequence_length=512` for long prompts.
 - Implication: the CLIP encoders see only the first ~77 tokens; the T5 encoder carries the long detail. Put the subject, style and key nouns first.
 - 3.5 Medium card: artifacts "on the edge of generations" can appear when T5 tokens go over 256; if so, shorten the prompt.
-- SD3 Medium can run without T5 (`sd3_medium_incl_clips.safetensors`); its card says performance "will differ". Diffusers docs call the loss slight. A prompt for a no-T5 setup should be short and CLIP-style.
+- SD3 Medium can run without T5; its card says performance "will differ". Diffusers docs call the loss slight. A prompt for a no-T5 setup should be short and CLIP-style.
 
 ## Prompt format and length
 
@@ -29,11 +29,9 @@ Natural language. The cards show both a short phrase and a multi-paragraph descr
 ## What works / what does not
 
 - Text rendering: the cards claim improved typography and use the sign prompt "a capybara holding a sign that reads Hello World". No tips given; limits not stated.
-- Negative prompts: the cards do not discuss them. Diffusers exposes `negative_prompt` and ignores it when guidance <= 1 (`guidance_scale` default 7.0). Example negatives in Diffusers docs: "lowres, low quality, worst quality" (IP-Adapter example). Community: works on the CFG models; style negatives written as plain phrases.
+- Negative prompts: the cards do not discuss them. Diffusers exposes `negative_prompt` and ignores it when guidance <= 1. Example negatives in Diffusers docs: "lowres, low quality, worst quality" (IP-Adapter example). Community: works on the CFG models; style negatives written as plain phrases.
 - Weights: not covered by official sources. See compatibility below.
 - Layout / boxes: not stated.
-- Resolution: Diffusers default 1024x1024 "for the best results". 3.5 Medium trained progressively 256 to 1440 with mixed-scale final stage; a maximum megapixel count is not stated in the retrieved text.
-- Settings (examples only, not recommendations): 3.5 Large 28 steps, CFG 3.5 (4.5 for the long-prompt example); 3.5 Medium 40 steps, CFG 4.5; SD3 Medium 28 steps, CFG 7.0. 3.5 Medium card recommends Skip Layer Guidance for better structure and anatomy (Diffusers lists layers [7, 8, 9], scale 2.8, start 0.01, stop 0.2 as Stability's values for Medium).
 - Different Medium vs Large data: the same prompt can give different results.
 - Quality keywords: only the "detailed, 8k" style appears in examples; effect not stated.
 
@@ -63,4 +61,3 @@ Natural language. The cards show both a short phrase and a multi-paragraph descr
 - Official negative prompt guidance and recommended negatives.
 - Recommended prompt length and whether CLIP vs T5 sections should be written differently in Swarm.
 - Whether `<break>` or `(x:1.2)` weights measurably help on SD3.
-- Maximum supported resolution for 3.5 Large and Medium.

@@ -8,8 +8,8 @@ Status: draft reference. Official sources give run settings and one example, no 
 Swarm class id: `ovis`.
 
 ## Text encoder
-- Official: the PyTorch CLI loads **Ovis2.5-2B** via `--ovis_path` next to a separate VAE; the card does not call it a text encoder explicitly. Model is described as built on Ovis-U1.
-- Core loads `ovis_2.5.safetensors` as the text encoder and the Flux.1 VAE.
+- Official: the PyTorch CLI loads **Ovis2.5-2B** via `--ovis_path`; the card does not call it a text encoder explicitly. Model is described as built on Ovis-U1.
+- Core loads `ovis_2.5.safetensors` as the text encoder.
 - Implication: an LLM-style encoder, so plain descriptive natural language; no CLIP syntax.
 
 ## Prompt format and length
@@ -22,8 +22,6 @@ Swarm class id: `ovis`.
 - **Weights:** not stated. Treat as unsupported.
 - **Negative prompt:** the Diffusers example passes `""`; the PyTorch script has no negative option. Treat as unsupported or weak; if used, Swarm's separate field applies at CFG above 1.
 - **Layout/boxes:** not stated.
-- **Resolution:** 1024 (CLI `--image_size 1024`). Swarm doc: quickly breaks above 1024. Aspect ratios: not stated.
-- **Settings (official):** 50 steps, CFG 5.0. Swarm doc: Euler, Beta scheduler may be better, 20 steps acceptable.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off for this class. Avoid.

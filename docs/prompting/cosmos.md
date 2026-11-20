@@ -25,20 +25,18 @@ Cosmos 1: `nvidia-cosmos-1-7b-text2world`, `nvidia-cosmos-1-14b-text2world`, `nv
 - Negative prompt: the Cosmos 1 paper says negative prompts work well at inference (they skip random text dropout). The Predict2 doc has a `--negative_prompt` option (default empty) and advises naming undesired elements; the Predict2 card's Diffusers example lists blur, over-saturation, low resolution. The Cosmos 1 cards do not mention negatives. Write negatives as a short list of defects.
 - Text rendering, audio: not stated. No audio (video only).
 - Guardrails: the pipeline uses a Llama Guard 3 safety model; a rejected prompt's behaviour is not stated.
-- Resolution (Cosmos 1): default 1280x704; also 960x960, 960x704, 704x960, 704x1280. Swarm: cannot go below 704x704, 960x960 base square. Predict2 image: aspect ratios 1:1, 4:3, 3:4, 16:9 (default), 9:16 (repo doc); the 2B card states default output 1280x704, while Swarm registers 1024x1024 as standard size.
-- Frames and fps (Cosmos 1): 121 frames (5 s) at 24 fps, adjustable fps 12-40; Swarm says effectively fixed at 121 frames. CFG 7 and 35 steps recommended (Swarm doc citing NVIDIA defaults). Very slow models.
 
 ## Swarm tags
 - Safe: `<lora:>`, `<trigger>`, `<wildcard:>`, `<random:>`, `<preset:>`, `<param:>`.
 - Do not emit: `<weight>`, `<break>`, `<region>`, `<object>`, `<bbox>`.
 - `<video>`: for Video2World, the image comes from the Image To Video group and text after `<video>` is the video-stage prompt. Official: the text should describe the scene, key objects, background, and actions within the 5-second window. Whether to re-describe the image content: the cards suggest describing the scene, so for Cosmos it is reasonable to keep a full scene description plus the action (differs from Wan-style i2v advice; this is our inference, not stated).
 - Text2World: the whole prompt carries everything.
-- `<videoswap>`: not applicable. `<extend:frames>`: Video2World can continue from conditioning frames (9 input frames for video input per the card), so extension is technically plausible; Swarm behaviour not stated. Keep each segment prompt to one action.
+- `<videoswap>`: not applicable. `<extend:frames>`: Video2World can continue from conditioning frames, so extension is technically plausible; Swarm behaviour not stated. Keep each segment prompt to one action.
 - Predict2 text-to-image: images only; video tags do nothing.
 
 ## Motion, camera and shot language
 - No official camera vocabulary. The repo example uses "static camera" and "shallow depth of field". Physical, concrete motion fits the model's physical-AI focus (robots, vehicles, warehouse scenes).
-- Single continuous 5-second clip; avoid cuts and scene changes (not stated, inferred from fixed 121 frames).
+- Single continuous clip; avoid cuts and scene changes (not stated, our inference).
 - Prompt rewriting (official, own words): the Cosmos 1 tools include a Mistral-based upsampler that expands short prompts; in Video2World it can be run with no text prompt and is also separately offloadable or disableable. Our assistant should emulate it: expand to a detailed 80-250 word description, then stop.
 
 ## Examples (our own wording)

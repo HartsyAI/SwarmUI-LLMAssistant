@@ -8,10 +8,10 @@ Status: P0 reference (image model only; the video model is covered in `minimax-h
 - No official MiniMax prompting guide for the image model was found; the Runware pages are the best prompting detail and describe the hosted API.
 
 ## Swarm class ids
-`minimax-h3-image` (and `minimax-h3-image/vae`), default 2048x2048, resolution precision 32. Not the video class `minimax-h3`.
+`minimax-h3-image` (and `minimax-h3-image/vae`). Not the video class `minimax-h3`.
 
 ## Text encoder
-The full Qwen3-VL text encoder from MiniMax-H3, unchanged; the DiT reads its 50th-layer hidden states (card). Swarm downloads a Qwen3 VL 32B fp4 build (Swarm docs). LLM/VLM encoder, so no CLIP chunking or CLIP-style weighting.
+The full Qwen3-VL text encoder from MiniMax-H3, unchanged; the DiT reads its 50th-layer hidden states (card). LLM/VLM encoder, so no CLIP chunking or CLIP-style weighting.
 
 ## Prompt format
 - The card says the model "expects a detailed English description of the whole image". Prompts are used as given and truncated at 4096 tokens (card; Runware says the same for the part actually read, though its field accepts 32,000 characters).
@@ -23,10 +23,8 @@ The full Qwen3-VL text encoder from MiniMax-H3, unchanged; the DiT reads its 50t
 - Write counts as numbers ("six desks in two rows of three"); place things relative to the frame ("right half", "upper third"), not relative to a subject's left or right; state facing direction explicitly; ask for specific empty space when text will be added later.
 - Describe visible qualities (light direction, finish, material) rather than words like "premium"; avoid contradictory requirements.
 - Text rendering (Runware): put exact text in quotation marks and give its position; one clause per text element with relative size and weight; state line breaks; supply facts if the model should write copy. Infographics: units for every value, time range in the title; bar heights may be approximate. Prompts without quoted text tend to give garbled lettering when the optimizer is off.
-- Negative prompts: not supported (per the card as summarized, API requests containing one are rejected, and guidance is off at 6 steps). In Swarm, keep the negative empty and put exclusions in the positive text.
+- Negative prompts: not supported (per the card as summarized, API requests containing one are rejected, and guidance is off). In Swarm, keep the negative empty and put exclusions in the positive text.
 - Aspect ratio: chosen from the prompt by the expansion step; with fixed sizes, name the orientation anyway.
-- Resolution (official): works from about 4 MP to 20 MP, best around 16 MP; sizes from 4096x4096 to 6272x2688 listed. Swarm docs: 2048 default (the VAE is a 16x downscale, so 2048 is like 1024 elsewhere), usable from about 768 up to 4096.
-- Steps/CFG (official): 6 steps, no guidance (omit or 1). Swarm docs agree.
 - Layout/boxes: no JSON box format documented; describe placement in words.
 - Licence: MiniMax-H3-Image Community License Agreement; section IV needs separate written authorization for some uses (check before commercial use).
 - Section 7 (video conventions): not applicable to this image model.

@@ -10,7 +10,7 @@ Status: P0 reference. No official prompting guide exists; the model card, GitHub
 
 ## Swarm class ids covered
 
-`stable-cascade-v1-stage-b`, `stable-cascade-v1-stage-c`, `stable-cascade-v1-stage-c/controlnet`, `stable-cascade-v1-stage-a/vae`. Compat `stable-cascade-v1`; standard size 1024x1024. Swarm needs the ComfyUI-format all-in-one `stage_b` / `stage_c` checkpoint pair in the same folder; either can be selected and both are used (Obscure Model Support doc). The compat class does not set the legacy `(x:1.2)` parser flag.
+`stable-cascade-v1-stage-b`, `stable-cascade-v1-stage-c`, `stable-cascade-v1-stage-c/controlnet`, `stable-cascade-v1-stage-a/vae`. Compat `stable-cascade-v1`. Swarm needs the ComfyUI-format all-in-one `stage_b` / `stage_c` checkpoint pair in the same folder; either can be selected and both are used (Obscure Model Support doc). The compat class does not set the legacy `(x:1.2)` parser flag.
 
 ## Text encoder
 
@@ -27,10 +27,8 @@ Status: P0 reference. No official prompting guide exists; the model card, GitHub
 
 - Weights: not stated for Cascade in Swarm docs; do not rely on them. Plain wording only.
 - Negative prompts: supported by the pipeline when guidance is on, but the official example passes an empty string. Prompt and negative are ignored when guidance is disabled. Whether a non-empty negative helps is not stated; the "negative prompts are a must" claim comes from a community fine-tune only. Using a short negative is harmless; do not depend on it.
-- Guidance (official defaults from Diffusers): prior guidance 4.0 (20 steps in the example), decoder guidance 0.0 (10 steps). Swarm exposes its own CFG; mapping to the two stages is not stated.
 - Text rendering: not mentioned in any source; do not promise it.
 - Layout / boxes: none. Regions: not stated for this family.
-- Resolution: examples use 1024x1024; the card gives no aspect-ratio or size range. The announcement mentions a 2x super-resolution ControlNet (1024 to 2048). The latent grid is derived from height and width, so odd sizes are not guaranteed fine; stay near 1 megapixel and divisible by 64 (our caution, unstated).
 - Prompt following: Stability claims best prompt alignment and aesthetics in its human evaluations (announcement); that is a claim, not guidance.
 - People/faces: "may not be generated properly" (card). Lossy autoencoder.
 - Quality/style keywords: only the sample "detailed, 8k" and "cinematic photo" phrases are official; no measured effect stated.
@@ -67,7 +65,5 @@ macro photograph of a dragonfly on a reed, dew on its wings, creamy blurred back
 ## Open questions
 
 - The text encoder named on the original card (only Diffusers names it).
-- Official aspect-ratio and size range.
 - Whether non-empty negative prompts, weights, `<break>` or regions behave in Swarm's Cascade path.
 - Token limit.
-- How Swarm's CFG maps onto prior guidance (about 4) versus decoder guidance (0).

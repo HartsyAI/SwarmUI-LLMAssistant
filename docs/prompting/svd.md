@@ -14,12 +14,10 @@ Status: **there is no text prompt to write.** SVD is image-to-video only; the mo
 
 ## Prompt format, length, limits
 - Not applicable. No prompt format, token limit, negative prompt, text rendering or audio.
-- Model facts: SVD-XT outputs 25 frames at 576x1024, fine-tuned from the 14-frame SVD; clips are 4 s or less; may produce little or no motion; cannot render legible text; faces and people may be generated poorly (model card).
+- Model facts: may produce little or no motion; cannot render legible text; faces and people may be generated poorly (model card).
 
 ## What conditions the output
 - Input image (the whole content and style of the clip). Swarm: use an Init Image with Creativity 0, or use the Image To Video group; the model cannot be the main text2image model.
-- Numeric conditioning (Diffusers `StableVideoDiffusionPipeline`, per the fetched summary, unverified): `fps` (default 7, a motion-style conditioning value, not playback speed), `motion_bucket_id` (default 127, higher gives more motion), `noise_aug_strength` (default 0.02, higher loosens fidelity to the image and adds motion), `decode_chunk_size`, steps 25, guidance ramping from 1.0 to 3.0 across frames. Swarm says SVD uses enhanced inference settings (better sampler, larger sigma) by default.
-- Resolution: 1024x576 standard in Swarm.
 - To get text-driven video: generate the first frame with any text-to-image model from the user's prompt (SDXL in Swarm's own example), then animate it with SVD. Swarm docs describe exactly this.
 
 ## Swarm tags
@@ -28,8 +26,8 @@ Status: **there is no text prompt to write.** SVD is image-to-video only; the mo
 - Main-prompt tags (`<lora:>`, `<wildcard:>`, `<random:>`) affect only the text-to-image first-frame model.
 
 ## Motion, camera and shot language
-- No text control. Motion is set by `motion_bucket_id` and `fps` conditioning (above), plus the image itself. Camera moves cannot be requested in words.
-- Duration: 25 frames at the usual 6-7 fps conditioning is about 4 s or less (card). Prompt rewriting: not applicable.
+- No text control. Motion comes from the backend conditioning and the image itself. Camera moves cannot be requested in words.
+- Prompt rewriting: not applicable.
 
 ## Examples
 No prompts apply. A first-frame prompt for the companion text-to-image model, our own wording, is the only useful text:
@@ -44,6 +42,4 @@ Then animate that image with SVD.
 - supports: i2v only, no text control, no audio
 
 ## Open questions
-- Exact Swarm parameter names mapping to `motion_bucket_id`, `fps`, `noise_aug_strength`: not read here (check the Swarm Image To Video group).
-- Diffusers defaults above need verification on the live docs.
 - Whether Swarm ignores or forwards the `<video>` text for SVD: not stated.

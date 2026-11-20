@@ -1,6 +1,6 @@
 # Qwen-Image prompting guide (Qwen-Image, 2512, 2.0/2.1, Edit / Edit Plus)
 
-Status: P0 reference. Official guidance exists but is thin: the READMEs give patterns by example, not a written guide. Sources (retrieved 2026-11-19; the fetches were summarized by a tool, so re-check exact values against the repos before shipping validators):
+Status: P0 reference. Official guidance exists but is thin: the READMEs give patterns by example, not a written guide. Sources (retrieved 2026-11-19; the fetches were summarized by a tool, so check field names and schemas against the source before a validator relies on them):
 - Official: https://github.com/QwenLM/Qwen-Image (README: prompt enhancement, sizes, CFG/steps, Edit variants)
 - Official: https://raw.githubusercontent.com/QwenLM/Qwen-Image-2.1/main/README.md (2.1: PE-T2I / PE-I2I rewriters, sizes, RGBA format, encoder)
 - Core (community-maintained by Swarm, not Qwen): SwarmUI `docs/Model Support.md` (Qwen Image, Edit, 2.1 sections), `src/Text2Image/T2IModelClassSorter.cs`
@@ -9,7 +9,7 @@ Status: P0 reference. Official guidance exists but is thin: the READMEs give pat
 
 ## Swarm class ids
 
-`qwen-image` (default 1328x1328), `qwen-image-edit`, `qwen-image-edit-plus` (these three share compat `qwen-image`), `qwen-image-2.1` (default 2048 in practice; class registers 1024x1024, see resolution), plus `/lora`, `/vae`, `/controlnet` sub-ids that are not prompted directly.
+`qwen-image`, `qwen-image-edit`, `qwen-image-edit-plus` (these three share compat `qwen-image`), `qwen-image-2.1`, plus `/lora`, `/vae`, `/controlnet` sub-ids that are not prompted directly.
 
 ## Text encoder
 
@@ -33,9 +33,7 @@ Status: P0 reference. Official guidance exists but is thin: the READMEs give pat
 ## What works / what does not
 
 - Text rendering: put the exact text in quotes and state where it appears (sign, chalkboard, screen), plus style/color/size. For slides, posters, infographics describe the layout section by section.
-- Negative prompt: supported through `true_cfg_scale` (official default 4.0). If none is wanted the README passes a single space. The 2512 example uses a Chinese negative list (low resolution, distorted limbs/fingers, oversaturation, waxy look, blurry/garbled text). 2.1 README gives no negative guidance and its Turbo examples use CFG 1 (so no negative effect there).
-- Steps (official): Qwen-Image/2512/Edit 50 (cfg 4.0), Edit-2509/2511 40 (cfg 4.0, guidance 1.0); 2.1 default 40, Turbo 8. Swarm docs (community) say CFG 1 for 2.1.
-- Resolution (official): 1328x1328 (1:1), 1664x928 (16:9), 928x1664, 1472x1104 (4:3), 1104x1472, 1584x1056 (3:2), 1056x1584. 2.1: native 2048x2048, 2752x1536 (16:9), 1536x2752, 2400x1792, 1792x2400, 2528x1696, 1696x2528. Swarm (community): 2.1 uses a 16x VAE so 2048 equals roughly 1024 on other models.
+- Negative prompt: supported through `true_cfg_scale`. If none is wanted the README passes a single space. The 2512 example uses a Chinese negative list (low resolution, distorted limbs/fingers, oversaturation, waxy look, blurry/garbled text). 2.1 README gives no negative guidance and its Turbo examples run without CFG (so no negative effect there).
 - Transparency (2.1 only): start with "This is an RGBA image with transparency.", describe the image, end by saying it has an alpha channel and a transparent background. Output must be PNG, not JPG.
 - Layout boxes: no box format in the official docs. Do not emit JSON boxes.
 
@@ -69,7 +67,7 @@ This is an RGBA image with transparency. A glossy red apple with a single green 
 ## Style file hints
 
 - format: text
-- negative: separate (T2I, base and 2512; CFG about 4). none for 2.1 Turbo and Edit-2509/2511 (single space).
+- negative: separate (T2I, base and 2512). none for 2.1 Turbo and Edit-2509/2511 (single space).
 - supports: weights=no (do not emit), break=no, regions=no, boxes=no, text-rendering=yes (quoted text plus placement)
 
 ## Open questions

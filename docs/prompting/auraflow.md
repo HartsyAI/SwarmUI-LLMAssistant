@@ -28,8 +28,6 @@ Natural language. The blog describes training on re-captioned data (no alt-text 
 - Text rendering: not mentioned in the sources.
 - Layout/boxes: not stated.
 - Weights: not stated. T5-style encoder, so see `_swarm-syntax.md`: weighting works poorly on T5 models.
-- Resolution: trained at 256, 512, 1024 then fine-tuned for aspect ratios (blog); v0.3 card says width and height up to 1536. Diffusers default 1024.
-- Settings in the cards' examples: 50 steps, CFG 3.5 (card examples); Diffusers signature shows the same 50 / 3.5 defaults.
 - Style/quality keywords: the card examples use "cold color palette, muted colors, detailed, 8k"; effect not stated.
 
 ## Swarm compatibility
@@ -58,4 +56,3 @@ Natural language. The blog describes training on re-captioned data (no alt-text 
 - Which of the examples above, if any, the authors would endorse as style; no official tips exist.
 - Whether the Swarm/Comfy AuraFlow path uses a 256 or other token cap.
 - Negative prompt effectiveness and text rendering quality.
-- Maximum useful resolution beyond the stated 1536 per side.

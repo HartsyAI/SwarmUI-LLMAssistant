@@ -1,6 +1,6 @@
 # SenseNova-U1.5 prompting guide
 
-Status: draft reference. U1.5 is a **Preview** release (the card says a refined production version is coming), so settings may change. Sources (retrieved 2026-11-19; fetched through a summarizing tool, verify before shipping a validator):
+Status: draft reference. U1.5 is a **Preview** release (the card says a refined production version is coming), so settings may change. Sources (retrieved 2026-11-19; fetched through a summarizing tool; check field names and schemas against the source before a validator relies on them):
 - Official: https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-Preview (model card), https://github.com/OpenSenseNova/SenseNova-U1 (README), `docs/u1.5_best_practices.md` in that repo (prompt-enhancement tools only)
 - Announcement: https://sensetime.com/en/news/51170629 (U1 family, April 2026; not read in detail)
 - Core: SwarmUI `docs/Obscure Model Support.md` (SenseNova), `T2IModelClassSorter.cs`.
@@ -21,9 +21,7 @@ Swarm class id: `sensenova-u1.5` (8B MoT; no VAE, uses NEO-Unify patch encode/de
 - **Text rendering:** substantially improved Chinese and English text and dense layouts (infographics, posters). Known weaknesses: dense or lengthy text, small characters, mixed Chinese-English, exact counts, alignment and hierarchy in complex layouts, small faces and hands.
 - **Layout/boxes:** region-controllable editing via masks, boxes and visual markers exists on the editing side; the input format is not stated. Layout for generation is described in prose or in the JSON showcase.
 - **Weights:** not applicable; avoid.
-- **Negative prompt:** only as a `negative_prompt` array **inside JSON** in showcases; no separate negative parameter in the documented commands. CFG exists (4.0), so a separate field may work in Swarm but is unverified.
-- **Resolution:** native up to 4K claimed (no stated maximum). Examples 2048x2048, 1760x2368, 1664x2496. Swarm doc: 2048 is standard, acts like 1024 on other models, 1024 looks worse, above 2048 shows color distortion.
-- **Settings (official, U1.5 reference config):** `cfg_scale=4.0`, `timestep_shift=3.0`, 50 steps (also `--cfg_norm global` in the PE example). An 8-step V2 LoRA exists (needs the base model). Swarm doc: CFG about 5, about 20 steps, shift 3 (7 may recover detail).
+- **Negative prompt:** only as a `negative_prompt` array **inside JSON** in showcases; no separate negative parameter in the documented commands. CFG exists, so a separate field may work in Swarm but is unverified.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

@@ -7,7 +7,7 @@ Status: P0 reference. Sources retrieved 2026-11-19, obtained as tool-generated s
 - Core: SwarmUI `src/Text2Image/T2IBoundingBoxFormat.cs` (`moss-image`), `T2IPromptHandling.cs`, `docs/Model Support.md`.
 
 ## Swarm class ids
-`moss-image` (MOSS Image Base and SFT, default 1024x1024). The SFT variant is quality tuned; Base is less trained and more variable (Swarm docs).
+`moss-image` (MOSS Image Base and SFT).
 
 ## Text encoder
 Not named in the README or card. Swarm's loader uses Qwen 3.5 9B (Swarm-sourced, not upstream-confirmed). LLM encoder: no CLIP chunking, no CLIP-style weighting.
@@ -27,9 +27,7 @@ Compiled prompt (the string given to the model): top-level keys `summary`, `item
 ## What works / does not
 - Text rendering: preserve wording exactly (language, punctuation, case, line breaks); write real copy, not placeholders. Quoted lines in an instruction are not automatically visible text. If text does not fit, enlarge or recompose; do not delete copy.
 - Boxes mark placement only (not borders); overlap allowed. Each text item's `text` holds the exact string.
-- Negative prompt: empty by default; a `negative_prompt` can be set (README). The skill defines no negative field; keep exclusions in the positive wording. Official note: negative-branch layer skipping at layer 22 is used by default.
-- Resolution: multiples of 16; README examples 1024x1024 and 1456x1456; Swarm docs: 1024 default, down to 256 fine, higher is variable.
-- Steps/CFG (official): 50 steps, CFG 3, shift 5, flow-matching Euler. Swarm docs: about 20 steps, CFG 3 to 7, and optional skip-layer guidance (scale 0, layer 22) of questionable benefit.
+- Negative prompt: empty by default; a `negative_prompt` can be set (README). The skill defines no negative field; keep exclusions in the positive wording.
 - Languages: English and Chinese per card tags. Quality keywords: none documented.
 - Licence: Apache 2.0 for pipeline code (README) and weights (card).
 - The skill is written for an agent with local file and Python tools; it only creates prompt files.

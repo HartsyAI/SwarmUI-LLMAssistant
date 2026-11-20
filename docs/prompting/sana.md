@@ -15,7 +15,7 @@ Sources:
 
 ## Text encoder
 
-Gemma-2-2B-IT (decoder-only LLM) with a DC-AE autoencoder (32x compression). Diffusers `max_sequence_length` default is 300. Diffusers notes text encoder and VAE must stay in bf16 or fp32 for correct output.
+Gemma-2-2B-IT (decoder-only LLM). Diffusers `max_sequence_length` default is 300.
 - Implication: instruction-following LLM encoder; plain natural language works. The paper says "complex human instruction" (CHI) with in-context learning is used to improve image-text alignment. In Diffusers the pipeline prepends such an instruction itself by default (it frames the prompt as "enhance this description"). Whether Swarm's backend does the same: not stated, so do not write that wrapper yourself.
 
 ## Prompt format and length
@@ -28,8 +28,6 @@ Natural language. The card states quality improves by "increasing the complexity
 - Negative prompts: not mentioned on the card or README. Diffusers exposes `negative_prompt` (default empty, ignored when guidance <= 1) and says the negative embedding "should be" that of the empty string. Effectiveness of non-empty negatives: not stated.
 - Layout/boxes: not stated.
 - Weights: not stated for Sana; LLM-encoder note in `_swarm-syntax.md` applies (blunt multiplier, many do nothing).
-- Resolution: built for 1024 with multi-scale sizes; README states up to 4096x4096 with released 2K and 4K 1.6B models; Diffusers bins to the nearest standard aspect ratio.
-- Settings (example values only): guidance 4.5, 20 steps (Diffusers/README 1.5 example); PAG variants use guidance 5.0, pag scale 2.0.
 - Style/quality keywords: not stated.
 - Multilingual: the README changelog mentions multilingual SFT models (emoji, Chinese, English); a separate "MultiLing" 1024px checkpoint is listed in Diffusers. Whether the base model handles non-English: not stated.
 

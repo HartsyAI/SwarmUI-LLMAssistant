@@ -19,13 +19,11 @@ Swarm class ids: `pixeldit` (the 1.3B 1024px text-to-image model, NVIDIA, direct
 - **Weights:** not stated; Gemma-encoder model, treat as unsupported.
 - **Negative prompt:** supported by the official script (optional, default empty). The card shows an example list: `low quality, worst quality, over-saturated, blurry, deformed, watermark`. ComfyUI docs expose a negative field. Use a short quality-style list in the separate negative field.
 - **Text rendering, layout/boxes:** not stated.
-- **Resolution:** 1024px, "various aspect ratios at 1024px" (card); paper also trains 512. Swarm default 1024.
-- **Settings (official script):** steps default 50 ("25 for fast, 50 for quality"), CFG default 3.5 (example 2.75), flow-DPM-solver sampler. Swarm doc recommends CFG 4 and 30 steps.
 - **Quality caveat:** Swarm doc rates its relative quality as poor at launch; keep prompts simple and concrete.
 - **Licence:** NSCLv1, non-commercial research and evaluation only (card). The PiD codebase is Apache-2.0; weights licence not stated.
 
 ## What PiD does (for context only)
-A conditional pixel-space diffusion decoder replacing VAE decoders and unifying decoding with upsampling, distilled to about 4 steps, scale configurable (for example 1024 latent to 4096). In Swarm it appears in the Refine/Upscale area; the LLM should leave the prompt untouched for PiD stages.
+A conditional pixel-space diffusion decoder replacing VAE decoders and unifying decoding with upsampling. In Swarm it appears in the Refine/Upscale area; the LLM should leave the prompt untouched for PiD stages.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

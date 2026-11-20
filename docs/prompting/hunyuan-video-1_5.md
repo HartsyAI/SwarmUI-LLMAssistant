@@ -1,6 +1,6 @@
 # HunyuanVideo 1.5 prompting guide
 
-Status: P0 reference, video family. Official: there is a real Prompt Handbook plus an official rewrite pipeline. Sources (retrieved 2026-11-19; read through a summarizer, so verify numbers before shipping a validator):
+Status: P0 reference, video family. Official: there is a real Prompt Handbook plus an official rewrite pipeline. Sources (retrieved 2026-11-19; read through a summarizer, so check field names and schemas against the source before a validator relies on them):
 - Official: https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5 (README; `hyvideo/utils/rewrite/t2v_prompt.py`, `i2v_prompt.py`)
 - Official: https://github.com/Tencent-Hunyuan/HunyuanVideo-1.5/blob/main/assets/HunyuanVideo_1_5_Prompt_Handbook_EN.md (Prompt Handbook, EN)
 - Official: https://huggingface.co/tencent/HunyuanVideo-1.5 (model card), https://arxiv.org/abs/2511.18870 (tech report; only the abstract was read)
@@ -9,8 +9,8 @@ Status: P0 reference, video family. Official: there is a real Prompt Handbook pl
 
 ## Swarm class ids
 
-- `hunyuan-video-1_5` (T2V and I2V; the repackaged 480p/720p, T2V/I2V, distilled and non-distilled files all map here), `hunyuan-video-1_5/lora`
-- `hunyuan-video-1_5-sr` (super-resolution refiner, 720p and 1080p; behaves like a basic model used as Refiner)
+- `hunyuan-video-1_5` (T2V and I2V; all repackaged files map here), `hunyuan-video-1_5/lora`
+- `hunyuan-video-1_5-sr` (super-resolution refiner; behaves like a basic model used as Refiner)
 - Swarm notes both the "T2V" and "I2V" files can do both tasks.
 
 ## Text encoders
@@ -28,10 +28,8 @@ Status: P0 reference, video family. Official: there is a real Prompt Handbook pl
 
 ## What works and what does not
 
-- Negative prompt: a `--negative_prompt` argument exists (default empty) and the Diffusers pipeline accepts one; the README and handbook give no guidance. Non-distilled models use real CFG (about 6) so a negative can act; CFG-distilled and step-distilled variants run at CFG 1, where a negative has no effect. Swarm: CFG 1 for distilled, normal CFG otherwise. Write negatives as a short comma list if used; effectiveness not stated.
+- Negative prompt: a `--negative_prompt` argument exists (default empty) and the Diffusers pipeline accepts one; the README and handbook give no guidance. Non-distilled models use real CFG so a negative can act; CFG-distilled and step-distilled variants run at CFG 1, where a negative has no effect. Write negatives as a short comma list if used; effectiveness not stated.
 - Text rendering: glyph-aware encoding is advertised. The official rewriter keeps quoted on-screen text verbatim in its own language, in quotes, and never spells it letter by letter. For typography prompts it starts with the text, uses a front or top-down view, centres it, avoids words that invite cropping ("huge", "close-up", "intricate"), and ends by stating the whole text is fully visible. Reliability: not stated.
-- Resolution: 480p or 720p base (aspect default 16:9; 16:9, 4:3, 1:1, 3:4, 9:16 in the handbook), 1080p via the SR model. Swarm treats all as 960x960 area (set 640x640 for the 480p models); mixing resolutions is tolerated. The VAE is a 16x16 downsample (Swarm docs).
-- Frames: default 121 (5 s), 4n+1; Swarm says up to 241 works, Swarm default 73. FPS 24 (Diffusers export, Swarm). Settings (official table): CFG 6, steps 50, flow shift 5 for 480p, 9 for 720p T2V, 7 for 720p I2V; step-distilled 480p I2V uses 8 or 12 steps at CFG 1.
 - Quality keywords: not documented beyond the style list. Handbook style words: photorealistic or cinematic, cyberpunk, pixel art, low-poly 3D, ink wash, watercolour, 2D animation, Ghibli-style, cel-shaded anime, film noir, retro film look; lighting: golden hour, backlight, silhouette, hard or soft light, colour temperature.
 
 ## Swarm tag compatibility

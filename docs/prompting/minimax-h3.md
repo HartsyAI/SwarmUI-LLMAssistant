@@ -8,10 +8,10 @@ Status: official guidance exists and is detailed (base-mode and reference-mode w
 - Community guides (fal, Luma, rundiffusion, etc.) were surfaced by search but not used for facts.
 
 ## Swarm class ids
-`minimax-h3` (video+audio, compat flags: text, image to video, joint AV latents, resolution precision 32), `minimax-h3/lora`, `minimax-h3/embedding`, `minimax-h3/vae`, `minimax-h3/audio-vae`, and `minimax-h3-image` (+ `/vae`, an image-only variant). Two checkpoints: FL2VA (text, first-frame, first/last frame to audio+video) and Ref2VA (reference-conditioned, up to 9 images, 3 videos, 3 audio clips per the card; Swarm says images up to 10).
+`minimax-h3` (video+audio, compat flags: text, image to video, joint AV latents), `minimax-h3/lora`, `minimax-h3/embedding`, `minimax-h3/vae`, `minimax-h3/audio-vae`, and `minimax-h3-image` (+ `/vae`, an image-only variant). Two checkpoints: FL2VA (text, first-frame, first/last frame to audio+video) and Ref2VA (reference-conditioned, up to 9 images, 3 videos, 3 audio clips per the card; Swarm says images up to 10).
 
 ## Text encoder and what it implies
-- H3-Encoder = Qwen3-VL-32B, hidden states from layer 50 passed to the transformer; special tokens such as `<d>` are added to the tokenizer (model card). Swarm auto-downloads an fp4 version.
+- H3-Encoder = Qwen3-VL-32B, hidden states from layer 50 passed to the transformer; special tokens such as `<d>` are added to the tokenizer (model card).
 - Implication: an LLM encoder, so long structured natural language works and short prompts also work (Swarm). Per `_swarm-syntax.md`, `<weight>` is a blunt multiplier on such models and often does nothing; do not emit weights, `<break>`, or CLIP tricks.
 
 ## Prompt format, length, limits
@@ -20,17 +20,13 @@ Status: official guidance exists and is detailed (base-mode and reference-mode w
   2. `overall_soundscape`: 1-4 sentences of ambience, action sounds and non-verbal human sounds for the whole clip (`N/A` only for true silence).
   3. `non_diegetic_music`: 1-3 sentences describing score the characters cannot hear, by instrumentation, tempo, rhythm and dynamics, not mood words (`N/A` if none).
 - Image tasks (image-to-video, first/last frame, last-frame) start with a fixed alignment line stating which picture matches which timestamp, then a blank line, then the fields. Text-to-video omits it.
-- Length: the guide gives no recommended length or token limit (not stated). Swarm: works best with long LLM-style prompts, short ones still fine. Shots may be spaced across the timeline; the official examples are 6-8 s for single-shot image tasks.
+- Length: the guide gives no recommended length or token limit (not stated). Swarm: works best with long LLM-style prompts, short ones still fine. Shots may be spaced across the timeline.
 - Rewriting: the model card recommends H3-Context-IR, a hosted preprocessor that converts multimodal inputs to this structured form and may fill in missing detail while keeping intent (enhanced prompts go through moderation). Our assistant plays that role locally.
 
 ## What works and what does not
-- Negative prompt: **not supported.** ComfyUI docs: guidance runs at CFG 1 with no negative branch; describe what should appear, do not list bans. The base guide does not address negatives. Swarm: CFG 1.
+- Negative prompt: **not supported.** ComfyUI docs: guidance runs at CFG 1 with no negative branch; describe what should appear, do not list bans. The base guide does not address negatives.
 - Text on screen: put the verbatim text in English double quotation marks; do not translate (guide).
 - Audio: central. Speech uses `<d>[Language] verbatim line</d>`: only the language tag and the spoken words go inside the tags, identity and action stay outside. Speaker IDs `(S1)`, `(S2)`, groups `(S1,S2)`, kept consistent across shots; establish voice traits (pitch, timbre, pace, accent) at first appearance. Off-screen voiceover is stated explicitly, with the speaker's lips closed. `<scenetrans>` marks a line carried across a cut, `<cutoff>` marks speech cut by the clip end. Do not put dialogue in the soundscape. Swarm warns: a prompt with no audio description gives nonsense audio, and a stray noise at clip start can be tamed by the "Audio Silent Prefix Duration" param (Swarm note).
-- Resolution: native 1344x768 (16:9) in ComfyUI docs; shorter side 768 default (card); multiples of 32; Swarm: any aspect, side length about 512-1536.
-- Frames/duration: 24 fps, 4-15 s, 32 kHz stereo audio (card). Frame counts follow 17k+5 (Comfy; Swarm writes `5 + 17n`): 22 (about 1 s), 124 (about 5 s), 243, 362 (15 s). Default 124 in Comfy.
-- 2K output needs a later stage that is not open-sourced (card).
-- Image generation by setting Frames to 2 or using the `minimax-h3-image` VAE is possible but poor (Swarm).
 
 ## Swarm tags
 - Safe: `<lora:>`, `<trigger>`, `<wildcard:>`, `<random:>`, `<preset:>`, `<param:>`. Keep the field labels and `<d>`, `<scenetrans>`, `<cutoff>` markers exactly as written; they are model tokens, not Swarm tags (Swarm only parses its own tag names; confirm `<d>` is passed through untouched).
@@ -65,7 +61,7 @@ non_diegetic_music: N/A
 
 ## Style file hints
 - format: text (structured plain-text fields; not JSON)
-- negative: none (CFG 1, no negative branch)
+- negative: none (no negative branch)
 - supports: t2v, i2v, first/last frame, reference (Ref2VA), audio, dialogue, multishot, image variant
 
 ## Open questions

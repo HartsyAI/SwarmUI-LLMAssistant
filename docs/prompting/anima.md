@@ -7,7 +7,7 @@ Status: P1 reference. The only family in this batch with an official, specific p
 Swarm class id: `anima` (2B anime/illustration model by CircleStone Labs, built on NVIDIA Cosmos-Predict2; non-commercial licence for the model, outputs not restricted).
 
 ## Text encoder
-- **Qwen3 0.6B base** (`qwen_3_06b_base`) through an LLM adapter, plus the **Qwen-Image VAE**. Small encoder: short or vague prompts misbehave.
+- **Qwen3 0.6B base** (`qwen_3_06b_base`) through an LLM adapter. Small encoder: short or vague prompts misbehave.
 
 ## Prompt format and length
 - Trained on Danbooru-style tags, natural language, and mixtures. Lowercase tags with spaces, not underscores (score tags are the exception). Where Danbooru and Gelbooru differ, prefer Gelbooru.
@@ -24,8 +24,6 @@ Swarm class id: `anima` (2B anime/illustration model by CircleStone Labs, built 
 - **Negative prompt:** supported; write it as a tag list in the separate negative field (see above). Anima-Turbo runs at CFG 1 where negatives have no effect.
 - **Text rendering:** weak for long text; single words and short phrases are more reliable. Realism is weak by design.
 - **Layout/boxes:** not stated.
-- **Resolution (official):** 512 to 1536 px per side; Swarm doc recommends 1024 and warns higher values degrade.
-- **Settings (official):** 30-50 steps, CFG 4-5; Anima-Turbo CFG 1, 8-12 steps. Samplers: `er_sde` default, `euler_a`, `dpmpp_2m_sde`, `euler`; Swarm doc defaults match (Simple scheduler, ER-SDE).
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - Weights, legacy `(x:1.2)`: supported (see above). `<break>`: not CLIP, do not emit. Regions: weak. `<bbox>`: no format registered. Embeddings: not stated.

@@ -27,11 +27,10 @@ Status: sources retrieved 2026-11-19. Official guidance is minimal: the Chroma1-
 
 ## What works and what does not
 
-- Negative prompts: supported and actively used. The official card and diffusers example pass a separate negative prompt (low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors) with CFG 3.0 and 40 steps. Swarm: standard CFG, not distilled to 1. Community: a very short negative (<70 tokens) is discouraged; either none or a fuller list. Write it as a comma list of unwanted qualities in the separate negative field.
+- Negative prompts: supported and actively used. The official card and diffusers example pass a separate negative prompt (low quality, ugly, unfinished, out of focus, deformed, disfigured, blurry, smudged, restricted palette, flat colors). Swarm: standard CFG, not distilled to 1. Community: a very short negative (<70 tokens) is discouraged; either none or a fuller list. Write it as a comma list of unwanted qualities in the separate negative field.
 - Weights: not documented. Swarm docs describe T5 models as weighting poorly; do not rely on them.
 - Text rendering, layout/boxes: not stated anywhere official. Do not promise either.
-- Resolution: 1024x1024 or near; HD models were trained extra at 1152x1152 (Swarm docs). Community: HD trained up to 1152; Radiance trained at 512 (community; Radiance is still training per its card). Zeta: Swarm docs say roughly 512-2048, standard 1024.
-- Sampler hints (Swarm docs, not official): Chroma CFG ~3.5, Euler, Beta scheduler, 26 steps recommended (AYS originally; card example uses 40 steps). Zeta: normal CFG (4-7), ~20 steps; still an early pretrain with poor results per Swarm docs.
+- Zeta: still an early pretrain with poor results per Swarm docs.
 - Radiance is pixel-space (no VAE per Swarm docs); the card says it is work in progress, "expect some squiggles on the details".
 - Content: the card states no safety alignment; NSFW is not blocked by the model.
 
@@ -61,6 +60,6 @@ supports: weights=no, break=no, regions=limited, boxes=no, text-rendering=unknow
 
 - Training caption style (prose vs tags vs mixed) for HD, Radiance and Zeta: not stated.
 - Whether Zeta Chroma should be prompted like Z-Image (prose, supports negatives): not stated.
-- Radiance and Zeta prompting, resolution and sampler recommendations: not stated by the authors.
+- Radiance and Zeta prompting recommendations: not stated by the authors.
 - Text-rendering ability and any official token limit beyond the diffusers default.
 - The community guide's authorship and date are unknown; treat its tag advice as unverified.

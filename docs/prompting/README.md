@@ -2,7 +2,9 @@
 
 Reference docs for the prompt-styles work, one per model family, written 2026-11-19 from public sources (official where they exist, marked community otherwise). Nothing here is a bundled style yet: styles are derived from these guides in P1/P4 and only after a real-model test. Start with `_swarm-syntax.md`.
 
-Caveat for every guide: most pages were read through a summarising fetch tool. Field names, numbers (steps, CFG, sizes, token limits) must be spot-checked against the source repo before a validator or style relies on them. Each guide lists its own open questions.
+These guides cover only what shapes the prompt text: the text encoder, prompt format and schema, length limits, negative prompts, text rendering, layout boxes, and motion or camera language. They deliberately do not list generation settings (steps, CFG, sampler, resolution, fps, frame counts): the engine and Swarm's model classes already hold the per-model defaults, and a style reads facts such as the model class and whether it is a video model from there, not from these documents.
+
+Caveat: most pages were read through a summarising fetch tool, so a schema's field names and key order must be checked against the source before a validator relies on them. Each guide lists its own open questions.
 
 ## Index (Swarm class ids in parentheses)
 
@@ -33,4 +35,4 @@ Not covered (not prompted with image/video text): audio models (Ace Step, MiniMa
 
 ## Before any style ships (real-model checks)
 
-Ideogram empty-`elements` fallback; Flux.3 inline `<bbox>` vs BFL form; Fibo 2 numeric boxes; Wan 2.2 T2V 14B class id; klein steps (4 vs 8); escaping Swarm tags inside JSON string values.
+Ideogram empty-`elements` fallback; Flux.3 inline `<bbox>` vs BFL form; Fibo 2 numeric boxes; escaping Swarm tags inside JSON string values.

@@ -12,7 +12,7 @@ Sources:
 
 ## Swarm class ids
 
-`pixart-ms-sigma-xl-2` (1024 default) and `pixart-ms-sigma-xl-2-2k` (2048 default). Both use the same compat class, which has no legacy prompt parser flag in core.
+`pixart-ms-sigma-xl-2` and `pixart-ms-sigma-xl-2-2k`. Both use the same compat class, which has no legacy prompt parser flag in core.
 
 ## Text encoder
 
@@ -29,8 +29,6 @@ Natural language. Diffusers says T5 conditioning "makes the pipeline better at f
 - Negative prompts: not mentioned on the cards. Diffusers says the PixArt negative prompt should be the empty string `""` (guidance runs against an empty prompt). So do not write negative lists unless the user insists; effect is not stated.
 - Text rendering: stated as not supported. Do not rely on lettering in the image.
 - Layout/boxes: not supported/stated.
-- Resolution: Diffusers recommends the aspect-ratio bins from the repo (`ASPECT_RATIO_1024_BIN`) and applies binning by default; the card says 1024px, 2K and 4K can be produced in a single pass. Use the 2K checkpoint for 2048 sizes; the card README gives no detail.
-- Settings: Diffusers defaults guidance 4.5; the README and cards give no CFG or step advice.
 - Quality keywords: only the "cold color palette, muted colors, detailed, 8k" example appears; effect not stated.
 
 ## Swarm compatibility
@@ -58,6 +56,6 @@ Natural language. Diffusers says T5 conditioning "makes the pipeline better at f
 ## Open questions
 
 - Any official prompting recommendations (none found).
-- Whether the 2K checkpoint has different token or sizing behaviour; its README is empty.
+- Whether the 2K checkpoint has different token behaviour; its README is empty.
 - Whether a non-empty negative prompt helps or hurts.
 - Whether short comma-style or full-sentence captions work better; the training caption style is not stated in the retrieved pages.

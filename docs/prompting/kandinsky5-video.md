@@ -21,12 +21,9 @@ Status: **no official prompting guide.** The GitHub README and model cards have 
 - Training caption styles (paper): video captions from Tarsier2-7B; SFT image captions exist in five lengths (very long to very short). Whether video SFT has the same ladder: not stated.
 
 ## What works and what does not
-- Negative prompt: supported (Diffusers pipelines accept `negative_prompt`, ignored when guidance_scale is below 1). Official example: "Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards". The CFG-distilled "nocfg" and 16-step distilled variants run at guidance 1.0, so a negative has no effect there (Diffusers docs set guidance 1.0; the no-effect consequence is our inference).
+- Negative prompt: supported (Diffusers pipelines accept `negative_prompt`, ignored when guidance_scale is below 1). Official example: "Static, 2D cartoon, cartoon, 2d animation, paintings, images, worst quality, low quality, ugly, deformed, walking backwards". On the CFG-distilled variants ("nocfg" and distilled) a negative has no effect (our inference).
 - Text rendering: the paper says SFT curation targeted text clarity, mainly for images; video text quality not stated. The Pro i2v example asks for a sign with a word on it, but results are not discussed.
 - Audio: none, video only.
-- Resolution: Lite targets about 512 to 768 px sides in examples (768x512), Swarm says all video models target a side length of 640 and Pro tolerates 960x960. Diffusers Pro example: 1024x768.
-- Frames: 121 frames is about 5 s at 24 fps; 241 frames for the 10 s variants (Diffusers examples). 5 s and 10 s checkpoints are separate files; choose to match the target duration.
-- Variants: Lite SFT (best quality), nocfg (2x faster), distilled 16 steps (6x faster), pretrain (for fine-tuning); Pro SFT, Pro pretrain; Pro I2V and Lite I2V 5 s (README). Swarm note: the current Swarm implementation has bugs and workarounds; quality is mediocre.
 - Quality/style keywords: none documented. The sample negative suggests the model leans toward static or cartoon output unless motion and realism are stated (inference, low confidence).
 
 ## Swarm tags
@@ -34,12 +31,12 @@ Status: **no official prompting guide.** The GitHub README and model cards have 
 - Do not emit: `<weight>`, `<break>`, `<region>`, `<object>`, `<bbox>`, `<alternate>`, `<fromto>`.
 - `<video>`: with an image-to-video model selected, text after `<video>` is the prompt for the i2v stage. The Diffusers i2v examples pass a short action-style prompt next to the image (the astronaut example mentions subject, setting, "cinematic shot"). Reasonable guidance: describe the motion and camera, keep subject names consistent with the image. Detailed rules: not stated.
 - `<videoswap>`: not stated for Kandinsky (swap stage is for Wan 2.2-style swap models).
-- `<extend:frames>`: not stated. Segments of 121-frame multiples are the native length; keep each extension prompt to one action.
+- `<extend:frames>`: not stated. Keep each extension prompt to one action.
 - T2V prompt: full scene (subject, setting, light, camera, motion). I2V prompt: motion and camera only.
 
 ## Motion, camera and shot language
 - No official vocabulary. The paper only shows editing instructions of the form "Change the camera view to a wider shot" and scores camera movement and object movement in data filtering, so describing both explicitly is sensible (inference).
-- Single-take 5 or 10 second clips; avoid multi-shot prompts (not stated, inferred from clip structure).
+- Single-take clips; avoid multi-shot prompts (not stated, inferred from clip structure).
 - Rewriting: no official prompt expander is documented. Our assistant can expand terse input to 2-5 sentences covering subject, action over time, setting, light and camera, then stop under about 200 words.
 
 ## Examples (our own wording)
@@ -55,10 +52,9 @@ The fox lowers its head, sniffs the snow, then leaps forward out of frame as the
 ## Style file hints
 - format: text
 - negative: separate (short defect list; skip for nocfg/distilled)
-- supports: t2v, i2v (Pro and Lite 5 s), English and Russian, no audio, 5 s / 10 s variants
+- supports: t2v, i2v (Pro and Lite 5 s), English and Russian, no audio
 
 ## Open questions
 - Official prompt style, recommended length, token limit (256 vs 512 conflict): not stated.
 - Any official prompt expansion step at inference: not documented (paper's inference sections not read).
 - i2v prompt guidance: not stated. Video text rendering: not stated.
-- Native fps is shown as 24 only in Diffusers examples; README does not state it.

@@ -32,10 +32,8 @@ Status: sources retrieved 2026-11-19. Official BFL prompting docs exist for the 
 - Text rendering: put exact text in quotes, state placement, font style, size, colour; keep strings short and front-load them (BFL). The klein model cards warn text may be inaccurate or distorted.
 - Hex colours: attach each hex code to one named object, e.g. "the vase in color #2B6CB0" (BFL).
 - Photographic terms: camera model, lens, film stock help realism (BFL). Quality tags ("masterpiece") add nothing (BFL Building page).
-- Resolution: 64x64 to 4MP, multiples of 16, up to ~2MP recommended (BFL, [pro] page). 1024 default in diffusers. Klein below ~768px degrades and 1024-1536 is the sweet spot (community).
 - References: klein up to 4, dev recommended up to 6; name each image's role ("subject from image 1").
 - Prompt upsampling: recommended for dev (BFL repo); klein has none, so write detailed prompts yourself (BFL overview).
-- Steps/CFG: distilled klein 4 steps, guidance 1 (BFL, HF); Base klein 50 steps (BFL repo), diffusers example guidance 4.0; dev 50 steps, guidance ~4 (28 a trade-off per the card). Swarm docs say distilled klein Steps 8 and Base CFG ~7, which differ from BFL's numbers; not reconciled.
 
 ## Swarm tag compatibility
 
@@ -64,5 +62,4 @@ supports: weights=no, break=no, regions=limited, boxes=no, text-rendering=yes-sh
 
 - Klein-specific official prompting guide (URL 404): any klein length limits, JSON support, and negative handling for Base klein: not stated.
 - Whether Base klein with CFG > 1 honours a real negative prompt: not stated by BFL.
-- Distilled klein step count: BFL says 4, Swarm docs say 8.
 - Official token limit (the 512 above is diffusers' default).

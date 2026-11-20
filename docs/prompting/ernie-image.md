@@ -8,7 +8,7 @@ Status: draft reference. Official card has no prompting rules beyond "long, deta
 Swarm class id: `ernie-image` (8B single-stream DiT; SFT "base" and "Turbo" variants; Apache-2.0 per search results).
 
 ## Text encoder
-- Official card and README: not stated. ComfyUI docs and Swarm core: **Ministral 3 3B** (same as Flux.2) plus the Flux.2 VAE. Label that as community/integration-sourced.
+- Official card and README: not stated. ComfyUI docs and Swarm core: **Ministral 3 3B** (same as Flux.2). Label that as community/integration-sourced.
 - A separate lightweight **Prompt Enhancer** (a 3B model per ComfyUI docs) is official, ships in the `pe` folder.
 - Implication: LLM encoder, natural language; no CLIP syntax.
 
@@ -23,8 +23,6 @@ Swarm class id: `ernie-image` (8B single-stream DiT; SFT "base" and "Turbo" vari
 - **Layout:** described in prose ("title at the top, three panels below"); no box syntax.
 - **Weights:** not stated. Treat as unsupported.
 - **Negative prompt:** not stated; no negative parameter in any official example. Turbo runs at CFG 1.
-- **Resolution (official list):** 1024x1024, 848x1264, 1264x848, 768x1376, 896x1200, 1376x768, 1200x896. Swarm doc: 512 to 1536 works, wider than 16:9 (21:9) degrades.
-- **Settings (official):** SFT about 50 steps, guidance 4.0; Turbo 8 steps, guidance 1.0 (DMD plus RL distilled). Swarm doc: 20+ steps on base is fine.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

@@ -7,7 +7,7 @@ Status: draft reference. Paper and GitHub README are informative; the Hugging Fa
 Swarm class id: `lens` (3.8B dual-stream MMDiT, MIT licence, released for research only).
 
 ## Text encoder
-- **GPT-OSS-20B** (frozen MoE, 3B active) with features from layers 4, 12, 18, 24 concatenated and projected (paper); **FLUX.2 VAE** (ComfyUI docs, Swarm core).
+- **GPT-OSS-20B** (frozen MoE, 3B active) with features from layers 4, 12, 18, 24 concatenated and projected (paper).
 - Trained on English captions only, yet evaluated in Chinese, French, Japanese and Spanish, attributed to the strong encoder (paper). Swarm gallery sample uses French.
 - Implication: a reasoning-LLM encoder; long descriptive English prompts are the native style.
 
@@ -21,8 +21,6 @@ Swarm class id: `lens` (3.8B dual-stream MMDiT, MIT licence, released for resear
 - **Weights:** not stated. LLM encoder; treat as unsupported.
 - **Negative prompt:** not stated; no flag in the CLI. Turbo uses no CFG. Treat as unsupported.
 - **Layout/boxes:** not stated.
-- **Resolution:** base resolution 1024 or 1440 (CLI default 1440); ratios 1:2, 9:16, 2:3, 3:4, 1:1, 4:3, 3:2, 16:9, 2:1. Max stated 1440x1440; Swarm doc says coherent down to about 512 and up to about 2048.
-- **Settings (GitHub README):** `Lens` (RL-tuned) 20 steps, CFG 5.0; `Lens-Turbo` 4 steps, CFG 1.0; `Lens-Base` (supervised only) 50 steps, CFG 5.0. ComfyUI docs say about 50 and about 8 steps; treat that as the outlier. Swarm doc: Turbo 4, 8 also works well.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

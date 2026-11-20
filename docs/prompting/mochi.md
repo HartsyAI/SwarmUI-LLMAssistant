@@ -23,9 +23,6 @@ Status: **no official prompting guide exists.** The official README and model ca
 - Negative prompt: supported by the pipeline (CFG), but official examples leave it empty (`negative_prompt=""`). No guidance on contents; not stated. Safe default: empty.
 - Text rendering: not stated; do not rely on it.
 - Audio: none, video only.
-- Resolution: official 480p (example 480 x 848). Swarm default 848x480.
-- Frames and fps: Swarm docs: frame count up to about 200 in multiples of 6 plus 1 (6x temporal VAE compression), trained at 24 fps (Swarm doc). Official examples differ: 84/85/163 frames and 30 fps export; 31 frames in the API example. Treat Swarm's 6n+1 rule as authoritative for Swarm.
-- Guidance: Diffusers default 4.5; example 3.5; README example uses cfg 6.0 with 64 steps; Swarm docs say standard values like 7. Community: above about 7 may over-saturate (low confidence).
 - Style: optimized for photorealism; performs poorly on animated content (official limitation). Extreme motion can show warping (official).
 
 ## Swarm tags
@@ -36,9 +33,7 @@ Status: **no official prompting guide exists.** The official README and model ca
 ## Motion, camera and shot language
 - No official vocabulary. Official examples are short single-shot descriptions. Community advice that works with any T5 video model: state one subject, one action, one camera move (aerial shot, close-up, tracking), lighting and setting, in present tense.
 - Official line: the model "focuses on prompt adherence and motion quality" (Diffusers docs). No claim about multi-shot prompts; avoid cuts and scene changes.
-- Duration: about 2-8 s depending on frame count (frame count / fps; our arithmetic from the Swarm doc).
 - Prompt extension/rewriting: no official tool or system prompt. Our assistant may expand terse input to 2-4 descriptive sentences within the 256-token limit.
-- VAE decoding is very memory hungry (Swarm docs), so long clips may need VAE tiling. This is a setup note, not a prompt matter.
 
 ## Examples (our own wording)
 ```
@@ -54,10 +49,9 @@ A chef flips a pancake in a sunlit kitchen, the pancake spinning in the air and 
 ## Style file hints
 - format: text
 - negative: none (empty is the only documented usage; separate field is technically accepted)
-- supports: t2v only, no audio, photoreal bias, 256-token cap, 6n+1 frames
+- supports: t2v only, no audio, photoreal bias, 256-token cap
 
 ## Open questions
 - Any official prompt style, caption format or recommended length: not stated.
 - Whether negatives help and what to write: not stated.
-- Native fps (Swarm says 24, official examples export at 30): conflicting.
 - Behaviour on stylized/animated prompts beyond "performs poorly": not stated.

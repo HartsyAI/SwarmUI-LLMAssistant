@@ -7,10 +7,10 @@ Status: P0 reference. Sources retrieved 2026-11-19, obtained as tool-generated s
 - Core: SwarmUI `src/Text2Image/T2IBoundingBoxFormat.cs` (`ming-image`), `T2IPromptHandling.cs`, `docs/Model Support.md`.
 
 ## Swarm class ids
-`ming-image` (Ming-Image-0.1-Design, default 2048x2048, supports alpha/transparency). The companion Design-Layer (layer decomposition) model is not supported by Swarm.
+`ming-image` (Ming-Image-0.1-Design, supports alpha/transparency). The companion Design-Layer (layer decomposition) model is not supported by Swarm.
 
 ## Text encoder
-Not named in the official README or card (it mentions an LLM component only). Swarm's loader fetches a file named `ming_image_0.1_ling_mini_2.0_int8_convrot`, so it is an LLM encoder (Ling family) per Swarm, not per upstream docs. Implication: no CLIP chunking and no CLIP-style weighting.
+Not named in the official README or card (it mentions an LLM component only). Swarm's loader fetches a Ling mini 2.0 encoder file, so it is an LLM encoder (Ling family) per Swarm, not per upstream docs. Implication: no CLIP chunking and no CLIP-style weighting.
 
 ## Prompt format
 - Accepts raw text or a JSON file. The README recommends a Figma-style structured prompt for text-to-image. Prompt enhancement runs outside the model, using Ling-3.0-flash-VL or qwen3.8-27B with the repo's rewriter system prompt.
@@ -29,8 +29,6 @@ Not named in the official README or card (it mentions an LLM component only). Sw
 - Text rendering: each user-supplied string must appear exactly once across all `description` fields, character for character and contiguous (unless copies are requested), and not in `hierarchy_and_relation`. List all intended copy; never hide content behind "etc.". Cards, rows and tables: one layer per card or row with row/column stated, every cell listed.
 - Transparency: put exactly one fixed phrase at the very start of the prompt and never combine two. English ones include "RGBA, 4-channel, transparent background" and "cutout PNG, alpha=0 outside the object"; Chinese variants also exist. How the phrase combines with a JSON prompt is not stated. Swarm notes output breaks if the image format is jpg.
 - Negative prompts: not mentioned. Treat as unsupported (official CFG is 1.0, which ignores a negative anyway).
-- Resolution: 2048x2048 default or 1024x1024 for speed; examples 2560x1440, 2432x1824, 1664x2496; other sizes within 1:4 to 4:1 are accepted and resized. Swarm default 2048.
-- Steps/CFG (official): 12 steps, CFG 1.0. Swarm docs agree.
 - Quality or style keywords: none documented; style goes in `image_style` / `ambient_lighting` and layer `description`s.
 - Licence: MIT (repo LICENSE and model card). Note one README summary stated no licence; the LICENSE file and HF card say MIT.
 

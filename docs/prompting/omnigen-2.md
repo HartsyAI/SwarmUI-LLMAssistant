@@ -8,7 +8,7 @@ Status: P0 reference. Official README has a real tips section (editing and in-co
 
 ## Swarm class ids
 
-`omnigen-2` (default 1024x1024, Flux VAE). Swarm supports only the direct image features, not the LLM text-generation features.
+`omnigen-2`. Swarm supports only the direct image features, not the LLM text-generation features.
 
 ## Text encoder
 
@@ -26,9 +26,6 @@ Status: P0 reference. Official README has a real tips section (editing and in-co
 ## What works / what does not
 
 - Negative prompt: supported (official). Describe what should not appear, example "blurry, low quality, text, watermark"; a default negative exists and the README suggests using it if unsure. Note the example negative includes "text", so drop that term if the user wants lettering.
-- Guidance (official): `text_guidance_scale` (CFG on text; no range stated), `image_guidance_scale`: editing 1.2-2.0, in-context 2.5-3.0 (about 3 for object consistency, at a risk of slight overexposure/greasy look); about 1.5 gives the text more influence. Defaults: 50 steps, euler (dpmsolver++ may do better with fewer steps). `cfg_range_end` lowered speeds up with little loss.
-- Swarm (community): normal CFG about 5-7 (or CFG 5 plus the `IP2P CFG 2` advanced param, default 2), about 20 steps, 1024-ish resolution, slow, incompatible with fp8 and sage attention.
-- Resolution: default 1024x1024; with an input image, output matches the input size (works best); `max_pixels` default 1024x1024 downsizes large inputs; inputs should exceed 512x512.
 - Layout boxes, weights: not stated. Quality/style keywords: not stated.
 - Expect multiple attempts; official text says the model does not always follow instructions.
 

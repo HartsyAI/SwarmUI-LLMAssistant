@@ -10,7 +10,7 @@ Status: P0 reference. Official sources give settings and one long-descriptive-pr
 
 ## Swarm class ids
 
-`z-image` (default 1024x1024; covers Turbo and base, both load as the same class), `z-image/lora`, `z-image/control-diffpatch`. Edit and Omni-Base are listed by the official repo as "to be released"; no class exists for them.
+`z-image` (covers Turbo and base, both load as the same class), `z-image/lora`, `z-image/control-diffpatch`. Edit and Omni-Base are listed by the official repo as "to be released"; no class exists for them.
 
 ## Text encoder
 
@@ -28,14 +28,10 @@ Status: P0 reference. Official sources give settings and one long-descriptive-pr
 
 | | Z-Image Turbo | Z-Image (base) |
 |---|---|---|
-| Steps (official) | 8 NFEs (example uses 9 = 8 forwards) | 28-50 (example 50) |
-| CFG (official) | not used, `guidance_scale=0.0` | 3.0-5.0 (example 4) |
 | Negative prompt | not covered / not used | supported, "Robust Negative Control"; optional |
 | Diversity | lower (RL-trained, distilled) | higher |
 
-- Negative prompts (base): write a plain list of what to remove ("blurry, extra fingers, watermark" style, our wording). The official example leaves it empty, so it is optional. Turbo ignores it effectively at CFG 0 (Swarm uses CFG 1, community).
-- `cfg_normalization`: off for general styles, on for realism (official repo guidance, a diffusers-side setting, not a Swarm prompt concern).
-- Resolution (official): 512x512 up to 2048x2048 total area, any aspect ratio. Swarm (community): 1024 standard, up to 2048 fine, 512 loses quality, above 2048 corrupts.
+- Negative prompts (base): write a plain list of what to remove ("blurry, extra fingers, watermark" style, our wording). The official example leaves it empty, so it is optional. Turbo effectively ignores it.
 - Text rendering: put literal strings in quotes inside the prompt and describe placement/style. Official example places literal English words in the prompt.
 - Quality keywords / style tags: not stated; long descriptive prompts are the documented pattern.
 - Layout/boxes: not stated; no JSON box format.

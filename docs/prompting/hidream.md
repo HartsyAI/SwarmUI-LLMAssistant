@@ -9,7 +9,7 @@ Status: P0 reference. I1 has almost no official prompting guidance (settings and
 
 ## Swarm class ids
 
-I1: `hidream-i1` (1024x1024; Full/Dev/Fast share it), `hidream-i1-edit` (768x768, must be set manually in model metadata), `hidream-i1/lora`. O1: `hidream-o1` (2048x2048), `hidream-o1/lora`.
+I1: `hidream-i1` (Full/Dev/Fast share it), `hidream-i1-edit` (must be set manually in model metadata), `hidream-i1/lora`. O1: `hidream-o1`, `hidream-o1/lora`.
 
 ## Text encoders
 
@@ -24,16 +24,7 @@ I1: `hidream-i1` (1024x1024; Full/Dev/Fast share it), `hidream-i1-edit` (768x768
 
 ## What works / what does not
 
-| | Steps | CFG | Notes |
-|---|---|---|---|
-| I1 Full | 50 | 5.0 (official example) | standard CFG |
-| I1 Dev | 28 | off (code comment: 0.0 for Dev and Fast) | distilled |
-| I1 Fast | 16 | off | distilled |
-| O1 Full | 50 | 5.0, shift 3.0 | guidance only effective on Full |
-| O1 Dev | 28 | 0.0 (official card), Comfy docs say 1.0; shift 1.0 | negative not needed (Comfy docs) |
-
 - Negative prompts: I1 not stated. O1 card not mentioned; Comfy docs say none needed for Dev, nothing stated for Full. Treat as unsupported/unnecessary; if the user supplies one for I1 Full, pass it through (Swarm normal CFG applies, community).
-- Resolution: I1 official example 1024x1024; other sizes not stated. O1 default and maximum 2048x2048, values "snap to valid resolutions internally"; Swarm (community) says 1024 on O1 looks noticeably worse and above 2048 distorts color. I1 Edit works at 768 (community).
 - Text rendering: O1 advertises accurate multi-region multilingual text (LongText-Bench EN 0.979, ZH 0.978 for the full model, vendor numbers). Put exact text in quotes, with font style, color and position (Comfy docs). I1: official example only has a cat holding a "HiDream.ai" sign; no claim stated.
 - O1 layout boxes: the repo has `--layout_bboxes` with normalized values (apparently 0-1) but the box order is not stated; Swarm has no `<bbox>` format registered for `hidream-o1`. Do not emit boxes.
 - O1 editing/personalization: one reference plus a short instruction ("remove the earphones"); multiple references with a scene description. The prompt does not name references by tag; the README never says how to refer to them. Swarm: up to 10 prompt images but only single-image input is strongly obeyed (community). Full model recommended for editing (May 2026 update).
@@ -69,6 +60,6 @@ O1 edit instruction: "Replace the grey sky with a dramatic sunset, keep the buil
 
 - I1 prompt-length limits and any official prompting advice (not stated).
 - Whether the I1 official text-encoder list includes CLIP (model card and GitHub disagree with Swarm docs).
-- O1 Full negative prompt behaviour; Dev CFG 0.0 vs 1.0 (card and Comfy docs differ, both mean "off").
+- O1 Full negative prompt behaviour.
 - O1 layout bbox order/scale; how prompts should reference multiple images (not stated).
 - HiDream-O1 versions beyond the May 2026 release (a newer Dev-2604 build is mentioned on the card; a "1.5" listing exists on third-party sites, unverified).

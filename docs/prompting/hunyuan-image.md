@@ -1,6 +1,6 @@
 # HunyuanImage 2.1 (and refiner) prompting guide
 
-Status: draft reference, official README only, thin on prompt rules. Sources (retrieved 2026-11-19; the pages were read through a summarizing fetch tool, so verify exact numbers before shipping a validator):
+Status: draft reference, official README only, thin on prompt rules. Sources (retrieved 2026-11-19; the pages were read through a summarizing fetch tool, so check field names and schemas against the source before a validator relies on them):
 - Official: https://github.com/Tencent-Hunyuan/HunyuanImage-2.1 (README), https://huggingface.co/tencent/HunyuanImage-2.1 (model card)
 - Official (related): https://arxiv.org/abs/2509.04545 is the **PromptEnhancer** paper (rewriter evaluated on HunyuanImage 2.1), not the model's own report. The model's technical report was not located.
 - Core: SwarmUI `docs/Model Support.md` (Hunyuan Image 2.1 section), `src/Text2Image/T2IModelClassSorter.cs`, `WorkflowGeneratorModelSupport.cs`.
@@ -19,12 +19,10 @@ Swarm class ids: `hunyuan-image-2_1` (base and distilled), `hunyuan-image-2_1-re
 
 ## What works / what does not
 - **Weights:** not stated. LLM-encoder model, so Swarm's `<weight>` is only a blunt multiplier at best; do not rely on it.
-- **Negative prompt:** not stated by the README. In Swarm it is a normal CFG model (CFG about 3.5), so a separate negative field is wired; the distilled variant can run CFG 1 where it has no effect (Swarm doc).
+- **Negative prompt:** not stated by the README. In Swarm it is a normal CFG model, so a separate negative field is wired; the distilled variant can run CFG 1 where it has no effect (Swarm doc).
 - **Text rendering:** advertised via ByT5. The README has no explicit quoting rule, but its examples put the target text in quotation marks. Do that.
 - **Layout/boxes:** not stated; no JSON box format.
-- **Resolution:** official: 2K only, "1K will result in artifacts". Listed: 2048x2048 (1:1), 2560x1536 (16:9), 2304x1792 (4:3), 1792x2304 (3:4), 1536x2560 (9:16); 3:2 and 2:3 are listed without sizes. Swarm doc says lower resolutions can work; the VAE is 32x downscale so 2048 is a small latent. Conflict, prefer official 2K.
-- **Settings (official):** base 50 steps, guidance 3.5, shift 5; distilled 8 steps, guidance 3.25, shift 4. Swarm doc suggests about 20 steps for base and says distilled needs testing.
-- **Refiner:** second stage for clarity and fewer artifacts. In Swarm it is used via the Refine/Upscale group with `<base>` and `<refiner>` text sections (see Swarm's `Model Support.md` for the recommended parameters; the upstream refiner prompt template is not reproduced here). A short quality-oriented text in the `<refiner>` section is the only refiner-specific prompting.
+- **Refiner:** second stage for clarity and fewer artifacts. In Swarm it is used via the Refine/Upscale group with `<base>` and `<refiner>` text sections (the upstream refiner prompt template is not reproduced here). A short quality-oriented text in the `<refiner>` section is the only refiner-specific prompting.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>` and legacy `(x:1.2)`: legacy parsing is off for this class (only SD1/2/XL/3 and Anima enable it in core). Avoid.
@@ -54,5 +52,4 @@ A hand-painted wooden storefront sign above a small bakery door. The sign reads 
 
 ## Open questions
 - Token limits for either encoder; whether negative prompts are intended (not stated).
-- Best settings for the distilled model in Swarm (Swarm doc says its documented settings work poorly).
 - Whether the official technical report states a prompt style beyond "longer is better".

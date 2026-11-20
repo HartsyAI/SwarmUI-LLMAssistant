@@ -9,11 +9,11 @@ Status: sources retrieved 2026-11-19 and mostly official; fetched as summaries b
 
 ## Swarm class id
 
-`flux-3-image-klein` (short code Fl3K; model class `flux-3-image-klein`; box format id `flux-3`). Variants: distilled ("sd") and Base, bf16/int8/nvfp4 files.
+`flux-3-image-klein` (short code Fl3K; model class `flux-3-image-klein`; box format id `flux-3`). Variants: distilled ("sd") and Base.
 
 ## Text encoder
 
-Qwen3-VL-4B-Instruct (HF card), an LLM/VLM encoder: prose with relationships is understood; no CLIP chunking. VAE is the Flux.2 VAE (Swarm docs). Token limit: not stated.
+Qwen3-VL-4B-Instruct (HF card), an LLM/VLM encoder: prose with relationships is understood; no CLIP chunking. Token limit: not stated.
 
 ## Prompt format and length
 
@@ -35,11 +35,9 @@ The box feature is real and official. There is no separate box parameter; the la
 
 ## What works and what does not
 
-- Negative prompts: no field exists in the API and none is documented; describe the wanted scene instead and name replacements positively (BFL technical page). Base variant uses CFG 3.5 (card) but BFL gives no negative-prompt guidance.
+- Negative prompts: no field exists in the API and none is documented; describe the wanted scene instead and name replacements positively (BFL technical page). For the Base variant BFL also gives no negative-prompt guidance.
 - Weights: not documented; LLM encoder means a blunt multiplier at best. Do not emit.
 - Text rendering: quote exact words, state placement, weight, case, colour, font character; one row per text block in layout prompts; proofread results. Non-English text can be quoted directly (BFL style page).
-- Resolution: model card says 1024x1024 example; BFL docs: Klein max 4K; API sides 256-6256 (FLUX 3 Image), Swarm docs say 128-3072 works. Iterate small (768sq) then raise; changing size changes the composition.
-- Steps/CFG: distilled 16 steps, CFG 1; Base 50 steps, CFG 3.5 (card). Swarm docs: distilled can go to 4 steps with quality loss.
 - Up to 10 reference images, referred to as "image 1", "image 2", with roles stated.
 
 ## Swarm tag compatibility and an important mismatch

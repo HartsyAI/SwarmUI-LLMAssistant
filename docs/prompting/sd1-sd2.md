@@ -12,8 +12,7 @@ Status: P0 reference. No official prompting guide exists for these models; the m
 
 ## Swarm class ids covered
 
-`stable-diffusion-v1` (+ `/lora`, `/controlnet`, `/textual-inversion`, `-inpainting`), `stable-diffusion-v2-512`, `stable-diffusion-v2-768-v` (+ `/lora`, `/textual-inversion`), `stable-diffusion-v2-turbo` (detected by header keys; matches the SD-Turbo card), `alt_diffusion_v1_512_placeholder` (compat `alt_diffusion_v1`). Standard sizes in core: v1 and v2-512 and Turbo 512x512, v2-768-v 768x768.
-
+`stable-diffusion-v1` (+ `/lora`, `/controlnet`, `/textual-inversion`, `-inpainting`), `stable-diffusion-v2-512`, `stable-diffusion-v2-768-v` (+ `/lora`, `/textual-inversion`), `stable-diffusion-v2-turbo` (detected by header keys; matches the SD-Turbo card), `alt_diffusion_v1_512_placeholder` (compat `alt_diffusion_v1`).
 ## Text encoders
 
 - SD1.x: frozen CLIP ViT-L/14 (CompVis README). SD2.x: OpenCLIP (LAION) per the release notes; the ViT/H size is community knowledge, not stated on the pages read.
@@ -31,13 +30,11 @@ Status: P0 reference. No official prompting guide exists for these models; the m
 ## What works and what does not
 
 - Weights: work well on CLIP models (Swarm doc). The 2.1 announcement also endorses weighted prompts.
-- Negative prompts: supported and useful on SD1/SD2 (2.1 notes: they "often eliminate" mangled hands and extra fingers, and work better in 2.1). Write them as a separate field, comma-separated defects ("blurry, extra fingers, low quality" is our wording). Exception: **SD 2 Turbo / SD-Turbo does not use negative prompts or guidance** (card: set `guidance_scale` 0.0, 1 to 4 steps; Swarm: CFG 1, Steps 1, Scheduler Turbo).
+- Negative prompts: supported and useful on SD1/SD2 (2.1 notes: they "often eliminate" mangled hands and extra fingers, and work better in 2.1). Write them as a separate field, comma-separated defects ("blurry, extra fingers, low quality" is our wording). Exception: **SD 2 Turbo / SD-Turbo does not use negative prompts or guidance**.
 - Text rendering: not possible; v1-4 card says the model "cannot render legible text". Do not request exact lettering.
 - Layout / boxes: no. Weak compositional ability ("red cube on top of a blue sphere" fails per v1-4 card). Regions help instead (below).
-- Resolution: SD1 pretrained at 256 then fine-tuned at 512 (CompVis README); stay near 512x512. SD2: 512 (base) and 768 (768-v) defaults; 2.1 notes say non-standard resolutions and extreme aspect ratios work. Turbo is fixed at 512 (card: higher sizes "work as well" but 512 is the limitation). Do not rely on large sizes; use upscale/refine passes.
 - People: faces and people "may not be generated properly" on all of these cards. SD 2.0 was trained with a LAION NSFW filter that cut many people images; 2.1 relaxed it.
 - Quality/style keywords ("highly detailed", "8k", "digital painting"): appear in official sample prompts (Alt-Diffusion card lists "highly detailed, digital painting, trending on artstation"). Whether they help is community folklore; the sources do not claim a measured effect. Use sparingly.
-- CFG/steps: only official numbers are SD1 sample guidance 7.5 (CompVis README), Alt-Diffusion sample guidance 7.5 and 25 steps with DPM-Solver (card), Turbo as above. Not stated as recommendations otherwise.
 
 ## Compatibility with Swarm tags (`_swarm-syntax.md`)
 
@@ -63,7 +60,7 @@ a red fox sitting in fresh snow, soft morning light, shallow depth of field, pho
 ```
 negative: `cartoon, deformed, extra legs, jpeg artifacts`
 
-SD2 Turbo (no negative, one step):
+SD2 Turbo (no negative):
 ```
 studio photo of a ceramic teapot on a wooden table
 ```
@@ -80,4 +77,4 @@ studio photo of a ceramic teapot on a wooden table
 - Which SD1-era prompt tags 2.0/2.1 lost (only "new prompting style" stated).
 - Official prompting advice for 2.x beyond the 2.1 announcement (HF cards unreachable).
 - SD-Turbo text encoder (not named on the card).
-- Alt-Diffusion training resolution and whether Swarm applies legacy `(x:1.2)` parsing to it (not enabled in core).
+- Whether Swarm applies legacy `(x:1.2)` parsing to Alt-Diffusion (not enabled in core).

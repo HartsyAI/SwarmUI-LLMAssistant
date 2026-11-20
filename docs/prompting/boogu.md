@@ -10,7 +10,7 @@ Identification: the official org is `Boogu` on Hugging Face (`Boogu/Boogu-Image-
 Swarm class id: `boogu` (Base, Turbo, Edit, Edit-Turbo; 10B, Apache-2.0).
 
 ## Text encoder
-- Official: the checkpoint has an `mllm` component, not named on the card or abstract. ComfyUI docs and Swarm core: **Qwen3-VL 8B**, with the **FLUX.1 VAE**. "Derived from OmniGen" is a Swarm-doc claim; official pages do not state a base model.
+- Official: the checkpoint has an `mllm` component, not named on the card or abstract. ComfyUI docs and Swarm core: **Qwen3-VL 8B**,. "Derived from OmniGen" is a Swarm-doc claim; official pages do not state a base model.
 - Implication: multimodal-LLM encoder, natural language (Chinese or English).
 
 ## Prompt format and length
@@ -22,9 +22,7 @@ Swarm class id: `boogu` (Base, Turbo, Edit, Edit-Turbo; 10B, Apache-2.0).
 - **Weights:** not stated. Treat as unsupported.
 - **Negative prompt:** not stated. Base runs normal CFG so Swarm's separate field is wired; Turbo is CFG 1 (no effect).
 - **Layout/boxes:** not stated.
-- **Resolution/aspect:** 1K, 1.5K, 2K; ratios 1:1, 2:3, 3:2, 3:4, 4:3, 1:2, 2:1, 9:16, 16:9. Turbo is 1K only.
-- **Settings (official):** Base 25-50 steps, CFG 2.0-5.0 (example 4.0); Turbo 4 steps (3-4), CFG 1.0. Swarm doc: Turbo uses LCM sampler and SGM Uniform scheduler, DPM++ 2M slightly better than Euler on Base.
-- **Limitations (official):** weak knowledge of real brands, people and landmarks (describe, do not name); hands/limbs break in multi-person or occluded scenes; small faces, eyes and text may artifact (FLUX.1 VAE). Research-only release.
+- **Limitations (official):** weak knowledge of real brands, people and landmarks (describe, do not name); hands/limbs break in multi-person or occluded scenes; small faces, eyes and text may artifact. Research-only release.
 
 ## Swarm tag compatibility (see `_swarm-syntax.md`)
 - `<weight>`, legacy `(x:1.2)`: legacy parser off. Avoid.

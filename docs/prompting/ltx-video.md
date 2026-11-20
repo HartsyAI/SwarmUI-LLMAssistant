@@ -25,10 +25,9 @@ Status: official guidance exists (Lightricks), but the dedicated prompting guide
 - Prompts written for other models should be rewritten into this paragraph style, not pasted with their tag syntax.
 
 ## What works and what does not
-- Negative prompt: the model cards' Diffusers examples ship default negatives (LTX Video 1 example: "worst quality, inconsistent motion, blurry, jittery, distorted"). The prompting guide does not cover negatives. Swarm docs reproduce a very long reference negative for LTX-2. Distilled checkpoints run at CFG 1 (8 steps), where a negative is expected to have no effect (inference, not stated). Write negatives as short quality/artifact phrases, no sentences.
+- Negative prompt: the model cards' Diffusers examples ship default negatives (LTX Video 1 example: "worst quality, inconsistent motion, blurry, jittery, distorted"). The prompting guide does not cover negatives. Swarm docs reproduce a very long reference negative for LTX-2. On distilled checkpoints a negative is expected to have no effect (inference, not stated). Write negatives as short quality/artifact phrases, no sentences.
 - Text rendering: LTX-2.5 improved short text, but exact spelling and cross-frame consistency are not guaranteed; keep text short and prominent, add titles in post (official).
 - Audio (LTX-2 and later): describe ambient sound, music, speech or singing. Dialogue goes in quotation marks; name language/accent; delivery (whisper, announcer, monotone) and volume can be stated. LTX-2 card warns audio without speech may be lower quality.
-- Resolution: width and height divisible by 32; frames 8n+1 (9, 17, ... 121, 257). Examples: 768x512 at 121 frames (LTX-2 card); 1216x704 at 30 fps default for LTX Video 1; 24 fps in LTX-2.5 examples; native portrait improved in 2.3 (ComfyUI docs). LTX Video 1 works best under 720x1280 and under 257 frames.
 - Complex or chaotic physics causes artifacts; simpler motion is more reliable (official).
 - Quality/style keywords: no official keyword list. Prefer concrete film/lighting description over "masterpiece".
 
@@ -37,13 +36,13 @@ Status: official guidance exists (Lightricks), but the dedicated prompting guide
 - `<weight>`, `<break>`, `<alternate>`, `<fromto>`, `<region>`, `<object>`, `<bbox>`: do not emit (no CLIP chunking; no JSON box format registered for LTX).
 - `<video>`: with an image-to-video model selected, text after `<video>` replaces the prompt for the video stage. For i2v, describe what changes and moves; do not re-describe what the image already shows (Swarm maintainer note; the official guide has no i2v section beyond "prefer one continuous take unless you describe a cut"). Add audio description since LTX-2+ makes sound.
 - `<videoswap>`: not stated for LTX (swap stage applies to Wan 2.2-style swap models).
-- `<extend:frames>`: Swarm's extend is experimental; keep each segment prompt to one new action continuing the same scene, and choose frame counts of the 8n+1 family.
+- `<extend:frames>`: Swarm's extend is experimental; keep each segment prompt to one new action continuing the same scene.
 - Text-to-video prompt: the whole scene including subject, setting, camera and audio. Image-to-video prompt: motion, camera and sound only.
 
 ## Motion, camera, duration, extension
 - Camera vocabulary (official): follows, tracks, pans across, circles around, tilts upward, pushes in, pulls back, overhead view, handheld, over-the-shoulder, wide establishing shot, static frame. Temporal: slow motion, time-lapse, lingering shot, continuous shot, freeze-frame, fade in/out. After a camera move, describe how the subject looks at the end of it.
 - Multi-shot (LTX-2.5): one chronological paragraph, 2-4 shots, name each transition (hard cut, match cut, dissolve), re-establish framing, reuse identifiers for recurring subjects, say whether audio continues. Use a single continuous take for lip-synced dialogue or unbroken camera motion.
-- Duration: 24 fps, 121 frames is about 5 s. LTX-2.5 has an optional duration predictor that times the clip to the written action (include pauses in the prompt or set an explicit duration).
+- Duration: LTX-2.5 has an optional duration predictor that times the clip to the written action (include pauses in the prompt or set an explicit duration).
 - Prompt enhancer (official, own words): an optional LLM rewrite pass run before generation (`enhance_prompt` in pipelines, a Comfy node, Gemma 4 E2B in LTX-2.5; separate system prompts for t2v and i2v). It helps short or foreign-style prompts most. Do not use it on direct API requests. Our assistant should do the same job and Swarm should not double-enhance.
 
 ## Examples (our own wording)
@@ -58,7 +57,7 @@ The woman turns toward the window and smiles slightly, her hair lifting in a bre
 
 ## Style file hints
 - format: text
-- negative: separate (short artifact list; ignored at CFG 1 on distilled models)
+- negative: separate (short artifact list; ignored on distilled models)
 - supports: t2v, i2v, audio, multishot (2.5), dialogue in quotes, enhancer-compatible
 
 ## Open questions

@@ -11,7 +11,7 @@ Sources:
 
 ## Swarm class ids
 
-`lumina-2` (default 1024x1024). Compat class has no legacy prompt parser flag in core.
+`lumina-2`. Compat class has no legacy prompt parser flag in core.
 
 ## Text encoder
 
@@ -29,8 +29,6 @@ Natural language. The paper's UniCap captioner produces English and Chinese capt
 - Negative prompts: not mentioned in the README or paper. Diffusers exposes `negative_prompt` with CFG, and says for Lumina "this should be" the empty string. Do not rely on negative lists.
 - Layout/boxes: not stated (no JSON box format).
 - Weights: not stated; LLM-encoder note in `_swarm-syntax.md` applies.
-- Guidance: README example CFG 4.0, 50 steps, `cfg_trunc_ratio` 0.25, `cfg_normalization` True, bf16, 1024x1024. Paper: CFG-Trunc applies full guidance only from a threshold timestep and CFG-Renorm rescales to limit oversaturation at high scales. Diffusers defaults are 30 steps, CFG 4.0.
-- Resolution: 1024x1024 in all examples; other ranges not stated.
 - Style/quality keywords: example "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"; effect not stated.
 
 ## Swarm compatibility
@@ -58,5 +56,5 @@ Natural language. The paper's UniCap captioner produces English and Chinese capt
 
 - Exact system prompt expected at inference, and whether Swarm/Comfy applies one.
 - Negative prompt behaviour and recommended token length.
-- Resolutions other than 1024x1024; whether tag-style prompts (a UniCap caption style) work better than sentences.
+- Whether tag-style prompts (a UniCap caption style) work better than sentences.
 - Paper details above came from a summary of the HTML page, not read in full.
