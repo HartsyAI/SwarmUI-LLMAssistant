@@ -9,7 +9,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 /// <param name="ClassName">The class's display name.</param>
 /// <param name="CompatId">The id of the compatibility class the model class belongs to.</param>
 /// <param name="IsVideo">Whether the model makes video.</param>
-public sealed record ImageModelFacts(string Name, string ClassId, string ClassName, string CompatId, bool IsVideo);
+/// <param name="Prompt">What the model file says about how it is prompted (<see cref="ModelPromptFacts"/>), or null when its header says nothing.</param>
+public sealed record ImageModelFacts(string Name, string ClassId, string ClassName, string CompatId, bool IsVideo, ModelPromptFacts Prompt = null);
 
 /// <summary>A user's rule that pins a model to a style (or to none): <paramref name="Pattern"/> is a model name, or a pattern with <c>*</c> or <c>?</c>, and <paramref name="Style"/> is a style id or
 /// <see cref="Off"/>. <paramref name="Axis"/> says which kind of model it names: <see cref="AxisImage"/> (the model a prompt is written for) or <see cref="AxisLlm"/> (the chat model).</summary>
@@ -48,13 +49,13 @@ public sealed record StyleResolution(PromptStyle Style, bool Off, string Via, st
 
 /// <summary>Chooses the style for a model, for both axes: the image or video model a prompt is written for, and the chat model doing the writing. A pure function of its inputs (the styles, the user's
 /// rules and the model's facts), so the same model always gets the same style and the choice is shown to the user before anything depends on it.
-/// <para>Order: the user's own rule for the model (an exact name before a pattern), then the style whose condition is most specific (image axis: <c>exact</c> name, <c>glob</c>, core <c>class</c>, core
-/// <c>compat</c> class; chat axis: <see cref="LLMModelMatcher"/>'s own order, exact, family, provider, tag, glob), then a style with no conditions (the default). Equal conditions go to the more
+/// <para>Order: the user's own rule for the model (an exact name before a pattern), then the style whose condition is most specific (image axis: <c>exact</c> name, <c>glob</c>, core <c>class</c>, the <c>format</c> the model
+/// file declares, core <c>compat</c> class; chat axis: <see cref="LLMModelMatcher"/>'s own order, exact, family, provider, tag, glob), then a style with no conditions (the default). Equal conditions go to the more
 /// personal scope (personal, shared, bundled), then to the smaller id.</para></summary>
 public static class PromptStyleResolver
 {
     /// <summary>How specific each image-axis condition is.</summary>
-    private static int ImageRank(string kind) => kind switch { "exact" => 100, "glob" => 80, "class" => 60, "compat" => 40, _ => 0 };
+    private static int ImageRank(string kind) => kind switch { "exact" => 100, "glob" => 80, "class" => 60, "format" => 50, "compat" => 40, _ => 0 };
 
     /// <summary>The style for an image or video model.</summary>
     public static StyleResolution ResolveImage(IEnumerable<PromptStyle> styles, IEnumerable<StyleOverride> overrides, ImageModelFacts model)
@@ -154,6 +155,7 @@ public static class PromptStyleResolver
             "glob" => LLMModelMatcher.GlobMatches(match.Pattern, model.Name),
             "class" => model.ClassId is not null && string.Equals(match.Pattern, model.ClassId, StringComparison.OrdinalIgnoreCase),
             "compat" => model.CompatId is not null && string.Equals(match.Pattern, model.CompatId, StringComparison.OrdinalIgnoreCase),
+            "format" => model.Prompt?.Format is not null && string.Equals(match.Pattern, model.Prompt.Format, StringComparison.OrdinalIgnoreCase),
             _ => false,
         };
     }

@@ -121,9 +121,9 @@ function buildPrivateRoot(root) {
     return sandbox;
 }
 
-/** Writes a safetensors file that is only a header: each name is a tiny tensor, so core classifies the model from its keys and there are no real weights. */
-function writeHeaderOnlySafetensors(file, tensorNames) {
-    let header = {};
+/** Writes a safetensors file that is only a header: each name is a tiny tensor, so core classifies the model from its keys and there are no real weights. Optional metadata becomes the header's __metadata__ map. */
+function writeHeaderOnlySafetensors(file, tensorNames, metadata = null) {
+    let header = metadata ? { __metadata__: metadata } : {};
     tensorNames.forEach((name, i) => {
         header[name] = { dtype: 'F16', shape: [1], data_offsets: [i * 2, i * 2 + 2] };
     });
@@ -141,10 +141,13 @@ function seedData(runDir) {
     for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm'), path.join(modelsDir, 'Stable-Diffusion')]) {
         fs.mkdirSync(dir, { recursive: true });
     }
-    // Two image models with no weights: one whose keys make core classify it as Ideogram 4, and one core cannot place (for the prompt styles specs).
+    // Three image models with no weights: one whose keys make core classify it as Ideogram 4, and one core cannot place (for the prompt styles specs).
     writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-ideogram-4.safetensors'),
         ['embed_image_indicator.weight', 'llm_cond_proj.weight', 't_embedding.mlp_in.weight', 'layers.0.attention.qkv.weight']);
     writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-mystery.safetensors'), ['some.unrelated.weight']);
+    // An unplaceable model whose own header says it takes JSON prompts with boxes (the modelspec.prompt_* keys a tool that makes the file may write).
+    writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-declared-json.safetensors'), ['some.unrelated.weight'],
+        { 'modelspec.prompt_format': 'json', 'modelspec.prompt_negative': 'none', 'modelspec.prompt_supports': 'boxes, bogus', 'modelspec.prompt_boxes': 'yxyx-1000' });
     let slash = p => p.replace(/\\/g, '/');
     let settings = [
         'IsInstalled: true',

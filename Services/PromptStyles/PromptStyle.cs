@@ -50,7 +50,7 @@ public sealed record PromptStyle(string Id, string Kind, string Name, string Des
     public bool IsTargetStyle => Kind is KindImage or KindVideo;
 
     /// <summary>The match kinds a style of <paramref name="kind"/> may use.</summary>
-    public static string[] MatchKindsFor(string kind) => kind == KindLlm ? ["exact", "glob", "family", "provider", "tag"] : ["exact", "glob", "class", "compat"];
+    public static string[] MatchKindsFor(string kind) => kind == KindLlm ? ["exact", "glob", "family", "provider", "tag"] : ["exact", "glob", "class", "format", "compat"];
 
     /// <summary>Whether <paramref name="kind"/> is one of the three kinds.</summary>
     public static bool IsValidKind(string kind) => kind is KindImage or KindVideo or KindLlm;

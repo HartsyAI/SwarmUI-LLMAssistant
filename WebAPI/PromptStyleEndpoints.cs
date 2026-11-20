@@ -132,7 +132,7 @@ public static class PromptStyleEndpoints
             found = facts is not null;
             facts ??= new ImageModelFacts(model, null, null, null, false);
             resolution = PromptStyleResolver.ResolveImage(set.Styles, rules, facts);
-            modelJson = new JObject { ["name"] = facts.Name, ["classId"] = facts.ClassId, ["className"] = facts.ClassName, ["compatId"] = facts.CompatId, ["isVideo"] = facts.IsVideo };
+            modelJson = new JObject { ["name"] = facts.Name, ["classId"] = facts.ClassId, ["className"] = facts.ClassName, ["compatId"] = facts.CompatId, ["isVideo"] = facts.IsVideo, ["prompt"] = DescribePrompt(facts.Prompt) };
         }
         else
         {
@@ -154,6 +154,16 @@ public static class PromptStyleEndpoints
             ["candidates"] = new JArray(resolution.Candidates.Select(c => new JObject { ["id"] = c.Id, ["scope"] = c.Scope, ["matched"] = c.Matched, ["rank"] = c.Rank == int.MaxValue ? 1000 : c.Rank })),
         };
     }
+
+    /// <summary>What a model's header says about prompting, for the browser; null when it says nothing.</summary>
+    private static JObject DescribePrompt(ModelPromptFacts prompt) => prompt is null ? null : new JObject
+    {
+        ["format"] = prompt.Format,
+        ["negative"] = prompt.Negative,
+        ["supports"] = prompt.Supports is null ? null : new JArray(prompt.Supports),
+        ["boxes"] = prompt.Boxes,
+        ["encoders"] = prompt.Encoders is null ? null : new JArray(prompt.Encoders),
+    };
 
     /// <summary>A style as the browser sees it, without its text.</summary>
     private static JObject Describe(PromptStyle style) => new()

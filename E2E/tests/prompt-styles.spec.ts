@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test';
 
 const IDEOGRAM = 'e2e-ideogram-4.safetensors';
 const MYSTERY = 'e2e-mystery.safetensors';
+const DECLARED = 'e2e-declared-json.safetensors';
 
 // Every spec starts and ends with none of the user's own styles or rules, so one cannot leak into the next.
 const test = base.extend<{ llm: Page }>({
@@ -99,6 +100,23 @@ test('customizing a built-in style makes a personal copy that wins, and deleting
     expect(reset.scopes).toEqual(['bundled']);
     // A built-in style itself cannot be deleted.
     expect((await api(llm, 'LLMAssistantDeletePromptStyle', { id: 'ideogram-4', scope: 'personal' })).success).toBe(false);
+});
+
+test('a model file that says how it is prompted is matched by that, and shown in the check', async ({ llm }) => {
+    let before = await resolve(llm, 'image', DECLARED);
+    expect(before.style.id).toBe('generic');
+    expect(before.model.prompt).toEqual({ format: 'json', negative: 'none', supports: ['boxes'], boxes: 'yxyx-1000', encoders: null });
+    // A model that says nothing has no prompt facts.
+    expect((await resolve(llm, 'image', MYSTERY)).model.prompt).toBeNull();
+
+    let saved = await api(llm, 'LLMAssistantSavePromptStyle', { id: 'any-json', kind: 'image', name: 'Any JSON model', matches: 'format:json', format: 'json', body: 'Write one JSON object.' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    let after = await resolve(llm, 'image', DECLARED);
+    expect(after.style.id).toBe('any-json');
+    expect(after.candidates[0].matched).toBe('format:json');
+    // A model that does not declare JSON is not matched, and core's own class still wins over the declared format.
+    expect((await resolve(llm, 'image', MYSTERY)).style.id).toBe('generic');
+    expect((await resolve(llm, 'image', IDEOGRAM)).style.id).toBe('ideogram-4');
 });
 
 test('a style can match a model by name pattern, and a chat-model style by name glob', async ({ llm }) => {

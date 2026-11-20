@@ -2,6 +2,7 @@ using System.IO;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
+using Newtonsoft.Json.Linq;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
@@ -206,6 +207,71 @@ public sealed class PromptStyleTests : IDisposable
         StyleResolution other = PromptStyleResolver.ResolveImage(styles, [], Image("sd.safetensors", "sdxl", "sdxl"));
         Assert.Equal("generic", other.Style.Id);
         Assert.Equal("default", other.Via);
+    }
+
+    // ---- what a model file says about itself ----
+
+    [Fact]
+    public void AHeaderGivesItsPromptFactsAndDropsWhatIsNotInTheVocabulary()
+    {
+        ModelPromptFacts facts = ModelPromptFacts.FromMetadata(JObject.Parse("""
+            {"modelspec.prompt_format":"JSON","modelspec.prompt_negative":"separate","modelspec.prompt_supports":"boxes, Text-Rendering, bogus, boxes",
+             "modelspec.prompt_boxes":"YXYX-1000","modelspec.prompt_encoder":"t5, clip, nonsense"}
+            """));
+        Assert.NotNull(facts);
+        Assert.Equal("json", facts.Format);
+        Assert.Equal("separate", facts.Negative);
+        Assert.Equal(["boxes", "text-rendering"], facts.Supports);
+        Assert.Equal("yxyx-1000", facts.Boxes);
+        Assert.Equal(["t5", "clip"], facts.Encoders);
+        Assert.True(facts.Has("boxes"));
+        Assert.False(facts.Has("weights"));
+    }
+
+    [Theory]
+    [InlineData("""{"modelspec.title":"x"}""")]
+    [InlineData("""{"modelspec.prompt_format":"xml","modelspec.prompt_negative":7,"modelspec.prompt_boxes":"zzzz-1000"}""")]
+    [InlineData("""{"modelspec.prompt_boxes":"yxyx-0"}""")]
+    public void AHeaderWithNoUsableKeyGivesNoFacts(string json)
+    {
+        Assert.Null(ModelPromptFacts.FromMetadata(JObject.Parse(json)));
+    }
+
+    [Fact]
+    public void AnEmptyOrMissingHeaderGivesNoFactsAndAnEmptySupportsListMeansNone()
+    {
+        Assert.Null(ModelPromptFacts.FromMetadata(null));
+        Assert.Null(ModelPromptFacts.FromMetadata([]));
+        ModelPromptFacts none = ModelPromptFacts.FromMetadata(JObject.Parse("""{"modelspec.prompt_supports":""}"""));
+        Assert.NotNull(none);
+        Assert.Empty(none.Supports);
+        Assert.Null(none.Format);
+        Assert.False(none.Has("boxes"));
+    }
+
+    [Fact]
+    public void AValueThatIsTooLongIsIgnored()
+    {
+        Assert.Null(ModelPromptFacts.FromMetadata(new JObject { ["modelspec.prompt_format"] = new string('a', ModelPromptFacts.MaxValueChars + 1) }));
+    }
+
+    [Fact]
+    public void AStyleCanMatchTheFormatAModelDeclaresBelowItsClassAndAboveItsCompatClass()
+    {
+        PromptStyle byFormat = Style("any-json", matches: "format:json");
+        PromptStyle cls = Style("by-class", matches: "class:sdxl");
+        PromptStyle compat = Style("by-compat", matches: "compat:sdxl");
+        ModelPromptFacts json = new("json", null, null, null, null);
+        ImageModelFacts declared = Image("x.safetensors", "sdxl", "sdxl") with { Prompt = json };
+        Assert.Equal("by-class", PromptStyleResolver.ResolveImage([byFormat, cls, compat], [], declared).Style.Id);
+        Assert.Equal("any-json", PromptStyleResolver.ResolveImage([byFormat, compat], [], declared).Style.Id);
+        Assert.Equal("format:json", PromptStyleResolver.ResolveImage([byFormat], [], declared).Candidates[0].Matched);
+        // A model that declares nothing, or another format, is not matched.
+        Assert.Empty(PromptStyleResolver.ResolveImage([byFormat], [], Image("x.safetensors", "sdxl", "sdxl")).Candidates);
+        Assert.Empty(PromptStyleResolver.ResolveImage([byFormat], [], declared with { Prompt = new ModelPromptFacts("tags", null, null, null, null) }).Candidates);
+        // The condition is allowed in an image style file, not in a chat-model one.
+        Assert.Equal(["format:json"], PromptStyleFile.ParseMatches("format:json", "image").Select(m => $"{m.Kind}:{m.Pattern}"));
+        Assert.Empty(PromptStyleFile.ParseMatches("format:json", "llm"));
     }
 
     [Fact]
