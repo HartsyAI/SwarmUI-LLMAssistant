@@ -121,14 +121,30 @@ function buildPrivateRoot(root) {
     return sandbox;
 }
 
+/** Writes a safetensors file that is only a header: each name is a tiny tensor, so core classifies the model from its keys and there are no real weights. */
+function writeHeaderOnlySafetensors(file, tensorNames) {
+    let header = {};
+    tensorNames.forEach((name, i) => {
+        header[name] = { dtype: 'F16', shape: [1], data_offsets: [i * 2, i * 2 + 2] };
+    });
+    let json = Buffer.from(JSON.stringify(header), 'utf8');
+    let length = Buffer.alloc(8);
+    length.writeBigUInt64LE(BigInt(json.length));
+    fs.writeFileSync(file, Buffer.concat([length, json, Buffer.alloc(tensorNames.length * 2)]));
+}
+
 /** Writes the throwaway Swarm data folder and returns its paths. */
 function seedData(runDir) {
     let dataDir = path.join(runDir, 'data');
     let outputDir = path.join(runDir, 'output');
     let modelsDir = path.join(runDir, 'models');
-    for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm')]) {
+    for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm'), path.join(modelsDir, 'Stable-Diffusion')]) {
         fs.mkdirSync(dir, { recursive: true });
     }
+    // Two image models with no weights: one whose keys make core classify it as Ideogram 4, and one core cannot place (for the prompt styles specs).
+    writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-ideogram-4.safetensors'),
+        ['embed_image_indicator.weight', 'llm_cond_proj.weight', 't_embedding.mlp_in.weight', 'layers.0.attention.qkv.weight']);
+    writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-mystery.safetensors'), ['some.unrelated.weight']);
     let slash = p => p.replace(/\\/g, '/');
     let settings = [
         'IsInstalled: true',

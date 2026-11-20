@@ -57,7 +57,7 @@ public static class PromptAssetStore
     }
 
     /// <summary>Whether <paramref name="path"/> is a symlink or junction.</summary>
-    private static bool IsLink(string path)
+    internal static bool IsLink(string path)
     {
         try
         {

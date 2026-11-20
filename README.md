@@ -29,6 +29,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [MCP servers](#mcp-servers)
 - [Code tools and workspaces](#code-tools)
 - [Skills and commands](#skills-and-commands)
+- [Prompt styles](#prompt-styles)
 - [Sessions](#sessions)
 - [Schedules](#schedules)
 - [Knowledge library](#knowledge)
@@ -390,7 +391,7 @@ Both are markdown files with an optional `---` front matter, managed in `Setting
 
   | Scope | Folder | Who sees it | Changed by |
   |---|---|---|---|
-  | Built in | `Assets/prompt-assets/` in the extension | everyone | the extension (none ship yet) |
+  | Built in | `Assets/prompt-assets/` in the extension | everyone | the extension (no skills or commands ship yet; [prompt styles](#prompt-styles) do) |
   | Shared | `Data/LLMAssistant/prompt_assets/shared/` | everyone | `llm_shared_write` |
   | Personal | `Data/LLMAssistant/prompt_assets/users/<user>/` | that user | that user, in Settings |
   | Workspace | `.llma/` or `.claude/` in the chat's workspace | the chat, once trusted | whoever can write the workspace |
@@ -401,6 +402,20 @@ Both are markdown files with an optional `---` front matter, managed in `Setting
 - **The `/` precedence.** `/compact` first, then a tool id (the existing "run this tool" behaviour), then a command or skill; a command wins over a skill of the same name. The picker lists tools, commands and skills together, with a badge on the last two, and a command or skill works even when tool calling is off for the chat.
 
 Not covered: a skill that restricts the tools the model may use while it runs, skills fetched from a URL or a marketplace, and slash-command arguments by position (`$1`).
+
+---
+
+## Prompt styles <a id="prompt-styles"></a>
+
+A **prompt style** is written instructions for one model: how to write a prompt for an image or video model (its format, layout rules and examples), or how to instruct one chat model. This release adds the styles, the way a model is matched to one, and the settings to manage them; **nothing uses a style yet** (the rewriting that does is the next step), so image prompts and chats behave exactly as before. Researched prompting guides for each model family, which the styles are written from, are in `docs/prompting/`.
+
+- **Two kinds, kept apart.** An *image* or *video* style is for the model a prompt is written **for** (chosen by core's own model type, so Swarm already knows an Ideogram 4 file from an SDXL one, with no backend and no loaded model). A *chat-model* (`llm`) style is for the model doing the **writing** (chosen with the same matcher the per-model assistant instructions use: exact id, family, provider, tag, name glob).
+- **A style is a file** in the same `---` front matter format, in a `styles/` folder of the same three scopes as skills (`Assets/prompt-assets/styles/` built in, `Data/LLMAssistant/prompt_assets/shared/styles/`, `.../users/<user>/styles/`). The file name is its id. Keys: `name`, `description`, `kind` (`image`, `video` or `llm`), `matches`, `format` (`text`, `tags` or `json`), `formatter` (a built-in normalizer, none yet), `negative` (`none`, `separate` or `inline`), `supports` (`weights`, `break`, `regions`, `boxes`, `text-rendering`), `tasks` (chat-model styles: `chat`, `tools`, `vision`, `caption`, `rewrite`), `guide` (the researched guide). The text after the front matter is the instructions. A style is never listed to the model as a skill.
+- **`matches`** is a comma separated list of `kind:pattern`. Image and video styles: `class:` (core's model class id), `compat:` (its compatibility class), `exact:` (the model's name), `glob:` (a name pattern with `*` and `?`, for example `glob:*pony*`). Chat-model styles: `exact:`, `glob:`, `family:`, `provider:`, `tag:`. A style with no conditions is the default for its kind. A pattern cannot contain a comma.
+- **Which style a model gets**, first match wins: your own **rule** for the model (an exact name before a pattern; a rule can also say "no style"), then the style whose condition is most specific (image: `exact`, then `glob`, then `class`, then `compat`; chat: exact, family, provider, tag, glob), then the default. Equal conditions go to the more personal scope (personal, shared, built in), then the smaller id. A rule that names a style that does not exist is ignored, and the preview says so.
+- **Built in**: `generic` (plain-language prompt, the default for an image model nothing else is written for) and `ideogram-4` (Ideogram 4 only understands structured JSON, with optional bounding-box layout). More are added as each is tested on its model.
+- **Customize and reset.** Saving a built-in style's id as your own makes a personal copy that replaces it; deleting that copy resets it. The same works for a shared copy (needs `llm_shared_write`).
+- **Settings > Prompt styles** has two sections, *By image model* and *By chat model*: the styles with their scope, an editor, your rules, and **Which style does a model get?** (pick a model, see the style, why, and the other styles that matched). Your rules are kept in your own settings layer (`styleOverrides`, not sent with the general settings, changed only through `LLMAssistantSetStyleOverrides`).
 
 ---
 
@@ -828,6 +843,12 @@ they were sent with.
 | `LLMAssistantExpandPromptAsset` | `kind` (`skill` \| `command`), `name`, `arguments?`, `threadId?` | `{success, text}`; the message text for running it (arguments up to 20,000 characters). Needs `llm_chat` |
 | `LLMAssistantSavePromptAsset` | `kind`, `name`, `body`, `description?`, `argumentHint?`, `userOnly?`, `scope?` (`personal` \| `shared`) | `{success}`; writes `commands/<name>.md` or `skills/<name>/SKILL.md` (other files in a skill's folder are kept). Shared needs `llm_shared_write`. Needs `llm_settings` |
 | `LLMAssistantDeletePromptAsset` | `kind`, `name`, `scope?` | `{success}` |
+| `LLMAssistantGetPromptStyles` | none | `{success, styles[], overrides[], imageModels[], canWriteShared}`; each style is `{id, kind, name, description, scope, scopes[], matches[{kind, pattern}], format, formatter, negative, supports[], tasks[], guide}` (no text; `scopes` lists every scope holding a copy), each rule `{axis, match, style}`, each model `{name, classId, className, compatId, isVideo}`. Needs `llm_chat` |
+| `LLMAssistantGetPromptStyle` | `id`, `scope?` (`bundled`, `shared` or `personal`) | `{success, style}` with `body`; a `scope` reads that copy even when a more personal one is in force |
+| `LLMAssistantSavePromptStyle` | `id`, `kind` (`image` \| `video` \| `llm`), `body`, `name?`, `description?`, `matches?` (a `kind:pattern, ...` line), `format?`, `formatter?`, `negative?`, `supports?`, `tasks?`, `guide?`, `scope?` (`personal` \| `shared`) | `{success}`; a condition the kind cannot use is refused. Shared needs `llm_shared_write`. Needs `llm_settings` |
+| `LLMAssistantDeletePromptStyle` | `id`, `scope?` | `{success}`; deleting a personal or shared copy of a built-in style resets it. Needs `llm_settings` |
+| `LLMAssistantSetStyleOverrides` | `overrides` (`[{axis (image \| llm), match, style (an id, or off)}]`) | `{success}`; replaces the caller's rules (up to 200). Needs `llm_settings` |
+| `LLMAssistantResolvePromptStyle` | `axis` (`image` \| `llm`), `model`, `task?` | `{success, found, model, style, off, via (override \| match \| default \| none), reason, candidates[{id, scope, matched, rank}]}`; which style a model gets and why. `found` is false when core (or the chat backends) does not list the model. Needs `llm_chat` |
 | `LLMAssistantSetWorkspaceTrust` | `workspaceId`, `trusted` | `{success}`; trusts a workspace's own skills and commands. Only a workspace the user can use; needs `llm_code_mode` and `llm_settings` |
 | `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
 | `LLMAssistantDeleteHook` | `hookId`, `scope?` | `{success}` |

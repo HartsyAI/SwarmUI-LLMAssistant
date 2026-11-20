@@ -46,6 +46,8 @@ public class LLMAssistantExtension : Extension
         // Skills and commands: the list the "/" picker reads (before tool-picker.js) and the settings tab.
         ScriptFiles.Add("Assets/prompt-assets.js");
         ScriptFiles.Add("Assets/skills.js");
+        // The Prompt styles tab of the settings dialog: how prompts are written for each image or video model, and for each chat model.
+        ScriptFiles.Add("Assets/prompt-styles.js");
         // The Schedules tab of the settings dialog (needs sessions.js for the status dots).
         ScriptFiles.Add("Assets/schedules.js");
         // The Knowledge tab of the settings dialog: the user's documents, and the embedding model.
@@ -130,7 +132,7 @@ public class LLMAssistantExtension : Extension
         // Removable backend pack: supplies the actual LLM providers behind ILLMProvider.
         // Delete this line + the Backends/ folder to fall back to a native Swarm LLM API.
         Backends.LLMBackendPack.Register();
-        // Skills and commands that ship with the extension (none yet; the folder is looked at if it appears).
+        // Skills, commands and prompt styles that ship with the extension (so far only styles; the folder is looked at for the others if they appear).
         PromptAssetService.BundledRoot = Path.Combine(FilePath, "Assets", "prompt-assets");
         RegisterBuiltInTools();
         LLMAssistantAPI.Register();
