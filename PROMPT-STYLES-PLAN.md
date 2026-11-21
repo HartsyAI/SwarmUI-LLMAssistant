@@ -194,7 +194,7 @@ Bundled **LLM** addenda: a `default` (empty) plus a small first set for the mode
 
 **P1: Style registry and resolvers, both axes** (no behaviour change yet). Add kind `style` to the prompt-asset loader with `kind: llm | image`; the LLM-family resolver (reusing `LLMModelMatcher`, with name-glob fallback when `Family` is unknown) and the image resolver (core model class); bundled `generic` and `ideogram-4`; the Settings tab with both sections: list, customize/reset, per-model overrides, resolve previews. Testable alone.
 
-**P2: LLM axis wiring.** Apply the LLM addendum in turn setup (`TurnSetupService`, so chat, headless and sessions all get it), for the model used in each turn (compare lanes separately); switches; dry-run shows the addendum and its token cost; first bundled addenda for the families in use; deterministic text for prefix-cache stability.
+**P2: LLM axis wiring (built; no addenda shipped).** Apply the LLM addendum in turn setup (`TurnSetupService`, so chat, headless and sessions all get it), for the model used in each turn (compare lanes separately); switches; dry-run shows the addendum and its token cost; first bundled addenda for the families in use; deterministic text for prefix-cache stability.
 
 **P3: Image rewrite service and wiring.** `PromptRewriteService`, the formatter/validator framework with the Ideogram 4 formatter, entry points A-D, the switches, rewrite-model and failure-policy settings, the test box, transparency (tool result, image metadata). Uses both axes.
 

@@ -25,7 +25,7 @@ class LLMAPromptStyles {
             { axis: 'image', title: 'By image model', kinds: ['image', 'video'],
                 help: 'How a prompt is written for the image or video model it is for. A style is picked by the model\'s type, so a model with no style written for it gets the default.' },
             { axis: 'llm', title: 'By chat model', kinds: ['llm'],
-                help: 'A short note on how to instruct one chat model, added to its system prompt after the assistant's instructions. A model with no style written for it gets nothing, and none are built in.' },
+                help: 'A short note on how to instruct one chat model, added to its system prompt after the assistant\'s instructions. A model with no style written for it gets nothing, and none are built in.' },
         ];
     }
 
@@ -103,8 +103,8 @@ class LLMAPromptStyles {
             let conditions = style.matches.length == 0 ? translate('Default') : style.matches.map(m => `${m.kind}:${m.pattern}`).join(', ');
             let editable = this.canChange(style);
             let customized = style.scopes.includes('bundled') && style.scopes.length > 1;
-            html += `<li class="list-group-item d-flex align-items-center gap-2 bg-transparent" data-style-id="${escapeHtml(style.id)}">`
-                + `<span class="flex-grow-1"><b>${escapeHtml(style.name)}</b> <span class="badge text-bg-secondary">${escapeHtml(style.kind)}</span> ${badges}`
+            html += `<li class="list-group-item d-flex align-items-center flex-wrap gap-2 bg-transparent" data-style-id="${escapeHtml(style.id)}">`
+                + `<span class="flex-grow-1 text-break" style="min-width:12rem;"><b>${escapeHtml(style.name)}</b> <span class="badge text-bg-secondary">${escapeHtml(style.kind)}</span> ${badges}`
                 + `<br><small class="text-muted">${escapeHtml(style.description)}</small>`
                 + `<br><small class="text-muted">${translate('Matches')}: ${escapeHtml(conditions)}</small></span>`
                 + (axis == 'llm' ? `<span class="form-check form-switch mb-0" title="${translate('Use this style')}"><input class="form-check-input llma-style-enabled" type="checkbox" role="switch" aria-label="${translate('Use this style')}" ${this.styleEnabled(style) ? 'checked' : ''}></span>` : '')
@@ -130,8 +130,8 @@ class LLMAPromptStyles {
         html += '<ul class="list-group mb-2">';
         for (let rule of rules) {
             let target = rule.style == 'off' ? translate('no style') : escapeHtml(rule.style);
-            html += `<li class="list-group-item d-flex align-items-center gap-2 bg-transparent" data-rule-match="${escapeHtml(rule.match)}">`
-                + `<span class="flex-grow-1"><code>${escapeHtml(rule.match)}</code> &rarr; ${target}</span>`
+            html += `<li class="list-group-item d-flex align-items-center flex-wrap gap-2 bg-transparent" data-rule-match="${escapeHtml(rule.match)}">`
+                + `<span class="flex-grow-1 text-break" style="min-width:12rem;"><code>${escapeHtml(rule.match)}</code> &rarr; ${target}</span>`
                 + `<button type="button" class="basic-button llma-rule-delete">${translate('Delete')}</button></li>`;
         }
         if (rules.length == 0) {
@@ -139,7 +139,7 @@ class LLMAPromptStyles {
         }
         html += '</ul>';
         let options = styles.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('') + `<option value="off">${translate('No style')}</option>`;
-        html += `<div class="d-flex gap-2 align-items-center mb-2"><input type="text" class="auto-text-block llma-rule-match" list="llma-styles-models-${axis}" placeholder="${translate('Model name or pattern')}" autocomplete="off">`
+        html += `<div class="d-flex gap-2 align-items-center flex-wrap mb-2"><input type="text" class="auto-text-block llma-rule-match" list="llma-styles-models-${axis}" placeholder="${translate('Model name or pattern')}" autocomplete="off">`
             + `<select class="form-select llma-rule-style" style="width:auto;">${options}</select>`
             + `<button type="button" class="basic-button llma-rule-add">${translate('Add rule')}</button></div>`;
         return html;
@@ -150,7 +150,7 @@ class LLMAPromptStyles {
         let names = this.modelNames(axis).slice(0, 500).map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
         return `<datalist id="llma-styles-models-${axis}">${names}</datalist>`
             + `<h6 class="mt-3">${translate('Which style does a model get?')}</h6>`
-            + `<div class="d-flex gap-2 align-items-center mb-2"><input type="text" class="auto-text-block llma-resolve-model" list="llma-styles-models-${axis}" placeholder="${translate('Model name')}" autocomplete="off">`
+            + `<div class="d-flex gap-2 align-items-center flex-wrap mb-2"><input type="text" class="auto-text-block llma-resolve-model" list="llma-styles-models-${axis}" placeholder="${translate('Model name')}" autocomplete="off">`
             + `<button type="button" class="basic-button llma-resolve-run">${translate('Check')}</button></div>`
             + '<div class="llma-resolve-result small mb-3"></div>'
             + (axis == 'image' ? this.rewriteBoxHtml(axis) : '');
