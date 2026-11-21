@@ -233,7 +233,7 @@ class LLMAPromptStyles {
         }
         let state = reply.rewritten ? translate('Rewritten') : (reply.fellBack ? translate('Fell back to your wording') : translate('Left as written'));
         lines.push(`<b class="llma-rewrite-state">${state}</b>${reply.retried ? ' (' + translate('after one retry') + ')' : ''}${reply.skipped ? ' - ' + escapeHtml(reply.skipped) : ''}`);
-        lines.push(`<pre class="llma-rewrite-text">${escapeHtml(reply.text)}</pre>`);
+        lines.push(`<pre class="llma-rewrite-text">${escapeHtmlNoBr(reply.text)}</pre>`);
         if (reply.negative && reply.negative != box.querySelector('.llma-rewrite-negative').value.trim()) {
             lines.push(`${translate('Negative')}: <code>${escapeHtml(reply.negative)}</code>`);
         }

@@ -106,6 +106,12 @@ public sealed class SwarmTagMask
                 return $"it repeated {PlaceholderFor(i)}; every placeholder must appear exactly once";
             }
         }
+        // Every real tag of the idea is a placeholder now, so any raw tag in the answer was written by the model (or planted by the idea): never let it through.
+        SwarmTagMask invented = Mask(output);
+        if (invented.Tags.Count > 0)
+        {
+            return $"it wrote the Swarm tag {invented.Tags[0]} itself; tags may only come from the placeholders it was given";
+        }
         return null;
     }
 

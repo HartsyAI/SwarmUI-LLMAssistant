@@ -25,6 +25,10 @@ public interface IPromptFormatter
     /// <summary>The id a style names in its <c>formatter</c> key.</summary>
     string Id { get; }
 
+    /// <summary>Whether the answer is a JSON object (so a restored tag must be escaped for a JSON string, and the writer is told to answer with JSON only). Decided by the formatter, not the style's <c>format</c> key,
+    /// so the two cannot disagree.</summary>
+    bool ProducesJson { get; }
+
     /// <summary>Normalizes <paramref name="raw"/> (the answer with tag placeholders in it) for <paramref name="style"/>.</summary>
     FormatOutcome Normalize(string raw, PromptStyle style);
 
@@ -78,6 +82,9 @@ public sealed class TextFormatter : IPromptFormatter
     public string Id => "text";
 
     /// <inheritdoc/>
+    public bool ProducesJson => false;
+
+    /// <inheritdoc/>
     public FormatOutcome Normalize(string raw, PromptStyle style)
     {
         string text = PromptFormatters.StripWrapping(raw);
@@ -102,6 +109,9 @@ public sealed class TagsFormatter : IPromptFormatter
 {
     /// <inheritdoc/>
     public string Id => "tags";
+
+    /// <inheritdoc/>
+    public bool ProducesJson => false;
 
     /// <inheritdoc/>
     public FormatOutcome Normalize(string raw, PromptStyle style)
@@ -148,6 +158,9 @@ public sealed class JsonFormatter : IPromptFormatter
     public string Id => "json";
 
     /// <inheritdoc/>
+    public bool ProducesJson => true;
+
+    /// <inheritdoc/>
     public FormatOutcome Normalize(string raw, PromptStyle style)
     {
         string error = Ideogram4Formatter.ParseObject(raw, out JObject root);
@@ -174,6 +187,9 @@ public sealed class Ideogram4Formatter : IPromptFormatter
     /// <inheritdoc/>
     public string Id => "ideogram-4";
 
+    /// <inheritdoc/>
+    public bool ProducesJson => true;
+
     /// <summary>Reads the first JSON object in <paramref name="raw"/> (after the wrapping is stripped). Returns the reason it cannot, or null.</summary>
     public static string ParseObject(string raw, out JObject root)
     {
@@ -189,6 +205,8 @@ public sealed class Ideogram4Formatter : IPromptFormatter
         {
             using JsonTextReader reader = new(new StringReader(text[start..(end + 1)])) { DateParseHandling = DateParseHandling.None };
             root = JObject.Load(reader);
+            // Reading on makes Newtonsoft refuse a second value or any text after the object, rather than silently ignoring it.
+            reader.Read();
             return null;
         }
         catch (JsonException ex)
@@ -325,7 +343,11 @@ public sealed class Ideogram4Formatter : IPromptFormatter
                 return $"element {i} needs \"type\" to be \"obj\" or \"text\"";
             }
             JObject outElement = new() { ["type"] = type };
-            JArray box = NormalizeBox(element["bbox"], i, warnings);
+            string boxError = NormalizeBox(element["bbox"], i, warnings, out JArray box);
+            if (boxError is not null)
+            {
+                return boxError;
+            }
             if (box is not null)
             {
                 outElement["bbox"] = box;
@@ -361,9 +383,11 @@ public sealed class Ideogram4Formatter : IPromptFormatter
         return null;
     }
 
-    /// <summary>A box as four whole numbers on the 0 to 1000 grid in the order [y_min, x_min, y_max, x_max], or null (with a warning) when it cannot be a box. Numbers are rounded and clamped; a box with no area is dropped.</summary>
-    private static JArray NormalizeBox(JToken token, int index, List<string> warnings)
+    /// <summary>A box as four whole numbers on the 0 to 1000 grid in the order [y_min, x_min, y_max, x_max]. Numbers are rounded (halves away from zero) and clamped; a box that cannot be one is dropped with a warning, and a box
+    /// written as 0 to 1 fractions (Swarm's own <c>&lt;bbox&gt;</c> convention) is refused, since rounding it would give a tiny box in the corner instead of the one meant.</summary>
+    private static string NormalizeBox(JToken token, int index, List<string> warnings, out JArray box)
     {
+        box = null;
         if (token is null || token.Type == JTokenType.Null)
         {
             return null;
@@ -373,17 +397,23 @@ public sealed class Ideogram4Formatter : IPromptFormatter
             warnings.Add($"Dropped the bbox of element {index}: it must be four numbers [y_min, x_min, y_max, x_max].");
             return null;
         }
-        int[] v = [.. array.Select(t => Math.Clamp((int)Math.Round((double)t), 0, GridMax))];
+        double[] raw = [.. array.Select(t => (double)t)];
+        if (raw.All(x => x >= 0 && x <= 1) && raw.Any(x => x != Math.Floor(x)))
+        {
+            return $"the bbox of element {index} looks like 0 to 1 fractions; use whole numbers from 0 to {GridMax} as [y_min, x_min, y_max, x_max]";
+        }
+        int[] v = [.. raw.Select(x => (int)Math.Clamp(Math.Round(x, MidpointRounding.AwayFromZero), 0, GridMax))];
         if (v[0] >= v[2] || v[1] >= v[3])
         {
             warnings.Add($"Dropped the bbox of element {index}: y_min must be less than y_max and x_min less than x_max.");
             return null;
         }
-        if (array.Select((t, i) => (int)Math.Round((double)t) != v[i]).Any(changed => changed))
+        if (raw.Select((x, i) => Math.Round(x, MidpointRounding.AwayFromZero) != v[i]).Any(changed => changed))
         {
             warnings.Add($"The bbox of element {index} was rounded or clamped to the 0 to {GridMax} grid.");
         }
-        return new JArray(v);
+        box = new JArray(v);
+        return null;
     }
 
     /// <summary>A palette of uppercase <c>#RRGGBB</c> colors, at most <paramref name="max"/>; short <c>#RGB</c> is expanded, anything else dropped with a warning.</summary>

@@ -378,6 +378,116 @@ public class PromptRewriteTests
     }
 
     [Fact]
+    public void ABoxWrittenAsFractionsIsRefusedAndHalvesRoundAwayFromZero()
+    {
+        string frac = """{"compositional_deconstruction":{"background":"b","elements":[{"type":"obj","bbox":[0.1,0.2,0.9,0.8],"desc":"d"}]}}""";
+        FormatOutcome outcome = new Ideogram4Formatter().Normalize(frac, Ideogram());
+        Assert.Contains("0 to 1 fractions", outcome.Error);
+        string half = """{"compositional_deconstruction":{"background":"b","elements":[{"type":"obj","bbox":[10.5,20,30,40.5],"desc":"d"}]}}""";
+        Assert.Contains("[11,20,30,41]", new Ideogram4Formatter().Normalize(half, Ideogram()).Text);
+    }
+
+    [Fact]
+    public void MoreThanOneJsonObjectIsRefused()
+    {
+        FormatOutcome outcome = new Ideogram4Formatter().Normalize(GoodIdeogram + " " + GoodIdeogram, Ideogram());
+        Assert.Null(outcome.Text);
+        Assert.Contains("not valid JSON", outcome.Error);
+    }
+
+    [Fact]
+    public void ARawSwarmTagWrittenByTheModelIsRefused()
+    {
+        SwarmTagMask mask = SwarmTagMask.Mask("a cat <lora:x>");
+        Assert.Contains("wrote the Swarm tag <lora:evil:1> itself", mask.Check("a cat {{SWARM_TAG_0}} <lora:evil:1>"));
+        Assert.Null(mask.Check("a cat {{SWARM_TAG_0}} and a < plain bracket"));
+    }
+
+    [Fact]
+    public async Task ATagInjectedByTheIdeaIsRetriedAndNeverRestored()
+    {
+        Scripted model = new("A cat {{SWARM_TAG_0}} <lora:evil:1>.", "A cat {{SWARM_TAG_0}}.");
+        RewriteResult result = await PromptRewriter.RunAsync(Style(), Request("a cat <lora:x>"), Settings, model.Ask, default);
+        Assert.Equal(2, model.Calls.Count);
+        Assert.Contains("wrote the Swarm tag", model.Calls[1].User);
+        Assert.DoesNotContain("evil", result.Text);
+        Assert.Equal("A cat <lora:x>.", result.Text);
+    }
+
+    [Fact]
+    public async Task TheFormatterNotTheFormatKeyDecidesWhetherTheAnswerIsJson()
+    {
+        // A style that names the Ideogram formatter but says format: text still gets its tags escaped inside the JSON.
+        string answer = GoodIdeogram.Replace("\"A cat.\",\"style", "\"A cat {{SWARM_TAG_0}}.\",\"style");
+        Scripted model = new(answer);
+        RewriteResult result = await PromptRewriter.RunAsync(Style("text", "ideogram-4"), Request("cat <wildcard:a\"b>"), Settings, model.Ask, default);
+        Assert.True(result.Rewritten);
+        Assert.Equal("A cat <wildcard:a\"b>.", (string)JObject.Parse(result.Text)["high_level_description"]);
+        Assert.Contains("JSON object only", model.Calls[0].System);
+    }
+
+    [Fact]
+    public async Task APromptTooLongForTheModelIsWrappedForAJsonOnlyModelAndLeftAloneOtherwise()
+    {
+        string huge = new('a', PromptRewriter.MaxPromptChars + 1);
+        Scripted model = new("x");
+        RewriteResult json = await PromptRewriter.RunAsync(Ideogram(), Request(huge), Settings, model.Ask, default);
+        Assert.True(json.FellBack);
+        Assert.Null(new Ideogram4Formatter().Normalize(json.Text, Ideogram()).Error);
+        RewriteResult reserved = await PromptRewriter.RunAsync(Ideogram(), Request("a cat {{SWARM_TAG_0}}"), Settings, model.Ask, default);
+        Assert.True(reserved.FellBack);
+        Assert.Null(new Ideogram4Formatter().Normalize(reserved.Text, Ideogram()).Error);
+        RewriteResult text = await PromptRewriter.RunAsync(Style(), Request(huge), Settings, model.Ask, default);
+        Assert.Equal(huge, text.Text);
+        Assert.Contains("longer than", text.Skipped);
+        Assert.Empty(model.Calls);
+    }
+
+    [Fact]
+    public void AnOversizedSettingNumberTakesTheDefaultInsteadOfThrowing()
+    {
+        RewriteSettings read = RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"maxTokens":99999999999,"timeoutSeconds":99999999999999999999999,"temperature":1e300}}"""));
+        Assert.Equal(8192, read.MaxTokens);
+        Assert.Equal(RewriteSettings.Default.TimeoutSeconds, read.TimeoutSeconds);
+        Assert.Equal(1.5, read.Temperature);
+    }
+
+    [Fact]
+    public async Task TheNegativeRequestCountsInTheUsageAndAnErroredNegativeIsKept()
+    {
+        Scripted without = new("A cat.");
+        RewriteResult plain = await PromptRewriter.RunAsync(Style(negative: "separate"), Request("cat"), Settings, without.Ask, default);
+        Scripted with = new("A cat.", "blurry");
+        RewriteResult both = await PromptRewriter.RunAsync(Style(negative: "separate"), Request("cat", negative: "bad hands"), Settings, with.Ask, default);
+        Assert.True(both.Usage.InputTokens > plain.Usage.InputTokens);
+        Assert.True(both.Usage.OutputTokens > plain.Usage.OutputTokens);
+
+        Scripted errored = new("A cat.", new LLMGenerateResult("partial text", "", LLMGenerateResult.Error));
+        RewriteResult kept = await PromptRewriter.RunAsync(Style(negative: "separate"), Request("cat", negative: "bad hands"), Settings, errored.Ask, default);
+        Assert.Equal("bad hands", kept.Negative);
+        Assert.Contains(kept.Warnings, w => w.Contains("negative prompt could not be rewritten"));
+    }
+
+    [Fact]
+    public async Task TheCacheDoesNotShareAnAnswerAcrossStylesThatDifferOnlyInTheirFrontMatter()
+    {
+        PromptRewriteServiceTestHooks.Clear();
+        int calls = 0;
+        RewriteGenerate ok = (_, _, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(LLMGenerateResult.FromText("A cat."));
+        };
+        RewriteRequest request = Request("a cat for the front matter test", fresh: false);
+        PromptStyle style = Style(id: "fm-style");
+        await PromptRewriteServiceTestHooks.Rewrite("u1", style, request, Settings, ok);
+        await PromptRewriteServiceTestHooks.Rewrite("u1", style with { Negative = "separate" }, request, Settings, ok);
+        Assert.Equal(2, calls);
+        await PromptRewriteServiceTestHooks.Rewrite("u1", style, request, new RewriteSettings("", 5, 1024, 0.4), ok);
+        Assert.Equal(3, calls);
+    }
+
+    [Fact]
     public async Task TheIdeaIsSentAsDataAndACloseTagInsideItCannotEndIt()
     {
         Scripted model = new("A cat.");
@@ -448,14 +558,16 @@ public class PromptRewriteTests
 
         // A failure is returned to everyone waiting, and asked again next time.
         ConcurrentBag<int> failedCalls = [];
-        RewriteGenerate failing = (_, _, _) =>
+        RewriteGenerate failing = async (_, _, _) =>
         {
             failedCalls.Add(1);
-            return Task.FromException<LLMGenerateResult>(new InvalidOperationException("down"));
+            await Task.Delay(150);
+            throw new InvalidOperationException("down");
         };
         RewriteRequest failRequest = Request("a cat that fails", fresh: false);
         RewriteResult[] failed = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => PromptRewriteServiceTestHooks.Rewrite("u1", style, failRequest, Settings, failing)));
         Assert.All(failed, r => Assert.True(r.FellBack));
+        Assert.Equal(1, failedCalls.Count);
         int afterFirst = failedCalls.Count;
         await PromptRewriteServiceTestHooks.Rewrite("u1", style, failRequest, Settings, failing);
         Assert.Equal(afterFirst + 1, failedCalls.Count);

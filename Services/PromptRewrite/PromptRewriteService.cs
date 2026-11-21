@@ -71,7 +71,7 @@ public static class PromptRewriteService
         }
         try
         {
-            string json = await Cache.GetOrCreate(userId, request.RewriteModel, StyleKey(style, request), request.Prompt, CacheInstruction, async () =>
+            string json = await Cache.GetOrCreate(userId, request.RewriteModel, StyleKey(style, request, settings), request.Prompt, CacheInstruction, async () =>
             {
                 RewriteResult fresh = await PromptRewriter.RunAsync(style, request, settings, generate, CancellationToken.None);
                 return fresh.FellBack || fresh.Skipped is not null ? throw new NotCachedException(fresh) : fresh.ToCacheJson();
@@ -105,10 +105,11 @@ public static class PromptRewriteService
         };
     }
 
-    /// <summary>The part of the cache key that is not the prompt: the style (and a hash of its text, so editing a style makes new rewrites), the size and the negative.</summary>
-    private static string StyleKey(PromptStyle style, RewriteRequest request)
+    /// <summary>The part of the cache key that is not the prompt: the style (and a hash of everything in it that shapes the answer, so editing a style makes new rewrites), the size, the limits and the negative.</summary>
+    private static string StyleKey(PromptStyle style, RewriteRequest request, RewriteSettings settings)
     {
-        string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(style.Body ?? "")))[..12];
-        return $"{style.Id}|{style.Scope}|{hash}|{request.Width}x{request.Height}|{request.Negative?.Trim()}";
+        string content = $"{style.Format}|{style.Formatter}|{style.Negative}|{string.Join(',', style.Supports)}|{style.Body}";
+        string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)))[..12];
+        return $"{style.Id}|{style.Scope}|{hash}|{request.Width}x{request.Height}|{settings.MaxTokens}|{settings.Temperature:R}|{request.Negative?.Trim()}";
     }
 }
