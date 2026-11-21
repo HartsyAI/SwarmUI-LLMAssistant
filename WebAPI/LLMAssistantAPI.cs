@@ -277,6 +277,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(PromptStyleEndpoints.LLMAssistantSavePromptStyle, true, PermSettings);
         API.RegisterAPICall(PromptStyleEndpoints.LLMAssistantDeletePromptStyle, true, PermSettings);
         API.RegisterAPICall(PromptStyleEndpoints.LLMAssistantSetStyleOverrides, true, PermSettings);
+        API.RegisterAPICall(PromptRewriteEndpoints.LLMAssistantRewritePrompt, true, PermChat);
         API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
         API.RegisterAPICall(HeadlessEndpoints.LLMAssistantReadiness, false, PermChat);
         API.RegisterAPICall(HeadlessEndpoints.LLMAssistantRunTurn, true, PermChat);

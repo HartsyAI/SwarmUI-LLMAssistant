@@ -127,7 +127,22 @@ class LLMAPromptStyles {
             + `<h6 class="mt-3">${translate('Which style does a model get?')}</h6>`
             + `<div class="d-flex gap-2 align-items-center mb-2"><input type="text" class="auto-text-block llma-resolve-model" list="llma-styles-models-${axis}" placeholder="${translate('Model name')}" autocomplete="off">`
             + `<button type="button" class="basic-button llma-resolve-run">${translate('Check')}</button></div>`
-            + '<div class="llma-resolve-result small mb-3"></div>';
+            + '<div class="llma-resolve-result small mb-3"></div>'
+            + (axis == 'image' ? this.rewriteBoxHtml(axis) : '');
+    }
+
+    /** The box that rewrites a prompt for a model and shows exactly what came back (the same engine generation will use). */
+    rewriteBoxHtml(axis) {
+        let saved = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptRewrite?.model) || '';
+        return `<h6 class="mt-3">${translate('Try a rewrite')}</h6>`
+            + `<div class="small text-muted mb-2">${translate('Rewrites a prompt for the image model with the chat model you pick, using the style that model gets. Nothing is generated.')}</div>`
+            + `<textarea class="auto-text-block llma-rewrite-prompt mb-2" rows="3" placeholder="${translate('A prompt, for example: a cat on a windowsill')}"></textarea>`
+            + `<input type="text" class="auto-text-block llma-rewrite-negative mb-2" placeholder="${translate('Negative prompt (optional)')}" autocomplete="off">`
+            + `<div class="d-flex gap-2 align-items-center mb-2 flex-wrap"><input type="text" class="auto-text-block llma-rewrite-image" list="llma-styles-models-${axis}" placeholder="${translate('Image model')}" autocomplete="off">`
+            + `<input type="text" class="auto-text-block llma-rewrite-model" value="${escapeHtml(saved)}" placeholder="${translate('Chat model (empty for the default)')}" autocomplete="off"></div>`
+            + `<div class="d-flex gap-2 align-items-center mb-2"><button type="button" class="basic-button llma-rewrite-run">${translate('Rewrite')}</button>`
+            + `<button type="button" class="basic-button llma-rewrite-save">${translate('Use this chat model by default')}</button></div>`
+            + '<div class="llma-rewrite-result small mb-3"></div>';
     }
 
     /** Wires the buttons of a drawn section. */
@@ -145,6 +160,8 @@ class LLMAPromptStyles {
         }
         box.querySelector('.llma-rule-add')?.addEventListener('click', () => this.addRule(box, axis));
         box.querySelector('.llma-resolve-run')?.addEventListener('click', () => this.resolve(box, axis));
+        box.querySelector('.llma-rewrite-run')?.addEventListener('click', () => this.rewrite(box));
+        box.querySelector('.llma-rewrite-save')?.addEventListener('click', () => this.saveRewriteModel(box));
         box.querySelector('.llma-resolve-model')?.addEventListener('keydown', event => {
             if (event.key == 'Enter') {
                 this.resolve(box, axis);
@@ -182,6 +199,62 @@ class LLMAPromptStyles {
         }
         lines.push(escapeHtml(reply.reason));
         out.innerHTML = lines.join('<br>');
+    }
+
+    /** Rewrites the typed prompt for the chosen image model and shows the result: the text, the style and why, what was fixed or fell back, and a rough token count. */
+    async rewrite(box) {
+        let prompt = box.querySelector('.llma-rewrite-prompt').value.trim();
+        let out = box.querySelector('.llma-rewrite-result');
+        if (!prompt) {
+            out.textContent = '';
+            return;
+        }
+        let button = box.querySelector('.llma-rewrite-run');
+        button.disabled = true;
+        out.textContent = translate('Rewriting...');
+        let reply = await llmaUserAction(() => llmaRequest('LLMAssistantRewritePrompt', {
+            prompt: prompt,
+            negative: box.querySelector('.llma-rewrite-negative').value.trim(),
+            imageModel: box.querySelector('.llma-rewrite-image').value.trim(),
+            rewriteModel: box.querySelector('.llma-rewrite-model').value.trim(),
+            fresh: true
+        }), translate('Could not rewrite'));
+        button.disabled = false;
+        if (!reply) {
+            out.textContent = '';
+            return;
+        }
+        let lines = [];
+        if (reply.style) {
+            lines.push(`${translate('Style')}: <b>${escapeHtml(reply.style.id)}</b> (${escapeHtml(reply.style.scope)}) ${reply.reason ? '- ' + escapeHtml(reply.reason) : ''}`);
+        }
+        else {
+            lines.push(`<b>${translate('No style')}</b> ${reply.reason ? '- ' + escapeHtml(reply.reason) : ''}`);
+        }
+        let state = reply.rewritten ? translate('Rewritten') : (reply.fellBack ? translate('Fell back to your wording') : translate('Left as written'));
+        lines.push(`<b class="llma-rewrite-state">${state}</b>${reply.retried ? ' (' + translate('after one retry') + ')' : ''}${reply.skipped ? ' - ' + escapeHtml(reply.skipped) : ''}`);
+        lines.push(`<pre class="llma-rewrite-text">${escapeHtml(reply.text)}</pre>`);
+        if (reply.negative && reply.negative != box.querySelector('.llma-rewrite-negative').value.trim()) {
+            lines.push(`${translate('Negative')}: <code>${escapeHtml(reply.negative)}</code>`);
+        }
+        for (let warning of reply.warnings || []) {
+            lines.push(`<span class="llma-rewrite-warning text-warning-emphasis">${escapeHtml(warning)}</span>`);
+        }
+        if (reply.usage) {
+            lines.push(`<span class="text-muted">${translate('About')} ${reply.usage.inputTokens} ${translate('tokens in')}, ${reply.usage.outputTokens} ${translate('out')}</span>`);
+        }
+        out.innerHTML = lines.join('<br>');
+    }
+
+    /** Keeps the chat model typed in the box as the one that rewrites prompts, in the user's own settings. */
+    async saveRewriteModel(box) {
+        if (typeof LLMAState == 'undefined' || !LLMAState.settings) {
+            return;
+        }
+        let model = box.querySelector('.llma-rewrite-model').value.trim();
+        LLMAState.settings.promptRewrite = { ...(LLMAState.settings.promptRewrite || {}), model: model };
+        await llmaSaveSettings();
+        box.querySelector('.llma-rewrite-result').textContent = model ? translate('Saved: this chat model will rewrite prompts.') : translate('Saved: the default chat model will rewrite prompts.');
     }
 
     /** Saves the rules, then draws again. Returns whether the server took them. */

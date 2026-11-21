@@ -498,3 +498,12 @@ input[type="color"]#llma-asst-color {
 
 /* A schedule's row: the text takes the room it can but gives way to the buttons, which wrap under it on a narrow screen. */
 .llma-schedule-text { flex: 1 1 14rem; min-width: 0; }
+
+/* The text a prompt rewrite produced, shown in Settings > Prompt styles. */
+.llma-rewrite-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 24rem;
+    overflow: auto;
+    margin: 0.25rem 0;
+}
