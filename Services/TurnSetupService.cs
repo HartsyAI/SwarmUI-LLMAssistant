@@ -1,4 +1,5 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -47,7 +48,9 @@ public static class TurnSetupService
         }
         // Resolve model facts once so per-model instruction variants can pick the right text.
         LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
-        string systemPrompt = ChatEndpoints.ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+        // The saved notes {{userProfile}} shows depend on what the user just said (see MemoryRecall); a dry run records no use.
+        MemoryRecallRequest recall = await MemoryService.PrepareRecallAsync(session, thread, dryRun, ct);
+        string systemPrompt = ChatEndpoints.ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo, recall);
         // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant (see EffectiveToolsEnabled).
         bool toolsOn = ChatEndpoints.EffectiveToolsEnabled(thread, assistantId, settings, session.User);
         List<JObject> enabledTools = toolsOn

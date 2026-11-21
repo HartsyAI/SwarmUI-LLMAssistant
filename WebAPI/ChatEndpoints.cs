@@ -7,6 +7,7 @@ using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
+using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.Tools;
@@ -161,7 +162,7 @@ public static class ChatEndpoints
             string assistantName = (rawInput["assistantName"]?.ToString() ?? "").Trim();
             if (string.IsNullOrEmpty(assistantName)) { assistantName = "Test Assistant"; }
             JObject syntheticAssistant = new() { ["name"] = assistantName };
-            Dictionary<string, string> vars = UserProfileService.BuildPromptVariables(session.User, syntheticAssistant);
+            Dictionary<string, string> vars = MemoryService.BuildPromptVariables(session.User, syntheticAssistant);
             string systemPrompt = InstructionService.SubstituteVariables(instructionText, vars);
             ExtendedLLMInput input = ExtendedLLMInput.Create(sampleInput, systemPrompt, model);
             input.RequestSession = session;
@@ -1393,8 +1394,8 @@ public static class ChatEndpoints
     /// canonical IDs and substituting <c>{{userName}}</c>, <c>{{userProfile}}</c>,
     /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's profile.
     /// User-profile lookups are scoped strictly to <paramref name="user"/>. Pass
-    /// <paramref name="modelInfo"/> to enable per-model instruction variants.</summary>
-    internal static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null)
+    /// <paramref name="modelInfo"/> to enable per-model instruction variants, and <paramref name="recall"/> to choose which saved notes {{userProfile}} shows for this turn.</summary>
+    internal static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null, MemoryRecallRequest recall = null)
     {
         if (string.IsNullOrEmpty(instructionId))
         {
@@ -1412,9 +1413,9 @@ public static class ChatEndpoints
             text = InstructionService.ResolveInstruction(instructionId, settings, user);
         }
         // Inject per-user profile variables so the model knows who it's talking to.
-        // Profile reads are strictly scoped to `user` by UserProfileService.
+        // Note reads are strictly scoped to `user` by MemoryService.
         JObject assistant = AssistantService.GetAssistant(assistantId, settings, user);
-        Dictionary<string, string> vars = UserProfileService.BuildPromptVariables(user, assistant);
+        Dictionary<string, string> vars = MemoryService.BuildPromptVariables(user, assistant, recall);
         return InstructionService.SubstituteVariables(text, vars);
     }
 
