@@ -2272,7 +2272,11 @@ function llmaSetupPromptButtons() {
             const imageModel = document.getElementById('input_model')?.value || '';
             const negBox = document.getElementById('input_negativeprompt');
             const rewrite = imageModel ? await llmaRequest('LLMAssistantRewritePrompt', { prompt: current, imageModel: imageModel, negative: negBox?.value || '', fresh: true }) : null;
-            if (rewrite?.success && rewrite.style) {
+            if (rewrite?.success && rewrite.style && !rewrite.rewritten) {
+                // A style applies but nothing was rewritten (the model failed, or the prompt was already right): leave the text and say why.
+                llmaShowToast(rewrite.warnings?.[0] || rewrite.skipped || 'The prompt was left as written.', 'info');
+            }
+            else if (rewrite?.success && rewrite.style) {
                 promptBox.value = rewrite.text;
                 if (typeof triggerChangeFor === 'function') { triggerChangeFor(promptBox); }
                 if (negBox && rewrite.negative != negBox.value) {

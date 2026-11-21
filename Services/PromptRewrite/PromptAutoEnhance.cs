@@ -1,4 +1,6 @@
+using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.T2I;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 
@@ -22,6 +24,12 @@ public static class PromptAutoEnhance
     /// <summary>The extra-metadata key a caller sets to get the outcome back through <see cref="RewriteReports"/>.</summary>
     public const string MetaReportId = "llma_rewrite_id";
 
+    /// <summary>A report id the tool makes (a GUID without dashes); anything else is not stored, so a request cannot put an unbounded key into the report store.</summary>
+    private static readonly Regex ReportId = new("^[0-9a-f]{32}$", RegexOptions.Compiled);
+
+    /// <summary>The longest warning, and the longest of all warnings together, written to the image's metadata.</summary>
+    public const int MaxWarningChars = 300, MaxWarningsTotalChars = 1500;
+
     /// <summary>Whether the rewrite runs for a generation whose per-generation mode is <paramref name="mode"/> when the master setting is <paramref name="settingOn"/>. A generation's own choice wins.</summary>
     public static bool ShouldRun(string mode, bool settingOn)
     {
@@ -43,7 +51,8 @@ public static class PromptAutoEnhance
         }
         if (result.Warnings.Count > 0)
         {
-            meta[MetaWarnings] = string.Join(" | ", result.Warnings);
+            string warnings = string.Join(" | ", result.Warnings.Select(w => w.Length <= MaxWarningChars ? w : w[..MaxWarningChars] + "..."));
+            meta[MetaWarnings] = warnings.Length <= MaxWarningsTotalChars ? warnings : warnings[..MaxWarningsTotalChars] + "...";
         }
         return meta;
     }
@@ -54,13 +63,18 @@ public static class PromptAutoEnhance
         try
         {
             SwarmUI.Accounts.Session session = input.SourceSession;
-            if (session?.User is null || PromptTagHandler.ParamAutoEnhance is null)
+            // A second pass over the same input (core re-prepares a task it hands to another Swarm, and the Comfy workflow routes call this too) must not rewrite a rewritten prompt or lose the original.
+            if (session?.User is null || PromptTagHandler.ParamAutoEnhance is null || input.ExtraMeta.ContainsKey(MetaStatus))
             {
                 return;
             }
             string mode = input.TryGet(PromptTagHandler.ParamAutoEnhance, out string m) ? m : ModeDefault;
-            RewriteSettings settings = RewriteSettings.From(SettingsService.GetMergedSettings(session.User));
-            if (!ShouldRun(mode, settings.Auto))
+            if (string.Equals(mode?.Trim(), ModeOff, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+            RewriteSettings settings = RewriteSettings.ForUser(session.User);
+            if (!ShouldRun(mode, settings.Auto) || !session.User.HasPermission(LLMAssistantAPI.PermChat))
             {
                 return;
             }
@@ -97,9 +111,9 @@ public static class PromptAutoEnhance
                     input.Set(T2IParamTypes.NegativePrompt, result.Negative);
                 }
             }
-            if (input.ExtraMeta.TryGetValue(MetaReportId, out object reportId))
+            if (input.ExtraMeta.TryGetValue(MetaReportId, out object reportId) && reportId is string id && ReportId.IsMatch(id))
             {
-                RewriteReports.Put(reportId?.ToString(), result);
+                RewriteReports.Put(id, result);
             }
         }
         catch (Exception ex)

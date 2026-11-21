@@ -29,6 +29,22 @@ public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTo
     /// <summary>The defaults: the default chat model, one minute, 2,048 tokens, temperature 0.4, and no automatic rewriting.</summary>
     public static RewriteSettings Default => new("", 60, 2048, 0.4);
 
+    /// <summary>Reads the settings for <paramref name="user"/> from only the <c>promptRewrite</c> object of the shared layer and of the user's own (the user's keys win), without building the whole merged settings tree: the
+    /// generation hook reads this for every image.</summary>
+    public static RewriteSettings ForUser(SwarmUI.Accounts.User user)
+    {
+        JObject merged = [];
+        if (Services.SettingsService.GetSettings()[Key] is JObject shared)
+        {
+            merged.Merge(shared);
+        }
+        if (user is not null && Services.SettingsService.GetUserSettings(user)[Key] is JObject personal)
+        {
+            merged.Merge(personal);
+        }
+        return From(new JObject { [Key] = merged });
+    }
+
     /// <summary>Reads the settings from <paramref name="merged"/>.</summary>
     public static RewriteSettings From(JObject merged)
     {
@@ -181,7 +197,7 @@ public static class PromptRewriter
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return Fallback(request, style, formatter, $"The writing model failed: {ex.Message}", warnings, retried, inTokens, outTokens);
+                return Fallback(request, style, formatter, $"The writing model failed: {Short(ex.Message)}", warnings, retried, inTokens, outTokens);
             }
             inTokens += Estimate(system) + Estimate(message);
             outTokens += Estimate(reply?.Response);
@@ -299,9 +315,19 @@ public static class PromptRewriter
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            warnings.Add($"The negative prompt could not be rewritten ({ex.Message}), so it was kept as you wrote it.");
+            warnings.Add($"The negative prompt could not be rewritten ({Short(ex.Message)}), so it was kept as you wrote it.");
         }
         return (null, 0, 0);
+    }
+
+    /// <summary>The longest part of a provider's error text kept in a warning (a provider's error body can be long, and a warning travels with the image and to the chat model).</summary>
+    public const int MaxWarningChars = 200;
+
+    /// <summary>The start of <paramref name="text"/>, on one line and at most <see cref="MaxWarningChars"/> characters.</summary>
+    internal static string Short(string text)
+    {
+        string line = (text ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return line.Length <= MaxWarningChars ? line : line[..MaxWarningChars] + "...";
     }
 
     /// <summary>A rough token count for <paramref name="text"/>.</summary>

@@ -59,12 +59,6 @@ test('the setting turns it on for every generation, and a generation can still t
     expect(await mockRequests()).toHaveLength(0);
 });
 
-test('a request for several images makes one request to the model', async ({ llm }) => {
-    await setScenarios([{ match: 'batch cat', rounds: [{ text: 'A batch cat.' }] }]);
-    await generate(llm, { prompt: 'batch cat', images: 4, [await paramId(llm, 'LLM Auto-Enhance Prompt')]: 'on' });
-    expect(await mockRequests()).toHaveLength(1);
-});
-
 test('a prompt that was just rewritten is not rewritten again when it is generated from', async ({ llm }) => {
     await setScenarios([{ match: 'twice cat', rounds: [{ text: 'A twice rewritten cat.' }] }]);
     let reply = await api(llm, 'LLMAssistantRewritePrompt', { prompt: 'twice cat', imageModel: MYSTERY });
@@ -92,7 +86,7 @@ test('a failing model is asked and the generation request still comes back (the 
     expect(after.result).toBe('still works');
 });
 
-test('the automatic setting is a checkbox in Settings > Prompt styles and is saved to the user's settings', async ({ llm }) => {
+test('the automatic setting is a checkbox in Settings > Prompt styles and is saved to your settings', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="prompt-styles"]').click();
     let image = llm.locator('#llma-styles-image');

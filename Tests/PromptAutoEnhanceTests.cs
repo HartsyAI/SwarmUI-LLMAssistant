@@ -55,6 +55,15 @@ public class PromptAutoEnhanceTests
     }
 
     [Fact]
+    public void WarningsWrittenToTheMetadataAreBounded()
+    {
+        List<string> many = [.. Enumerable.Range(0, 40).Select(i => new string('w', 400) + i)];
+        string joined = PromptAutoEnhance.BuildMeta(Result(warnings: many))[PromptAutoEnhance.MetaWarnings];
+        Assert.True(joined.Length <= PromptAutoEnhance.MaxWarningsTotalChars + 3);
+        Assert.StartsWith(new string('w', PromptAutoEnhance.MaxWarningChars) + "...", joined);
+    }
+
+    [Fact]
     public void APromptThisExtensionProducedIsRememberedPerUserAndIgnoringItsEnds()
     {
         RewriteGuard.Clear();
