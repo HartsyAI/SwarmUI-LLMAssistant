@@ -986,7 +986,7 @@ async function llmaRefreshExactTotalTokens() {
 }
 
 // -- User profile (per-user memory) --
-// The profile is strictly per-user and stored server-side via UserProfileService.
+// The profile (a small summary of the user's memory notes) is strictly per-user and kept server-side (see MemoryService).
 // We cache it here so the welcome hero can personalize without an extra round-trip.
 async function llmaLoadUserProfile() {
     try {
@@ -1032,7 +1032,7 @@ function llmaRenderPersonalizedWelcome() {
     } else if (userName) {
         heading = `Welcome back, ${llmaEscapeHtml(userName)}.`;
         sub     = `I'm ${llmaEscapeHtml(asstName)}. What are we working on today?`;
-    } else if (LLMAState.userProfile === null || (!profile.preferredName && !profile.bio && !(profile.facts || []).length)) {
+    } else if (LLMAState.userProfile === null || (!profile.preferredName && !profile.bio && !profile.noteCount)) {
         heading = `Hi, I'm ${llmaEscapeHtml(asstName)}.`;
         sub     = translate(`Tell me what to call you and what you're working on — I'll remember it for next time.`);
     } else {

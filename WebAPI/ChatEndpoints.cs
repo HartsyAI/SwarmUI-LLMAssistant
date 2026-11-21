@@ -1096,8 +1096,6 @@ public static class ChatEndpoints
         // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
-        // The saved notes shown to every lane are chosen once, from what the user just said.
-        MemoryRecallRequest recall = await MemoryService.PrepareRecallAsync(session, thread, false, CancellationToken.None);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
         List<JObject> enabledTools = toolsOn
@@ -1140,7 +1138,7 @@ public static class ChatEndpoints
                 // of being silently ignored: the check right before StreamToWebSocket turns it into a
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
-                string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo, recall);
+                string systemPrompt = await ResolveInstructionForTurnAsync(instructionId, assistantId, settings, session, thread, false, cts.Token, modelInfo);
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
@@ -1394,28 +1392,41 @@ public static class ChatEndpoints
 
     /// <summary>Resolves instruction text for a request, routing through AssistantService for
     /// canonical IDs and substituting <c>{{userName}}</c>, <c>{{userProfile}}</c>,
-    /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's profile.
-    /// User-profile lookups are scoped strictly to <paramref name="user"/>. Pass
+    /// <c>{{currentDate}}</c>, and <c>{{assistantName}}</c> from the calling user's notes.
+    /// Note lookups are scoped strictly to <paramref name="user"/>. Pass
     /// <paramref name="modelInfo"/> to enable per-model instruction variants, and <paramref name="recall"/> to choose which saved notes {{userProfile}} shows for this turn.</summary>
     internal static string ResolveInstructionForRequest(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo = null, MemoryRecallRequest recall = null)
+        => SubstituteInstruction(ResolveInstructionTemplate(instructionId, assistantId, settings, user, modelInfo), assistantId, settings, user, recall);
+
+    /// <summary>Resolves the instruction for a reply: like <see cref="ResolveInstructionForRequest"/>, with the saved notes chosen for what the user just said in <paramref name="thread"/>. The
+    /// recall (which may embed the message) runs only when the instruction actually uses <c>{{userProfile}}</c>, so an instruction without it costs no embedding call and marks no note used.
+    /// A dry run records no use and embeds nothing.</summary>
+    internal static async Task<string> ResolveInstructionForTurnAsync(string instructionId, string assistantId, JObject settings, Session session, JObject thread, bool dryRun, CancellationToken ct, LLMModelInfo modelInfo = null)
+    {
+        string text = ResolveInstructionTemplate(instructionId, assistantId, settings, session.User, modelInfo);
+        MemoryRecallRequest recall = text is not null && text.Contains("{{userProfile}}") ? await MemoryService.PrepareRecallAsync(session, thread, dryRun, ct) : null;
+        return SubstituteInstruction(text, assistantId, settings, session.User, recall);
+    }
+
+    /// <summary>The instruction text for an id, with its <c>{{...}}</c> placeholders still in it.</summary>
+    private static string ResolveInstructionTemplate(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo)
     {
         if (string.IsNullOrEmpty(instructionId))
         {
             instructionId = InstructionIds.Chat;
         }
-        string text;
         if (InstructionIds.All.Contains(instructionId))
         {
             // Canonical instruction IDs resolve from the assistant
-            text = AssistantService.ResolveInstruction(instructionId, assistantId, settings, user, modelInfo);
+            return AssistantService.ResolveInstruction(instructionId, assistantId, settings, user, modelInfo);
         }
-        else
-        {
-            // Custom/legacy instruction IDs fall through to InstructionService
-            text = InstructionService.ResolveInstruction(instructionId, settings, user);
-        }
-        // Inject per-user profile variables so the model knows who it's talking to.
-        // Note reads are strictly scoped to `user` by MemoryService.
+        // Custom/legacy instruction IDs fall through to InstructionService
+        return InstructionService.ResolveInstruction(instructionId, settings, user);
+    }
+
+    /// <summary>Fills an instruction's placeholders from the user's notes and the assistant, so the model knows who it's talking to. Note reads are strictly scoped to <paramref name="user"/>.</summary>
+    private static string SubstituteInstruction(string text, string assistantId, JObject settings, User user, MemoryRecallRequest recall)
+    {
         JObject assistant = AssistantService.GetAssistant(assistantId, settings, user);
         Dictionary<string, string> vars = MemoryService.BuildPromptVariables(user, assistant, recall);
         return InstructionService.SubstituteVariables(text, vars);

@@ -5,6 +5,9 @@
  */
 class LLMAMemorySettings {
 
+    /** The labels the slot notes (the ones there is only one of) are shown with. */
+    static SLOT_LABELS = { name: 'name', pronouns: 'pronouns', bio: 'bio', currentWork: 'current work' };
+
     constructor() {
         /** The notes as the server sent them (in the order they appear in the prompt). */
         this.notes = [];
@@ -20,7 +23,7 @@ class LLMAMemorySettings {
         }
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantGetUserProfile', {});
+            reply = await llmaRequest('LLMAssistantGetUserProfile', { includeNotes: true });
         }
         catch {
             reply = null;
@@ -45,11 +48,11 @@ class LLMAMemorySettings {
         }
         let html = '<ul class="list-group mb-2">';
         for (let note of this.notes) {
-            let kind = note.negative ? 'dislike' : (note.slot ? note.slot : note.kind);
+            let kind = note.negative ? 'dislike' : (note.slot ? (LLMAMemorySettings.SLOT_LABELS[note.slot] || note.slot) : note.kind);
             let pinned = note.pinned ? ` <span class="badge text-bg-info" title="${escapeHtml(translate('Always in the assistant\'s prompt.'))}">${translate('pinned')}</span>` : '';
             let saved = note.created ? new Date(note.created).toLocaleDateString() : '';
             html += `<li class="list-group-item bg-transparent llma-memory-note" data-note-id="${escapeHtml(note.id)}">`
-                + `<span class="badge text-bg-secondary">${escapeHtml(translate(kind))}</span>${pinned} <span class="text-break">${escapeHtml(note.text)}</span>`
+                + `<span class="badge text-bg-secondary">${escapeHtml(translate(kind))}</span>${pinned} <span class="text-break">${escapeHtml(note.text)}${note.truncated ? '…' : ''}</span>`
                 + `<br><small class="text-muted">${escapeHtml(translate(note.origin || ''))}${saved ? ` · ${escapeHtml(saved)}` : ''}</small></li>`;
         }
         list.innerHTML = html + '</ul>';

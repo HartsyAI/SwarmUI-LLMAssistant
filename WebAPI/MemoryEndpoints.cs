@@ -11,20 +11,21 @@ namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 /// <c>memory_write</c> built-in tool (review, edit and undo come with a later phase).</summary>
 public static class MemoryEndpoints
 {
-    /// <summary>Returns the calling user's memory: <c>profile</c> in the old profile's shape (what the welcome screen
-    /// reads), <c>notes</c> (every note: id, text, kind, origin, threadId, created, lastUsed, pinned, slot, negative, in
-    /// the order they are shown in the prompt) and <c>limits</c>.</summary>
-    public static async Task<JObject> LLMAssistantGetUserProfile(Session session)
+    /// <summary>Returns the calling user's memory: <c>profile</c> (the preferred name, pronouns, bio cut short, current work and <c>noteCount</c>: what the welcome screen reads, kept small),
+    /// <c>limits</c>, and <c>state</c> (<c>ok</c>, <c>lossy</c>, <c>corrupt</c> or <c>newer</c>: how the stored notes read). With <paramref name="includeNotes"/> also <c>notes</c>: every note (id,
+    /// text cut to 500 characters with <c>truncated</c>, kind, origin, threadId, created, lastUsed, pinned, slot, negative) in the order they are shown in the prompt.</summary>
+    public static async Task<JObject> LLMAssistantGetUserProfile(Session session, bool includeNotes = false)
     {
         await Task.CompletedTask;
         try
         {
-            MemoryNoteSet set = MemoryService.Load(session?.User);
-            return new JObject
+            MemoryStore store = session?.User is null ? null : MemoryService.StoreFor(session.User);
+            MemoryNoteSet set = store?.Load() ?? new MemoryNoteSet();
+            JObject reply = new()
             {
                 ["success"] = true,
-                ["profile"] = set.ToProfileView(),
-                ["notes"] = MemoryService.NotesView(session?.User),
+                ["profile"] = MemoryService.ProfileSummary(set),
+                ["state"] = (store?.Status() ?? MemoryLoadStatus.None) switch { MemoryLoadStatus.Lossy => "lossy", MemoryLoadStatus.Corrupt => "corrupt", MemoryLoadStatus.Newer => "newer", _ => "ok" },
                 ["limits"] = new JObject
                 {
                     ["maxNotes"] = MemoryNoteSet.MaxNotes,
@@ -33,6 +34,11 @@ public static class MemoryEndpoints
                     ["promptBudgetChars"] = MemoryRecall.PromptBudgetChars
                 }
             };
+            if (includeNotes)
+            {
+                reply["notes"] = MemoryService.NotesView(set);
+            }
+            return reply;
         }
         catch (Exception ex)
         {

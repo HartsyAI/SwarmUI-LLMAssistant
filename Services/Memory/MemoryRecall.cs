@@ -51,7 +51,7 @@ public static class MemoryRecall
         string text = Clean(note.Text);
         if (text.Length > MaxLineChars)
         {
-            text = text[..MaxLineChars].TrimEnd() + "…";
+            text = MemoryNoteSet.Truncate(text, MaxLineChars).TrimEnd() + "…";
         }
         if (note.Slot.Length > 0)
         {
@@ -117,7 +117,7 @@ public static class MemoryRecall
             List<IndexedChunk> chunks = [];
             foreach (MemoryNote note in rest)
             {
-                IndexedChunk chunk = IndexedChunk.Make(note.Id, "", 0, note.Text, note.Kind);
+                IndexedChunk chunk = IndexedChunk.Make(note.Id, "", 0, note.Text, "");
                 if (vectors is not null && vectors.TryGetValue(note.Id, out (float[] Vector, string Key) v))
                 {
                     chunk.Vector = v.Vector;

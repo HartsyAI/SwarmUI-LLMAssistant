@@ -8,7 +8,26 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Memory;
 /// <param name="Summary">A short sentence for the model to relay to the user.</param>
 /// <param name="Note">The note, or null when it was refused.</param>
 /// <param name="Added">Whether a new note was added (false for a repeat, a replaced slot or a refusal).</param>
-public sealed record MemoryWriteResult(bool Saved, string Summary, MemoryNote Note, bool Added);
+/// <param name="Evicted">The ids of notes dropped to make room (their vectors go with them).</param>
+public sealed record MemoryWriteResult(bool Saved, string Summary, MemoryNote Note, bool Added, IReadOnlyList<string> Evicted = null);
+
+/// <summary>How stored notes read.</summary>
+public enum MemoryLoadStatus
+{
+    /// <summary>Nothing is stored.</summary>
+    None,
+    /// <summary>Read in full.</summary>
+    Ok,
+    /// <summary>Read, but some notes could not be (a bad field): they are left out of the set, and the stored text must not be overwritten without a backup.</summary>
+    Lossy,
+    /// <summary>Stored text that does not read as notes at all.</summary>
+    Corrupt,
+    /// <summary>Written by a newer version of the extension: read as far as possible and never overwritten.</summary>
+    Newer
+}
+
+/// <summary>A stored value read back: the notes that could be read, how it went, and how many notes were left out.</summary>
+public sealed record MemoryParse(MemoryNoteSet Set, MemoryLoadStatus Status, int Skipped);
 
 /// <summary>A user's notes as a plain value: adding with the caps and dedup, replacing a slot, migrating the old profile blob, and the views the rest of the extension reads. Pure (the
 /// clock is passed in, nothing is stored here), so it is tested with fixed data; <see cref="MemoryService"/> keeps it.</summary>
@@ -26,9 +45,12 @@ public sealed class MemoryNoteSet
     /// <summary>How many hours old a note's last-used time must be before it is refreshed, so recalling does not rewrite the notes on every turn.</summary>
     public const int UsedRefreshHours = 6;
 
+    /// <summary>The on-disk format version this build writes and understands.</summary>
+    public const int CurrentVersion = 1;
+
     /// <summary>The on-disk format version.</summary>
     [JsonProperty("version")]
-    public int Version = 1;
+    public int Version = CurrentVersion;
 
     /// <summary>The notes, oldest first (the order they were added).</summary>
     [JsonProperty("notes")]
@@ -37,31 +59,75 @@ public sealed class MemoryNoteSet
     /// <summary>The set as stored text.</summary>
     public string Serialize() => JsonConvert.SerializeObject(this, Formatting.None);
 
-    /// <summary>A set from stored text, or null when the text is empty or does not read as a set.</summary>
+    /// <summary>A set from stored text, or null when the text is empty or does not read as a set at all.</summary>
     public static MemoryNoteSet Parse(string raw)
+    {
+        MemoryParse parsed = ParseDetailed(raw);
+        return parsed.Status is MemoryLoadStatus.None or MemoryLoadStatus.Corrupt ? null : parsed.Set;
+    }
+
+    /// <summary>Reads stored text without ever throwing and without deciding what to do about a problem: a note with a bad field is skipped (and counted) instead of failing the whole value,
+    /// text that is not a set is <see cref="MemoryLoadStatus.Corrupt"/>, and a version newer than <see cref="CurrentVersion"/> is <see cref="MemoryLoadStatus.Newer"/>.</summary>
+    public static MemoryParse ParseDetailed(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
         {
-            return null;
+            return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.None, 0);
         }
         try
         {
-            if (JObject.Parse(raw)["notes"] is not JArray)
+            JObject root = JObject.Parse(raw);
+            if (root["notes"] is not JArray array)
             {
-                return null;
+                return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.Corrupt, 0);
             }
-            MemoryNoteSet set = JsonConvert.DeserializeObject<MemoryNoteSet>(raw);
-            if (set?.Notes is null)
+            MemoryNoteSet set = new() { Version = root["version"]?.Type == JTokenType.Integer ? root["version"].Value<int>() : CurrentVersion };
+            int skipped = 0;
+            foreach (JToken token in array)
             {
-                return null;
+                try
+                {
+                    MemoryNote note = token is JObject o ? o.ToObject<MemoryNote>() : null;
+                    if (note is null || string.IsNullOrWhiteSpace(note.Text) || string.IsNullOrEmpty(note.Id) || set.Notes.Any(n => n.Id == note.Id))
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    note.Kind ??= MemoryKinds.Fact;
+                    note.Slot ??= "";
+                    note.ThreadId ??= "";
+                    note.Created ??= "";
+                    note.LastUsed ??= "";
+                    note.Origin ??= MemoryOrigins.Explicit;
+                    set.Notes.Add(note);
+                }
+                catch (Exception ex) when (ex is JsonException or ArgumentException or FormatException or InvalidCastException)
+                {
+                    skipped++;
+                }
             }
-            set.Notes = [.. set.Notes.Where(n => n is not null && !string.IsNullOrWhiteSpace(n.Text) && !string.IsNullOrEmpty(n.Id))];
-            return set;
+            MemoryLoadStatus status = set.Version > CurrentVersion ? MemoryLoadStatus.Newer : skipped > 0 ? MemoryLoadStatus.Lossy : MemoryLoadStatus.Ok;
+            return new MemoryParse(set, status, skipped);
         }
         catch (JsonException)
         {
-            return null;
+            return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.Corrupt, 0);
         }
+    }
+
+    /// <summary>The first <paramref name="max"/> characters of <paramref name="text"/>, without cutting a surrogate pair in half (a cut one character earlier when it would).</summary>
+    public static string Truncate(string text, int max)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= max)
+        {
+            return text ?? "";
+        }
+        int end = max;
+        if (end > 0 && char.IsHighSurrogate(text[end - 1]) && char.IsLowSurrogate(text[end]))
+        {
+            end--;
+        }
+        return text[..end];
     }
 
     /// <summary>The note with this id, or null.</summary>
@@ -120,16 +186,14 @@ public sealed class MemoryNoteSet
         {
             return new MemoryWriteResult(false, "No content provided.", null, false);
         }
-        if (body.Length > MaxNoteChars)
-        {
-            body = body[..MaxNoteChars];
-        }
+        body = Truncate(body, MaxNoteChars);
         (string kind, string slot, bool negative) = ParseCategory(category);
         if (!MemoryOrigins.IsValid(origin))
         {
             origin = MemoryOrigins.Explicit;
         }
         string stamp = now.ToUniversalTime().ToString("o");
+        List<string> evicted = [];
         if (slot.Length > 0)
         {
             MemoryNote existing = Slot(slot);
@@ -140,7 +204,7 @@ public sealed class MemoryNoteSet
                 existing.ThreadId = threadId ?? "";
                 return new MemoryWriteResult(true, SlotSummary(slot, body), existing, false);
             }
-            if (!MakeRoom())
+            if (!MakeRoom(evicted))
             {
                 return new MemoryWriteResult(false, "Memory is full of pinned notes; nothing was saved.", null, false);
             }
@@ -148,14 +212,14 @@ public sealed class MemoryNoteSet
             filled.Slot = slot;
             filled.Pinned = true;
             Notes.Add(filled);
-            return new MemoryWriteResult(true, SlotSummary(slot, body), filled, true);
+            return new MemoryWriteResult(true, SlotSummary(slot, body), filled, true, evicted);
         }
         MemoryNote duplicate = Notes.FirstOrDefault(n => n.Slot.Length == 0 && n.Kind == kind && n.Negative == negative && SameText(n.Text, body));
         if (duplicate is not null)
         {
             return new MemoryWriteResult(true, $"Already remembered: \"{body}\".", duplicate, false);
         }
-        if (!MakeRoom())
+        if (!MakeRoom(evicted))
         {
             return new MemoryWriteResult(false, "Memory is full of pinned notes; nothing was saved.", null, false);
         }
@@ -163,7 +227,7 @@ public sealed class MemoryNoteSet
         note.Negative = negative;
         Notes.Add(note);
         string label = negative ? "dislike" : kind;
-        return new MemoryWriteResult(true, $"Saved {label}: \"{body}\".", note, true);
+        return new MemoryWriteResult(true, $"Saved {label}: \"{body}\".", note, true, evicted);
     }
 
     /// <summary>The sentence for a slot that was filled.</summary>
@@ -187,7 +251,7 @@ public sealed class MemoryNoteSet
     };
 
     /// <summary>Makes room for one more note when the set is full, by dropping the least recently used unpinned ordinary note. Returns false when there is nothing that may be dropped.</summary>
-    private bool MakeRoom()
+    private bool MakeRoom(List<string> evicted)
     {
         if (Notes.Count < MaxNotes)
         {
@@ -213,6 +277,7 @@ public sealed class MemoryNoteSet
             return false;
         }
         Notes.Remove(victim);
+        evicted.Add(victim.Id);
         return true;
     }
 
