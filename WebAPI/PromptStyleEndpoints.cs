@@ -142,9 +142,11 @@ public static class PromptStyleEndpoints
             LLMModelInfo info = await LLMModelLookup.GetByIdAsync(model, session);
             found = info is not null;
             info ??= new LLMModelInfo { Id = model };
-            resolution = PromptStyleResolver.ResolveLlm(set.Styles, rules, info, task);
-            modelJson = new JObject { ["id"] = info.Id, ["family"] = info.Family, ["provider"] = info.Provider };
             JObject settings = SettingsService.GetMergedSettings(session.User);
+            // A style the user switched off is not a candidate, as in a real turn, so the style shown here is the one that would be used.
+            AddendumSettings switches = AddendumSettings.From(settings);
+            resolution = PromptStyleResolver.ResolveLlm(set.Styles.Where(s => !switches.Disabled.Contains(s.Id)), rules, info, task);
+            modelJson = new JObject { ["id"] = info.Id, ["family"] = info.Family, ["provider"] = info.Provider };
             string asst = string.IsNullOrWhiteSpace(assistantId) ? AssistantService.GetActiveAssistantId(settings, session.User) : assistantId.Trim();
             bool toolsOn = AssistantResolver.Resolve(asst, session.User, settings).ToolsEnabled;
             addendum = LlmAddendumService.Describe(session.User, settings, asst, null, model, info, toolsOn).ToJson();

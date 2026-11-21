@@ -230,6 +230,17 @@ test('the master switch and a style\'s switch in Settings are saved and take eff
 
     await styleSwitch.uncheck();
     await expect.poll(async () => (await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A })).addendum.applied).toBe(false);
+    // A style that is switched off is not offered as the winner either.
+    expect((await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A })).style).toBeNull();
+    // The saved switches show again after a reload.
+    await llm.reload();
+    await llm.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
+    // The page has finished starting once the model list is filled.
+    await expect(llm.locator('#llma-model-select option[value="mock-model"]')).toHaveCount(1, { timeout: 30_000 });
+    await llm.locator('#llma-settings-btn').click();
+    await llm.locator('.llma-modal-tab[data-tab="prompt-styles"]').click();
+    await expect(llm.locator('#llma-styles-llm li[data-style-id="for-a"] .llma-style-enabled')).not.toBeChecked();
+    await expect(llm.locator('#llma-styles-llm .llma-addenda-master')).toBeChecked();
     await box.locator('.llma-resolve-model').fill(A);
     await box.locator('.llma-resolve-run').click();
     await expect(box.locator('.llma-resolve-result .llma-addendum-state')).toHaveText('Nothing is added to the system prompt');
