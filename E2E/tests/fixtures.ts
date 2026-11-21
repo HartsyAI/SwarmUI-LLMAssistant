@@ -257,6 +257,12 @@ export async function enableCodeToolsGlobally(page: Page) {
     }
 }
 
+/** Removes every memory note of the test user (and the old profile they came from), so a note saved by one test is not in the next one's prompt. */
+export async function clearMemory(page: Page) {
+    let cleared = await api(page, 'LLMAssistantClearUserProfile');
+    expect(cleared.success).toBe(true);
+}
+
 /** Test fixture: a page on the LLM Assistant tab with a clean thread list and a clean mock. */
 export const test = base.extend<{ llm: Page }>({
     llm: async ({ page }, use) => {
@@ -270,6 +276,7 @@ export const test = base.extend<{ llm: Page }>({
         expect(listed.success).toBe(true);
         await clearSchedules(page);
         await clearKnowledge(page);
+        await clearMemory(page);
         // Deleting a chat deletes the sessions it started, so only the chats with no parent in the list are deleted.
         let ids = new Set((listed.threads ?? []).map((t: any) => t.id));
         for (let thread of listed.threads ?? []) {

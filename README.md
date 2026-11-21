@@ -529,8 +529,8 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 | `file_write` | Writes a text file into `Output/…/llm_assistant/`. Extension allowlist (`md, json, txt, yaml, yml, csv, log` plus your own additions). | ✅ | `llm_tool_file_write` |
 | `http_request` | GET/POST/PUT/DELETE/HEAD/PATCH. Blocks loopback, RFC1918, link-local, and cloud metadata addresses. 256 KB default response cap. | ✅ | `llm_tool_http_request` |
 | `shell_exec` | Runs a shell command on the host. Sandboxed working dir, 30 s default timeout, 64 KB output cap. | ❌ | `llm_tool_shell_exec` |
-| `memory_write` | Saves a fact to the calling user's private memory profile. | ✅ | `llm_tool_memory` |
-| `memory_read` | Reads the calling user's memory profile. | ✅ | `llm_tool_memory` |
+| `memory_write` | Saves one note to the calling user's private memory (replacing the name, pronouns, bio or current work when those are written again). | ✅ | `llm_tool_memory` |
+| `memory_read` | Reads the calling user's memory notes (optionally the ones matching a `query`). | ✅ | `llm_tool_memory` |
 | `swarm_docs` | Lists and reads SwarmUI's bundled docs. Sandboxed strictly to `docs/`. | ✅ | `llm_tool_swarm_docs` |
 
 > **`shell_exec` is off by default and its permission defaults to `NOBODY`.** Granting it is equivalent to giving anyone who can chat with the model a shell on your server. Only do it for admins you trust, on models you trust.
@@ -597,9 +597,24 @@ Replies use the assistant's `companion` instruction, which asks for one short pa
 
 ## Per-user memory
 
-A strictly private profile per user: preferred name, pronouns, bio, current work, preferences, dislikes, and free-form facts. Capped at 50 list entries, 100 facts, and 2000 characters per field.
+A strictly private store of small **notes** per user. A note is one short statement with a kind (`preference`, `fact`, `project`, `style`), where it came from (`user`, `assistant`, or `explicit` for a note saved with the memory tool), the chat it was saved in, when it was saved and last used, and a pinned flag. A few things there is only one of (the preferred name, pronouns, a bio and current work) are *slot* notes: they are pinned, and saving the slot again replaces the note, as the old profile's fields did. A dislike is a preference note marked as a dislike, so it is not read the wrong way round.
 
-Swarmie writes to it naturally as a conversation reveals things; nothing is ever asked just to fill a slot. Memory is injected into the system prompt via `{{userProfile}}`.
+| Limit | Value |
+|---|---|
+| Notes per user | 400 (when full, the least recently used unpinned note makes room; a set full of pinned notes refuses new ones) |
+| Characters per note | 2000 |
+| Pinned notes | 25 |
+| Characters of notes in one prompt | about 6000 (pinned notes are always included on top of this) |
+
+**Writing.** The model saves a note with `memory_write` (`category`, `content`; categories `preferred_name`, `pronouns`, `bio`, `current_work`, `preference`, `dislike`, `project`, `style`, `fact`). The same note saved twice is kept once. Notes saved this way have the origin `explicit`; an automatic after-turn extractor and a review, edit and undo screen are later phases, and so is the pause switch.
+
+**Your old profile** (name, pronouns, bio, current work, preferences, dislikes, facts) is turned into notes the first time your notes are read, with nothing lost; the old data is left where it was, and clearing memory does not bring it back.
+
+**Recall into the prompt.** `{{userProfile}}` is replaced with your notes inside a block that says they are saved data and not instructions (each note is one line, with newlines, control characters and angle brackets removed, so a note cannot start a heading or close the block). While all the notes fit the budget they are all shown, in one fixed order, so the prompt does not change from turn to turn and the model's reused conversation prefix stays valid. A set too big for the budget shows the pinned notes plus the best matches for your latest message (keyword ranking, BM25) and then the newest notes to fill the rest, again in the fixed order. When the notes shown change, the start of the prompt changes, so a very large note set costs more reuse of the chat prefix than a small one.
+
+**Meaning search is optional.** If you set an embedding model on the Knowledge tab (any backend that offers embeddings), notes saved after that are embedded too and ranking also uses meaning when the set is too big to show whole. With none set, or if the backend fails, ranking is by keywords alone and nothing is sent anywhere. Nothing here depends on one backend or model.
+
+`memory_read` lists your notes (and, given a `query`, the ones that match it) and also returns `profile` in the old profile's shape. The **Memory** tab in Settings shows the notes read-only.
 
 **Memory is never visible to another user and there is no shared memory layer.** Clear it any time with `LLMAssistantClearUserProfile`.
 
@@ -920,8 +935,8 @@ they were sent with.
 | `LLMAssistantGetAssets` | `threadId` | `{success, threadId, assets[]}` |
 | `LLMAssistantGetAsset` | `threadId`, `assetId` | `{success, asset}` |
 | `LLMAssistantDeleteAsset` | `threadId`, `assetId` | `{success}` |
-| `LLMAssistantGetUserProfile` | none | `{success, profile}` |
-| `LLMAssistantClearUserProfile` | none | `{success}` |
+| `LLMAssistantGetUserProfile` | none | `{success, profile, notes[], limits}`: `profile` is the old profile's shape, `notes` every note (`id`, `text`, `kind`, `origin`, `threadId`, `created`, `lastUsed`, `pinned`, `slot`, `negative`) in prompt order |
+| `LLMAssistantClearUserProfile` | none | `{success}`: removes every note (and the old profile); irreversible |
 | `LLMAssistantGetCompanionContext` | none | `{success, lastImage}` (`null` when you have no generations yet) |
 | `LLMAssistantGetInstructions` | none | `{success, instructions[]}`, legacy, kept for the T2I prompt tags |
 | `LLMAssistantSaveInstruction` | `id`, `title`, `content`, `categories?`, `tooltip?`, `scope?` | `{success, instruction}` |

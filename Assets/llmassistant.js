@@ -1369,6 +1369,7 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'prompt-styles') llmaPromptStyles.load();
             if (tab.dataset.tab === 'schedules') llmaSchedulesSettings.load();
             if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
+            if (tab.dataset.tab === 'memory') llmaMemorySettings.load();
         });
     });
 
