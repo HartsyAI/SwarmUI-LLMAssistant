@@ -33,7 +33,8 @@ public static class HeadlessEndpoints
     /// <para>Reply: <c>{success, threadId, response, model, stopReason, toolCalls[{id, name, arguments, result}], usage?, truncated?, created?}</c>, or <c>{success: false, error, threadId?}</c> (the
     /// <c>threadId</c> is there when a chat was made or used: what a failed turn produced is saved in it).</para>
     /// <para>With <c>dryRun: true</c> nothing is called or saved: the request is built exactly as a real turn would build it and reported on: <c>{success, dryRun, model, modelFound, assistantId, threadId?,
-    /// approvalMode, tools[], historyMessages, systemPromptChars, estimatedPromptTokens, contextWindow, wouldCompact, warnings[]}</c>.</para></summary>
+    /// approvalMode, tools[], historyMessages, systemPromptChars, promptAddendum{applied, styleId, scope, via, reason, chars, estimatedTokens}, estimatedPromptTokens, contextWindow, wouldCompact, warnings[]}</c>. <c>promptAddendum</c> is what the
+    /// chat-model prompt style added to the system prompt for this model (<c>applied: false</c> with the reason when nothing was); its tokens are already in the two figures around it.</para></summary>
     public static async Task<JObject> LLMAssistantRunTurn(Session session, JObject rawInput)
         => await HeadlessTurnService.RunAsync(session, rawInput, CancellationToken.None);
 }

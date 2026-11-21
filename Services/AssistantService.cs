@@ -137,7 +137,7 @@ public static class AssistantService
     /// </summary>
     /// <summary>Editor-owned fields, authoritative from a save payload; everything else on the stored record survives.</summary>
     private static readonly string[] EditorOwnedFields =
-        ["name", "description", "icon", "color", "extends", "parameters", "toolsEnabled", "enabledToolIds", "toolConfig", "avatar"];
+        ["name", "description", "icon", "color", "extends", "parameters", "toolsEnabled", "promptAddendum", "enabledToolIds", "toolConfig", "avatar"];
 
     /// <summary>Allowed shape for assistant ids — used directly as settings dictionary keys.</summary>
     private static readonly System.Text.RegularExpressions.Regex IdPattern = new("^[A-Za-z0-9_-]{1,64}$",

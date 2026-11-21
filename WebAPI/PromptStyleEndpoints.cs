@@ -109,8 +109,10 @@ public static class PromptStyleEndpoints
     }
 
     /// <summary>Which style a model gets, and why. Request: <c>{ axis (image | llm), model, task? }</c> (<c>model</c> is an image or video model's name, or a chat model's id). Returns <c>{success, found, style?, off, via,
-    /// reason, candidates[{id, scope, matched, rank}], model?}</c>. <c>found</c> is false when core (or the chat backends) has no such model: the answer then uses only what the name alone can match.</summary>
-    public static async Task<JObject> LLMAssistantResolvePromptStyle(Session session, string axis, string model, string task = "")
+    /// reason, candidates[{id, scope, matched, rank}], model?, addendum?}</c>. <c>found</c> is false when core (or the chat backends) has no such model: the answer then uses only what the name alone can match.
+    /// For the <c>llm</c> axis <c>addendum</c> is what a chat turn on that model would really add to the system prompt, with the switches applied (<c>{applied, styleId, scope, via, reason, chars, estimatedTokens}</c>):
+    /// <c>assistantId</c> (default: the active assistant) is the one whose opt-out and own model-specific instruction are looked at.</summary>
+    public static async Task<JObject> LLMAssistantResolvePromptStyle(Session session, string axis, string model, string task = "", string assistantId = "")
     {
         if (!StyleOverride.IsValidAxis(axis))
         {
@@ -125,6 +127,7 @@ public static class PromptStyleEndpoints
         List<StyleOverride> rules = PromptStyleService.GetOverrides(session.User);
         StyleResolution resolution;
         JObject modelJson;
+        JObject addendum = null;
         bool found;
         if (axis == StyleOverride.AxisImage)
         {
@@ -141,6 +144,10 @@ public static class PromptStyleEndpoints
             info ??= new LLMModelInfo { Id = model };
             resolution = PromptStyleResolver.ResolveLlm(set.Styles, rules, info, task);
             modelJson = new JObject { ["id"] = info.Id, ["family"] = info.Family, ["provider"] = info.Provider };
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            string asst = string.IsNullOrWhiteSpace(assistantId) ? AssistantService.GetActiveAssistantId(settings, session.User) : assistantId.Trim();
+            bool toolsOn = AssistantResolver.Resolve(asst, session.User, settings).ToolsEnabled;
+            addendum = LlmAddendumService.Describe(session.User, settings, asst, null, model, info, toolsOn).ToJson();
         }
         return new JObject
         {
@@ -152,6 +159,7 @@ public static class PromptStyleEndpoints
             ["via"] = resolution.Via,
             ["reason"] = resolution.Reason,
             ["candidates"] = new JArray(resolution.Candidates.Select(c => new JObject { ["id"] = c.Id, ["scope"] = c.Scope, ["matched"] = c.Matched, ["rank"] = c.Rank == int.MaxValue ? 1000 : c.Rank })),
+            ["addendum"] = addendum,
         };
     }
 

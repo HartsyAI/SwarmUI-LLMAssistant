@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -223,6 +224,8 @@ public static class HeadlessTurnService
             ["tools"] = new JArray(prepared.EnabledTools.Select(t => t["id"]?.ToString())),
             ["historyMessages"] = conversation.Count,
             ["systemPromptChars"] = input.SystemPrompt?.Length ?? 0,
+            // What the chat-model prompt style added to the system prompt, and its cost (already counted in the two figures around it).
+            ["promptAddendum"] = (prepared.Addendum ?? LlmAddendum.Nothing("")).ToJson(),
             ["estimatedPromptTokens"] = (int)(characters / 4),
             ["contextWindow"] = prepared.ContextWindow,
             ["wouldCompact"] = prepared.WouldCompact,

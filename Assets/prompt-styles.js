@@ -25,7 +25,7 @@ class LLMAPromptStyles {
             { axis: 'image', title: 'By image model', kinds: ['image', 'video'],
                 help: 'How a prompt is written for the image or video model it is for. A style is picked by the model\'s type, so a model with no style written for it gets the default.' },
             { axis: 'llm', title: 'By chat model', kinds: ['llm'],
-                help: 'A short addition on how to instruct the chat model that is doing the writing. A model with no style written for it gets none.' },
+                help: 'A short note on how to instruct one chat model, added to its system prompt after the assistant's instructions. A model with no style written for it gets nothing, and none are built in.' },
         ];
     }
 
@@ -55,6 +55,26 @@ class LLMAPromptStyles {
         return (LLMAState.availableModels || []).map(m => m.id);
     }
 
+    /** Whether a style is switched on (every style is, until the user switches it off). */
+    styleEnabled(style) {
+        let disabled = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptStyles?.disabled) || [];
+        return !disabled.includes(style.id);
+    }
+
+    /** Whether chat-model styles are used at all (the master switch; on by default). */
+    addendaOn() {
+        return !(typeof LLMAState != 'undefined' && LLMAState.settings?.promptStyles?.llmAddenda === false);
+    }
+
+    /** Saves a change to the chat-model style switches in the user's own settings. */
+    async savePromptStyleSettings(change) {
+        if (typeof LLMAState == 'undefined' || !LLMAState.settings) {
+            return;
+        }
+        LLMAState.settings.promptStyles = { ...(LLMAState.settings.promptStyles || {}), ...change };
+        await llmaSaveSettings();
+    }
+
     /** Draws both sections. */
     render() {
         for (let section of LLMAPromptStyles.SECTIONS) {
@@ -73,6 +93,10 @@ class LLMAPromptStyles {
         let axis = section.axis;
         let scopeNames = { bundled: 'Built in', shared: 'Shared', personal: 'Personal' };
         let html = `<h6 class="mt-3">${translate(section.title)}</h6><p class="text-muted small">${translate(section.help)}</p>`;
+        if (axis == 'llm') {
+            html += `<label class="small mb-2 d-block"><input type="checkbox" class="llma-addenda-master" ${this.addendaOn() ? 'checked' : ''}> ${translate('Tune prompts for the chat model')}</label>`
+                + `<div class="small text-muted mb-2">${translate('Off stops every chat-model style from being added, for all your chats. An assistant can also opt out in its own settings, and a rule below can set one model to no style.')}</div>`;
+        }
         html += '<ul class="list-group mb-2">';
         for (let style of styles) {
             let badges = style.scopes.map(s => `<span class="badge text-bg-light">${translate(scopeNames[s] || s)}</span>`).join(' ');
@@ -83,6 +107,7 @@ class LLMAPromptStyles {
                 + `<span class="flex-grow-1"><b>${escapeHtml(style.name)}</b> <span class="badge text-bg-secondary">${escapeHtml(style.kind)}</span> ${badges}`
                 + `<br><small class="text-muted">${escapeHtml(style.description)}</small>`
                 + `<br><small class="text-muted">${translate('Matches')}: ${escapeHtml(conditions)}</small></span>`
+                + (axis == 'llm' ? `<span class="form-check form-switch mb-0" title="${translate('Use this style')}"><input class="form-check-input llma-style-enabled" type="checkbox" role="switch" aria-label="${translate('Use this style')}" ${this.styleEnabled(style) ? 'checked' : ''}></span>` : '')
                 + `<button type="button" class="basic-button llma-style-edit">${editable ? translate('Edit') : translate('Customize')}</button>`
                 + (customized && editable ? `<button type="button" class="basic-button llma-style-reset" title="${translate('Remove your copy and use the built-in one again')}">${translate('Reset')}</button>` : '')
                 + (editable && !style.scopes.includes('bundled') ? `<button type="button" class="basic-button llma-style-delete">${translate('Delete')}</button>` : '')
@@ -155,10 +180,15 @@ class LLMAPromptStyles {
         for (let row of box.querySelectorAll('li[data-style-id]')) {
             let style = styles.find(s => s.id == row.dataset.styleId);
             row.querySelector('.llma-style-edit')?.addEventListener('click', () => this.openEditor(style, axis));
+            row.querySelector('.llma-style-enabled')?.addEventListener('change', event => this.setStyleEnabled(style, event.target.checked));
             row.querySelector('.llma-style-reset')?.addEventListener('click', () => this.reset(style));
             row.querySelector('.llma-style-delete')?.addEventListener('click', () => this.remove(style));
         }
         box.querySelector('.llma-style-add')?.addEventListener('click', () => this.openEditor(null, axis));
+        box.querySelector('.llma-addenda-master')?.addEventListener('change', async event => {
+            await this.savePromptStyleSettings({ llmAddenda: event.target.checked });
+            this.render();
+        });
         for (let row of box.querySelectorAll('li[data-rule-match]')) {
             row.querySelector('.llma-rule-delete').addEventListener('click', () => this.removeRule(axis, row.dataset.ruleMatch));
         }
@@ -174,6 +204,16 @@ class LLMAPromptStyles {
         });
     }
 
+    /** Switches one chat-model style on or off for the user, then draws again. */
+    async setStyleEnabled(style, on) {
+        let disabled = [...((typeof LLMAState != 'undefined' && LLMAState.settings?.promptStyles?.disabled) || [])].filter(id => id != style.id);
+        if (!on) {
+            disabled.push(style.id);
+        }
+        await this.savePromptStyleSettings({ disabled: disabled });
+        this.render();
+    }
+
     /** Asks the server which style a model gets and shows the answer and the reason. */
     async resolve(box, axis) {
         let model = box.querySelector('.llma-resolve-model').value.trim();
@@ -182,7 +222,7 @@ class LLMAPromptStyles {
             out.textContent = '';
             return;
         }
-        let reply = await llmaUserAction(() => llmaRequest('LLMAssistantResolvePromptStyle', { axis: axis, model: model }), translate('Could not check'));
+        let reply = await llmaUserAction(() => llmaRequest('LLMAssistantResolvePromptStyle', { axis: axis, model: model, assistantId: (typeof LLMAState != 'undefined' && LLMAState.activeAssistantId) || '' }), translate('Could not check'));
         if (!reply) {
             return;
         }
@@ -203,6 +243,12 @@ class LLMAPromptStyles {
             lines.push(`<b>${translate('No style')}</b>`);
         }
         lines.push(escapeHtml(reply.reason));
+        if (reply.addendum) {
+            let a = reply.addendum;
+            lines.push(a.applied
+                ? `<b class="llma-addendum-state">${translate('Added to the system prompt')}</b>: ${translate('about')} ${a.estimatedTokens} ${translate('tokens')} (${a.chars} ${translate('characters')})`
+                : `<b class="llma-addendum-state">${translate('Nothing is added to the system prompt')}</b>: ${escapeHtml(a.reason)}`);
+        }
         out.innerHTML = lines.join('<br>');
     }
 

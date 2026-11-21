@@ -1770,6 +1770,12 @@ function llmaShowAssistantEditor(assistant) {
     llmaSetEl('llma-asst-max-tokens',  assistant?.parameters?.maxTokens ?? '');
     llmaSetEl('llma-asst-top-p',       assistant?.parameters?.topP ?? '');
 
+    // Per-assistant opt-out of the chat-model prompt style (Settings > Prompt styles). Defaults to on.
+    const promptAddendumBox = document.getElementById('llma-asst-prompt-addendum');
+    if (promptAddendumBox) {
+        promptAddendumBox.checked = assistant?.promptAddendum !== false;
+    }
+
     // Master tool-calling switch (separate from which tools are checked below — this is whether ANY
     // tool system prompt is injected at all). Defaults to on for new/unset assistants.
     const toolsEnabledBox = document.getElementById('llma-asst-tools-enabled');
@@ -1862,6 +1868,7 @@ async function llmaSaveAssistantFromEditor() {
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
     assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
+    assistant.promptAddendum = document.getElementById('llma-asst-prompt-addendum')?.checked !== false;
     // Omitted list = inherit from parent; only send when explicit or touched.
     if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {
         assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();
