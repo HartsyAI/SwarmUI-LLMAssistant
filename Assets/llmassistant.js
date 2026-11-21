@@ -2268,8 +2268,27 @@ function llmaSetupPromptButtons() {
         enhanceBtn.disabled = true;
         enhanceBtn.textContent = translate('Enhancing...');
         try {
-            const resp = await llmaRequest('LLMAssistantSendMessage', { message: current, instructionId: 'prompt' });
-            if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
+            // With an image model selected, rewrite for that model (its style, format and tag handling); with none, or when no style applies, fall back to the general enhance.
+            const imageModel = document.getElementById('input_model')?.value || '';
+            const negBox = document.getElementById('input_negativeprompt');
+            const rewrite = imageModel ? await llmaRequest('LLMAssistantRewritePrompt', { prompt: current, imageModel: imageModel, negative: negBox?.value || '', fresh: true }) : null;
+            if (rewrite?.success && rewrite.style && !rewrite.rewritten) {
+                // A style applies but nothing was rewritten (the model failed, or the prompt was already right): leave the text and say why.
+                llmaShowToast(rewrite.warnings?.[0] || rewrite.skipped || 'The prompt was left as written.', 'info');
+            }
+            else if (rewrite?.success && rewrite.style) {
+                promptBox.value = rewrite.text;
+                if (typeof triggerChangeFor === 'function') { triggerChangeFor(promptBox); }
+                if (negBox && rewrite.negative != negBox.value) {
+                    negBox.value = rewrite.negative;
+                    if (typeof triggerChangeFor === 'function') { triggerChangeFor(negBox); }
+                }
+                if (rewrite.warnings?.length) { llmaShowToast(rewrite.warnings[0], 'info'); }
+            }
+            else {
+                const resp = await llmaRequest('LLMAssistantSendMessage', { message: current, instructionId: 'prompt' });
+                if (resp.response) { promptBox.value = resp.response; if (typeof triggerChangeFor === 'function') triggerChangeFor(promptBox); }
+            }
         } catch { llmaShowToast('Enhance failed', 'error'); }
         finally { enhanceBtn.disabled = false; enhanceBtn.textContent = translate('Enhance Prompt'); }
     });

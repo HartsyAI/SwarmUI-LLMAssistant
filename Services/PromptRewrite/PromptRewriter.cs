@@ -20,13 +20,30 @@ public sealed record RewriteRequest(string Prompt, string Negative, string Image
 /// <param name="TimeoutSeconds">How long one attempt may take.</param>
 /// <param name="MaxTokens">The most the model may write in one answer.</param>
 /// <param name="Temperature">Low, so the same prompt gives close to the same rewrite.</param>
-public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTokens, double Temperature)
+/// <param name="Auto">Whether every generation is rewritten without being asked (a generation's own setting still wins). Off unless the user turns it on.</param>
+public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTokens, double Temperature, bool Auto = false)
 {
     /// <summary>The settings key.</summary>
     public const string Key = "promptRewrite";
 
-    /// <summary>The defaults: the default chat model, one minute, 2,048 tokens, temperature 0.4.</summary>
+    /// <summary>The defaults: the default chat model, one minute, 2,048 tokens, temperature 0.4, and no automatic rewriting.</summary>
     public static RewriteSettings Default => new("", 60, 2048, 0.4);
+
+    /// <summary>Reads the settings for <paramref name="user"/> from only the <c>promptRewrite</c> object of the shared layer and of the user's own (the user's keys win), without building the whole merged settings tree: the
+    /// generation hook reads this for every image.</summary>
+    public static RewriteSettings ForUser(SwarmUI.Accounts.User user)
+    {
+        JObject merged = [];
+        if (Services.SettingsService.GetSettings()[Key] is JObject shared)
+        {
+            merged.Merge(shared);
+        }
+        if (user is not null && Services.SettingsService.GetUserSettings(user)[Key] is JObject personal)
+        {
+            merged.Merge(personal);
+        }
+        return From(new JObject { [Key] = merged });
+    }
 
     /// <summary>Reads the settings from <paramref name="merged"/>.</summary>
     public static RewriteSettings From(JObject merged)
@@ -40,7 +57,8 @@ public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTo
             o["model"]?.Type == JTokenType.String ? ((string)o["model"]).Trim() : d.Model,
             ReadInt(o["timeoutSeconds"], d.TimeoutSeconds, 5, 300),
             ReadInt(o["maxTokens"], d.MaxTokens, 256, 8192),
-            Math.Clamp(o["temperature"] is { Type: JTokenType.Float or JTokenType.Integer } t ? (double)t : d.Temperature, 0.0, 1.5));
+            Math.Clamp(o["temperature"] is { Type: JTokenType.Float or JTokenType.Integer } t ? (double)t : d.Temperature, 0.0, 1.5),
+            o["auto"]?.Type == JTokenType.Boolean && (bool)o["auto"]);
     }
 
     /// <summary>A whole number from a settings value, clamped to <paramref name="min"/> and <paramref name="max"/>; the default when it is not a number or is too large to read (an oversized number must not break every rewrite).</summary>
@@ -179,7 +197,7 @@ public static class PromptRewriter
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return Fallback(request, style, formatter, $"The writing model failed: {ex.Message}", warnings, retried, inTokens, outTokens);
+                return Fallback(request, style, formatter, $"The writing model failed: {Short(ex.Message)}", warnings, retried, inTokens, outTokens);
             }
             inTokens += Estimate(system) + Estimate(message);
             outTokens += Estimate(reply?.Response);
@@ -297,9 +315,19 @@ public static class PromptRewriter
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            warnings.Add($"The negative prompt could not be rewritten ({ex.Message}), so it was kept as you wrote it.");
+            warnings.Add($"The negative prompt could not be rewritten ({Short(ex.Message)}), so it was kept as you wrote it.");
         }
         return (null, 0, 0);
+    }
+
+    /// <summary>The longest part of a provider's error text kept in a warning (a provider's error body can be long, and a warning travels with the image and to the chat model).</summary>
+    public const int MaxWarningChars = 200;
+
+    /// <summary>The start of <paramref name="text"/>, on one line and at most <see cref="MaxWarningChars"/> characters.</summary>
+    internal static string Short(string text)
+    {
+        string line = (text ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return line.Length <= MaxWarningChars ? line : line[..MaxWarningChars] + "...";
     }
 
     /// <summary>A rough token count for <paramref name="text"/>.</summary>

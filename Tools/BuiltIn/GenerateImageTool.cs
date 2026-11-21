@@ -1,6 +1,8 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
+using Hartsy.Extensions.LLMAssistant.T2I;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 using SwarmUI.WebAPI;
@@ -175,14 +177,19 @@ public class GenerateImageTool : ToolHandler
                 ["error"] = "No model selected. Either pick a preset that includes a model, or pass `params: { model: \"<model-name>\" }` for a raw generation."
             };
         }
-        // Tag metadata so the resulting image's metadata sidecar records which presets were used.
+        // `rewrite: off` stops the automatic prompt rewrite for this call; anything else follows the user's setting (and a generation's own parameter).
+        if (string.Equals(args["rewrite"]?.ToString(), PromptAutoEnhance.ModeOff, StringComparison.OrdinalIgnoreCase) && PromptTagHandler.ParamAutoEnhance is not null)
+        {
+            rawInput[PromptTagHandler.ParamAutoEnhance.Type.ID] = PromptAutoEnhance.ModeOff;
+        }
+        // Tag metadata so the resulting image's metadata sidecar records which presets were used, and carry an id the prompt rewrite reports its outcome under.
+        string reportId = Guid.NewGuid().ToString("N");
+        JObject extraMetadata = new() { [PromptAutoEnhance.MetaReportId] = reportId };
         if (presetsApplied.Count > 0)
         {
-            rawInput["extra_metadata"] = new JObject
-            {
-                ["presets_used"] = string.Join(", ", presetsApplied)
-            };
+            extraMetadata["presets_used"] = string.Join(", ", presetsApplied);
         }
+        rawInput["extra_metadata"] = extraMetadata;
         try
         {
             JObject result = await T2IAPI.GenerateText2Image(session, 1, rawInput);
@@ -192,15 +199,27 @@ public class GenerateImageTool : ToolHandler
             }
             if (result.TryGetValue("images", out JToken imagesToken) && imagesToken is JArray images && images.Count > 0)
             {
+                RewriteResult rewrite = RewriteReports.Take(reportId);
                 JObject ret = new()
                 {
                     ["success"] = true,
                     ["imageUrl"] = images[0].ToString(),
-                    ["prompt"] = prompt,
+                    ["prompt"] = rewrite is { StyleId: not null } ? rewrite.Text : prompt,
                     ["width"] = rawInput["width"]?.ToObject<int>() ?? 0,
                     ["height"] = rawInput["height"]?.ToObject<int>() ?? 0
                 };
                 if (presetsApplied.Count > 0) ret["presets"] = new JArray(presetsApplied);
+                if (rewrite is { StyleId: not null })
+                {
+                    // The prompt above is what was generated from; the model also gets what it asked for, which style adapted it and anything that went wrong.
+                    ret["originalPrompt"] = prompt;
+                    ret["promptStyle"] = rewrite.StyleId;
+                    ret["rewriteStatus"] = rewrite.Rewritten ? "rewritten" : rewrite.FellBack ? "fallback" : "unchanged";
+                    if (rewrite.Warnings.Count > 0)
+                    {
+                        ret["rewriteWarnings"] = new JArray(rewrite.Warnings);
+                    }
+                }
                 return ret;
             }
             return new JObject { ["success"] = false, ["error"] = "No image was generated." };

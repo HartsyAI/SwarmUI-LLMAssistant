@@ -53,7 +53,7 @@ public static class PromptRewriteService
             return RewriteResult.Unchanged(request, resolution.Off ? "Styling is turned off for this model." : "No style applies to this model.") with { Via = resolution.Via, Reason = resolution.Reason };
         }
         PromptStyle style = resolution.Style;
-        RewriteSettings settings = RewriteSettings.From(user is null ? SettingsService.GetSettings() : SettingsService.GetMergedSettings(user));
+        RewriteSettings settings = RewriteSettings.ForUser(user);
         string model = string.IsNullOrWhiteSpace(request.RewriteModel) ? settings.Model : request.RewriteModel.Trim();
         request = request with { RewriteModel = model };
         RewriteGenerate generate = DispatcherGenerate(request, settings, session);
@@ -69,6 +69,11 @@ public static class PromptRewriteService
         {
             return await PromptRewriter.RunAsync(style, request, settings, generate, ct);
         }
+        string failureKey = string.Join('\u001F', userId ?? "<anon>", request.RewriteModel ?? "", StyleKey(style, request, settings), request.Prompt?.Trim() ?? "");
+        if (RecentFailure(failureKey) is RewriteResult failed)
+        {
+            return failed;
+        }
         try
         {
             string json = await Cache.GetOrCreate(userId, request.RewriteModel, StyleKey(style, request, settings), request.Prompt, CacheInstruction, async () =>
@@ -80,15 +85,64 @@ public static class PromptRewriteService
         }
         catch (NotCachedException ex)
         {
+            if (ex.Result.FellBack)
+            {
+                RememberFailure(failureKey, ex.Result);
+            }
             return ex.Result;
         }
+    }
+
+    /// <summary>How long a failed rewrite is remembered, so a batch (or a second image, or a grid) does not wait out a hung model once for every wave of images.</summary>
+    internal static readonly TimeSpan FailureLifetime = TimeSpan.FromSeconds(60);
+
+    /// <summary>The most failures remembered.</summary>
+    private const int MaxFailures = 200;
+
+    /// <summary>Recent failed rewrites by request, with when each happened.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime At, RewriteResult Result)> Failures = new();
+
+    /// <summary>The failed result for <paramref name="key"/> if one happened within <see cref="FailureLifetime"/>, else null.</summary>
+    private static RewriteResult RecentFailure(string key)
+    {
+        if (Failures.TryGetValue(key, out (DateTime At, RewriteResult Result) entry))
+        {
+            if (DateTime.UtcNow - entry.At <= FailureLifetime)
+            {
+                return entry.Result;
+            }
+            Failures.TryRemove(key, out _);
+        }
+        return null;
+    }
+
+    /// <summary>Remembers a failed result, dropping expired ones (and, if still too many, all of them).</summary>
+    private static void RememberFailure(string key, RewriteResult result)
+    {
+        if (Failures.Count >= MaxFailures)
+        {
+            DateTime now = DateTime.UtcNow;
+            foreach (KeyValuePair<string, (DateTime At, RewriteResult Result)> old in Failures.Where(f => now - f.Value.At > FailureLifetime).ToList())
+            {
+                Failures.TryRemove(old.Key, out _);
+            }
+            if (Failures.Count >= MaxFailures)
+            {
+                Failures.Clear();
+            }
+        }
+        Failures[key] = (DateTime.UtcNow, result);
     }
 
     /// <summary>How long a caller may wait on a call another caller started: both attempts and the negative request, each up to the timeout, plus a margin, so a waiter never gives up before the call can.</summary>
     private static int SharedWaitMs(RewriteSettings settings) => (settings.TimeoutSeconds * 3 + 15) * 1000;
 
     /// <summary>Forgets every kept rewrite (for tests).</summary>
-    internal static void ClearCache() => Cache.Clear();
+    internal static void ClearCache()
+    {
+        Cache.Clear();
+        Failures.Clear();
+    }
 
     /// <summary>The call to the chat model through the dispatcher the chat uses, with the settings' limits.</summary>
     private static RewriteGenerate DispatcherGenerate(RewriteRequest request, RewriteSettings settings, SwarmUI.Accounts.Session session)
