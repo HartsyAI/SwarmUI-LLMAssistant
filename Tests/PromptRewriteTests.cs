@@ -568,9 +568,25 @@ public class PromptRewriteTests
         RewriteResult[] failed = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => PromptRewriteServiceTestHooks.Rewrite("u1", style, failRequest, Settings, failing)));
         Assert.All(failed, r => Assert.True(r.FellBack));
         Assert.Equal(1, failedCalls.Count);
-        int afterFirst = failedCalls.Count;
+        // A failure is remembered briefly, so the next image (or wave of a batch) does not wait out a hung model again; a fresh request asks anyway.
         await PromptRewriteServiceTestHooks.Rewrite("u1", style, failRequest, Settings, failing);
-        Assert.Equal(afterFirst + 1, failedCalls.Count);
+        Assert.Equal(1, failedCalls.Count);
+        await PromptRewriteServiceTestHooks.Rewrite("u1", style, failRequest with { Fresh = true }, Settings, failing);
+        Assert.Equal(2, failedCalls.Count);
+        await PromptRewriteServiceTestHooks.Rewrite("u2", style, failRequest, Settings, failing);
+        Assert.Equal(3, failedCalls.Count);
+    }
+
+    [Fact]
+    public void AProviderErrorIsShortenedToOneLineBeforeItIsKept()
+    {
+        string noisy = "bad request\n" + new string('x', 500);
+        string shortened = PromptRewriter.Short(noisy);
+        Assert.DoesNotContain('\n', shortened);
+        Assert.True(shortened.Length <= PromptRewriter.MaxWarningChars + 3);
+        Assert.EndsWith("...", shortened);
+        Assert.Equal("ok", PromptRewriter.Short("  ok \n"));
+        Assert.Equal("", PromptRewriter.Short(null));
     }
 
     [Fact]
