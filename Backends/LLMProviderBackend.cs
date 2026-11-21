@@ -27,6 +27,9 @@ public abstract class LLMProviderBackend : AbstractLLMBackend, ILLMProvider
     public virtual bool ModelsVaryByUser => false;
 
     /// <inheritdoc/>
+    public virtual string DefaultModelId => null;
+
+    /// <inheritdoc/>
     public virtual Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModels(ct);
 
     /// <inheritdoc/>

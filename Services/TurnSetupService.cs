@@ -52,8 +52,6 @@ public static class TurnSetupService
         string systemPrompt = ChatEndpoints.ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
         // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant (see EffectiveToolsEnabled).
         bool toolsOn = ChatEndpoints.EffectiveToolsEnabled(thread, assistantId, settings, session.User);
-        // The chat-model style for the model answering this turn is added right after the instruction, before anything else is appended (see LlmAddendumService).
-        systemPrompt = LlmAddendumService.Apply(systemPrompt, session.User, settings, assistantId, instructionId, model, modelInfo, toolsOn, out LlmAddendum addendum);
         List<JObject> enabledTools = toolsOn
             ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
             : [];
@@ -63,6 +61,8 @@ public static class TurnSetupService
         enabledTools = PromptAssetService.WithSkillTool(enabledTools, thread, settings, session.User, toolsOn);
         // A session the assistant started can use only the tools it was given, whatever its assistant lists, and is told what it is for.
         enabledTools = SessionManager.NarrowTools(enabledTools, thread);
+        // The chat-model style for the model answering this turn goes right after the instruction, before anything else is appended; its tools task is on when tools are really sent (see LlmAddendumService).
+        (systemPrompt, LlmAddendum addendum) = await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, model, modelInfo, enabledTools.Count > 0);
         systemPrompt = SessionManager.AppendSessionNote(systemPrompt, thread);
         systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
         // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).

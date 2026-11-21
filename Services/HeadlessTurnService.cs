@@ -204,7 +204,7 @@ public static class HeadlessTurnService
         {
             warnings.Add("The chat is long enough that the start of it would be summarized first (a model call).");
         }
-        if (prepared.ContextWindow > 0 && characters / 4 > prepared.ContextWindow)
+        if (prepared.ContextWindow > 0 && LlmAddendumService.EstimateTokens(characters) > prepared.ContextWindow)
         {
             warnings.Add("The request is larger than the model's window.");
         }
@@ -226,7 +226,7 @@ public static class HeadlessTurnService
             ["systemPromptChars"] = input.SystemPrompt?.Length ?? 0,
             // What the chat-model prompt style added to the system prompt, and its cost (already counted in the two figures around it).
             ["promptAddendum"] = (prepared.Addendum ?? LlmAddendum.Nothing("")).ToJson(),
-            ["estimatedPromptTokens"] = (int)(characters / 4),
+            ["estimatedPromptTokens"] = LlmAddendumService.EstimateTokens(characters),
             ["contextWindow"] = prepared.ContextWindow,
             ["wouldCompact"] = prepared.WouldCompact,
             ["warnings"] = warnings,

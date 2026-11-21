@@ -108,11 +108,14 @@ public static class PromptStyleEndpoints
         return Task.FromResult(saved ? new JObject { ["success"] = true } : new JObject { ["success"] = false, ["error"] = error });
     }
 
-    /// <summary>Which style a model gets, and why. Request: <c>{ axis (image | llm), model, task? }</c> (<c>model</c> is an image or video model's name, or a chat model's id). Returns <c>{success, found, style?, off, via,
+    /// <summary>Which style a model gets, and why. Request: <c>{ axis (image | llm), model, task?, assistantId?, threadId?, tools? }</c> (<c>model</c> is an image or video model's name, or a chat model's id; <c>task</c> is
+    /// for the image axis's compatibility and is not used for a chat model, whose tasks are those of a chat turn, see <c>tools</c>). Returns <c>{success, found, style?, off, via,
     /// reason, candidates[{id, scope, matched, rank}], model?, addendum?}</c>. <c>found</c> is false when core (or the chat backends) has no such model: the answer then uses only what the name alone can match.
-    /// For the <c>llm</c> axis <c>addendum</c> is what a chat turn on that model would really add to the system prompt, with the switches applied (<c>{applied, styleId, scope, via, reason, chars, estimatedTokens}</c>):
-    /// <c>assistantId</c> (default: the active assistant) is the one whose opt-out and own model-specific instruction are looked at.</summary>
-    public static async Task<JObject> LLMAssistantResolvePromptStyle(Session session, string axis, string model, string task = "", string assistantId = "")
+    /// For the <c>llm</c> axis the answer comes from the very function a chat turn uses (<see cref="LlmAddendumService.DescribeAsync"/>): <c>style</c>, <c>via</c>, <c>reason</c> and <c>candidates</c> are how the style was chosen (switches
+    /// that stop it do not hide it), and <c>addendum</c> is what a chat turn on that model would really add to the system prompt, with the switches applied (<c>{applied, styleId, scope, via, reason, chars, estimatedTokens, warning}</c>).
+    /// <c>assistantId</c> (an assistant that exists; default: the chat's, else the active one) is the one whose opt-out and own model-specific instruction are looked at; <c>threadId</c> adds that chat's own tool switch;
+    /// <c>tools</c> (true or false) says whether to assume the turn sends tools (default: the assistant or chat allows tools and at least one is enabled).</summary>
+    public static async Task<JObject> LLMAssistantResolvePromptStyle(Session session, string axis, string model, string task = "", string assistantId = "", string threadId = "", string tools = "")
     {
         if (!StyleOverride.IsValidAxis(axis))
         {
@@ -122,6 +125,27 @@ public static class PromptStyleEndpoints
         if (model.Length == 0)
         {
             return new JObject { ["success"] = false, ["error"] = "Choose a model." };
+        }
+        JObject settings = SettingsService.GetMergedSettings(session.User);
+        string asst = null;
+        JObject thread = null;
+        if (axis == StyleOverride.AxisLlm)
+        {
+            // A client-supplied id is checked against the user's real assistants, so a made-up one can neither be answered as the default nor add a cache entry.
+            if (!string.IsNullOrWhiteSpace(threadId))
+            {
+                thread = ThreadStorageService.GetThread(session.User, threadId.Trim());
+                if (thread is null)
+                {
+                    return new JObject { ["success"] = false, ["error"] = $"There is no chat '{threadId.Trim()}'." };
+                }
+            }
+            asst = string.IsNullOrWhiteSpace(assistantId) ? thread?["assistantId"]?.ToString() : assistantId.Trim();
+            asst = string.IsNullOrEmpty(asst) ? AssistantService.GetActiveAssistantId(settings, session.User) : asst;
+            if ((settings["assistants"] as JObject)?[asst] is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = $"There is no assistant '{asst}'." };
+            }
         }
         PromptStyleSet set = PromptStyleService.For(session.User);
         List<StyleOverride> rules = PromptStyleService.GetOverrides(session.User);
@@ -141,15 +165,13 @@ public static class PromptStyleEndpoints
         {
             LLMModelInfo info = await LLMModelLookup.GetByIdAsync(model, session);
             found = info is not null;
-            info ??= new LLMModelInfo { Id = model };
-            JObject settings = SettingsService.GetMergedSettings(session.User);
-            // A style the user switched off is not a candidate, as in a real turn, so the style shown here is the one that would be used.
-            AddendumSettings switches = AddendumSettings.From(settings);
-            resolution = PromptStyleResolver.ResolveLlm(set.Styles.Where(s => !switches.Disabled.Contains(s.Id)), rules, info, task);
-            modelJson = new JObject { ["id"] = info.Id, ["family"] = info.Family, ["provider"] = info.Provider };
-            string asst = string.IsNullOrWhiteSpace(assistantId) ? AssistantService.GetActiveAssistantId(settings, session.User) : assistantId.Trim();
-            bool toolsOn = AssistantResolver.Resolve(asst, session.User, settings).ToolsEnabled;
-            addendum = LlmAddendumService.Describe(session.User, settings, asst, null, model, info, toolsOn).ToJson();
+            bool toolsOn = ChatEndpoints.ReadOptionalBool(tools)
+                ?? (ChatEndpoints.EffectiveToolsEnabled(thread ?? [], asst, settings, session.User) && ToolRegistryService.GetEnabledTools(asst, settings, session.User).Count > 0);
+            LlmAddendum described = await LlmAddendumService.DescribeAsync(session, settings, asst, null, model, info, toolsOn, preview: true);
+            LLMModelInfo facts = LlmAddendumService.FactsFor(model, info);
+            resolution = described.Resolution ?? new StyleResolution(null, false, "none", described.Reason, []);
+            modelJson = new JObject { ["id"] = facts.Id, ["family"] = facts.Family, ["provider"] = facts.Provider };
+            addendum = described.ToJson();
         }
         return new JObject
         {

@@ -248,6 +248,9 @@ class LLMAPromptStyles {
             lines.push(a.applied
                 ? `<b class="llma-addendum-state">${translate('Added to the system prompt')}</b>: ${translate('about')} ${a.estimatedTokens} ${translate('tokens')} (${a.chars} ${translate('characters')})`
                 : `<b class="llma-addendum-state">${translate('Nothing is added to the system prompt')}</b>: ${escapeHtml(a.reason)}`);
+            if (a.warning) {
+                lines.push(`<span class="llma-addendum-warning text-warning-emphasis">${escapeHtml(a.warning)}</span>`);
+            }
         }
         out.innerHTML = lines.join('<br>');
     }

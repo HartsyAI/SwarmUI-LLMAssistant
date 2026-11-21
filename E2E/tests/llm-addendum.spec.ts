@@ -8,6 +8,8 @@ const A = 'mock-model';
 const B = 'mock-model-b';
 const OPT_OUT = 'e2e-addendum-optout';
 const VARIANT = 'e2e-addendum-variant';
+const PARENT = 'e2e-addendum-parent';
+const CHILD = 'e2e-addendum-child';
 
 const test = base.extend<{ llm: Page }>({
     llm: async ({ llm }, use) => {
@@ -29,7 +31,7 @@ async function clean(page: Page) {
     }
     await api(page, 'LLMAssistantSetStyleOverrides', { overrides: [] });
     await api(page, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptStyles: { llmAddenda: true, disabled: [] } }) });
-    for (let id of [OPT_OUT, VARIANT]) {
+    for (let id of [CHILD, PARENT, OPT_OUT, VARIANT]) {
         await api(page, 'LLMAssistantDeleteAssistant', { assistantId: id });
     }
     await clearRequests();
@@ -191,7 +193,7 @@ test('the dry run reports the addendum and its tokens, which are inside the prom
     let body = 'Tighter tool-call rules for a small model. '.repeat(20).trim();
     await saveStyle(llm, 'for-a', `exact:${A}`, body);
     let withStyle = await api(llm, 'LLMAssistantRunTurn', { message: 'just looking', model: A, dryRun: true });
-    expect(withStyle.promptAddendum).toMatchObject({ applied: true, styleId: 'for-a', scope: 'personal', via: 'match', chars: body.length + 2, estimatedTokens: Math.ceil((body.length + 2) / 4) });
+    expect(withStyle.promptAddendum).toMatchObject({ applied: true, styleId: 'for-a', scope: 'personal', via: 'match', chars: body.length + 2, estimatedTokens: Math.floor((body.length + 2) / 4) });
     expect(withStyle.systemPromptChars - plain.systemPromptChars).toBe(body.length + 2);
     expect(withStyle.estimatedPromptTokens).toBeGreaterThan(plain.estimatedPromptTokens);
     // Nothing was called by a dry run.
@@ -260,6 +262,93 @@ test('an assistant can opt out in its editor, and the saved choice is kept', asy
     expect((await api(llm, 'LLMAssistantGetAssistant', { assistantId: OPT_OUT })).assistant.promptAddendum).toBe(false);
     await llm.locator('#llma-settings-btn').click();
     await expect(llm.locator('#llma-asst-prompt-addendum')).toHaveCount(1);
+});
+
+test('the preview answers with the same decision a turn makes: tools, switched-off styles, rules, the assistant, a size warning', async ({ llm }) => {
+    await saveStyle(llm, 'tools-only', `exact:${A}`, 'TOOL RULES.', { tasks: 'tools' });
+    let resolve = (extra: Record<string, unknown> = {}) => api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A, ...extra });
+    // The default assistant offers tools; the preview can be told otherwise, and a chat's own tools switch is read.
+    expect((await resolve()).addendum.applied).toBe(true);
+    expect((await resolve({ tools: 'false' })).addendum.applied).toBe(false);
+    expect((await resolve({ tools: 'false' })).style).toBeNull();
+    expect((await resolve({ tools: 'true' })).style.id).toBe('tools-only');
+
+    // A rule that pins the model to a style that is switched off: nothing is added, and the reason says why (not "does not exist", and no other style).
+    await saveStyle(llm, 'mine', 'glob:nothing-matches-*', 'MINE.');
+    await api(llm, 'LLMAssistantSetStyleOverrides', { overrides: [{ axis: 'llm', match: A, style: 'mine' }] });
+    expect((await resolve()).addendum.applied).toBe(true);
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptStyles: { disabled: ['mine'] } }) });
+    let pinned = await resolve();
+    expect(pinned.addendum.applied).toBe(false);
+    expect(pinned.addendum.reason).toContain("'mine'");
+    expect(pinned.addendum.reason).toContain('switched off');
+    expect(pinned.addendum.reason).not.toContain('does not exist');
+    expect(await systemPromptFor(llm, A)).not.toContain('TOOL RULES.');
+    expect(await systemPromptFor(llm, A)).not.toContain('MINE.');
+
+    // The style is still named when a master switch stops it.
+    await api(llm, 'LLMAssistantSetStyleOverrides', { overrides: [] });
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptStyles: { disabled: [], llmAddenda: false } }) });
+    let off = await resolve();
+    expect(off.style.id).toBe('tools-only');
+    expect(off.addendum.applied).toBe(false);
+    expect(off.addendum.reason).toContain('switched off');
+});
+
+test('an assistant or chat that does not exist is an error, not the default, and a made-up id leaves nothing behind', async ({ llm }) => {
+    let unknown = await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A, assistantId: 'no-such-assistant' });
+    expect(unknown.success).toBe(false);
+    expect(unknown.error).toContain('no-such-assistant');
+    let noChat = await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A, threadId: 'no-such-chat' });
+    expect(noChat.success).toBe(false);
+    // A real chat is read for its assistant.
+    let made = await api(llm, 'LLMAssistantRunTurn', { message: 'make a chat', model: A });
+    expect(made.success, JSON.stringify(made)).toBe(true);
+    let known = await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A, threadId: made.threadId });
+    expect(known.success, JSON.stringify(known)).toBe(true);
+});
+
+test('a chat-model style over the size limit is refused, and a large one warns in the preview', async ({ llm }) => {
+    let refused = await api(llm, 'LLMAssistantSavePromptStyle', { id: 'too-big', kind: 'llm', matches: `exact:${A}`, body: 'x'.repeat(6145) });
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain('6144');
+    // The same text is fine for an image style.
+    expect((await api(llm, 'LLMAssistantSavePromptStyle', { id: 'big-image', kind: 'image', matches: 'glob:*zzz*', body: 'x'.repeat(6145) })).success).toBe(true);
+    await saveStyle(llm, 'large', `exact:${A}`, 'word '.repeat(500).trim());
+    let preview = await api(llm, 'LLMAssistantResolvePromptStyle', { axis: 'llm', model: A });
+    expect(preview.addendum.estimatedTokens).toBeGreaterThanOrEqual(500);
+    expect(preview.addendum.warning).toContain('tokens');
+    expect(await systemPromptFor(llm, A)).toContain('word word');
+});
+
+test('editing a child assistant does not override its parent\'s opt-out, and the editor shows what is inherited', async ({ llm }) => {
+    await saveAssistant(llm, PARENT, { promptAddendum: false });
+    await saveAssistant(llm, CHILD, { extends: PARENT, description: 'first' });
+    let listed = (await api(llm, 'LLMAssistantGetAssistants')).assistants;
+    expect(listed.find((a: any) => a.id == CHILD)._effectivePromptAddendum).toBe(false);
+
+    await llm.evaluate(async () => { await (window as any).llmaLoadAssistants?.(); });
+    await llm.locator('#llma-settings-btn').click();
+    await llm.locator('.llma-modal-tab[data-tab="assistants"]').click();
+    await llm.evaluate((id) => { (0, eval)('llmaShowAssistantEditor')((0, eval)('LLMAState').assistants.find((a: any) => a.id == id)); }, CHILD);
+    let box = llm.locator('#llma-asst-prompt-addendum');
+    await expect(box).not.toBeChecked();
+    await expect(llm.locator('#llma-asst-prompt-addendum-hint')).toContainText('Inherited from');
+    await expect(llm.locator('#llma-asst-prompt-addendum-hint')).toContainText('off');
+    // Change something else and save: the child still has no value of its own.
+    await llm.locator('#llma-asst-desc').fill('edited by the e2e');
+    await llm.locator('#llma-asst-save').click();
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id == CHILD).description).toBe('edited by the e2e');
+    let child = (await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id == CHILD);
+    expect(child.promptAddendum).toBeUndefined();
+    expect(child._effectivePromptAddendum).toBe(false);
+
+    // Touching the box makes it the child's own value.
+    await llm.evaluate((id) => { (0, eval)('llmaShowAssistantEditor')((0, eval)('LLMAState').assistants.find((a: any) => a.id == id)); }, CHILD);
+    await llm.locator('#llma-asst-prompt-addendum').check();
+    await llm.locator('#llma-asst-save').click();
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id == CHILD).promptAddendum).toBe(true);
+    expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id == CHILD)._effectivePromptAddendum).toBe(true);
 });
 
 test('the chat-model section fits a phone width without scrolling sideways', async ({ llm }) => {

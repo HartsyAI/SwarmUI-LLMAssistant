@@ -1385,6 +1385,11 @@ function llmaSetupSettingsModal() {
             tmplSelect.value = '';
         });
     }
+    document.getElementById('llma-asst-prompt-addendum')?.addEventListener('change', () => {
+        LLMAState._editingPromptAddendumTouched = true;
+        llmaRefreshPromptAddendumBox();
+    });
+    document.getElementById('llma-asst-extends')?.addEventListener('change', llmaRefreshPromptAddendumBox);
     document.getElementById('llma-asst-tools-enabled')?.addEventListener('change', (e) => {
         llmaUpdateAssistantToolsChecklistState(e.target.checked);
     });
@@ -1771,10 +1776,14 @@ function llmaShowAssistantEditor(assistant) {
     llmaSetEl('llma-asst-top-p',       assistant?.parameters?.topP ?? '');
 
     // Per-assistant opt-out of the chat-model prompt style (Settings > Prompt styles). Defaults to on.
+    // Only written on save when this assistant already had its own value or the user changed the box, so editing something else never overrides what a parent says.
+    LLMAState._editingPromptAddendumOwn = typeof assistant?.promptAddendum === 'boolean';
+    LLMAState._editingPromptAddendumTouched = false;
     const promptAddendumBox = document.getElementById('llma-asst-prompt-addendum');
     if (promptAddendumBox) {
-        promptAddendumBox.checked = assistant?.promptAddendum !== false;
+        promptAddendumBox.checked = LLMAState._editingPromptAddendumOwn ? assistant.promptAddendum : true;
     }
+    llmaRefreshPromptAddendumBox();
 
     // Master tool-calling switch (separate from which tools are checked below — this is whether ANY
     // tool system prompt is injected at all). Defaults to on for new/unset assistants.
@@ -1824,6 +1833,21 @@ function llmaParseInstructionsForEditor(rawInstructions) {
     return out;
 }
 
+// Shows what the parent assistant says about the chat-model prompt style when this assistant has no value of its own, and keeps the box in step with the chosen parent until the user touches it.
+function llmaRefreshPromptAddendumBox() {
+    const box = document.getElementById('llma-asst-prompt-addendum');
+    const hint = document.getElementById('llma-asst-prompt-addendum-hint');
+    if (!box) return;
+    if (LLMAState._editingPromptAddendumOwn || LLMAState._editingPromptAddendumTouched) {
+        if (hint) hint.textContent = '';
+        return;
+    }
+    const parent = LLMAState.assistants.find(a => a.id === (document.getElementById('llma-asst-extends')?.value || ''));
+    const inherited = parent ? parent._effectivePromptAddendum !== false : true;
+    box.checked = inherited;
+    if (hint) hint.textContent = parent ? `${translate('Inherited from')} ${parent.name}: ${inherited ? translate('on') : translate('off')}` : '';
+}
+
 // Populates the "Extends" dropdown with every assistant except the one being edited
 // (preventing self-parenting). Cycles further down the chain are caught by the resolver.
 function llmaPopulateExtendsDropdown(assistant) {
@@ -1868,7 +1892,9 @@ async function llmaSaveAssistantFromEditor() {
     if (topP?.value) assistant.parameters.topP = parseFloat(topP.value);
 
     assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
-    assistant.promptAddendum = document.getElementById('llma-asst-prompt-addendum')?.checked !== false;
+    if (LLMAState._editingPromptAddendumOwn || LLMAState._editingPromptAddendumTouched) {
+        assistant.promptAddendum = document.getElementById('llma-asst-prompt-addendum')?.checked !== false;
+    }
     // Omitted list = inherit from parent; only send when explicit or touched.
     if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {
         assistant.enabledToolIds = llmaReadAssistantEnabledToolIds();

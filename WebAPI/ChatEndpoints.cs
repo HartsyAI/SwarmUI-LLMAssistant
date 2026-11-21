@@ -1140,7 +1140,7 @@ public static class ChatEndpoints
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
                 string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
                 // Each lane gets the chat-model style of its own model (the same call as a single-model turn makes in TurnSetupService).
-                systemPrompt = LlmAddendumService.Apply(systemPrompt, session.User, settings, assistantId, instructionId, L.Model, modelInfo, toolsOn, out _);
+                systemPrompt = (await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, L.Model, modelInfo, enabledTools.Count > 0)).Prompt;
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);

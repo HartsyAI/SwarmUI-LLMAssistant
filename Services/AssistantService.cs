@@ -119,6 +119,7 @@ public static class AssistantService
         ResolvedAssistant resolved = AssistantResolver.Resolve(id, user, settings);
         entry["_effectiveToolIds"] = new JArray(resolved.EnabledToolIds.OrderBy(t => t).Cast<object>().ToArray());
         entry["_effectiveToolsEnabled"] = resolved.ToolsEnabled;
+        entry["_effectivePromptAddendum"] = resolved.PromptAddendum;
         if (entry["_scope"]?.ToString() == SettingsService.ScopePersonal && sharedAssistants?.ContainsKey(id) == true)
         {
             entry["_hasSharedCounterpart"] = true;

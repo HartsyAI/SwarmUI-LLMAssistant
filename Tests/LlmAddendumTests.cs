@@ -1,6 +1,7 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
+using HartsyInference.Engine.Requests;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -221,19 +222,17 @@ public sealed class LlmAddendumTests
     // ---- the cost ----
 
     [Fact]
-    public void TheTokenEstimateCountsTheTextAndItsSeparatorAsTheDryRunDoes()
+    public void TheTokenEstimateIsCharactersOverFourOfWhatIsAdded()
     {
         string body = new('x', 397);
         LlmAddendum add = Resolve([Style("qwen", "family:qwen3", body)], Model("q", "qwen3"));
         Assert.Equal(399, add.Chars);
-        Assert.Equal(100, add.EstimatedTokens);
-        string result = LlmAddendumService.Append("S", add);
-        // The prompt grew by the separator and the text; the estimate is characters over four, rounded up.
-        Assert.Equal("S".Length + add.Chars, result.Length);
+        Assert.Equal(99, add.EstimatedTokens);
+        Assert.Equal("S".Length + add.Chars, LlmAddendumService.Append("S", add).Length);
         Assert.Equal(0, Resolve([], Model("q")).EstimatedTokens);
         JObject json = add.ToJson();
         Assert.True((bool)json["applied"]);
-        Assert.Equal(100, (int)json["estimatedTokens"]);
+        Assert.Equal(99, (int)json["estimatedTokens"]);
         Assert.Equal("qwen", (string)json["styleId"]);
     }
 
@@ -262,7 +261,7 @@ public sealed class LlmAddendumTests
         Assert.Equal(-1, variants.MatchedVariantSpecificity("prompt", Model("qwen3-8b", "qwen3")));
     }
 
-    // ---- the wiring: one call, in the right place, in every path that builds a chat turn ----
+    // ---- the wiring: the call is in the right place in every path that builds a chat turn (the behaviour itself is checked end to end in E2E/tests/llm-addendum.spec.ts) ----
 
     private static string Read(params string[] parts)
     {
@@ -274,37 +273,248 @@ public sealed class LlmAddendumTests
         return File.ReadAllText(Path.Combine([dir!.FullName, .. parts]));
     }
 
+    /// <summary>The position of the first <paramref name="token"/> at or after <paramref name="from"/>, or -1. Tokens are method names only, so a change to a call's arguments does not matter.</summary>
+    private static int At(string source, string token, int from = 0) => source.IndexOf(token, from, StringComparison.Ordinal);
+
     [Fact]
-    public void TurnSetupAddsTheAddendumRightAfterTheInstructionAndBeforeAnythingElseIsAppended()
+    public void TurnSetupAddsTheAddendumAfterTheInstructionAndTheFinalToolListAndBeforeAnythingElseIsAppended()
     {
         string source = Read("Services", "TurnSetupService.cs");
-        int instruction = source.IndexOf("ResolveInstructionForRequest(", StringComparison.Ordinal);
-        int addendum = source.IndexOf("LlmAddendumService.Apply(", StringComparison.Ordinal);
-        Assert.True(instruction > 0 && addendum > instruction, "The addendum is added after the instruction is resolved.");
-        foreach (string later in new[] { "AppendSessionNote(", "PromptAssetService.AppendIndex(", "ProjectInstructionsService.Append(", "CompactionDue(", "AutoCompactIfDueAsync(" })
+        int instruction = At(source, "ResolveInstructionForRequest(");
+        int narrowed = At(source, "NarrowTools(");
+        int addendum = At(source, "LlmAddendumService.ApplyAsync(");
+        Assert.True(instruction > 0 && narrowed > instruction && addendum > narrowed, "The addendum is added after the instruction is resolved and the tools the turn will really send are known.");
+        foreach (string later in new[] { "AppendSessionNote(", "PromptAssetService.AppendIndex(", "ProjectInstructionsService.Append(", "CompactionDue(", "AutoCompactIfDueAsync(", "AttachTools(" })
         {
-            Assert.True(source.IndexOf(later, StringComparison.Ordinal) > addendum, $"The addendum comes before {later}");
+            Assert.True(At(source, later) > addendum, $"The addendum comes before {later}");
         }
-        Assert.Single(System.Text.RegularExpressions.Regex.Matches(source, "LlmAddendumService\\."));
-        Assert.Contains("new PreparedTurn(", source);
-        Assert.Contains("addendum)", source[source.IndexOf("new PreparedTurn(", StringComparison.Ordinal)..]);
+        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(source, "LlmAddendumService\\.").Count);
+        Assert.Contains("enabledTools.Count > 0", source[addendum..source.IndexOf(';', addendum)]);
     }
 
     [Fact]
-    public void EachLaneOfACompareTurnAddsTheAddendumOfItsOwnModel()
+    public void EachLaneOfACompareTurnAddsTheAddendumOfItsOwnModelAfterItsInstruction()
     {
         string source = Read("WebAPI", "ChatEndpoints.cs");
-        int lane = source.IndexOf("async Task RunLane(int lane)", StringComparison.Ordinal);
-        int instruction = source.IndexOf("ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo)", lane, StringComparison.Ordinal);
-        int addendum = source.IndexOf("LlmAddendumService.Apply(systemPrompt, session.User, settings, assistantId, instructionId, L.Model, modelInfo, toolsOn", instruction, StringComparison.Ordinal);
-        int index = source.IndexOf("PromptAssetService.AppendIndex(", instruction, StringComparison.Ordinal);
+        int lane = At(source, "async Task RunLane(int lane)");
+        int instruction = At(source, "ResolveInstructionForRequest(", lane);
+        int addendum = At(source, "LlmAddendumService.ApplyAsync(", instruction);
+        int index = At(source, "PromptAssetService.AppendIndex(", instruction);
         Assert.True(lane > 0 && instruction > lane && addendum > instruction && index > addendum, "A lane adds its own model's addendum right after its instruction.");
+        string call = source[addendum..source.IndexOf(';', addendum)];
+        Assert.Contains("L.Model", call);
+        Assert.Contains("enabledTools.Count > 0", call);
     }
 
     [Fact]
-    public void TheDryRunReportsTheAddendumAndItsTokens()
+    public void TheDryRunReportsTheAddendumAndUsesTheSameEstimatorForItsTotals()
     {
         string source = Read("Services", "HeadlessTurnService.cs");
-        Assert.Contains("[\"promptAddendum\"] = (prepared.Addendum ?? LlmAddendum.Nothing(\"\")).ToJson()", source);
+        Assert.Contains("promptAddendum", source);
+        Assert.Contains("prepared.Addendum", source);
+        Assert.Contains("LlmAddendumService.EstimateTokens(characters)", source);
+        Assert.DoesNotContain("characters / 4", source);
     }
+
+    [Fact]
+    public void TheAssistantEditorOnlyWritesItsOwnValueWhenItHadOneOrTheUserChangedIt()
+    {
+        string script = Read("Assets", "llmassistant.js");
+        int save = At(script, "async function llmaSaveAssistantFromEditor");
+        int write = At(script, "assistant.promptAddendum =", save);
+        Assert.True(save > 0 && write > save);
+        string guard = script[Math.Max(save, write - 160)..write];
+        Assert.Contains("_editingPromptAddendumOwn", guard);
+        Assert.Contains("_editingPromptAddendumTouched", guard);
+    }
+
+    // ---- what a turn is told about, as the real function decides it ----
+
+    [Fact]
+    public void AChildAssistantInheritsAParentsOptOutUnlessItSaysOtherwise()
+    {
+        string parent = "p" + Guid.NewGuid().ToString("N")[..8];
+        string inherits = "c" + Guid.NewGuid().ToString("N")[..8];
+        string overrides = "o" + Guid.NewGuid().ToString("N")[..8];
+        JObject settings = JObject.Parse("{\"assistants\":{\"" + parent + "\":{\"name\":\"P\",\"promptAddendum\":false},\"" + inherits + "\":{\"name\":\"C\",\"extends\":\"" + parent
+            + "\"},\"" + overrides + "\":{\"name\":\"O\",\"extends\":\"" + parent + "\",\"promptAddendum\":true}}}");
+        Assert.False(AssistantResolver.Resolve(parent, null, settings).PromptAddendum);
+        Assert.False(AssistantResolver.Resolve(inherits, null, settings).PromptAddendum);
+        Assert.True(AssistantResolver.Resolve(overrides, null, settings).PromptAddendum);
+    }
+
+    [Fact]
+    public void ARuleThatPointsAtASwitchedOffStyleAddsNothingAndSaysSo()
+    {
+        PromptStyle qwen = Style("qwen", "family:qwen3", "Qwen note.");
+        PromptStyle mine = Style("mine", "", "Mine.");
+        LLMModelInfo model = Model("qwen3-8b", "qwen3");
+        StyleOverride rule = new("llm", "qwen3-*", "mine");
+        LlmAddendum none = Resolve([qwen, mine], model, rules: [rule], settings: new AddendumSettings(true, ["mine"]));
+        Assert.False(none.Applied);
+        Assert.Equal("mine", none.StyleId);
+        Assert.Equal("override", none.Via);
+        Assert.Contains("'mine'", none.Reason);
+        Assert.Contains("switched off", none.Reason);
+        Assert.DoesNotContain("does not exist", none.Reason);
+        // Not a different style the user did not choose: the family style would have matched without the rule.
+        Assert.Equal("Qwen note.", Resolve([qwen, mine], model).Text);
+        // A rule for another model is unaffected.
+        Assert.Equal("Qwen note.", Resolve([qwen, mine], model, rules: [new StyleOverride("llm", "llama-*", "mine")], settings: new AddendumSettings(true, ["mine"])).Text);
+        // A rule naming a style that does not exist still falls through, and says so.
+        LlmAddendum ghost = Resolve([qwen], model, rules: [new StyleOverride("llm", "qwen3-8b", "ghost")]);
+        Assert.True(ghost.Applied);
+        Assert.Contains("does not exist", ghost.Reason);
+    }
+
+    [Fact]
+    public void ThePreviewStillSaysWhichStyleAModelGetsWhenASwitchStopsIt()
+    {
+        PromptStyle qwen = Style("qwen", "family:qwen3", "Qwen note.");
+        LLMModelInfo model = Model("q", "qwen3");
+        LlmAddendum off = LlmAddendumService.Resolve([qwen], [], model, LlmAddendumService.TasksFor(false), new AddendumSettings(false, []), true, -1, resolveWhenOff: true);
+        Assert.False(off.Applied);
+        Assert.Contains("switched off", off.Reason);
+        Assert.Equal("qwen", off.StyleId);
+        Assert.Equal("qwen", off.Resolution.Style.Id);
+        LlmAddendum optOut = LlmAddendumService.Resolve([qwen], [], model, LlmAddendumService.TasksFor(false), AddendumSettings.Default, false, -1, resolveWhenOff: true);
+        Assert.False(optOut.Applied);
+        Assert.Equal("qwen", optOut.Resolution.Style.Id);
+        // A turn (not a preview) never looks.
+        Assert.Null(LlmAddendumService.Resolve([qwen], [], model, LlmAddendumService.TasksFor(false), new AddendumSettings(false, [])).Resolution);
+    }
+
+    // ---- sizes ----
+
+    [Fact]
+    public void TheNumbersAreWhatWasReallyAppendedAndOneEstimatorIsUsed()
+    {
+        LlmAddendum add = Resolve([Style("qwen", "family:qwen3", new string('x', 397))], Model("q", "qwen3"));
+        foreach ((string before, int delta) in new (string, int)[] { ("S", 399), ("", 397), ("S\n\n\n", 396), (null, 397) })
+        {
+            string after = LlmAddendumService.Append(before, add);
+            LlmAddendum measured = LlmAddendumService.Measured(add, before, after);
+            Assert.Equal(delta, measured.Chars);
+            Assert.Equal(Math.Max(0, (after?.Length ?? 0) - (before?.Length ?? 0)), measured.Chars);
+            Assert.Equal(LlmAddendumService.EstimateTokens(measured.Chars), measured.EstimatedTokens);
+        }
+        Assert.Equal(99, LlmAddendumService.EstimateTokens(399));
+        Assert.Equal(0, LlmAddendumService.EstimateTokens(3));
+        LlmAddendum nothing = LlmAddendum.Nothing("x");
+        Assert.Same(nothing, LlmAddendumService.Measured(nothing, "S", "S"));
+    }
+
+    [Fact]
+    public void AStyleOverTheCapIsRefusedWhenSavedNeverAddedWhenRead_AndALargeOneWarns()
+    {
+        string atCap = new('x', LlmAddendumService.MaxChars);
+        Assert.Null(PromptStyleService.Validate(Style("ok", "family:qwen3", atCap)));
+        PromptStyle tooBig = Style("big", "family:qwen3", atCap + "y");
+        Assert.Contains("characters", PromptStyleService.Validate(tooBig));
+        // The same text in an image style is not limited by this rule.
+        PromptStyle image = new("img", "image", "img", "d", [], "text", "", "none", [], [], "", atCap + "y", "personal");
+        Assert.Null(PromptStyleService.Validate(image));
+        // A file that got past the check is not added.
+        LlmAddendum refused = Resolve([tooBig], Model("q", "qwen3"));
+        Assert.False(refused.Applied);
+        Assert.Contains("longer than", refused.Reason);
+        // A large (but allowed) one warns in the preview.
+        Assert.Null(Resolve([Style("small", "family:qwen3", "Short.")], Model("q", "qwen3")).Warning);
+        LlmAddendum large = Resolve([Style("large", "family:qwen3", new string('x', LlmAddendumService.WarnTokens * 4))], Model("q", "qwen3"));
+        Assert.True(large.Applied);
+        Assert.Contains("tokens", large.Warning);
+        Assert.NotNull(large.ToJson()["warning"]?.ToString());
+    }
+
+    // ---- when no backend lists the model ----
+
+    [Fact]
+    public void AListingThatFailsDoesNotChangeWhichStyleAModelGets()
+    {
+        PromptStyle family = Style("family", "family:qwen3", "By family.");
+        PromptStyle glob = Style("glob", "glob:*-8b", "By name.");
+        string id = "outage-" + Guid.NewGuid().ToString("N")[..8] + "-8b";
+        // Listed once: the family condition wins.
+        LLMModelInfo listed = LlmAddendumService.FactsFor(id, Model(id, "qwen3"));
+        Assert.Equal("By family.", Resolve([family, glob], listed).Text);
+        // The listing then fails (nothing found for the id): what was last known is used, so the style does not flip to the name glob.
+        LLMModelInfo during = LlmAddendumService.FactsFor(id, null);
+        Assert.Equal("qwen3", during.Family);
+        Assert.Equal("By family.", Resolve([family, glob], during).Text);
+        // A model never seen still resolves by id and name glob.
+        LLMModelInfo never = LlmAddendumService.FactsFor("never-seen-" + Guid.NewGuid().ToString("N")[..8] + "-8b", null);
+        Assert.Null(never.Family);
+        Assert.Equal("By name.", Resolve([family, glob], never).Text);
+        Assert.Equal("", LlmAddendumService.FactsFor(null, null).Id);
+    }
+
+    [Fact]
+    public void WhatWasLastKnownIsBounded()
+    {
+        for (int i = 0; i < 600; i++)
+        {
+            LlmAddendumService.FactsFor("bounded-" + i, Model("bounded-" + i, "f"));
+        }
+        // Still answers for a recent model and for an unknown one.
+        Assert.Equal("f", LlmAddendumService.FactsFor("bounded-599", null).Family);
+        Assert.Null(LlmAddendumService.FactsFor("bounded-unknown-x", null).Family);
+    }
+}
+
+/// <summary>Which model answers a request that names none. The registry is process-wide, so these run apart from every other test and put it back as it was.</summary>
+[Collection("LLMProviderRegistry")]
+public sealed class EffectiveModelTests
+{
+    private sealed class Provider(string id, string defaultModel, params string[] models) : ILLMProvider
+    {
+        public string Id => id;
+        public string DisplayName => id;
+        public string DefaultModelId => defaultModel;
+        public Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default) => Task.FromResult(models.Select(m => new LLMModelInfo { Id = m }).ToList());
+        public Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default) => Task.FromResult("");
+        public Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct) => Task.CompletedTask;
+        public int? CountTokens(string text) => null;
+        public Task<bool> Unload() => Task.FromResult(false);
+        public IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, CancellationToken ct) => throw new NotSupportedException();
+    }
+
+    private static async Task<string> WithProviders(ILLMProvider[] providers, string model)
+    {
+        List<ILLMProvider> before = [.. LLMProviderRegistry.All];
+        foreach (ILLMProvider p in before)
+        {
+            LLMProviderRegistry.Unregister(p.Id);
+        }
+        foreach (ILLMProvider p in providers)
+        {
+            LLMProviderRegistry.Register(p);
+        }
+        try
+        {
+            return await LLMModelLookup.ResolveEffectiveModelIdAsync(model);
+        }
+        finally
+        {
+            foreach (ILLMProvider p in providers)
+            {
+                LLMProviderRegistry.Unregister(p.Id);
+            }
+            foreach (ILLMProvider p in before)
+            {
+                LLMProviderRegistry.Register(p);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ANamedModelIsTheOneThatAnswers() => Assert.Equal("named-model", await WithProviders([new Provider("t1", "its-default", "listed")], "  named-model "));
+
+    [Fact]
+    public async Task ARequestWithNoModelGetsTheProvidersDefault() => Assert.Equal("its-default", await WithProviders([new Provider("t2", " its-default ", "listed")], ""));
+
+    [Fact]
+    public async Task AProviderWithNoDefaultFallsBackToTheFirstModelAnyProviderLists() => Assert.Equal("first-listed", await WithProviders([new Provider("t3", null, "first-listed", "second")], null));
+
+    [Fact]
+    public async Task WithNoBackendAtAllTheAnswerIsEmptyAndNothingBreaks() => Assert.Equal("", await WithProviders([], ""));
 }
