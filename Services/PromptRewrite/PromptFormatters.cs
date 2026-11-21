@@ -60,7 +60,8 @@ public static class PromptFormatters
     /// <summary>Removes a reasoning block, a code fence and a lead-in line the model put around its answer, and trims it. What is left is the answer itself.</summary>
     public static string StripWrapping(string raw)
     {
-        string text = Regex.Replace(raw ?? "", @"<think>.*?</think>", "", RegexOptions.Singleline | RegexOptions.IgnoreCase).Trim();
+        ThinkSpanFilter think = new();
+        string text = (think.Feed(raw) + think.Flush()).Trim();
         Match fence = Regex.Match(text, @"^```[A-Za-z0-9_-]*\s*\n(.*?)\n?```\s*$", RegexOptions.Singleline);
         if (fence.Success)
         {
@@ -79,10 +80,6 @@ public sealed class TextFormatter : IPromptFormatter
     /// <inheritdoc/>
     public FormatOutcome Normalize(string raw, PromptStyle style)
     {
-        if ((raw ?? "").Contains("<think>", StringComparison.OrdinalIgnoreCase) && !raw.Contains("</think>", StringComparison.OrdinalIgnoreCase))
-        {
-            return FormatOutcome.Fail("it ended inside its reasoning without giving a prompt");
-        }
         string text = PromptFormatters.StripWrapping(raw);
         string[] lines = text.Split('\n');
         if (lines.Length > 1 && Regex.IsMatch(lines[0].Trim(), @"^(here( is|'s)|sure|certainly|okay|ok)\b.*:\s*$", RegexOptions.IgnoreCase))
@@ -93,7 +90,7 @@ public sealed class TextFormatter : IPromptFormatter
         {
             text = text[1..^1].Trim();
         }
-        return text.Length == 0 ? FormatOutcome.Fail("it was empty") : FormatOutcome.Ok(text);
+        return text.Length == 0 ? FormatOutcome.Fail("it was empty (a reply that is only reasoning counts as empty)") : FormatOutcome.Ok(text);
     }
 
     /// <inheritdoc/>
@@ -143,7 +140,8 @@ public sealed class TagsFormatter : IPromptFormatter
     private static int Count(string text, char c) => text.Count(x => x == c);
 }
 
-/// <summary>A style that wants JSON but names no formatter of its own: the answer must be one JSON object, and is written back compact. No keys are checked, only that it parses.</summary>
+/// <summary>A style that wants JSON but names no formatter of its own: the answer must be one JSON object, and is written back compact. No keys are checked, only that it parses. The schema is unknown, so a failed
+/// rewrite is never wrapped (the user's wording is left as it was, with a warning) rather than put under a key the model may not understand.</summary>
 public sealed class JsonFormatter : IPromptFormatter
 {
     /// <inheritdoc/>
@@ -157,7 +155,7 @@ public sealed class JsonFormatter : IPromptFormatter
     }
 
     /// <inheritdoc/>
-    public string Wrap(string original) => new JObject { ["prompt"] = original }.ToString(Formatting.None);
+    public string Wrap(string original) => null;
 }
 
 /// <summary>Ideogram 4's structured caption: checks the shape against the guide, puts the keys in the order the model was trained on, clamps boxes to the 0 to 1000 grid, writes colors as uppercase <c>#RRGGBB</c> and writes the

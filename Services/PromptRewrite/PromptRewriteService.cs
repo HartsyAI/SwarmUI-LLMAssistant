@@ -75,7 +75,7 @@ public static class PromptRewriteService
             {
                 RewriteResult fresh = await PromptRewriter.RunAsync(style, request, settings, generate, CancellationToken.None);
                 return fresh.FellBack || fresh.Skipped is not null ? throw new NotCachedException(fresh) : fresh.ToCacheJson();
-            }).WaitAsync(ct);
+            }, timeoutMs: SharedWaitMs(settings)).WaitAsync(ct);
             return RewriteResult.FromCacheJson(json) ?? await PromptRewriter.RunAsync(style, request, settings, generate, ct);
         }
         catch (NotCachedException ex)
@@ -83,6 +83,9 @@ public static class PromptRewriteService
             return ex.Result;
         }
     }
+
+    /// <summary>How long a caller may wait on a call another caller started: both attempts and the negative request, each up to the timeout, plus a margin, so a waiter never gives up before the call can.</summary>
+    private static int SharedWaitMs(RewriteSettings settings) => (settings.TimeoutSeconds * 3 + 15) * 1000;
 
     /// <summary>Forgets every kept rewrite (for tests).</summary>
     internal static void ClearCache() => Cache.Clear();

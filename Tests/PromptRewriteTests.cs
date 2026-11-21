@@ -93,7 +93,7 @@ public class PromptRewriteTests
         Assert.Equal("a red fox", f.Normalize("Here is the prompt:\n\"a red fox\"", Style()).Text);
         Assert.Equal("a red fox", f.Normalize("<think>hmm</think>\na red fox", Style()).Text);
         Assert.NotNull(f.Normalize("   ", Style()).Error);
-        Assert.Contains("reasoning", f.Normalize("<think>still thinking", Style()).Error);
+        Assert.Contains("only reasoning", f.Normalize("<think>still thinking", Style()).Error);
     }
 
     [Fact]
@@ -331,6 +331,50 @@ public class PromptRewriteTests
         Assert.Contains("no prompt", (await PromptRewriter.RunAsync(Style(), Request("  "), Settings, model.Ask, default)).Skipped);
         Assert.Contains("longer than", (await PromptRewriter.RunAsync(Style(), Request(new string('a', PromptRewriter.MaxPromptChars + 1)), Settings, model.Ask, default)).Skipped);
         Assert.Empty(model.Calls);
+    }
+
+    [Fact]
+    public async Task AProviderThatIgnoresItsCancellationTokenStillTimesOut()
+    {
+        RewriteGenerate deaf = (_, _, _) => new TaskCompletionSource<LLMGenerateResult>().Task;
+        RewriteResult result = await PromptRewriter.RunAsync(Style(), Request("cat"), new RewriteSettings("", 1, 2048, 0.4), deaf, default);
+        Assert.True(result.FellBack);
+        Assert.Contains(result.Warnings, w => w.Contains("longer than 1 seconds"));
+    }
+
+    [Fact]
+    public async Task ProseAroundEmbeddedJsonIsNotMistakenForAnAlreadyFormattedPrompt()
+    {
+        Scripted model = new(GoodIdeogram);
+        string prompt = "a neon sign that reads " + """{"compositional_deconstruction":{"background":"x","elements":[]}}""" + " in the rain";
+        RewriteResult result = await PromptRewriter.RunAsync(Ideogram(), Request(prompt), Settings, model.Ask, default);
+        Assert.Null(result.Skipped);
+        Assert.Single(model.Calls);
+    }
+
+    [Fact]
+    public async Task APromptThatContainsTheReservedPlaceholderTextIsLeftAlone()
+    {
+        Scripted model = new("x");
+        RewriteResult result = await PromptRewriter.RunAsync(Style(), Request("a cat {{SWARM_TAG_0}} <lora:x>"), Settings, model.Ask, default);
+        Assert.Contains("reserved text", result.Skipped);
+        Assert.Equal("a cat {{SWARM_TAG_0}} <lora:x>", result.Text);
+        Assert.Empty(model.Calls);
+    }
+
+    [Fact]
+    public async Task AJsonStyleWithNoFormatterIsNeverWrappedOnFailureAndAHugeNegativeIsNotSent()
+    {
+        Scripted bad = new("nope", "nope");
+        RewriteResult result = await PromptRewriter.RunAsync(Style("json"), Request("a cat"), Settings, bad.Ask, default);
+        Assert.True(result.FellBack);
+        Assert.Equal("a cat", result.Text);
+
+        Scripted model = new("A cat.");
+        RewriteResult big = await PromptRewriter.RunAsync(Style(negative: "separate"), Request("cat", negative: new string('x', PromptRewriter.MaxPromptChars + 1)), Settings, model.Ask, default);
+        Assert.True(big.Rewritten);
+        Assert.Single(model.Calls);
+        Assert.Contains(big.Warnings, w => w.Contains("too long"));
     }
 
     [Fact]
