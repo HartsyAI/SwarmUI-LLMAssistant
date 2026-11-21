@@ -39,6 +39,7 @@ Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT`
 - SwarmUI runs with `--data_dir`, `--settings_file` and `--backends_file` under `E2E/.run/`, and `Paths.OutputPath` / `Paths.ModelRoot` inside it too.
 - Only this extension is present in the private root, so only it is under test.
 - One backend is seeded: `LLM: Remote (OpenAI-Compatible)` at the mock, default model `mock-model`. The mock also lists `mock-model-b` for compare mode.
+- Three image models with no weights are seeded under `models/Stable-Diffusion` (header-only safetensors written by `stack.mjs`): `e2e-ideogram-4.safetensors`, whose keys make core classify it as Ideogram 4, `e2e-mystery.safetensors`, which core cannot place, and `e2e-declared-json.safetensors`, which core cannot place either but whose header carries `modelspec.prompt_*` keys. They exist so the prompt-styles specs can check which style a model gets; nothing can generate with them.
 - The local GGUF engine (`LLM: Local`) is **not** covered here, since it needs a GPU. A PR that touches `HartsyLocalLLMProvider` needs a manual GPU smoke check on top.
 
 ## Scripting the mock

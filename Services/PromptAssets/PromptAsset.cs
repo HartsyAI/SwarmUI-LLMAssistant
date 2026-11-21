@@ -131,7 +131,7 @@ public static class PromptAssetFile
     }
 
     /// <summary>The value on one line, quoted when it would otherwise be read differently.</summary>
-    private static string OneLine(string value)
+    internal static string OneLine(string value)
     {
         value = Regex.Replace(value ?? "", @"\s+", " ").Trim();
         if (value.Length == 0)

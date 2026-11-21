@@ -98,7 +98,7 @@ public class LLMModelMatcher
     }
 
     /// <summary>Convert a glob pattern (<c>*</c>, <c>?</c>) to a case-insensitive regex match.</summary>
-    private static bool GlobMatches(string pattern, string input)
+    public static bool GlobMatches(string pattern, string input)
     {
         if (string.IsNullOrEmpty(pattern))
         {

@@ -287,6 +287,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="hooks" role="tab" aria-selected="false">Hooks</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="mcp" role="tab" aria-selected="false">MCP Servers</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="skills" role="tab" aria-selected="false">Skills</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="prompt-styles" role="tab" aria-selected="false">Prompt styles</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="schedules" role="tab" aria-selected="false">Schedules</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="knowledge" role="tab" aria-selected="false">Knowledge</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
@@ -528,6 +529,13 @@
                     <button type="button" class="basic-button translate" id="llma-skills-add">+ Add Skill or Command</button>
                     <div id="llma-skills-editor" style="display:none;"></div>
                     <div id="llma-skills-trust"></div>
+                </div>
+
+                <!-- Prompt styles: how prompts are written for an image or video model, and how to instruct a chat model (prompt-styles.js; the editor is built from core's input helpers) -->
+                <div class="llma-modal-panel" id="llma-settings-prompt-styles" style="display:none;">
+                    <div id="llma-styles-image"></div>
+                    <div id="llma-styles-llm"></div>
+                    <div id="llma-styles-editor" style="display:none;"></div>
                 </div>
 
                 <!-- Schedules: prompts that run later, on a timetable, as sessions (schedules.js; the editor is built from core's input helpers) -->

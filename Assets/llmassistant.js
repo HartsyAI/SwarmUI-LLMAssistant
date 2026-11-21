@@ -1366,6 +1366,7 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'hooks') llmaHooks.load();
             if (tab.dataset.tab === 'mcp') llmaMcp.load();
             if (tab.dataset.tab === 'skills') llmaSkillsSettings.load();
+            if (tab.dataset.tab === 'prompt-styles') llmaPromptStyles.load();
             if (tab.dataset.tab === 'schedules') llmaSchedulesSettings.load();
             if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
         });
