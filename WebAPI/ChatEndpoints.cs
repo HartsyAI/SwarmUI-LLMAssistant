@@ -1096,6 +1096,8 @@ public static class ChatEndpoints
         // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
         // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
+        // The saved notes shown to every lane are chosen once, from what the user just said.
+        MemoryRecallRequest recall = await MemoryService.PrepareRecallAsync(session, thread, false, CancellationToken.None);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
         List<JObject> enabledTools = toolsOn
@@ -1138,7 +1140,7 @@ public static class ChatEndpoints
                 // of being silently ignored: the check right before StreamToWebSocket turns it into a
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
-                string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+                string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo, recall);
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);

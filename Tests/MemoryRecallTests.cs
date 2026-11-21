@@ -13,7 +13,8 @@ public class MemoryRecallTests
     private static MemoryNote Note(string id, string text, string kind = MemoryKinds.Fact, int minutes = 0, bool pinned = false, string slot = "", bool negative = false)
         => new() { Id = id, Text = text, Kind = kind, Created = T0.AddMinutes(minutes).ToString("o"), Pinned = pinned, Slot = slot, Negative = negative };
 
-    /// <summary>A set too big for the budget: 60 filler notes of ~200 characters, plus the notes a test cares about.</summary>
+    /// <summary>A set too big for the budget: 60 filler notes of ~200 characters (saved at minutes 0 to 59), plus the notes a test cares about, which tests save before them (minutes below 0) so being
+    /// among the newest cannot be what gets them chosen.</summary>
     private static List<MemoryNote> Big(params MemoryNote[] extra)
     {
         List<MemoryNote> notes = [];
@@ -83,17 +84,19 @@ public class MemoryRecallTests
     public void A_set_over_the_budget_keeps_the_pinned_notes_and_the_best_keyword_matches()
     {
         List<MemoryNote> notes = Big(
-            Note("name", "Kaleb", MemoryKinds.Fact, 100, true, MemorySlots.Name),
-            Note("quokka", "Is fond of the quokka, a small marsupial from Australia", MemoryKinds.Fact, 101),
-            Note("pin", "Always answers in British English", MemoryKinds.Style, 102, true));
+            Note("name", "Kaleb", MemoryKinds.Fact, -100, true, MemorySlots.Name),
+            Note("quokka", "Is fond of the quokka, a small marsupial from Australia", MemoryKinds.Fact, -99),
+            Note("pin", "Always answers in British English", MemoryKinds.Style, -98, true));
         Assert.True(MemoryRecall.NeedsRanking(notes));
         List<MemoryNote> chosen = MemoryRecall.Select(notes, new MemoryRecallRequest("tell me about the quokka"));
         string[] ids = [.. chosen.Select(n => n.Id)];
         Assert.Contains("name", ids);
         Assert.Contains("pin", ids);
         Assert.Contains("quokka", ids);
-        Assert.True(chosen.Sum(n => MemoryRecall.Line(n).Length + 1) <= MemoryRecall.PromptBudgetChars + 400);
+        Assert.True(chosen.Sum(n => MemoryRecall.Line(n).Length + 1) <= MemoryRecall.PromptBudgetChars);
         Assert.True(chosen.Count < notes.Count);
+        // The quokka note is the oldest but one, so only its words can have brought it in.
+        Assert.DoesNotContain(MemoryRecall.Select(notes, new MemoryRecallRequest("something else entirely")), n => n.Id == "quokka");
         // Chosen notes are shown in the fixed order, not the order of relevance.
         Assert.Equal(MemoryRecall.StableOrder(chosen).Select(n => n.Id), ids);
     }
@@ -107,9 +110,9 @@ public class MemoryRecallTests
         string second = MemoryRecall.Render(MemoryRecall.Select([.. notes], request));
         Assert.Equal(first, second);
         List<MemoryNote> chosen = MemoryRecall.Select(notes, request);
-        Assert.Equal(MemoryRecall.MaxRanked, chosen.Count);
         Assert.Contains(chosen, n => n.Id == "filler59");
         Assert.DoesNotContain(chosen, n => n.Id == "filler00");
+        Assert.True(chosen.Sum(n => MemoryRecall.Line(n).Length + 1) <= MemoryRecall.PromptBudgetChars);
         // No query at all behaves the same way.
         Assert.Equal(first, MemoryRecall.Render(MemoryRecall.Select(notes, null)));
     }
@@ -117,7 +120,7 @@ public class MemoryRecallTests
     [Fact]
     public void Which_notes_were_used_last_does_not_change_which_are_chosen()
     {
-        List<MemoryNote> notes = Big(Note("quokka", "Is fond of the quokka", MemoryKinds.Fact, 101));
+        List<MemoryNote> notes = Big(Note("quokka", "Is fond of the quokka", MemoryKinds.Fact, -101));
         string before = MemoryRecall.Render(MemoryRecall.Select(notes, new MemoryRecallRequest("quokka")));
         foreach (MemoryNote note in notes.Take(10))
         {
@@ -129,8 +132,8 @@ public class MemoryRecallTests
     [Fact]
     public void Meaning_finds_a_note_that_shares_no_word_with_the_query_and_a_note_without_a_vector_still_matches_by_keywords()
     {
-        MemoryNote semantic = Note("semantic", "Enjoys pastries and croissants for breakfast", MemoryKinds.Preference, 101);
-        MemoryNote keyword = Note("keyword", "Plays the oboe in an orchestra", MemoryKinds.Fact, 102);
+        MemoryNote semantic = Note("semantic", "Enjoys pastries and croissants for breakfast", MemoryKinds.Preference, -101);
+        MemoryNote keyword = Note("keyword", "Plays the oboe in an orchestra", MemoryKinds.Fact, -102);
         List<MemoryNote> notes = Big(semantic, keyword);
         Dictionary<string, (float[] Vector, string Key)> vectors = new()
         {
@@ -146,6 +149,40 @@ public class MemoryRecallTests
         // Without the vectors the same query still works by keywords alone, and the semantic-only note is not found.
         List<MemoryNote> keywordsOnly = MemoryRecall.Select(notes, new MemoryRecallRequest("oboe tonight, what to eat"));
         Assert.Contains(keywordsOnly, n => n.Id == "keyword");
+        Assert.DoesNotContain(keywordsOnly, n => n.Id == "semantic");
+    }
+
+    [Fact]
+    public void Passing_the_budget_by_one_note_does_not_drop_the_prompt_to_a_dozen_notes()
+    {
+        List<MemoryNote> notes = [];
+        for (int i = 0; notes.Count == 0 || !MemoryRecall.NeedsRanking(notes); i++)
+        {
+            notes.Add(Note($"n{i:D3}", $"Note {i} " + new string('y', 90), minutes: i));
+        }
+        Assert.True(notes.Count > MemoryRecall.MaxRanked * 2);
+        List<MemoryNote> chosen = MemoryRecall.Select(notes, new MemoryRecallRequest("nothing matches this"));
+        Assert.True(chosen.Count >= notes.Count - 2, $"{chosen.Count} of {notes.Count}");
+    }
+
+    [Fact]
+    public void Pinned_notes_are_always_chosen_but_never_more_than_the_pinned_limit_and_the_slot_notes_come_first()
+    {
+        List<MemoryNote> notes = Big(Note("name", "Kaleb", MemoryKinds.Fact, 500, true, MemorySlots.Name));
+        for (int i = 0; i < MemoryNoteSet.MaxPinned + 10; i++)
+        {
+            notes.Add(Note($"pin{i:D2}", $"Pinned {i}", MemoryKinds.Fact, i, true));
+        }
+        List<MemoryNote> chosen = MemoryRecall.Select(notes, new MemoryRecallRequest("anything"));
+        Assert.Contains(chosen, n => n.Id == "name");
+        Assert.Equal(MemoryNoteSet.MaxPinned, chosen.Count(n => n.Pinned));
+    }
+
+    [Fact]
+    public void Clean_makes_text_one_line_without_brackets()
+    {
+        Assert.Equal("a b ＜c＞", MemoryRecall.Clean("  a\n\tb\u0007 <c> "));
+        Assert.Equal("", MemoryRecall.Clean(null));
     }
 
     // ---- Data, not instructions ----

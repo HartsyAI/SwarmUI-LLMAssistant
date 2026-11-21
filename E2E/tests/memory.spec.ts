@@ -1,4 +1,4 @@
-import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, clearMemory } from './fixtures';
+import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, clearMemory, embeddingRequests, clearEmbeddingRequests, failEmbeddings } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // Memory notes: what the model saves with memory_write, how it reaches the next prompt (as marked data), memory_read, the old profile's shape, and the read-only Memory tab.
@@ -122,12 +122,13 @@ test('memory_read returns the notes, and with a query the ones that match', asyn
 
 test('a set too big for the prompt budget keeps the pinned notes and the ones that match the message', async ({ llm }) => {
     await remember(llm, 'save the name', { category: 'preferred_name', content: 'Kaleb' });
+    // The quokka note is older than every filler, so being among the newest cannot be what brings it into the prompt.
+    await remember(llm, 'save the quokka', { category: 'fact', content: 'Is fond of the quokka, a small marsupial from Australia' });
     // 40 notes of about 200 characters each is well past the 6000-character budget.
     for (let i = 0; i < 40; i++) {
         let reply = await api(llm, 'LLMAssistantExecuteTool', { toolId: 'memory_write', args: { category: 'fact', content: `Filler number ${i} about nothing in particular. ${'z'.repeat(170)}` } });
         expect(reply.success, JSON.stringify(reply)).toBe(true);
     }
-    await remember(llm, 'save the quokka', { category: 'fact', content: 'Is fond of the quokka, a small marsupial from Australia' });
     expect((await notes(llm)).length).toBe(42);
     await clearRequests();
     await setScenarios([{ match: 'tell me about the quokka', rounds: [{ text: 'Quokkas.' }] }]);
@@ -169,4 +170,49 @@ test('a user\'s notes are their own: the API takes no user address', async ({ ll
     let reply = await api(llm, 'LLMAssistantGetUserProfile', { userId: 'someone-else', user: 'someone-else' });
     expect(reply.success).toBe(true);
     expect(reply.notes.map((n: any) => n.text)).toEqual(['Private fact']);
+});
+
+/** Picks the harness's embedding backend and model, as the Knowledge tab does. */
+async function useEmbeddings(page: Page) {
+    let listed = await api(page, 'LLMAssistantGetKnowledge');
+    expect(listed.providers.length).toBeGreaterThan(0);
+    let reply = await api(page, 'LLMAssistantSetKnowledgeSettings', { providerId: listed.providers[0].id, model: 'mock-embed' });
+    expect(reply.success, JSON.stringify(reply)).toBe(true);
+}
+
+async function writeFillers(page: Page, count: number) {
+    for (let i = 0; i < count; i++) {
+        let reply = await api(page, 'LLMAssistantExecuteTool', { toolId: 'memory_write', args: { category: 'fact', content: `Filler number ${i} about nothing in particular. ${'z'.repeat(170)}` } });
+        expect(reply.success, JSON.stringify(reply)).toBe(true);
+    }
+}
+
+test('with an embedding model set, notes and the turn are embedded; when embedding fails everything still works by keywords', async ({ llm }) => {
+    await clearEmbeddingRequests();
+    await useEmbeddings(llm);
+    await remember(llm, 'save the quokka', { category: 'fact', content: 'Is fond of the quokka, a small marsupial from Australia' });
+    let sent = await embeddingRequests();
+    expect(sent.some(r => r.model === 'mock-embed' && r.inputs.includes('Is fond of the quokka, a small marsupial from Australia'))).toBe(true);
+    await writeFillers(llm, 40);
+
+    // A turn over the budget embeds the user's message too.
+    await clearEmbeddingRequests();
+    await clearRequests();
+    await setScenarios([{ match: 'tell me about the quokka', rounds: [{ text: 'Quokkas.' }] }]);
+    await send(llm, 'tell me about the quokka');
+    await expect(lastAssistant(llm)).toContainText('Quokkas.', { timeout: 20_000 });
+    expect((await embeddingRequests()).some(r => r.inputs.includes('tell me about the quokka'))).toBe(true);
+    expect(await systemPromptFor('tell me about the quokka')).toContain('Is fond of the quokka');
+
+    // The backend fails: a note is still saved (without a vector), and the next turn still gets the matching note, by keywords.
+    await failEmbeddings(500);
+    await remember(llm, 'save the oboe', { category: 'fact', content: 'Plays the oboe in an orchestra' });
+    expect((await notes(llm)).some(n => n.text === 'Plays the oboe in an orchestra')).toBe(true);
+    await clearRequests();
+    await setScenarios([{ match: 'what about the oboe', rounds: [{ text: 'Oboes.' }] }]);
+    await send(llm, 'what about the oboe');
+    await expect(lastAssistant(llm)).toContainText('Oboes.', { timeout: 20_000 });
+    let system = await systemPromptFor('what about the oboe');
+    expect(system).toContain('Plays the oboe in an orchestra');
+    expect(system).not.toContain('Filler number 0 about');
 });

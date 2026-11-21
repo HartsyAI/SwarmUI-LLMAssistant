@@ -323,7 +323,7 @@ public static class MemoryService
         string name = set.UserName();
         return new Dictionary<string, string>
         {
-            ["userName"] = string.IsNullOrWhiteSpace(name) ? "" : MemoryNoteSet.Squash(name),
+            ["userName"] = MemoryRecall.Clean(name.Length > 100 ? name[..100] : name),
             ["userProfile"] = user is null ? "" : RenderForPrompt(user, set, recall),
             ["currentDate"] = DateTime.Now.ToString("yyyy-MM-dd"),
             ["assistantName"] = assistant?["name"]?.ToString() ?? "Assistant"

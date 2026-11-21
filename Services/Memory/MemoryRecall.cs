@@ -22,7 +22,7 @@ public static class MemoryRecall
     /// (at most <see cref="MemoryNoteSet.MaxPinned"/> lines of <see cref="MaxLineChars"/>).</summary>
     public const int PromptBudgetChars = 6000;
 
-    /// <summary>The most notes chosen by ranking (pinned notes are extra).</summary>
+    /// <summary>The most notes chosen as best matches for the turn (pinned notes and the newest notes that fill what is left are extra).</summary>
     public const int MaxRanked = 12;
 
     /// <summary>The most characters of one note in the prompt; the stored note keeps its full text.</summary>
@@ -61,7 +61,7 @@ public static class MemoryRecall
     }
 
     /// <summary>Text with every control character and run of whitespace as one space, and angle brackets made harmless (so a note cannot write a tag).</summary>
-    private static string Clean(string text)
+    public static string Clean(string text)
     {
         StringBuilder sb = new((text ?? "").Length);
         bool space = false;
@@ -94,20 +94,21 @@ public static class MemoryRecall
         {
             return ordered;
         }
-        List<MemoryNote> chosen = [.. ordered.Where(n => n.Pinned)];
+        // Pinned notes always come, but never more than MaxPinned (the first ones in the fixed order, so the slot notes are never the ones left out).
+        List<MemoryNote> chosen = [.. ordered.Where(n => n.Pinned).Take(MemoryNoteSet.MaxPinned)];
         int used = chosen.Sum(n => Line(n).Length + 1);
         List<MemoryNote> rest = [.. ordered.Where(n => !n.Pinned)];
-        int taken = 0;
-        void Take(MemoryNote note)
+        int hitsTaken = 0;
+        bool Take(MemoryNote note)
         {
             int cost = Line(note).Length + 1;
-            if (taken >= MaxRanked || used + cost > PromptBudgetChars || chosen.Contains(note))
+            if (used + cost > PromptBudgetChars || chosen.Contains(note))
             {
-                return;
+                return false;
             }
             chosen.Add(note);
             used += cost;
-            taken++;
+            return true;
         }
         string query = request?.Query ?? "";
         if (query.Length > 0 || request?.QueryVector is not null)
@@ -126,10 +127,14 @@ public static class MemoryRecall
             }
             foreach (KnowledgeHit hit in KnowledgeIndex.Search(chunks, query, request?.QueryVector, request?.VectorKey, MaxRanked))
             {
-                Take(byId[hit.Chunk.DocId]);
+                if (hitsTaken < MaxRanked && Take(byId[hit.Chunk.DocId]))
+                {
+                    hitsTaken++;
+                }
             }
         }
-        // Whatever room is left goes to the newest notes, so a turn that matches nothing still gets some context, and which ones does not depend on when notes were last used.
+        // Whatever room is left goes to the newest notes (so the prompt does not drop from all the notes to a dozen the moment the budget is passed, and a turn that matches nothing still
+        // gets context); which ones does not depend on when notes were last used.
         foreach (MemoryNote note in rest.OrderByDescending(n => n.CreatedAt).ThenByDescending(n => rest.IndexOf(n)))
         {
             Take(note);
