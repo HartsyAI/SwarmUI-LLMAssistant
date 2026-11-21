@@ -134,7 +134,11 @@ class LLMAPromptStyles {
     /** The box that rewrites a prompt for a model and shows exactly what came back (the same engine generation will use). */
     rewriteBoxHtml(axis) {
         let saved = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptRewrite?.model) || '';
-        return `<h6 class="mt-3">${translate('Try a rewrite')}</h6>`
+        let auto = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptRewrite?.auto) ? 'checked' : '';
+        return `<h6 class="mt-3">${translate('Automatic rewriting')}</h6>`
+            + `<label class="small mb-2 d-block"><input type="checkbox" class="llma-rewrite-auto" ${auto}> ${translate('Rewrite the prompt for the selected model every time I generate')}</label>`
+            + `<div class="small text-muted mb-3">${translate('Off by default. A generation can override it with its own LLM Auto-Enhance Prompt setting, and the generate_image tool with rewrite: off. The original prompt is kept in the image metadata.')}</div>`
+            + `<h6 class="mt-3">${translate('Try a rewrite')}</h6>`
             + `<div class="small text-muted mb-2">${translate('Rewrites a prompt for the image model with the chat model you pick, using the style that model gets. Nothing is generated.')}</div>`
             + `<textarea class="auto-text-block llma-rewrite-prompt mb-2" rows="3" placeholder="${translate('A prompt, for example: a cat on a windowsill')}"></textarea>`
             + `<input type="text" class="auto-text-block llma-rewrite-negative mb-2" placeholder="${translate('Negative prompt (optional)')}" autocomplete="off">`
@@ -162,6 +166,7 @@ class LLMAPromptStyles {
         box.querySelector('.llma-resolve-run')?.addEventListener('click', () => this.resolve(box, axis));
         box.querySelector('.llma-rewrite-run')?.addEventListener('click', () => this.rewrite(box));
         box.querySelector('.llma-rewrite-save')?.addEventListener('click', () => this.saveRewriteModel(box));
+        box.querySelector('.llma-rewrite-auto')?.addEventListener('change', event => this.saveRewriteAuto(event.target.checked));
         box.querySelector('.llma-resolve-model')?.addEventListener('keydown', event => {
             if (event.key == 'Enter') {
                 this.resolve(box, axis);
@@ -244,6 +249,15 @@ class LLMAPromptStyles {
             lines.push(`<span class="text-muted">${translate('About')} ${reply.usage.inputTokens} ${translate('tokens in')}, ${reply.usage.outputTokens} ${translate('out')}</span>`);
         }
         out.innerHTML = lines.join('<br>');
+    }
+
+    /** Turns automatic rewriting of every generation on or off in the user's own settings. */
+    async saveRewriteAuto(on) {
+        if (typeof LLMAState == 'undefined' || !LLMAState.settings) {
+            return;
+        }
+        LLMAState.settings.promptRewrite = { ...(LLMAState.settings.promptRewrite || {}), auto: on };
+        await llmaSaveSettings();
     }
 
     /** Keeps the chat model typed in the box as the one that rewrites prompts, in the user's own settings. */

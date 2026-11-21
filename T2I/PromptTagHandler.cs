@@ -2,6 +2,8 @@ using Newtonsoft.Json.Linq;
 using SwarmUI.Text2Image;
 using SwarmUI.Utils;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
+using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 
 namespace Hartsy.Extensions.LLMAssistant.T2I;
 
@@ -20,6 +22,10 @@ public static class PromptTagHandler
     private static T2IRegisteredParam<string> paramAssistantId;
     /// <summary>Whether to generate a consistent wildcard seed per batch.</summary>
     private static T2IRegisteredParam<bool> paramWildcardSeed;
+    /// <summary>Whether to rewrite the prompt for the selected model (follow the setting, on, off).</summary>
+    private static T2IRegisteredParam<string> paramAutoEnhance;
+    /// <summary>Which prompt style to rewrite with (auto = by model).</summary>
+    private static T2IRegisteredParam<string> paramPromptStyle;
 
     /// <summary>Public accessor for <see cref="paramUseCache"/>.</summary>
     public static T2IRegisteredParam<bool> ParamUseCache => paramUseCache;
@@ -31,6 +37,10 @@ public static class PromptTagHandler
     public static T2IRegisteredParam<string> ParamAssistantId => paramAssistantId;
     /// <summary>Public accessor for <see cref="paramWildcardSeed"/>.</summary>
     public static T2IRegisteredParam<bool> ParamWildcardSeed => paramWildcardSeed;
+    /// <summary>Public accessor for <see cref="paramAutoEnhance"/>.</summary>
+    public static T2IRegisteredParam<string> ParamAutoEnhance => paramAutoEnhance;
+    /// <summary>Public accessor for <see cref="paramPromptStyle"/>.</summary>
+    public static T2IRegisteredParam<string> ParamPromptStyle => paramPromptStyle;
 
     /// <summary>Registers both the T2I parameters and the prompt tag handlers.</summary>
     public static void RegisterAll()
@@ -140,10 +150,45 @@ public static class PromptTagHandler
             }
         ));
 
-        // Must run before core's PreparsePromptLikes, which consumes the <llmprompt> tags (see CoreBridge).
+        paramAutoEnhance = T2IParamTypes.Register<string>(new(
+            "LLM Auto-Enhance Prompt",
+            "Rewrite the prompt for the selected image or video model before generating (see Settings > Prompt styles). Default follows the setting there, which is off until you turn it on.",
+            PromptAutoEnhance.ModeDefault,
+            IgnoreIf: PromptAutoEnhance.ModeDefault,
+            Group: paramGroup,
+            OrderPriority: 6,
+            ValidateValues: false,
+            GetValues: _ => [PromptAutoEnhance.ModeDefault, PromptAutoEnhance.ModeOn, PromptAutoEnhance.ModeOff]
+        ));
+
+        paramPromptStyle = T2IParamTypes.Register<string>(new(
+            "LLM Prompt Style",
+            "Which prompt style the rewrite uses. Auto picks the style for the selected model (your rules first, then the style written for that model, then the default).",
+            PromptAutoEnhance.StyleAuto,
+            IgnoreIf: PromptAutoEnhance.StyleAuto,
+            Group: paramGroup,
+            OrderPriority: 7,
+            ValidateValues: false,
+            GetValues: session =>
+            {
+                List<string> values = [PromptAutoEnhance.StyleAuto];
+                try
+                {
+                    values.AddRange(PromptStyleService.For(session?.User).Styles.Where(s => s.Kind != PromptStyle.KindLlm).Select(s => s.Id));
+                }
+                catch (Exception ex)
+                {
+                    Logs.Debug($"[LLMAssistant] Could not list prompt styles for the param dropdown: {ex.Message}");
+                }
+                return values;
+            }
+        ));
+
+        // Must run before core's PreparsePromptLikes, which consumes the <llmprompt> tags (see CoreBridge). The tags are expanded first, then the result is rewritten for the model when automatic enhancement is on.
         CoreBridge.RunBeforeCorePromptParsing(input =>
         {
             PromptProcessor.ProcessPrompt(input);
+            PromptAutoEnhance.Apply(input);
         });
     }
 

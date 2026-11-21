@@ -20,12 +20,13 @@ public sealed record RewriteRequest(string Prompt, string Negative, string Image
 /// <param name="TimeoutSeconds">How long one attempt may take.</param>
 /// <param name="MaxTokens">The most the model may write in one answer.</param>
 /// <param name="Temperature">Low, so the same prompt gives close to the same rewrite.</param>
-public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTokens, double Temperature)
+/// <param name="Auto">Whether every generation is rewritten without being asked (a generation's own setting still wins). Off unless the user turns it on.</param>
+public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTokens, double Temperature, bool Auto = false)
 {
     /// <summary>The settings key.</summary>
     public const string Key = "promptRewrite";
 
-    /// <summary>The defaults: the default chat model, one minute, 2,048 tokens, temperature 0.4.</summary>
+    /// <summary>The defaults: the default chat model, one minute, 2,048 tokens, temperature 0.4, and no automatic rewriting.</summary>
     public static RewriteSettings Default => new("", 60, 2048, 0.4);
 
     /// <summary>Reads the settings from <paramref name="merged"/>.</summary>
@@ -40,7 +41,8 @@ public sealed record RewriteSettings(string Model, int TimeoutSeconds, int MaxTo
             o["model"]?.Type == JTokenType.String ? ((string)o["model"]).Trim() : d.Model,
             ReadInt(o["timeoutSeconds"], d.TimeoutSeconds, 5, 300),
             ReadInt(o["maxTokens"], d.MaxTokens, 256, 8192),
-            Math.Clamp(o["temperature"] is { Type: JTokenType.Float or JTokenType.Integer } t ? (double)t : d.Temperature, 0.0, 1.5));
+            Math.Clamp(o["temperature"] is { Type: JTokenType.Float or JTokenType.Integer } t ? (double)t : d.Temperature, 0.0, 1.5),
+            o["auto"]?.Type == JTokenType.Boolean && (bool)o["auto"]);
     }
 
     /// <summary>A whole number from a settings value, clamped to <paramref name="min"/> and <paramref name="max"/>; the default when it is not a number or is too large to read (an oversized number must not break every rewrite).</summary>

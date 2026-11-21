@@ -305,6 +305,12 @@ public static class ToolRegistryService
                     {
                         ["type"] = "number",
                         ["description"] = "How much to deviate from the init image, 0..1 (default 0.6). Lower = closer to the source; higher = more creative. Only applied when `initImage` is set."
+                    },
+                    ["rewrite"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = new JArray("auto", "off"),
+                        ["description"] = "Prompt adaptation. `auto` (default) follows the user's setting: when it is on, the prompt is rewritten for the selected image model's format and the result says what was used, so a plain description is enough. `off` sends the prompt exactly as written."
                     }
                 },
                 ["required"] = new JArray("prompt")

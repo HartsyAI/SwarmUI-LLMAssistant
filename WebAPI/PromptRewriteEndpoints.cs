@@ -21,6 +21,11 @@ public static class PromptRewriteEndpoints
         }
         RewriteRequest request = new(prompt, negative ?? "", (imageModel ?? "").Trim(), Math.Max(0, width), Math.Max(0, height), rewriteModel ?? "", styleId ?? "", fresh);
         RewriteResult result = await PromptRewriteService.RewriteAsync(request, session.User, session);
+        if (result.Rewritten)
+        {
+            // The text goes back into the prompt box; remember it so generating from it does not rewrite it again.
+            RewriteGuard.Remember(session.User?.UserID, result.Text);
+        }
         return new JObject
         {
             ["success"] = true,
