@@ -173,7 +173,7 @@ test('the Memory tab lists the notes read-only, and clearing memory empties it a
 
 test('a user\'s notes are their own: the API takes no user address', async ({ llm }) => {
     await remember(llm, 'save the private one', { category: 'fact', content: 'Private fact' });
-    let reply = await api(llm, 'LLMAssistantGetUserProfile', { userId: 'someone-else', user: 'someone-else' });
+    let reply = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true, userId: 'someone-else', user: 'someone-else' });
     expect(reply.success).toBe(true);
     expect(reply.notes.map((n: any) => n.text)).toEqual(['Private fact']);
 });
