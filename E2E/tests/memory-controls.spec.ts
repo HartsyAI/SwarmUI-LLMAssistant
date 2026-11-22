@@ -15,7 +15,7 @@ const test = base.extend<{ llm: Page }>({
         await use(llm);
         await api(llm, 'LLMAssistantSetMemoryAdmin', { extractionDisabled: false });
         await api(llm, 'LLMAssistantSetMemoryControls', { savingPaused: false, recallPaused: false, unusedDays: 0 });
-        await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: false, model: '', neverSave: [] } }) });
+        await api(llm, 'LLMAssistantSetMemorySettings', { enabled: false, model: '', neverSave: [] });
         await clearMemory(llm);
     }
 });
@@ -229,7 +229,7 @@ test('export downloads the notes, and import shows a preview first, never replac
 });
 
 test('history lists what the extractor removed, and Undo from it brings the note back', async ({ llm }) => {
-    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on }) });
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
     await reopen(llm);
     await setScenarios([{ match: 'remember the old flat', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { category: 'fact', content: 'Lives in the old flat' } }] }, { text: 'Noted.' }] }]);
     await send(llm, 'remember the old flat');
@@ -253,7 +253,7 @@ test('history lists what the extractor removed, and Undo from it brings the note
 });
 
 test('pausing saving stops the extractor and the memory tool, and resuming brings them back; edits in Settings still work', async ({ llm }) => {
-    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on }) });
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
     await reopen(llm);
     await openMemory(llm);
     await llm.locator('#llma-mempause-saving').check();
@@ -328,7 +328,7 @@ test('pausing recall keeps notes out of the prompt and out of memory_read, and n
 });
 
 test('an admin can switch automatic saving off for everyone, and a user cannot turn it back on', async ({ llm }) => {
-    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on }) });
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
     await reopen(llm);
     await expect(llm.locator('#llma-memory-toggle-btn')).toBeVisible();
     await openMemory(llm);
@@ -344,7 +344,8 @@ test('an admin can switch automatic saving off for everyone, and a user cannot t
     expect(controls.extractionAllowed).toBe(false);
 
     // The user's own switch is still on, and saving the settings again does not matter: nothing is extracted.
-    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on, memoryAdmin: { extractionDisabled: false } }) });
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryAdmin: { extractionDisabled: false } }) });
     expect((await api(llm, 'LLMAssistantGetMemoryControls')).admin.extractionDisabled).toBe(true);
     await clearRequests();
     await setScenarios([extractor([{ op: 'add', kind: 'fact', text: 'Works as a nurse in Lyon.' }]), { match: 'I moved to Lyon', rounds: [{ text: 'Lyon is lovely.' }] }]);
@@ -405,7 +406,7 @@ test('the Memory tab fits a phone and does not scroll sideways', async ({ llm })
 
 test('a note can be added by hand, the list pages with Show more, and an assistant can be switched off from the Memory tab', async ({ llm }) => {
     await api(llm, 'LLMAssistantImportMemory', { data: JSON.stringify({ notes: Array.from({ length: 130 }, (_, i) => ({ text: `Bulk note ${i}`, kind: 'fact' })) }) });
-    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on }) });
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
     await reopen(llm);
     await openMemory(llm);
     await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(100);

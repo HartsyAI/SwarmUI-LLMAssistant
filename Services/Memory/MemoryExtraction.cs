@@ -59,6 +59,15 @@ public sealed class MemoryNeverSave
     /// <summary>The user's own entries.</summary>
     private readonly List<Regex> _custom = [];
 
+    /// <summary>The most time all the matching of one extraction may take (every transcript line, every note shown, every pattern). When it is spent the answer is "it matches", so the turn is
+    /// skipped: a pattern that is slow on some text cannot be used to hold the server's CPU.</summary>
+    public TimeSpan Budget = TimeSpan.FromMilliseconds(750);
+
+    private long _spentTicks;
+
+    /// <summary>Whether the time budget has been used up (every answer after that is a match).</summary>
+    public bool Exhausted => _spentTicks >= Budget.Ticks;
+
     /// <summary>Entries from <paramref name="patterns"/>: <c>/text/</c> is a regular expression (when it does not compile it is taken as plain text), anything else is plain text, matched without regard to case.</summary>
     public MemoryNeverSave(IEnumerable<string> patterns)
     {
@@ -87,6 +96,44 @@ public sealed class MemoryNeverSave
         }
     }
 
+    /// <summary>The problem with a never-save entry, or null when it is fine: an entry between slashes must be a valid regular expression, and no entry may be empty or longer than
+    /// <see cref="MemoryExtractionSettings.MaxNeverSaveChars"/>.</summary>
+    public static string Problem(string entry)
+    {
+        string pattern = (entry ?? "").Trim();
+        if (pattern.Length == 0)
+        {
+            return "A never-save entry cannot be empty.";
+        }
+        if (pattern.Length > MemoryExtractionSettings.MaxNeverSaveChars)
+        {
+            return $"A never-save entry can have at most {MemoryExtractionSettings.MaxNeverSaveChars} characters.";
+        }
+        if (pattern.Length > 2 && pattern[0] == '/' && pattern[^1] == '/')
+        {
+            Regex probe;
+            try
+            {
+                probe = new Regex(pattern[1..^1], RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(50));
+            }
+            catch (ArgumentException ex)
+            {
+                return $"'{pattern}' is not a valid regular expression: {ex.Message}";
+            }
+            // A pattern that is already slow on a short adversarial text (nested repetition) is refused when it is set.
+            try
+            {
+                _ = probe.IsMatch(new string('a', 40) + "!");
+                _ = probe.IsMatch(new string(' ', 40) + "!");
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return $"'{pattern}' is too slow to use (it backtracks badly); simplify it.";
+            }
+        }
+        return null;
+    }
+
     /// <summary>Whether <paramref name="text"/> mentions something that must not be saved.</summary>
     public bool Matches(string text)
     {
@@ -94,22 +141,40 @@ public sealed class MemoryNeverSave
         {
             return false;
         }
-        text = MemoryOpParser.Fold(text);
-        foreach (Regex regex in Secrets.Concat(_custom))
+        if (Exhausted)
         {
-            try
+            return true;
+        }
+        text = MemoryOpParser.Fold(text);
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            foreach (Regex regex in Secrets.Concat(_custom))
             {
-                if (regex.IsMatch(text))
+                if (_spentTicks + watch.Elapsed.Ticks >= Budget.Ticks)
                 {
+                    // Out of time: taken as a match, so the turn is not used.
+                    _spentTicks = Budget.Ticks;
                     return true;
                 }
+                try
+                {
+                    if (regex.IsMatch(text))
+                    {
+                        return true;
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // A pattern that runs too long on this text is taken as not matching, and what it used comes out of the budget.
+                }
             }
-            catch (RegexMatchTimeoutException)
-            {
-                // A pattern that runs too long on this text is taken as not matching, so one bad pattern cannot stop a reply or hold the server.
-            }
+            return false;
         }
-        return false;
+        finally
+        {
+            _spentTicks += watch.Elapsed.Ticks;
+        }
     }
 }
 
@@ -141,13 +206,14 @@ public static class MemoryTranscriptBuilder
 
     /// <summary>The transcript for the turn that just ended on <paramref name="thread"/>'s active branch, or null when there is nothing to read: the latest user-role message was not written by the
     /// user, or the turn has no finished, successful reply.</summary>
-    public static MemoryTranscript Build(JObject thread)
+    public static MemoryTranscript Build(JObject thread, string userMessageId = null)
     {
         List<JObject> path = thread is null ? [] : ThreadStorageService.GetActivePath(thread);
         int user = -1;
         for (int i = path.Count - 1; i >= 0; i--)
         {
-            if (path[i]["role"]?.ToString() == Roles.User)
+            // The latest user-role message, or the one named (which must be on the active branch).
+            if (path[i]["role"]?.ToString() == Roles.User && (string.IsNullOrEmpty(userMessageId) || path[i]["id"]?.ToString() == userMessageId))
             {
                 user = i;
                 break;
@@ -169,6 +235,11 @@ public static class MemoryTranscriptBuilder
         bool attached = HasMedia(path[user]);
         for (int i = user + 1; i < path.Count; i++)
         {
+            if (path[i]["role"]?.ToString() == Roles.User)
+            {
+                // The next message of the user: what follows it is another turn.
+                break;
+            }
             if (path[i]["role"]?.ToString() != Roles.Assistant)
             {
                 continue;
@@ -180,7 +251,8 @@ public static class MemoryTranscriptBuilder
                 wrote |= calls.ToString(Formatting.None).Contains(ToolConstants.MemoryWrite, StringComparison.Ordinal);
             }
         }
-        if (reply is null || !string.IsNullOrEmpty(reply["meta"]?["error"]?.ToString()) || !string.IsNullOrEmpty(reply["kind"]?.ToString()) || Clean(reply["content"]?.ToString()).Length == 0)
+        // A reply that was stopped or ended in an error is partial: not read (the chat socket path never extracts a stopped reply either).
+        if (reply is null || reply["meta"]?["stopReason"]?.ToString() is "cancelled" or "error" || !string.IsNullOrEmpty(reply["meta"]?["error"]?.ToString()) || !string.IsNullOrEmpty(reply["kind"]?.ToString()) || Clean(reply["content"]?.ToString()).Length == 0)
         {
             return null;
         }
@@ -346,13 +418,17 @@ public static class MemoryOpParser
         {
             normal = text ?? "";
         }
+        // Per rune, not per char: format characters outside the basic plane (the U+E0000 tag characters, in surrogate pairs) are found too. Format characters and control characters other than
+        // white space (a newline becomes a space later) are dropped.
         StringBuilder sb = new(normal.Length);
-        foreach (char c in normal)
+        foreach (Rune rune in normal.EnumerateRunes())
         {
-            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.Format)
+            System.Globalization.UnicodeCategory category = Rune.GetUnicodeCategory(rune);
+            if (category == System.Globalization.UnicodeCategory.Format || (category == System.Globalization.UnicodeCategory.Control && !Rune.IsWhiteSpace(rune)))
             {
-                sb.Append(c);
+                continue;
             }
+            sb.Append(rune.ToString());
         }
         return sb.ToString();
     }
@@ -454,7 +530,8 @@ public static class MemoryOpParser
                 rejected++;
                 continue;
             }
-            string text = MemoryNoteSet.Squash(o["text"]?.Type == JTokenType.String ? o["text"].ToString() : "");
+            // The text that is checked is the text that is saved: folded (see Fold), so nothing invisible is stored.
+            string text = MemoryNoteSet.Squash(Fold(o["text"]?.Type == JTokenType.String ? o["text"].ToString() : ""));
             if (kind != "delete" && text.Length == 0)
             {
                 return new MemoryParseResult([], 0, $"A \"{kind}\" had no text.");

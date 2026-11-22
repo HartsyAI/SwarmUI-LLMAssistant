@@ -18,9 +18,9 @@ const test = base.extend<{ llm: Page }>({
     }
 });
 
-/** Saves the user's extractor settings (as the Memory tab does) and reloads so the page knows them. */
+/** Saves the user's extractor settings (by the route the Memory tab uses) and reloads so the page knows them. */
 async function configure(page: Page, memoryExtraction: { enabled: boolean; model: string; neverSave: string[] }, reload = true) {
-    let saved = await api(page, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction }) });
+    let saved = await api(page, 'LLMAssistantSetMemorySettings', memoryExtraction);
     expect(saved.success, JSON.stringify(saved)).toBe(true);
     if (reload) {
         await reopen(page);
