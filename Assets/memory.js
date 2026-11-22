@@ -50,6 +50,8 @@ class LLMAMemorySettings {
         this.matched = 0;
         this.total = 0;
         this.searchTimer = null;
+        /** The search and kind filter the current cursor belongs to. */
+        this.cursorFor = null;
         /** Counts the list requests, so the answer to an older one (a slower search) never replaces a newer one. */
         this.loadSeq = 0;
         /** The text of the file chosen for import, kept while its preview is shown. */
@@ -414,9 +416,11 @@ class LLMAMemorySettings {
             return;
         }
         let seq = ++this.loadSeq;
+        // "Show more" continues the list that is on screen: its cursor belongs to the search and filter that made it, not to what has been typed since (a search is applied after a short pause).
+        let asked = append && this.cursorFor ? this.cursorFor : { query: this.query.trim(), kind: this.kindFilter };
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantListMemoryNotes', { query: this.query.trim(), kind: this.kindFilter, limit: LLMAMemorySettings.PAGE, cursor: append ? this.cursor : '' });
+            reply = await llmaRequest('LLMAssistantListMemoryNotes', { query: asked.query, kind: asked.kind, limit: LLMAMemorySettings.PAGE, cursor: append ? this.cursor : '' });
         }
         catch {
             reply = null;
@@ -432,6 +436,7 @@ class LLMAMemorySettings {
         let have = new Set(append ? this.notes.map(n => n.id) : []);
         this.notes = append ? this.notes.concat((reply.notes || []).filter(n => !have.has(n.id))) : (reply.notes || []);
         this.cursor = reply.nextCursor || '';
+        this.cursorFor = asked;
         this.matched = reply.matched ?? this.notes.length;
         this.total = reply.total ?? this.notes.length;
         this.limits = reply.limits || {};

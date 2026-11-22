@@ -114,6 +114,8 @@ public sealed partial class MemoryStore
             note.Text = body;
             note.Kind = newKind;
             note.Negative = newNegative;
+            // The user is working with this note, so it is in use: the retention sweep does not forget a note they have just edited.
+            note.LastUsed = Clock().ToUniversalTime().ToString("o");
             if (pinned is not null)
             {
                 note.Pinned = pinned.Value;
@@ -205,6 +207,23 @@ public sealed partial class MemoryStore
         }
     }
 
+    /// <summary>Takes deleted notes out of the history: a note the user deleted must not stay readable in it. Every change that names one of <paramref name="ids"/> is dropped from the extractor's journal and
+    /// the retention journal, and a set left with no changes goes. Call under the lock.</summary>
+    private void PurgeFromJournals(IReadOnlyCollection<string> ids)
+    {
+        HashSet<string> gone = [.. ids];
+        foreach ((string key, int cap) in new[] { (ChangesKey, MaxChangeSets), (RetentionJournalKey, MaxRetentionSets) })
+        {
+            List<MemoryChangeSet> journal = LoadJournal(key);
+            if (!journal.Any(set => set.Changes.Any(c => gone.Contains(c.NoteId))))
+            {
+                continue;
+            }
+            List<MemoryChangeSet> kept = [.. journal.Select(set => set with { Changes = [.. set.Changes.Where(c => !gone.Contains(c.NoteId))] }).Where(set => set.Changes.Count > 0)];
+            SaveJournal(kept, key, cap);
+        }
+    }
+
     /// <summary>Deletes notes by id (an id that is not there is ignored) with their vectors. Returns how many were deleted. Not journaled: it is the user's own deletion, and it is final.</summary>
     public MemoryManageResult Delete(IEnumerable<string> ids)
     {
@@ -218,6 +237,8 @@ public sealed partial class MemoryStore
             List<string> gone = [.. loaded.Set.Notes.Where(n => wanted.Contains(n.Id)).Select(n => n.Id)];
             if (gone.Count == 0)
             {
+                // An id the notes no longer hold (a note forgotten, or removed by the extractor) can still be named in the history: deleting it takes it out of there too.
+                PurgeFromJournals([.. wanted]);
                 return new MemoryManageResult(true, "", 0);
             }
             BackupIfNeeded(loaded);
@@ -227,6 +248,7 @@ public sealed partial class MemoryStore
             {
                 DeleteVector(id);
             }
+            PurgeFromJournals(gone);
             return new MemoryManageResult(true, "", gone.Count);
         }
     }

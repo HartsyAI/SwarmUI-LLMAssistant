@@ -108,6 +108,20 @@ test('a general settings save with a stale copy of the extractor block cannot tu
     expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings.enabled).toBe(false);
 });
 
+test('a note the user deletes is gone from the history too', async ({ llm }) => {
+    await api(llm, 'LLMAssistantSetMemorySettings', on);
+    let chat = await chatWith(llm);
+    let done = await api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
+    expect(done, JSON.stringify(done)).toMatchObject({ success: true, status: 'saved' });
+    let history = await api(llm, 'LLMAssistantGetMemoryChanges');
+    expect(JSON.stringify(history.changes)).toContain('Works as a nurse in Lyon.');
+    let id = (await api(llm, 'LLMAssistantListMemoryNotes')).notes[0].id;
+    expect(await api(llm, 'LLMAssistantDeleteMemoryNotes', { ids: [id] })).toMatchObject({ success: true, deleted: 1 });
+    expect((await api(llm, 'LLMAssistantGetMemoryChanges')).changes).toEqual([]);
+    // Undo of what is no longer in the history finds nothing.
+    expect(await api(llm, 'LLMAssistantUndoMemoryChange', { changeId: history.changes[0].id })).toMatchObject({ success: true, found: false });
+});
+
 test('extracting a chat by route saves checked notes, lists them, and undoes them, all without the interface', async ({ llm }) => {
     let chat = await chatWith(llm);
     // Off by default: the same call is a skip with the reason, and no model is called.

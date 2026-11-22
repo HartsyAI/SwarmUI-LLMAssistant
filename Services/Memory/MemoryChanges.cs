@@ -361,6 +361,7 @@ public sealed partial class MemoryStore
                         now.Origin = old.Origin;
                         now.ThreadId = old.ThreadId ?? "";
                         now.Negative = old.Negative;
+                        now.LastUsed = Clock().ToUniversalTime().ToString("o");
                         touched.Add(now.Id);
                         undone++;
                     }
@@ -383,11 +384,8 @@ public sealed partial class MemoryStore
                 }
                 back.Slot ??= "";
                 back.ThreadId ??= "";
-                if (target.Reason == MemoryChangeReasons.Retention)
-                {
-                    // Brought back by the user: its unused time starts again, or the next sweep would forget it at once.
-                    back.LastUsed = Clock().ToUniversalTime().ToString("o");
-                }
+                // Brought back by the user: its unused time starts again, or the next sweep could forget it at once.
+                back.LastUsed = Clock().ToUniversalTime().ToString("o");
                 set.Notes.Add(back);
                 undone++;
             }

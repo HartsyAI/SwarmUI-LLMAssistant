@@ -64,7 +64,10 @@ test('add, get, update, pin and delete a note', async ({ llm }) => {
     expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: note.id })).note.text).toBe('Likes jazz');
     expect(await api(llm, 'LLMAssistantGetMemoryNote', { id: 'nope' })).toMatchObject({ success: false, code: 'notfound' });
 
+    expect(note.lastUsed).toBe('');
     let updated = await api(llm, 'LLMAssistantUpdateMemoryNote', { id: note.id, text: 'Likes bebop', kind: 'dislike' });
+    // An edit is a use: the retention setting does not forget a note the user has just worked on.
+    expect(updated.note.lastUsed).not.toBe('');
     expect(updated.note).toMatchObject({ text: 'Likes bebop', kind: 'preference', negative: true, origin: 'user' });
     // A field left out stays as it is.
     expect((await api(llm, 'LLMAssistantUpdateMemoryNote', { id: note.id, kind: 'fact' })).note).toMatchObject({ text: 'Likes bebop', kind: 'fact', negative: false });

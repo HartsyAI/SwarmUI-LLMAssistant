@@ -284,10 +284,14 @@ public static class SettingsService
             {
                 // What the user chose about their own memory (the automatic switch, a pause, retention) is not a preference to be reset to the defaults: a reset must not quietly undo a pause or start saving again.
                 JObject kept = KeepKeys(GetUserSettings(user), PrivacyUserKeys);
-                GenericDataCache.Delete(user, DataName, UserConfigKey);
                 if (kept.Count > 0)
                 {
+                    // Replaced in one write, so there is no moment with the pause gone.
                     ReplaceUserSettings(user, kept);
+                }
+                else
+                {
+                    GenericDataCache.Delete(user, DataName, UserConfigKey);
                 }
             }
         }

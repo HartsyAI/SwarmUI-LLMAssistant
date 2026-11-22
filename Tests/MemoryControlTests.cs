@@ -413,8 +413,184 @@ public class MemoryControlTests
         now = T0.AddDays(200);
         Assert.Null(MemoryService.RunRetentionIfDue(store, "u1", 30, false));
         Assert.NotNull(store.Load().Find(again.Id));
+        now = T0.AddDays(195);
+        store.MarkUsed([again.Id]);
+        now = T0.AddDays(200);
         Assert.NotNull(MemoryService.RunRetentionIfDue(store, "u1", 30, true));
         Assert.Null(MemoryService.RunRetentionIfDue(store, "u1", 0, true));
+        MemoryService.ResetRetentionForTests();
+    }
+
+    // ---- Deleted notes leave the history; the pending notice; edits and restores count as use; a saved retention keeps the idle guard ----
+
+    private static MemoryChangeSet Sweep(MemoryStore store, ref DateTime now, params string[] oldTexts)
+    {
+        foreach (string text in oldTexts)
+        {
+            Add(store, "fact", text);
+        }
+        now = now.AddDays(100);
+        MemoryNote fresh = Add(store, "fact", "Fresh and used");
+        store.MarkUsed([fresh.Id]);
+        return store.ApplyRetention(30);
+    }
+
+    [Fact]
+    public void A_deleted_note_is_gone_from_both_histories_and_a_set_left_empty_goes()
+    {
+        // The extractor's journal: notes it added are deleted by the user.
+        MemoryStore s3 = StoreOf(new Storage());
+        MemoryChangeSet added = s3.ApplyExtraction([new MemoryOp("add", "", "", MemoryKinds.Fact, "Learned and then deleted", false, MemoryOrigins.Assistant), new MemoryOp("add", "", "", MemoryKinds.Fact, "Learned and kept", false, MemoryOrigins.Assistant)], "t1").Changes;
+        string deletedId = added.Changes.Single(c => c.AfterText == "Learned and then deleted").NoteId;
+        MemoryChangeSet onlyOne = s3.ApplyExtraction([new MemoryOp("add", "", "", MemoryKinds.Fact, "Only this one", false, MemoryOrigins.Assistant)], "t2").Changes;
+        Assert.Equal(2, s3.Delete([deletedId, onlyOne.Changes[0].NoteId]).Count);
+        string history = string.Join("|", s3.Changes().SelectMany(c => c.Changes).SelectMany(c => new[] { c.BeforeText, c.AfterText }));
+        Assert.DoesNotContain("Learned and then deleted", history);
+        Assert.DoesNotContain("Only this one", history);
+        Assert.Contains("Learned and kept", history);
+        // The set that only held deleted notes is gone; the other keeps its one change.
+        Assert.Equal([added.Id], s3.Changes().Select(c => c.Id));
+        Assert.Single(s3.Changes()[0].Changes);
+
+        // An updated note: its old text is in the journal as well, and goes with the note.
+        MemoryStore s5 = StoreOf(new Storage());
+        MemoryNote orig = s5.Write("fact", "Old words", MemoryOrigins.Explicit, "").Note;
+        MemoryChangeSet upd = s5.ApplyExtraction([new MemoryOp("update", orig.Id, MemoryStore.TextHash(orig.Text), "", "New words", null, MemoryOrigins.Assistant)], "t1").Changes;
+        Assert.Single(s5.Changes());
+        s5.Delete([orig.Id]);
+        Assert.Empty(s5.Changes());
+
+        // The retention journal: notes that were forgotten can still be deleted from the history by id, and a live note it names too.
+        DateTime t4 = T0;
+        MemoryStore s4 = StoreOf(new Storage(), () => t4);
+        MemoryChangeSet partial = Sweep(s4, ref t4, "Return me one", "Return me two");
+        MemoryNote clash = Add(s4, "fact", "Return me one");
+        Assert.Equal(1, s4.Undo(partial.Id).Skipped);
+        MemoryChangeSet rest = s4.Changes().Single(c => c.Id == partial.Id);
+        Assert.Equal(1, rest.Changes.Count);
+        string leftId = rest.Changes[0].NoteId;
+        // The note is not live (it was forgotten), and its text is still in the history until it is deleted from there.
+        Assert.Contains("Return me one", s4.Changes().Single(c => c.Id == partial.Id).Changes[0].BeforeText);
+        Assert.Equal(0, s4.Delete([leftId]).Count);
+        Assert.Empty(s4.Changes().Where(c => c.Id == partial.Id));
+        Assert.Contains(s4.Load().Notes, n => n.Id == clash.Id);
+    }
+
+    [Fact]
+    public void A_pending_forgotten_notice_is_not_shown_after_a_clear_an_undo_or_a_delete_of_its_notes()
+    {
+        MemoryService.ResetRetentionForTests();
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        Add(store, "fact", "Old one");
+        Add(store, "fact", "Old two");
+        now = T0.AddDays(50);
+        MemoryNote active = Add(store, "fact", "Active");
+        store.MarkUsed([active.Id]);
+        now = T0.AddDays(60);
+        MemoryChangeSet first = MemoryService.RunRetentionIfDue(store, "u1", 30, false);
+        Assert.Equal(2, first.Changes.Count);
+
+        // Memory is cleared before the next reply: nothing is announced.
+        store.Clear();
+        Assert.Null(MemoryService.TakeRetentionNotice(store, "u1"));
+
+        // Undone before the next reply: nothing is announced either, and the explicit clear does the same.
+        now = T0.AddDays(120);
+        MemoryNote used = Add(store, "fact", "Another active one");
+        store.MarkUsed([used.Id]);
+        Add(store, "fact", "Quiet one");
+        MemoryService.ResetRetentionForTests();
+        now = T0.AddDays(200);
+        store.MarkUsed([used.Id]);
+        MemoryChangeSet second = MemoryService.RunRetentionIfDue(store, "u1", 30, false);
+        Assert.NotNull(second);
+        store.Undo(second.Id);
+        Assert.Null(MemoryService.TakeRetentionNotice(store, "u1"));
+        MemoryService.ResetRetentionForTests();
+
+        // Notes deleted since are not in what is announced, and a set left with none is not announced.
+        DateTime t = T0;
+        MemoryStore s2 = StoreOf(new Storage(), () => t);
+        Add(s2, "fact", "Old a");
+        Add(s2, "fact", "Old b");
+        t = T0.AddDays(50);
+        MemoryNote act = Add(s2, "fact", "Active");
+        s2.MarkUsed([act.Id]);
+        t = T0.AddDays(60);
+        MemoryChangeSet set = MemoryService.RunRetentionIfDue(s2, "u9", 30, false);
+        Assert.Equal(2, set.Changes.Count);
+        s2.Undo(set.Id);
+        s2.Delete([set.Changes[0].NoteId]);
+        s2.Delete([set.Changes[1].NoteId]);
+        Assert.Null(MemoryService.TakeRetentionNotice(s2, "u9"));
+
+        // The explicit forget.
+        MemoryService.RunRetentionIfDue(s2, "u8", 30, false);
+        MemoryService.ClearRetentionNotice("u8");
+        Assert.Null(MemoryService.TakeRetentionNotice(s2, "u8"));
+        MemoryService.ResetRetentionForTests();
+    }
+
+    [Fact]
+    public void An_edited_note_and_a_note_brought_back_by_Undo_count_as_used_so_the_next_sweep_keeps_them()
+    {
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        MemoryNote edited = Add(store, "fact", "Edited later");
+        MemoryNote other = Add(store, "fact", "Untouched");
+        now = T0.AddDays(100);
+        Assert.True(store.Update(edited.Id, "Edited later, now", null, null).Ok);
+        Assert.Equal(now.ToString("o"), store.Load().Find(edited.Id).LastUsed);
+        MemoryChangeSet sweep = store.ApplyRetention(30);
+        Assert.Equal([other.Id], sweep.Changes.Select(c => c.NoteId));
+        // A pin or a kind change is a use too.
+        MemoryNote third = Add(store, "fact", "Pinned later");
+        now = now.AddDays(100);
+        Assert.True(store.Update(third.Id, null, "style", null).Ok);
+        Assert.Equal(now.ToString("o"), store.Load().Find(third.Id).LastUsed);
+
+        // The extractor's removal, undone: the note comes back as used, and an update undone is used too.
+        MemoryStore s2 = StoreOf(new Storage(), () => now);
+        MemoryNote kept = s2.Write("fact", "Removed by the extractor", MemoryOrigins.Explicit, "").Note;
+        MemoryNote changed = s2.Write("fact", "Updated by the extractor", MemoryOrigins.Explicit, "").Note;
+        MemoryNoteSet set = s2.Load();
+        MemoryChangeSet extraction = s2.ApplyExtraction([new MemoryOp("delete", kept.Id, MemoryStore.TextHash(kept.Text), "", "", false, MemoryOrigins.Assistant), new MemoryOp("update", changed.Id, MemoryStore.TextHash(changed.Text), "", "Updated again", null, MemoryOrigins.Assistant)], "t1").Changes;
+        Assert.Equal(2, extraction.Changes.Count);
+        now = now.AddDays(100);
+        Assert.Equal(2, s2.Undo(extraction.Id).Undone);
+        Assert.All(s2.Load().Notes, n => Assert.Equal(now.ToString("o"), n.LastUsed));
+        Assert.Null(s2.ApplyRetention(30));
+    }
+
+    [Fact]
+    public void Saving_the_retention_setting_keeps_the_idle_guard_so_it_cannot_wipe_the_notes_of_a_user_who_was_away()
+    {
+        MemoryService.ResetRetentionForTests();
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        Add(store, "fact", "Waiting one");
+        Add(store, "fact", "Waiting two");
+        now = T0.AddDays(200);
+        MemoryControls off = new(false, false, 0, false);
+        MemoryControls on = new(false, false, 30, false);
+        // The user was away for 200 days and saves 30: nothing is forgotten, and every note's clock starts again.
+        Assert.Equal(0, MemoryService.ApplyControlsChange(store, "u1", off, on, true));
+        Assert.Equal(2, store.Load().Notes.Count);
+        Assert.All(store.Load().Notes, n => Assert.Equal(now.ToString("o"), n.LastUsed));
+
+        // A user who is active, with an old note, saves it: that note is forgotten at once (undoable), the others stay.
+        DateTime t = T0;
+        MemoryStore active = StoreOf(new Storage(), () => t);
+        Add(active, "fact", "Old note");
+        t = T0.AddDays(90);
+        MemoryNote used = Add(active, "fact", "Used lately");
+        active.MarkUsed([used.Id]);
+        t = T0.AddDays(100);
+        Assert.Equal(1, MemoryService.ApplyControlsChange(active, "u2", off, on, true));
+        Assert.Equal(["Used lately"], active.Load().Notes.Select(n => n.Text));
+        // What the user asked for is not announced to them in the chat.
+        Assert.Null(MemoryService.TakeRetentionNotice(active, "u2"));
         MemoryService.ResetRetentionForTests();
     }
 
@@ -518,9 +694,12 @@ public class MemoryControlTests
         Assert.NotNull(store.Load().Find(note.Id));
 
         // Setting retention while running does sweep, at once.
-        now = now.AddDays(100);
+        now = now.AddDays(50);
+        MemoryNote active = Add(store, "fact", "Active");
+        store.MarkUsed([active.Id]);
+        now = now.AddDays(10);
         Assert.Equal(1, MemoryService.ApplyControlsChange(store, "u1", running, running, true));
-        Assert.Empty(store.Load().Notes);
+        Assert.Equal(["Active"], store.Load().Notes.Select(n => n.Text));
         MemoryService.ResetRetentionForTests();
     }
 
@@ -710,13 +889,16 @@ public class MemoryControlTests
         Assert.NotNull(forgotten);
         Assert.Equal(["Active"], store.Load().Notes.Select(n => n.Text));
         // The next reply says so, once.
-        Assert.Equal(forgotten.Id, MemoryService.TakeRetentionNotice("u1").Id);
-        Assert.Null(MemoryService.TakeRetentionNotice("u1"));
-        Assert.Null(MemoryService.TakeRetentionNotice("u2"));
+        Assert.Equal(forgotten.Id, MemoryService.TakeRetentionNotice(store, "u1").Id);
+        Assert.Null(MemoryService.TakeRetentionNotice(store, "u1"));
+        Assert.Null(MemoryService.TakeRetentionNotice(store, "u2"));
         // A sweep the user asked for is not announced to them again.
-        now = T0.AddDays(200);
+        now = T0.AddDays(250);
+        MemoryNote again = Add(store, "fact", "Old again");
+        store.MarkUsed([again.Id]);
+        now = T0.AddDays(260);
         Assert.NotNull(MemoryService.RunRetentionIfDue(store, "u1", 30, true));
-        Assert.Null(MemoryService.TakeRetentionNotice("u1"));
+        Assert.Null(MemoryService.TakeRetentionNotice(store, "u1"));
         MemoryService.ResetRetentionForTests();
     }
 

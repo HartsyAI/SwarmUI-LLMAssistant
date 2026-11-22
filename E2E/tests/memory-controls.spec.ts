@@ -435,3 +435,14 @@ test('a note can be added by hand, the list pages with Show more, and an assista
     await box.check();
     await expect.poll(async () => (await api(llm, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant.memoryExtraction).toBe(true);
 });
+
+test('"Show more" continues the list on screen, not a search typed since', async ({ llm }) => {
+    await api(llm, 'LLMAssistantImportMemory', { data: JSON.stringify({ notes: Array.from({ length: 130 }, (_, i) => ({ text: `Bulk note ${i}`, kind: 'fact' })) }) });
+    await openMemory(llm);
+    await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(100);
+    // A search typed while the list is still the unfiltered one (it is applied after a short pause): the next page is still of that list.
+    await llm.evaluate(() => { (window as any).llmaMemorySettings.query = 'zzz-nothing'; });
+    await llm.locator('.llma-memory-more').click();
+    await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(130);
+    expect(new Set(await llm.locator('#llma-memory-list .llma-memory-note').evaluateAll(els => els.map(e => (e as HTMLElement).dataset.noteId))).size).toBe(130);
+});

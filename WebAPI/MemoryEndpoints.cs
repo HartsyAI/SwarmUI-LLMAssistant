@@ -75,6 +75,7 @@ public static class MemoryEndpoints
                 return new JObject { ["success"] = false, ["error"] = "changeId is required." };
             }
             MemoryUndoResult result = MemoryService.StoreFor(session.User).Undo(changeId);
+            MemoryService.ClearRetentionNotice(session.User.UserID, changeId);
             return new JObject { ["success"] = true, ["found"] = result.Found, ["undone"] = result.Undone, ["skipped"] = result.Skipped, ["refused"] = result.Refused };
         }
         catch (Exception ex)

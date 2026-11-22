@@ -343,7 +343,7 @@ public static class MemoryExtractionService
         try
         {
             // Notes a sweep forgot while this reply was being prepared: said first, with the same Undo (the sweep is not the extractor's, and runs whether or not it is on).
-            MemoryChangeSet forgotten = MemoryService.TakeRetentionNotice(session?.User?.UserID);
+            MemoryChangeSet forgotten = session?.User is null ? null : MemoryService.TakeRetentionNotice(MemoryService.StoreFor(session.User), session.User.UserID);
             if (forgotten is not null && notify is not null)
             {
                 await notify(new JObject { ["memoryChanges"] = forgotten.ToClientJson() });

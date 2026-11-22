@@ -335,6 +335,7 @@ public static class MemoryService
             // An extraction waiting on its model must not write into the memory that was just forgotten (the store's epoch, bumped by Clear, also refuses it).
             MemoryExtractionRegistry.CancelUser(user.UserID);
             StoreFor(user).Clear();
+            ClearRetentionNotice(user.UserID);
         }
     }
 
@@ -363,7 +364,24 @@ public static class MemoryService
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, MemoryChangeSet> PendingRetentionNotice = new();
 
     /// <summary>The change set of a lazy sweep that forgot notes, once (null when there is none): the chat shows it as a notice with Undo.</summary>
-    public static MemoryChangeSet TakeRetentionNotice(string userId) => PendingRetentionNotice.TryRemove(userId ?? "", out MemoryChangeSet set) ? set : null;
+    public static MemoryChangeSet TakeRetentionNotice(MemoryStore store, string userId)
+    {
+        if (!PendingRetentionNotice.TryRemove(userId ?? "", out MemoryChangeSet pending) || store is null)
+        {
+            return null;
+        }
+        // What the notice shows is what the history still holds: a set that was undone, cleared, or whose notes were deleted since is not announced (with a dead Undo, or text of notes that are gone).
+        return store.Changes().FirstOrDefault(s => s.Id == pending.Id);
+    }
+
+    /// <summary>Forgets a pending notice (when memory is cleared, or the set it is about is undone).</summary>
+    public static void ClearRetentionNotice(string userId, string changeId = null)
+    {
+        if (changeId is null || (PendingRetentionNotice.TryGetValue(userId ?? "", out MemoryChangeSet pending) && pending.Id == changeId))
+        {
+            PendingRetentionNotice.TryRemove(userId ?? "", out _);
+        }
+    }
 
     private static MemoryChangeSet SweepRetention(MemoryStore store, string userId, int days, bool force)
     {
@@ -382,7 +400,8 @@ public static class MemoryService
         LastRetention[userId ?? ""] = now;
         try
         {
-            return store.ApplyRetention(days, lazy: !force);
+            // Always lazy: the user's own save of the setting skips the once-a-day throttle (force), but not the away-longer-than-the-setting guard, so saving it never wipes notes after a long absence.
+            return store.ApplyRetention(days, lazy: true);
         }
         catch (Exception ex)
         {
