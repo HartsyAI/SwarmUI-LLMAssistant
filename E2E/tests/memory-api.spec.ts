@@ -83,7 +83,8 @@ test('the note routes validate their input and say why they refuse', async ({ ll
     expect(await api(llm, 'LLMAssistantAddMemoryNote', { text: 'x', kind: 'banana' })).toMatchObject({ success: false, code: 'kind' });
     expect(await api(llm, 'LLMAssistantAddMemoryNote', { text: 'x', slot: 'shoes' })).toMatchObject({ success: false, code: 'slot' });
     expect(await api(llm, 'LLMAssistantAddMemoryNote', { text: 'first   NOTE' })).toMatchObject({ success: false, code: 'duplicate' });
-    expect((await api(llm, 'LLMAssistantAddMemoryNote', { text: 'z'.repeat(5000) })).note.text).toHaveLength(2000);
+    let big = (await api(llm, 'LLMAssistantAddMemoryNote', { text: 'z'.repeat(5000) })).note;
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: big.id })).note.text).toHaveLength(2000);
 
     let name = await add(llm, 'Sam', { slot: 'name' });
     expect(name).toMatchObject({ slot: 'name', pinned: true });
@@ -234,7 +235,7 @@ test('pause, retention and the admin switch through the API', async ({ llm }) =>
 test('the history and Undo through the API, and clearing memory', async ({ llm }) => {
     expect(await api(llm, 'LLMAssistantGetMemoryChanges')).toMatchObject({ success: true, changes: [] });
     expect(await api(llm, 'LLMAssistantUndoMemoryChange', { changeId: 'nope' })).toMatchObject({ success: true, found: false, undone: 0 });
-    expect(await api(llm, 'LLMAssistantUndoMemoryChange', {})).toMatchObject({ success: false });
+    expect(await api(llm, 'LLMAssistantUndoMemoryChange', {})).toHaveProperty('error');
     await add(llm, 'To be cleared');
     expect(await api(llm, 'LLMAssistantClearUserProfile')).toMatchObject({ success: true });
     expect((await api(llm, 'LLMAssistantListMemoryNotes')).total).toBe(0);
@@ -249,6 +250,8 @@ test('the per-assistant and per-chat switches through the API', async ({ llm }) 
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default' })).toMatchObject({ success: false });
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { enabled: true })).toMatchObject({ success: false });
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'no-such-assistant', enabled: true })).toMatchObject({ success: false });
+    // ...and it saved nothing under the default assistant's name.
+    expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.map((a: any) => a.id)).not.toContain('no-such-assistant');
 
     let created = await api(llm, 'LLMAssistantCreateThread', { rememberChat: true });
     expect(created.success, JSON.stringify(created)).toBe(true);

@@ -203,7 +203,9 @@ public static class MemoryEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "enabled must be true or false." };
             }
-            JObject assistant = AssistantService.GetAssistant(id, user: session.User);
+            // GetAssistant falls back to the default assistant for an id it does not know, which must not be saved as this one.
+            bool exists = SettingsService.GetMergedSettings(session.User)["assistants"] is JObject all && all[id] is JObject;
+            JObject assistant = exists ? AssistantService.GetAssistant(id, user: session.User) : null;
             if (assistant is null)
             {
                 return new JObject { ["success"] = false, ["error"] = "Assistant not found." };
