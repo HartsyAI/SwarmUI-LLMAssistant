@@ -906,6 +906,8 @@ public static class ChatEndpoints
         TurnScope scope = TurnScope.Begin(session, threadId, thread);
         CancellationTokenSource cts = scope.Cts;
         bool stopped;
+        // This turn's own extraction slot (reserved once the reply is over); the socket-close hook below cancels this one and no other, so a late close of this turn never stops a later turn's.
+        MemoryExtractionSlot memorySlot = null;
         try
         {
             PreparedTurn prepared = await TurnSetupService.PrepareAsync(session, threadId, thread, rawInput, frame => SendWsFrame(socket, frame), cts.Token);
@@ -915,7 +917,7 @@ public static class ChatEndpoints
                 scope.MarkIdle();
                 return;
             }
-            CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0, () => MemoryExtractionRegistry.Cancel(session.User.UserID, threadId));
+            CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0, () => memorySlot?.Cancel());
             await LLMStreamHelper.StreamToWebSocket(socket, prepared.Input, session, threadId, prepared.AssistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
         }
         catch
@@ -933,10 +935,19 @@ public static class ChatEndpoints
             // Skip auto-titling after a stopped reply: MaybeGenerateTitleAsync starts a new, uncancellable
             // generation (LLMDispatcher.Generate, no token), and running it right after Stop would silently
             // start more model work the instant the user asked for it to stop.
-            await MaybeGenerateTitleAsync(socket, session, threadId, model);
-            // The reply is already delivered. The automatic memory extractor (off unless the user turned it on) runs now, after it, on a cancellation source of its own that Stop reaches; the socket is
-            // awaited only so it stays open to carry the notice. See MemoryExtractionService.
-            await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame));
+            // The automatic memory extractor (off unless the user turned it on) is reserved now, before the title is made, so a Stop, a closed socket or a new reply during the title already reaches it;
+            // with the socket already closed there is nobody to show a notice to, so it does not run at all. See MemoryExtractionService.
+            memorySlot = socket.State == WebSocketState.Open ? MemoryExtractionRegistry.Reserve(session.User.UserID, threadId) : null;
+            try
+            {
+                await MaybeGenerateTitleAsync(socket, session, threadId, model);
+                // The reply is already delivered. The extractor runs after the title, on the reserved slot; the socket is awaited only so it stays open to carry the notice.
+                await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame), memorySlot);
+            }
+            finally
+            {
+                memorySlot?.Dispose();
+            }
         }
     }
 

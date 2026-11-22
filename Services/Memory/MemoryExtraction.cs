@@ -346,13 +346,17 @@ public static class MemoryOpParser
         {
             normal = text ?? "";
         }
+        // Per rune, not per char: format characters outside the basic plane (the U+E0000 tag characters, in surrogate pairs) are found too. Format characters and control characters other than
+        // white space (a newline becomes a space later) are dropped.
         StringBuilder sb = new(normal.Length);
-        foreach (char c in normal)
+        foreach (Rune rune in normal.EnumerateRunes())
         {
-            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.Format)
+            System.Globalization.UnicodeCategory category = Rune.GetUnicodeCategory(rune);
+            if (category == System.Globalization.UnicodeCategory.Format || (category == System.Globalization.UnicodeCategory.Control && !Rune.IsWhiteSpace(rune)))
             {
-                sb.Append(c);
+                continue;
             }
+            sb.Append(rune.ToString());
         }
         return sb.ToString();
     }
@@ -454,7 +458,8 @@ public static class MemoryOpParser
                 rejected++;
                 continue;
             }
-            string text = MemoryNoteSet.Squash(o["text"]?.Type == JTokenType.String ? o["text"].ToString() : "");
+            // The text that is checked is the text that is saved: folded (see Fold), so nothing invisible is stored.
+            string text = MemoryNoteSet.Squash(Fold(o["text"]?.Type == JTokenType.String ? o["text"].ToString() : ""));
             if (kind != "delete" && text.Length == 0)
             {
                 return new MemoryParseResult([], 0, $"A \"{kind}\" had no text.");

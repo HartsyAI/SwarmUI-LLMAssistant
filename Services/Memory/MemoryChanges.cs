@@ -290,7 +290,7 @@ public sealed partial class MemoryStore
         }
     }
 
-    /// <summary>Reverts one change set, change by change, and only where the note is still exactly as the extractor left it (everything but when it was last used): a note that was added is removed,
+    /// <summary>Reverts one change set, change by change, and only where the note's content is still exactly what the extractor left (every field but when it was last used; notes carry no edit stamp, so a note edited and put back to identical content counts as unchanged): a note that was added is removed,
     /// one that was updated gets its old text back, one that was removed or dropped is brought back as it was (id, times, pinned flag). A note that has been changed since in any way (edited, edited
     /// back, pinned) is left alone and counted as skipped, a removed note whose words were saved again meanwhile is not brought back a second time, and so is one that cannot come back because the set
     /// is full. When nothing at all could be undone the set stays in the journal (so it can be tried again, or seen), otherwise it leaves it. Refused when the stored notes were written by a newer
