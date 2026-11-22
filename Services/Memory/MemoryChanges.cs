@@ -98,9 +98,9 @@ public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IRea
 /// <param name="BaseHash">The <see cref="MemoryStore.TextHash"/> of the text the extractor was shown for that note: the operation is dropped if the note's text is not that any more.</param>
 /// <param name="NoteKind">The kind of an added note (<see cref="MemoryKinds"/>).</param>
 /// <param name="Text">The new text (empty for a delete).</param>
-/// <param name="Negative">Whether an added note is a dislike.</param>
+/// <param name="Negative">Whether an added note is a dislike; for an update, a new value for the flag, or null to leave it as it is.</param>
 /// <param name="Origin">The origin the note is given (<see cref="MemoryOrigins"/>), decided in code.</param>
-public sealed record MemoryOp(string Kind, string NoteId, string BaseHash, string NoteKind, string Text, bool Negative, string Origin);
+public sealed record MemoryOp(string Kind, string NoteId, string BaseHash, string NoteKind, string Text, bool? Negative, string Origin);
 
 /// <summary>What applying operations did.</summary>
 /// <param name="Changes">The changes saved, or null when nothing was.</param>
@@ -165,14 +165,54 @@ public sealed partial class MemoryStore
         }
     }
 
-    /// <summary>Applies the extractor's operations as one change and keeps what it did in the journal. Everything is decided again here under the user's lock, against the notes as they are now:
-    /// an update or delete is dropped when its note is gone, pinned, a slot note, or has other text than the extractor was shown; an add goes through the same duplicate check and room-making
-    /// as every write (so a full set drops its oldest unused, unpinned note, and that is recorded too). Nothing is written when the stored notes were written by a newer version or do not
-    /// read cleanly (the extractor never backs up or replaces what the user's own writes would), or when <paramref name="cancelled"/> says so before the save.</summary>
-    public MemoryApplyResult ApplyExtraction(IReadOnlyList<MemoryOp> ops, string threadId, Func<bool> cancelled = null)
+    /// <summary>What a user's notes are at one moment of <see cref="Clear"/>: bumped by every Clear, so a write that was prepared before it (the extractor reads the notes, waits for a model, then
+    /// saves) can tell that the memory was forgotten meanwhile and must not be written.</summary>
+    private sealed class EpochBox
+    {
+        public int Value;
+    }
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, EpochBox> Epochs = new();
+
+    /// <summary>The user's current epoch (see <see cref="ApplyExtraction"/>).</summary>
+    public int Epoch()
     {
         lock (Gate)
         {
+            return Epochs.GetOrCreateValue(Gate).Value;
+        }
+    }
+
+    /// <summary>Called by <see cref="Clear"/>, under the lock.</summary>
+    private void BumpEpoch() => Epochs.GetOrCreateValue(Gate).Value++;
+
+    /// <summary>Whether two stored notes are the same note apart from when it was last used (which recall refreshes without anyone changing the note).</summary>
+    private static bool SameExceptUse(JObject a, JObject b)
+    {
+        if (a is null || b is null)
+        {
+            return false;
+        }
+        JObject x = (JObject)a.DeepClone();
+        JObject y = (JObject)b.DeepClone();
+        x.Remove("lastUsed");
+        y.Remove("lastUsed");
+        return JToken.DeepEquals(x, y);
+    }
+
+    /// <summary>Applies the extractor's operations as one change and keeps what it did in the journal. Everything is decided again here under the user's lock, against the notes as they are now:
+    /// an update or delete is dropped when its note is gone, pinned, a slot note, or has other text than the extractor was shown; an add goes through the same duplicate check and room-making
+    /// as every write (so a full set drops its oldest unused, unpinned note, and that is recorded too). Nothing is written when the stored notes were written by a newer version or do not
+    /// read cleanly (the extractor never backs up or replaces what the user's own writes would), when <paramref name="cancelled"/> says so before the save, or when memory was cleared since
+    /// <paramref name="epoch"/> was read (<see cref="Epoch"/>).</summary>
+    public MemoryApplyResult ApplyExtraction(IReadOnlyList<MemoryOp> ops, string threadId, Func<bool> cancelled = null, int? epoch = null)
+    {
+        lock (Gate)
+        {
+            if (epoch is not null && epoch.Value != Epochs.GetOrCreateValue(Gate).Value)
+            {
+                return new MemoryApplyResult(null, ops.Count, "cleared");
+            }
             Loaded loaded = LoadLocked();
             if (loaded.Status != MemoryLoadStatus.Ok)
             {
@@ -191,7 +231,7 @@ public sealed partial class MemoryStore
                 }
                 if (op.Kind == "add")
                 {
-                    string category = op.Negative ? "dislike" : op.NoteKind;
+                    string category = op.Negative == true ? "dislike" : op.NoteKind;
                     MemoryWriteResult result = set.Write(category, op.Text, op.Origin, threadId, Clock());
                     if (!result.Saved || !result.Added || result.Note is null)
                     {
@@ -222,14 +262,18 @@ public sealed partial class MemoryStore
                     continue;
                 }
                 string text = MemoryNoteSet.Truncate(op.Text.Trim(), MemoryNoteSet.MaxNoteChars);
-                if (MemoryNoteSet.Squash(note.Text).Equals(MemoryNoteSet.Squash(text), StringComparison.OrdinalIgnoreCase)
-                    || set.Notes.Any(n => n.Id != note.Id && n.Slot.Length == 0 && n.Kind == note.Kind && n.Negative == note.Negative && MemoryNoteSet.Squash(n.Text).Equals(MemoryNoteSet.Squash(text), StringComparison.OrdinalIgnoreCase)))
+                bool negative = note.Kind == MemoryKinds.Preference && op.Negative is not null ? op.Negative.Value : note.Negative;
+                bool sameAsOther = set.Notes.Any(n => n.Id != note.Id && n.Slot.Length == 0 && n.Kind == note.Kind && n.Negative == negative && MemoryNoteSet.Squash(n.Text).Equals(MemoryNoteSet.Squash(text), StringComparison.OrdinalIgnoreCase));
+                bool nothingNew = negative == note.Negative && MemoryNoteSet.Squash(note.Text).Equals(MemoryNoteSet.Squash(text), StringComparison.OrdinalIgnoreCase);
+                if (nothingNew || sameAsOther)
                 {
                     skipped++;
                     continue;
                 }
                 JObject old = NoteJson(note);
                 note.Text = text;
+                note.Negative = negative;
+                // The origin is the one the parser decided: a note the user stated or asked to have saved keeps that origin only when the new text is made of the user's own words (see MemoryOpParser).
                 note.Origin = op.Origin;
                 note.ThreadId = threadId ?? "";
                 changes.Add(new MemoryChange(MemoryChangeTypes.Updated, note.Id, old, NoteJson(note)));
@@ -255,9 +299,11 @@ public sealed partial class MemoryStore
         }
     }
 
-    /// <summary>Reverts one change set. A note that was added is removed, one that was updated gets its old text back, one that was removed or dropped is brought back exactly as it was (id,
-    /// times, pinned flag); a note that has been changed since (its text is no longer what the extractor left) is left alone and counted as skipped, and so is a note that cannot come back
-    /// because the set is full. The set leaves the journal either way, so it is undone once. Refused when the stored notes were written by a newer version or do not read cleanly.</summary>
+    /// <summary>Reverts one change set, change by change, and only where the note is still exactly as the extractor left it (everything but when it was last used): a note that was added is removed,
+    /// one that was updated gets its old text back, one that was removed or dropped is brought back as it was (id, times, pinned flag). A note that has been changed since in any way (edited, edited
+    /// back, pinned) is left alone and counted as skipped, a removed note whose words were saved again meanwhile is not brought back a second time, and so is one that cannot come back because the set
+    /// is full. When nothing at all could be undone the set stays in the journal (so it can be tried again, or seen), otherwise it leaves it. Refused when the stored notes were written by a newer
+    /// version or do not read cleanly.</summary>
     public MemoryUndoResult Undo(string changeSetId)
     {
         lock (Gate)
@@ -282,7 +328,7 @@ public sealed partial class MemoryStore
                 MemoryNote now = set.Find(change.NoteId);
                 if (change.Type == MemoryChangeTypes.Added)
                 {
-                    if (now is not null && now.Text == change.AfterText)
+                    if (now is not null && SameExceptUse(NoteJson(now), change.After))
                     {
                         set.Remove(now.Id);
                         touched.Add(now.Id);
@@ -295,11 +341,12 @@ public sealed partial class MemoryStore
                 }
                 else if (change.Type == MemoryChangeTypes.Updated)
                 {
-                    if (now is not null && now.Text == change.AfterText && change.Before?.ToObject<MemoryNote>() is MemoryNote old)
+                    if (now is not null && SameExceptUse(NoteJson(now), change.After) && change.Before?.ToObject<MemoryNote>() is MemoryNote old)
                     {
                         now.Text = old.Text;
                         now.Origin = old.Origin;
                         now.ThreadId = old.ThreadId ?? "";
+                        now.Negative = old.Negative;
                         touched.Add(now.Id);
                         undone++;
                     }
@@ -312,7 +359,8 @@ public sealed partial class MemoryStore
             foreach (MemoryChange change in target.Changes.Reverse().Where(c => c.Type is MemoryChangeTypes.Removed or MemoryChangeTypes.Evicted))
             {
                 MemoryNote back = change.Before?.ToObject<MemoryNote>();
-                if (back is null || set.Find(back.Id) is not null || set.Notes.Count >= MemoryNoteSet.MaxNotes || string.IsNullOrWhiteSpace(back.Text))
+                if (back is null || set.Find(back.Id) is not null || set.Notes.Count >= MemoryNoteSet.MaxNotes || string.IsNullOrWhiteSpace(back.Text)
+                    || set.Notes.Any(n => n.Slot.Length == 0 && back.Slot.Length == 0 && n.Kind == back.Kind && n.Negative == back.Negative && MemoryNoteSet.Squash(n.Text).Equals(MemoryNoteSet.Squash(back.Text), StringComparison.OrdinalIgnoreCase)))
                 {
                     skipped++;
                     continue;
@@ -334,9 +382,9 @@ public sealed partial class MemoryStore
                 {
                     DeleteVector(id);
                 }
+                journal.Remove(target);
+                SaveJournal(journal);
             }
-            journal.Remove(target);
-            SaveJournal(journal);
             return new MemoryUndoResult(undone, skipped, true, "");
         }
     }

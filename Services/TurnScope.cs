@@ -41,6 +41,8 @@ public sealed class TurnScope : IDisposable
     /// <summary>Registers the reply, and marks a session working. Registered before any setup so a Stop clicked during it has somewhere to land.</summary>
     public static TurnScope Begin(Session session, string threadId, JObject thread)
     {
+        // A reply of this user's begins: an extraction of theirs still running from an earlier turn is stopped, so it never waits ahead of this reply on a backend with one slot.
+        Memory.MemoryExtractionRegistry.CancelUser(session.User.UserID);
         CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
         bool isSession = SessionManager.IsSession(thread);
         if (isSession)

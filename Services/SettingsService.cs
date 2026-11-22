@@ -285,6 +285,21 @@ public static class SettingsService
         }
     }
 
+    /// <summary>Settings keys that only a user's own layer may hold (what is saved about a person is theirs to switch on): the shared layer never carries them, is never written them, and
+    /// never shows them in a user's merged view, so an admin's baseline cannot turn them on for anyone and a client that saves its merged view back cannot copy one into a user's layer.</summary>
+    public static readonly string[] UserOnlyKeys = ["memoryExtraction", "memoryPause", "memoryRetention"];
+
+    /// <summary>A copy of <paramref name="shared"/> without <see cref="UserOnlyKeys"/>.</summary>
+    public static JObject WithoutUserOnlyKeys(JObject shared)
+    {
+        JObject copy = (JObject)shared.DeepClone();
+        foreach (string key in UserOnlyKeys)
+        {
+            copy.Remove(key);
+        }
+        return copy;
+    }
+
     /// <summary>Settings keys that are only for the server: MCP servers (environment values and headers are secrets) and hooks (a command hook's
     /// program and arguments). Each has its own route that decides what a caller may see.</summary>
     public static readonly string[] ServerOnlyKeys = ["mcpServers", "hooks", "workspaceRoots", "trustedWorkspaces", PromptStyles.PromptStyleService.OverridesKey];
@@ -313,6 +328,7 @@ public static class SettingsService
             return shared;
         }
         JObject personal = GetUserSettings(user);
+        shared = WithoutUserOnlyKeys(shared);
         // Union merge for assistants/tools (the dicts need scope tagging)
         JObject mergedAssistants = UnionMergeDict(shared["assistants"] as JObject, personal["assistants"] as JObject);
         JObject mergedTools = UnionMergeDict(shared["tools"] as JObject, personal["tools"] as JObject);

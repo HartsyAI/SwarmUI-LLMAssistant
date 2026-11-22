@@ -102,6 +102,10 @@ public static class SettingsEndpoints
         JObject saved;
         if (wantsShared)
         {
+            foreach (string key in SettingsService.UserOnlyKeys)
+            {
+                filtered.Remove(key);
+            }
             JObject sharedCurrent;
             lock (SettingsService.SettingsLock)
             {

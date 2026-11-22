@@ -253,20 +253,24 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "threadId is required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        bool optOut = rawInput["enabled"]?.Type == JTokenType.Boolean && !rawInput["enabled"].Value<bool>();
+        // Read, change and saved under the thread write lock, so a message appended at the same moment is not lost and the flag is not.
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            if (optOut)
+            {
+                t["memoryExtraction"] = false;
+            }
+            else
+            {
+                t.Remove("memoryExtraction");
+            }
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        if (rawInput["enabled"]?.Type == JTokenType.Boolean && !rawInput["enabled"].Value<bool>())
-        {
-            thread["memoryExtraction"] = false;
-        }
-        else
-        {
-            thread.Remove("memoryExtraction");
-        }
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject { ["success"] = true, ["threadId"] = threadId, ["memoryExtraction"] = thread["memoryExtraction"] ?? JValue.CreateNull() };
     }
 
