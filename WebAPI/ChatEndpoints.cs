@@ -1129,6 +1129,9 @@ public static class ChatEndpoints
         // One shared source for the whole turn: Stop should kill every lane at once, not just one.
         CancellationTokenSource cts = GenerationCancellationRegistry.Begin(threadId);
 
+        // The notes for this turn are chosen once for all the lanes (and the message embedded once), so every model sees the same ones; nothing runs until a lane's instruction uses them.
+        Lazy<Task<MemoryRecallRequest>> sharedRecall = new(() => MemoryService.PrepareRecallAsync(session, thread, false, cts.Token));
+
         async Task RunLane(int lane)
         {
             (string Model, string Device, int BackendId, string AssistantMessageId) L = lanes[lane];
@@ -1139,7 +1142,7 @@ public static class ChatEndpoints
                 // of being silently ignored: the check right before StreamToWebSocket turns it into a
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
-                string systemPrompt = await ResolveInstructionForTurnAsync(instructionId, assistantId, settings, session, thread, false, cts.Token, modelInfo);
+                string systemPrompt = await ResolveInstructionForTurnAsync(instructionId, assistantId, settings, session, thread, false, cts.Token, modelInfo, sharedRecall);
                 // Each lane gets the chat-model style of its own model (the same call as a single-model turn makes in TurnSetupService).
                 systemPrompt = (await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, L.Model, modelInfo, enabledTools.Count > 0)).Prompt;
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
@@ -1403,13 +1406,19 @@ public static class ChatEndpoints
 
     /// <summary>Resolves the instruction for a reply: like <see cref="ResolveInstructionForRequest"/>, with the saved notes chosen for what the user just said in <paramref name="thread"/>. The
     /// recall (which may embed the message) runs only when the instruction actually uses <c>{{userProfile}}</c>, so an instruction without it costs no embedding call and marks no note used.
-    /// A dry run records no use and embeds nothing.</summary>
-    internal static async Task<string> ResolveInstructionForTurnAsync(string instructionId, string assistantId, JObject settings, Session session, JObject thread, bool dryRun, CancellationToken ct, LLMModelInfo modelInfo = null)
+    /// A dry run records no use and embeds nothing. <paramref name="sharedRecall"/> lets several callers answering the same turn (the lanes of a compare turn) share one recall, so they see the
+    /// same notes and the message is embedded once.</summary>
+    internal static async Task<string> ResolveInstructionForTurnAsync(string instructionId, string assistantId, JObject settings, Session session, JObject thread, bool dryRun, CancellationToken ct, LLMModelInfo modelInfo = null, Lazy<Task<MemoryRecallRequest>> sharedRecall = null)
     {
         string text = ResolveInstructionTemplate(instructionId, assistantId, settings, session.User, modelInfo);
-        MemoryRecallRequest recall = text is not null && text.Contains("{{userProfile}}") ? await MemoryService.PrepareRecallAsync(session, thread, dryRun, ct) : null;
+        MemoryRecallRequest recall = await RecallIfUsedAsync(text, sharedRecall, () => MemoryService.PrepareRecallAsync(session, thread, dryRun, ct));
         return SubstituteInstruction(text, assistantId, settings, session.User, recall);
     }
+
+    /// <summary>The recall for an instruction: null (nothing is looked up, embedded or marked used) unless the text uses <c>{{userProfile}}</c>; otherwise the shared one when callers share a
+    /// turn's recall, else the one <paramref name="prepare"/> makes.</summary>
+    internal static async Task<MemoryRecallRequest> RecallIfUsedAsync(string instruction, Lazy<Task<MemoryRecallRequest>> sharedRecall, Func<Task<MemoryRecallRequest>> prepare)
+        => instruction is not null && instruction.Contains("{{userProfile}}") ? await (sharedRecall?.Value ?? prepare()) : null;
 
     /// <summary>The instruction text for an id, with its <c>{{...}}</c> placeholders still in it.</summary>
     private static string ResolveInstructionTemplate(string instructionId, string assistantId, JObject settings, User user, LLMModelInfo modelInfo)

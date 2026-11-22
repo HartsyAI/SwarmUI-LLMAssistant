@@ -27,6 +27,8 @@ public class MemoryStoreTests
         }
 
         public void Delete(string key) => Values.TryRemove(key, out _);
+
+        public IEnumerable<string> Keys(string prefix) => [.. Values.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
     }
 
     private static readonly DateTime T0 = new(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
@@ -96,16 +98,94 @@ public class MemoryStoreTests
     }
 
     [Fact]
-    public void Clearing_an_unreadable_or_newer_value_backs_it_up_first()
+    public void Clearing_deletes_everything_the_user_had_including_backups_and_vectors_of_notes_that_were_never_read()
     {
-        foreach (string raw in new[] { "garbage", NotesJson(MemoryNoteSet.CurrentVersion + 1, NoteJson("a", "Likes tea")) })
+        FakeStorage storage = new();
+        storage.Values[MemoryStore.NotesKey] = "garbage";
+        storage.Values[MemoryStore.BackupPrefix + "20260101000000000"] = "an older value";
+        storage.Values[MemoryStore.VectorPrefix + "orphan"] = "{}";
+        storage.Values[MemoryStore.LegacyProfileKey] = LegacyBlob();
+        storage.Values["somethingelse"] = "kept";
+        StoreOf(storage).Clear();
+        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix) || k.StartsWith(MemoryStore.VectorPrefix) || k == MemoryStore.LegacyProfileKey));
+        Assert.Equal("kept", storage.Values["somethingelse"]);
+        Assert.Empty(StoreOf(storage).Load().Notes);
+        Assert.Equal(MemoryLoadStatus.Ok, StoreOf(storage).Status());
+        // A newer value goes too: clearing is the user asking for it to be gone.
+        storage.Values[MemoryStore.NotesKey] = NotesJson(MemoryNoteSet.CurrentVersion + 1, NoteJson("a", "Likes tea"));
+        StoreOf(storage).Clear();
+        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix)));
+        Assert.Equal(MemoryLoadStatus.Ok, StoreOf(storage).Status());
+    }
+
+    [Fact]
+    public void Backups_are_bounded_to_the_newest_few_and_to_a_month()
+    {
+        FakeStorage storage = new();
+        DateTime now = T0;
+        MemoryStore store = new(storage) { Clock = () => now };
+        storage.Values[MemoryStore.BackupPrefix + now.AddDays(-40).ToString("yyyyMMddHHmmssfff")] = "too old";
+        for (int i = 0; i < 6; i++)
         {
-            FakeStorage storage = new();
-            storage.Values[MemoryStore.NotesKey] = raw;
-            StoreOf(storage).Clear();
-            Assert.Equal(raw, Assert.Single(storage.Values.Where(kv => kv.Key.StartsWith(MemoryStore.BackupPrefix))).Value);
-            Assert.Empty(StoreOf(storage).Load().Notes);
+            storage.Values[MemoryStore.NotesKey] = "garbage " + i;
+            now = T0.AddMinutes(i);
+            Assert.True(store.Write("fact", "fact " + i, MemoryOrigins.Explicit, "").Saved);
         }
+        string[] kept = [.. storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix)).OrderBy(k => k)];
+        Assert.Equal(MemoryStore.MaxBackups, kept.Length);
+        Assert.Equal(["garbage 3", "garbage 4", "garbage 5"], kept.Select(k => storage.Values[k]).ToArray());
+    }
+
+    [Theory]
+    [InlineData("{\"version\":2,\"entries\":[]}")]
+    [InlineData("{\"version\":\"2\",\"items\":[{\"id\":\"a\"}]}")]
+    [InlineData("{\"version\":1.5,\"notes\":[]}")]
+    [InlineData("{\"version\":\"v2-beta\"}")]
+    [InlineData("{\"version\":true}")]
+    [InlineData("{\"version\":{\"major\":2},\"notes\":{\"by\":\"id\"}}")]
+    public void A_newer_version_is_recognised_whatever_the_rest_of_the_file_looks_like(string raw)
+    {
+        Assert.Equal(MemoryLoadStatus.Newer, MemoryNoteSet.ParseDetailed(raw).Status);
+        FakeStorage storage = new();
+        storage.Values[MemoryStore.NotesKey] = raw;
+        MemoryStore store = StoreOf(storage);
+        Assert.False(store.Write("fact", "Will not be saved", MemoryOrigins.Explicit, "").Saved);
+        Assert.False(store.MarkUsed(["a"]));
+        Assert.Equal(raw, storage.Values[MemoryStore.NotesKey]);
+        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix)));
+    }
+
+    [Theory]
+    [InlineData("{\"version\":1,\"notes\":[]}")]
+    [InlineData("{\"version\":1.0,\"notes\":[]}")]
+    [InlineData("{\"version\":\"1\",\"notes\":[]}")]
+    [InlineData("{\"notes\":[]}")]
+    public void The_current_version_written_any_of_these_ways_is_not_newer(string raw)
+    {
+        Assert.Equal(MemoryLoadStatus.Ok, MemoryNoteSet.ParseDetailed(raw).Status);
+    }
+
+    [Fact]
+    public void An_unclean_store_is_warned_about_once_not_on_every_read()
+    {
+        FakeStorage storage = new();
+        storage.Values[MemoryStore.NotesKey] = NotesJson(MemoryNoteSet.CurrentVersion + 1, NoteJson("a", "Likes tea"));
+        List<string> lines = [];
+        object gate = new();
+        for (int i = 0; i < 4; i++)
+        {
+            MemoryStore store = new(storage, gate) { Clock = () => T0, Log = lines.Add };
+            store.Load();
+            store.Status();
+        }
+        Assert.Single(lines);
+        // It becomes readable again, then broken in another way: that is a change, and is said again.
+        storage.Values[MemoryStore.NotesKey] = NotesJson(1, NoteJson("a", "Likes tea"));
+        new MemoryStore(storage, gate) { Clock = () => T0, Log = lines.Add }.Load();
+        storage.Values[MemoryStore.NotesKey] = "garbage";
+        new MemoryStore(storage, gate) { Clock = () => T0, Log = lines.Add }.Load();
+        new MemoryStore(storage, gate) { Clock = () => T0, Log = lines.Add }.Load();
+        Assert.Equal(2, lines.Count);
     }
 
     [Theory]

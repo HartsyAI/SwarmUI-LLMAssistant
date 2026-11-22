@@ -13,6 +13,22 @@ class LLMAMemorySettings {
         this.notes = [];
         /** The store's limits: { maxNotes, maxNoteChars, maxPinned, promptBudgetChars }. */
         this.limits = {};
+        /** How the stored notes read: 'ok', 'lossy', 'corrupt' or 'newer'. */
+        this.state = 'ok';
+    }
+
+    /** What to tell the user about a stored value that did not read cleanly (empty when all is well). Nothing is lost silently: the next save keeps the original as a backup. */
+    static stateNotice(state) {
+        switch (state) {
+            case 'corrupt':
+                return 'The saved notes could not be read, so none are shown. They are not deleted: the next time something is saved, the unreadable value is kept as a backup and a fresh list is started. Clearing memory removes the backup too.';
+            case 'lossy':
+                return 'Some saved notes could not be read and are left out of this list. They are not deleted: the next time something is saved, the original is kept as a backup, and only the notes shown here carry on.';
+            case 'newer':
+                return 'These notes were saved by a newer version of this extension. They are shown, but nothing can be saved or changed until the extension is updated.';
+            default:
+                return '';
+        }
     }
 
     /** Loads the notes from the server and draws them. */
@@ -34,6 +50,7 @@ class LLMAMemorySettings {
         }
         this.notes = reply.notes || [];
         this.limits = reply.limits || {};
+        this.state = reply.state || 'ok';
         this.render();
     }
 
@@ -42,11 +59,13 @@ class LLMAMemorySettings {
         let totals = document.getElementById('llma-memory-totals');
         totals.textContent = `${this.notes.length} / ${this.limits.maxNotes ?? 0} ${translate('notes')}`;
         let list = document.getElementById('llma-memory-list');
+        let notice = LLMAMemorySettings.stateNotice(this.state);
+        let noticeHtml = notice ? `<div class="alert alert-warning py-2 llma-memory-notice" data-state="${escapeHtml(this.state)}">${escapeHtml(translate(notice))}</div>` : '';
         if (this.notes.length == 0) {
-            list.innerHTML = `<div class="text-muted py-2">${translate('Nothing is remembered yet. Ask the assistant to remember something, or tell it about yourself.')}</div>`;
+            list.innerHTML = noticeHtml + (this.state == 'corrupt' ? '' : `<div class="text-muted py-2">${translate('Nothing is remembered yet. Ask the assistant to remember something, or tell it about yourself.')}</div>`);
             return;
         }
-        let html = '<ul class="list-group mb-2">';
+        let html = noticeHtml + '<ul class="list-group mb-2">';
         for (let note of this.notes) {
             let kind = note.negative ? 'dislike' : (note.slot ? (LLMAMemorySettings.SLOT_LABELS[note.slot] || note.slot) : note.kind);
             let pinned = note.pinned ? ` <span class="badge text-bg-info" title="${escapeHtml(translate('Always in the assistant\'s prompt.'))}">${translate('pinned')}</span>` : '';

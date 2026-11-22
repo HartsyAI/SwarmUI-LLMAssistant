@@ -16,6 +16,9 @@ public interface IMemoryStorage
 
     /// <summary>Deletes a value (nothing happens when there is none).</summary>
     void Delete(string key);
+
+    /// <summary>The keys that start with <paramref name="prefix"/> (compared ignoring case).</summary>
+    IEnumerable<string> Keys(string prefix);
 }
 
 /// <summary>One user's notes on top of an <see cref="IMemoryStorage"/>: every read-modify-write under that user's own lock, the first-read migration of the old profile, and the rules that
@@ -38,8 +41,24 @@ public sealed class MemoryStore
     /// <summary>The start of the key a backup of an unreadable value is kept under.</summary>
     public const string BackupPrefix = "memory_notes_backup_";
 
-    /// <summary>The most numbers in a vector that are kept (a larger one is not stored, which bounds the storage a user's notes can take: 400 notes at about 11 KB each).</summary>
-    public const int MaxVectorDims = 2048;
+    /// <summary>The most numbers in a vector that are kept (a larger one is not stored, which bounds the storage a user's notes can take: 400 notes at about 22 KB each).</summary>
+    public const int MaxVectorDims = 4096;
+
+    /// <summary>How many backups of unreadable values are kept (the newest).</summary>
+    public const int MaxBackups = 3;
+
+    /// <summary>How old a backup may be before it is deleted.</summary>
+    public static readonly TimeSpan BackupMaxAge = TimeSpan.FromDays(30);
+
+    /// <summary>The state last logged for a user's notes, so an unclean store is warned about once, not on every read. Held per gate (that is, per user).</summary>
+    private sealed class LoggedState
+    {
+        /// <summary>What the last read said.</summary>
+        public MemoryLoadStatus Status = MemoryLoadStatus.Ok;
+    }
+
+    /// <summary>The logged state of each user's notes, by the user's gate.</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<object, LoggedState> Logged = new();
 
     /// <summary>Where the values are kept.</summary>
     private readonly IMemoryStorage Storage;
@@ -72,11 +91,18 @@ public sealed class MemoryStore
         {
             MemoryNoteSet migrated = MemoryNoteSet.FromLegacyProfile(ReadLegacyProfile(), Clock());
             Storage.Save(NotesKey, migrated.Serialize());
+            Logged.GetOrCreateValue(Gate).Status = MemoryLoadStatus.Ok;
             return new Loaded(migrated, MemoryLoadStatus.Ok, null);
         }
-        if (parsed.Status != MemoryLoadStatus.Ok)
+        // Said once per change of state (not on every read, which happens several times a turn).
+        LoggedState state = Logged.GetOrCreateValue(Gate);
+        if (state.Status != parsed.Status)
         {
-            Log?.Invoke($"The saved memory notes did not read cleanly ({parsed.Status}, {parsed.Skipped} notes skipped); they are kept as they are and backed up before anything overwrites them.");
+            state.Status = parsed.Status;
+            if (parsed.Status != MemoryLoadStatus.Ok)
+            {
+                Log?.Invoke($"The saved memory notes did not read cleanly ({parsed.Status}, {parsed.Skipped} notes skipped); they are kept as they are and backed up before anything overwrites them.");
+            }
         }
         return new Loaded(parsed.Set, parsed.Status, raw);
     }
@@ -99,7 +125,8 @@ public sealed class MemoryStore
         }
     }
 
-    /// <summary>Keeps the raw text of a value that did not read cleanly (or was written by a newer version), so overwriting it loses nothing.</summary>
+    /// <summary>Keeps the raw text of a value that did not read cleanly (or was written by a newer version), so overwriting it loses nothing. Backups are bounded: only the newest
+    /// <see cref="MaxBackups"/> are kept, and none older than <see cref="BackupMaxAge"/>.</summary>
     private void BackupIfNeeded(Loaded loaded)
     {
         if (loaded.Status is MemoryLoadStatus.Lossy or MemoryLoadStatus.Corrupt or MemoryLoadStatus.Newer && !string.IsNullOrEmpty(loaded.Raw))
@@ -107,6 +134,26 @@ public sealed class MemoryStore
             string key = BackupPrefix + Clock().ToUniversalTime().ToString("yyyyMMddHHmmssfff");
             Storage.Save(key, loaded.Raw);
             Log?.Invoke($"Backed up the unreadable memory notes under '{key}' before replacing them.");
+        }
+        PruneBackups();
+    }
+
+    /// <summary>Deletes the backups beyond the newest <see cref="MaxBackups"/> and any older than <see cref="BackupMaxAge"/>. The key's time is the backup's time.</summary>
+    private void PruneBackups()
+    {
+        DateTime now = Clock().ToUniversalTime();
+        int kept = 0;
+        foreach (string key in Storage.Keys(BackupPrefix).OrderByDescending(k => k, StringComparer.Ordinal).ToList())
+        {
+            bool parsed = DateTime.TryParseExact(key[BackupPrefix.Length..], "yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out DateTime when);
+            if (kept >= MaxBackups || parsed && now - when > BackupMaxAge)
+            {
+                Storage.Delete(key);
+            }
+            else
+            {
+                kept++;
+            }
         }
     }
 
@@ -148,23 +195,27 @@ public sealed class MemoryStore
                 {
                     Storage.Delete(VectorPrefix + id);
                 }
+                // A slot note (name, pronouns, bio, current work) is always in the prompt and never ranked, so it has no vector; one left from before, or from an earlier value, goes.
+                if (result.Note is { Slot.Length: > 0 })
+                {
+                    Storage.Delete(VectorPrefix + result.Note.Id);
+                }
             }
             return result;
         }
     }
 
-    /// <summary>Removes every note and every vector. The empty set is saved (not deleted), so the old profile is not migrated in again, and the old profile blob is deleted. An unreadable value
-    /// is backed up first. Irreversible.</summary>
+    /// <summary>Forgets everything: every note, every vector, every backup of an unreadable value, and the old profile blob. The empty set is saved (not deleted), so the old profile is
+    /// not migrated in again. This is the user asking for their memory to be gone, so nothing is kept back, not even a backup of a value that could not be read. Irreversible.</summary>
     public void Clear()
     {
         lock (Gate)
         {
-            Loaded loaded = LoadLocked();
-            BackupIfNeeded(loaded);
             Storage.Save(NotesKey, new MemoryNoteSet().Serialize());
-            foreach (MemoryNote note in loaded.Set.Notes)
+            Logged.GetOrCreateValue(Gate).Status = MemoryLoadStatus.Ok;
+            foreach (string key in Storage.Keys(VectorPrefix).Concat(Storage.Keys(BackupPrefix)).ToList())
             {
-                Storage.Delete(VectorPrefix + note.Id);
+                Storage.Delete(key);
             }
             Storage.Delete(LegacyProfileKey);
         }
@@ -236,7 +287,4 @@ public sealed class MemoryStore
         }
         return result;
     }
-
-    /// <summary>Whether any note has a stored vector (without reading them).</summary>
-    public bool HasVectors(MemoryNoteSet set) => set.Notes.Any(n => !string.IsNullOrEmpty(Storage.Get(VectorPrefix + n.Id)));
 }

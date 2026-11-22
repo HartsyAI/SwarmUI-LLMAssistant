@@ -36,13 +36,9 @@ public class MemoryWriteTool : ToolHandler
         {
             return new JObject { ["success"] = false, ["error"] = "content is required" };
         }
-        string lastUserMessage = "";
-        if (!string.IsNullOrEmpty(ctx.ThreadId) && ctx.Session?.User is not null)
-        {
-            lastUserMessage = MemoryService.QueryFromThread(ThreadStorageService.GetThread(ctx.Session.User, ctx.ThreadId));
-        }
+        JObject thread = !string.IsNullOrEmpty(ctx.ThreadId) && ctx.Session?.User is not null ? ThreadStorageService.GetThread(ctx.Session.User, ctx.ThreadId) : null;
         // A call with no model call id was run by the user themselves (the tool's Run button).
-        string origin = MemoryProvenance.OriginFor(lastUserMessage, ctx.CallId is null);
+        string origin = MemoryService.OriginForCall(thread, ctx.CallId is null);
         MemoryWriteResult result = await MemoryService.WriteAsync(ctx.Session, category, content, origin, ctx.ThreadId, ctx.Ct);
         return new JObject
         {

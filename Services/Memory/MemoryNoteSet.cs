@@ -77,11 +77,13 @@ public sealed class MemoryNoteSet
         try
         {
             JObject root = JObject.Parse(raw);
+            // A newer version is recognised before anything about the shape is checked: a newer file may have renamed or moved the notes, and it must still be left alone.
+            bool newer = IsNewerVersion(root["version"]);
             if (root["notes"] is not JArray array)
             {
-                return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.Corrupt, 0);
+                return new MemoryParse(new MemoryNoteSet(), newer ? MemoryLoadStatus.Newer : MemoryLoadStatus.Corrupt, 0);
             }
-            MemoryNoteSet set = new() { Version = root["version"]?.Type == JTokenType.Integer ? root["version"].Value<int>() : CurrentVersion };
+            MemoryNoteSet set = new() { Version = root["version"]?.Type == JTokenType.Integer && !newer ? root["version"].Value<int>() : CurrentVersion };
             int skipped = 0;
             foreach (JToken token in array)
             {
@@ -106,12 +108,32 @@ public sealed class MemoryNoteSet
                     skipped++;
                 }
             }
-            MemoryLoadStatus status = set.Version > CurrentVersion ? MemoryLoadStatus.Newer : skipped > 0 ? MemoryLoadStatus.Lossy : MemoryLoadStatus.Ok;
+            MemoryLoadStatus status = newer ? MemoryLoadStatus.Newer : skipped > 0 ? MemoryLoadStatus.Lossy : MemoryLoadStatus.Ok;
             return new MemoryParse(set, status, skipped);
         }
         catch (JsonException)
         {
             return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.Corrupt, 0);
+        }
+    }
+
+    /// <summary>Whether a stored <c>version</c> is one this build does not know: a number (or a numeric string) above <see cref="CurrentVersion"/>, or anything that is not a number at all
+    /// (a format this build cannot have written). An absent or null version is not newer.</summary>
+    public static bool IsNewerVersion(JToken version)
+    {
+        if (version is null || version.Type == JTokenType.Null)
+        {
+            return false;
+        }
+        switch (version.Type)
+        {
+            case JTokenType.Integer:
+            case JTokenType.Float:
+                return version.Value<double>() > CurrentVersion;
+            case JTokenType.String:
+                return !double.TryParse(version.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double number) || number > CurrentVersion;
+            default:
+                return true;
         }
     }
 

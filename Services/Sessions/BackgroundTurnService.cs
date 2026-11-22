@@ -208,7 +208,8 @@ public static class BackgroundTurnService
                 {
                     foreach (string message in batch)
                     {
-                        ThreadStorageService.AppendMessage(user, entry.ThreadId, new JObject { ["role"] = Roles.User, ["content"] = message });
+                        // Marked: these come from the model that started or messaged the session (or a schedule), not from the user typing, so they never count as the user asking for something (see MemoryService.IsWrittenByUser).
+                        ThreadStorageService.AppendMessage(user, entry.ThreadId, new JObject { ["role"] = Roles.User, ["content"] = message, ["kind"] = "session_message" });
                     }
                     SessionManager.SetStatus(user, entry.ThreadId, SessionStatuses.Running);
                     (string status, string error) = await RunTurnAsync(entry);
