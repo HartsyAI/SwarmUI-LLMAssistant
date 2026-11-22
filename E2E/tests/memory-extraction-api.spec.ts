@@ -81,16 +81,14 @@ test('the settings are read and set by route, validated, partial, and round-trip
 });
 
 test('the shared layer cannot switch the extractor on for a user', async ({ llm }) => {
-    // The user's own layer is reset first, so nothing of theirs can shadow what the shared layer would show.
-    expect((await api(llm, 'LLMAssistantResetSettings')).success).toBe(true);
-    let before = (await api(llm, 'LLMAssistantGetSettings')).settings;
-    expect((typeof before === 'string' ? JSON.parse(before) : before).memoryExtraction).toBeUndefined();
+    // The user's own block is set to the defaults first (a settings reset keeps it, on purpose), so only the shared write below could change what they see.
+    expect((await api(llm, 'LLMAssistantSetMemorySettings', { enabled: false, model: '', neverSave: [] })).success).toBe(true);
 
     let shared = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: true, model: 'shared-model', neverSave: ['shared'] } }), scope: 'shared' });
     expect(shared.success, JSON.stringify(shared)).toBe(true);
-    // The write was dropped: the merged view still has no such block, and the route reads the default.
+    // The write was dropped: the merged view shows nothing of it, and the route reads the user's own block.
     let general = (await api(llm, 'LLMAssistantGetSettings')).settings;
-    expect((typeof general === 'string' ? JSON.parse(general) : general).memoryExtraction).toBeUndefined();
+    expect(JSON.stringify((typeof general === 'string' ? JSON.parse(general) : general).memoryExtraction ?? {})).not.toContain('shared');
     expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings).toEqual({ enabled: false, model: '', neverSave: [] });
     let chat = await chatWith(llm);
     let out = await api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
