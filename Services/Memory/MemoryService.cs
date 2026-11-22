@@ -21,9 +21,6 @@ public sealed class UserMemoryStorage(User user) : IMemoryStorage
 
     /// <inheritdoc/>
     public void Delete(string key) => GenericDataCache.Delete(user, DataName, key);
-
-    /// <inheritdoc/>
-    public IEnumerable<string> Keys(string prefix) => user.ListAllGenericData(DataName).Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 }
 
 /// <summary>Who a note came from, decided from what the user actually said.</summary>
@@ -89,6 +86,9 @@ public static class MemoryService
     /// <summary>Until when an embedding backend is not tried again, by <see cref="BackendKey"/> (a user's own key and model, so one user's bad key does not stop anyone else's).</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> BackendDownUntil = new();
 
+    /// <summary>The user, backend and model whose vectors are too large to keep: they are not embedded again (until another model is chosen, which is another key, or the server restarts).</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> VectorsTooLarge = new();
+
     /// <summary>When a problem was last logged, by a key that names it (and the user and backend it is about).</summary>
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> LastWarned = new();
 
@@ -96,7 +96,20 @@ public static class MemoryService
     internal static string BackendKey(string userId, KnowledgeSettings settings) => $"{userId}|{settings.ProviderId}|{settings.Model?.Trim()}";
 
     /// <summary>Whether the backend of <paramref name="userId"/>'s setting is being left alone after a failure.</summary>
-    internal static bool IsBackingOff(string userId, KnowledgeSettings settings) => BackendDownUntil.TryGetValue(BackendKey(userId, settings), out DateTime until) && until > DateTime.UtcNow;
+    internal static bool IsBackingOff(string userId, KnowledgeSettings settings) => IsBackingOffKey(BackendKey(userId, settings));
+
+    /// <summary>Whether something is being left alone after a failure, by the key it failed under.</summary>
+    internal static bool IsBackingOffKey(string key) => BackendDownUntil.TryGetValue(key, out DateTime until) && until > DateTime.UtcNow;
+
+    /// <summary>Whether this user's model makes vectors too large to keep (so no note is embedded with it).</summary>
+    internal static bool AreVectorsTooLarge(string userId, KnowledgeSettings settings) => VectorsTooLarge.ContainsKey(BackendKey(userId, settings));
+
+    /// <summary>Remembers that this user's model makes vectors too large to keep, and says so once per window.</summary>
+    private static void MarkVectorsTooLarge(string userId, KnowledgeSettings settings, int dims)
+    {
+        VectorsTooLarge[BackendKey(userId, settings)] = true;
+        WarnOnce(BackendKey(userId, settings) + "|dims", $"The embedding model '{settings.Model}' makes vectors of {dims} numbers; memory keeps at most {MemoryStore.MaxVectorDims}, so notes are found by keywords alone with this model, and no more notes are sent to it.");
+    }
 
     /// <summary>Logs a warning unless the same one was logged within <see cref="BackendBackoff"/>.</summary>
     private static void WarnOnce(string key, string message)
@@ -114,6 +127,7 @@ public static class MemoryService
     {
         BackendDownUntil.Clear();
         LastWarned.Clear();
+        VectorsTooLarge.Clear();
     }
 
     /// <summary>The store of one user's notes.</summary>
@@ -256,7 +270,7 @@ public static class MemoryService
     {
         KnowledgeSettings settings = KnowledgeService.GetSettings(user);
         IEmbeddingProvider provider = settings.Enabled ? KnowledgeService.ResolveProvider(settings.ProviderId) : null;
-        if (provider is null || IsBackingOff(user.UserID, settings))
+        if (provider is null || IsBackingOff(user.UserID, settings) || AreVectorsTooLarge(user.UserID, settings))
         {
             return null;
         }
@@ -269,8 +283,9 @@ public static class MemoryService
     internal static Task<float[][]> TryEmbedAsync(Session session, (IEmbeddingProvider Provider, KnowledgeSettings Settings) backend, IReadOnlyList<string> inputs, CancellationToken ct)
         => TryEmbedAsync(session.User.UserID, session, backend, inputs, ct);
 
-    /// <summary>The same for the user named by <paramref name="userId"/> (the id the failure is remembered under).</summary>
-    internal static async Task<float[][]> TryEmbedAsync(string userId, Session session, (IEmbeddingProvider Provider, KnowledgeSettings Settings) backend, IReadOnlyList<string> inputs, CancellationToken ct)
+    /// <summary>The same for the user named by <paramref name="userId"/> (the id the failure is remembered under). <paramref name="failureKey"/> names what a failure holds back (the default
+    /// is the user's backend and model; the best-effort backfill uses its own, so its failures never stop the query's meaning search).</summary>
+    internal static async Task<float[][]> TryEmbedAsync(string userId, Session session, (IEmbeddingProvider Provider, KnowledgeSettings Settings) backend, IReadOnlyList<string> inputs, CancellationToken ct, string failureKey = null)
     {
         using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(EmbedTimeout);
@@ -284,9 +299,10 @@ public static class MemoryService
         }
         catch (Exception ex)
         {
-            string key = BackendKey(userId, backend.Settings);
+            string key = failureKey ?? BackendKey(userId, backend.Settings);
             BackendDownUntil[key] = DateTime.UtcNow + BackendBackoff;
-            WarnOnce(key, $"The embedding backend '{backend.Settings.ProviderId}' failed or was too slow for {userId}, so memory notes are found by keywords alone for the next {BackendBackoff.TotalMinutes:0} minutes: {(ex is OperationCanceledException ? "timed out" : ex.Message)}");
+            string held = failureKey is null ? "memory notes are found by keywords alone" : "notes without a meaning vector are not caught up";
+            WarnOnce(key, $"The embedding backend '{backend.Settings.ProviderId}' failed or was too slow for {userId}, so {held} for the next {BackendBackoff.TotalMinutes:0} minutes: {(ex is OperationCanceledException ? "timed out" : ex.Message)}");
             return null;
         }
     }
@@ -312,7 +328,7 @@ public static class MemoryService
     {
         if (unit.Length > MemoryStore.MaxVectorDims)
         {
-            WarnOnce(BackendKey(userId, settings) + "|dims", $"The embedding model '{settings.Model}' makes vectors of {unit.Length} numbers; memory keeps at most {MemoryStore.MaxVectorDims}, so notes are found by keywords alone with this model.");
+            MarkVectorsTooLarge(userId, settings, unit.Length);
             return;
         }
         store.SaveVector(noteId, text, KnowledgeVectors.Key(settings.ProviderId, settings.Model.Trim(), unit.Length), unit);
@@ -328,42 +344,75 @@ public static class MemoryService
     {
         string query = QueryFromThread(thread);
         MemoryRecallRequest keywords = new(query, null, null, !dryRun);
-        if (dryRun || session?.User is null || query.Length == 0 || ct.IsCancellationRequested)
+        if (ct.IsCancellationRequested)
+        {
+            // A turn that was stopped renders no notes as used.
+            return new MemoryRecallRequest(query, null, null, false);
+        }
+        if (dryRun || session?.User is null || query.Length == 0)
         {
             return keywords;
         }
         return await PrepareRecallCoreAsync(StoreFor(session.User), session.User.UserID, session, query, EmbeddingBackend(session.User), ct);
     }
 
-    /// <summary>The embedding half of <see cref="PrepareRecallAsync"/>, for a store and backend that are already known.</summary>
+    /// <summary>The embedding half of <see cref="PrepareRecallAsync"/>, for a store and backend that are already known. The query is embedded first, in a call of its own; a best-effort
+    /// second call then embeds up to <see cref="MaxBackfill"/> notes that have no vector for this model yet, and its failure or slowness holds back only the backfill.</summary>
     internal static async Task<MemoryRecallRequest> PrepareRecallCoreAsync(MemoryStore store, string userId, Session session, string query, (IEmbeddingProvider Provider, KnowledgeSettings Settings)? backend, CancellationToken ct)
     {
         MemoryRecallRequest keywords = new(query, null, null, true);
+        MemoryRecallRequest stopped = new(query, null, null, false);
+        if (ct.IsCancellationRequested)
+        {
+            return stopped;
+        }
         MemoryNoteSet set = store.Load();
-        if (backend is null || !MemoryRecall.NeedsRanking(set.Notes))
+        if (backend is null || !MemoryRecall.NeedsRanking(set.Notes) || AreVectorsTooLarge(userId, backend.Value.Settings))
         {
             return keywords;
         }
-        string modelPrefix = $"{backend.Value.Settings.ProviderId}|{backend.Value.Settings.Model.Trim()}|";
-        Dictionary<string, (float[] Vector, string Key)> have = store.LoadVectors(set);
-        List<MemoryNote> missing = [.. set.Notes.Where(n => n.Slot.Length == 0 && !n.Pinned && !(have.TryGetValue(n.Id, out (float[] Vector, string Key) v) && v.Key.StartsWith(modelPrefix, StringComparison.Ordinal)))
-            .OrderByDescending(n => n.CreatedAt).Take(MaxBackfill)];
-        List<string> inputs = [query, .. missing.Select(n => MemoryNoteSet.Truncate(n.Text, MemoryNoteSet.MaxNoteChars))];
-        float[][] vectors = await TryEmbedAsync(userId, session, backend.Value, inputs, ct);
-        float[] unit = vectors is { Length: > 0 } ? KnowledgeVectors.Normalize(vectors[0]) : null;
+        KnowledgeSettings settings = backend.Value.Settings;
+        float[][] queryVectors = await TryEmbedAsync(userId, session, backend.Value, [query], ct);
+        if (ct.IsCancellationRequested)
+        {
+            return stopped;
+        }
+        float[] unit = queryVectors is { Length: > 0 } ? KnowledgeVectors.Normalize(queryVectors[0]) : null;
         if (unit is null)
         {
             return keywords;
         }
-        for (int i = 0; i < missing.Count && i + 1 < vectors.Length; i++)
+        if (unit.Length > MemoryStore.MaxVectorDims)
         {
-            float[] noteUnit = KnowledgeVectors.Normalize(vectors[i + 1]);
-            if (noteUnit is not null)
+            // No note could be given a vector of this size, so nothing more is sent to this model.
+            MarkVectorsTooLarge(userId, settings, unit.Length);
+            return keywords;
+        }
+        string modelPrefix = $"{settings.ProviderId}|{settings.Model.Trim()}|";
+        string backfillKey = BackendKey(userId, settings) + "|backfill";
+        if (!IsBackingOffKey(backfillKey))
+        {
+            Dictionary<string, (float[] Vector, string Key)> have = store.LoadVectors(set);
+            List<MemoryNote> missing = [.. set.Notes.Where(n => n.Slot.Length == 0 && !n.Pinned && !(have.TryGetValue(n.Id, out (float[] Vector, string Key) v) && v.Key.StartsWith(modelPrefix, StringComparison.Ordinal)))
+                .OrderByDescending(n => n.CreatedAt).Take(MaxBackfill)];
+            if (missing.Count > 0)
             {
-                SaveNoteVector(userId, store, missing[i].Id, missing[i].Text, backend.Value.Settings, noteUnit);
+                float[][] vectors = await TryEmbedAsync(userId, session, backend.Value, [.. missing.Select(n => MemoryNoteSet.Truncate(n.Text, MemoryNoteSet.MaxNoteChars))], ct, backfillKey);
+                for (int i = 0; vectors is not null && i < missing.Count && i < vectors.Length; i++)
+                {
+                    float[] noteUnit = KnowledgeVectors.Normalize(vectors[i]);
+                    if (noteUnit is not null)
+                    {
+                        SaveNoteVector(userId, store, missing[i].Id, missing[i].Text, settings, noteUnit);
+                    }
+                }
+                if (ct.IsCancellationRequested)
+                {
+                    return stopped;
+                }
             }
         }
-        return new MemoryRecallRequest(query, unit, KnowledgeVectors.Key(backend.Value.Settings.ProviderId, backend.Value.Settings.Model.Trim(), unit.Length), true);
+        return new MemoryRecallRequest(query, unit, KnowledgeVectors.Key(settings.ProviderId, settings.Model.Trim(), unit.Length), true);
     }
 
     /// <summary>The text of the latest message the user wrote on the chat's active branch (cut to <see cref="MaxQueryChars"/>), or empty. A message that carries a <c>kind</c> (a report

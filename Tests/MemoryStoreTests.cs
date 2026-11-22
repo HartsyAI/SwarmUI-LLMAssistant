@@ -15,10 +15,18 @@ public class MemoryStoreTests
         public readonly ConcurrentDictionary<string, string> Values = new();
         public int NotesSaves;
 
-        public string Get(string key) => Values.TryGetValue(key, out string v) ? v : null;
+        /// <summary>Every call made, as "get|save|delete key".</summary>
+        public readonly ConcurrentQueue<string> Operations = new();
+
+        public string Get(string key)
+        {
+            Operations.Enqueue("get " + key);
+            return Values.TryGetValue(key, out string v) ? v : null;
+        }
 
         public void Save(string key, string value)
         {
+            Operations.Enqueue("save " + key);
             if (key == MemoryStore.NotesKey)
             {
                 Interlocked.Increment(ref NotesSaves);
@@ -26,9 +34,12 @@ public class MemoryStoreTests
             Values[key] = value;
         }
 
-        public void Delete(string key) => Values.TryRemove(key, out _);
+        public void Delete(string key)
+        {
+            Operations.Enqueue("delete " + key);
+            Values.TryRemove(key, out _);
+        }
 
-        public IEnumerable<string> Keys(string prefix) => [.. Values.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
     }
 
     private static readonly DateTime T0 = new(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
@@ -101,21 +112,45 @@ public class MemoryStoreTests
     public void Clearing_deletes_everything_the_user_had_including_backups_and_vectors_of_notes_that_were_never_read()
     {
         FakeStorage storage = new();
+        MemoryStore store = StoreOf(storage);
+        store.Write("fact", "Likes tea", MemoryOrigins.Explicit, "");
+        string noteId = store.Load().Notes[0].Id;
+        Assert.True(store.SaveVector(noteId, "Likes tea", "p|m|3", [1f, 0f, 0f]));
+        // The notes become unreadable: the vector is now a vector of no readable note, and a write backs the value up.
         storage.Values[MemoryStore.NotesKey] = "garbage";
-        storage.Values[MemoryStore.BackupPrefix + "20260101000000000"] = "an older value";
-        storage.Values[MemoryStore.VectorPrefix + "orphan"] = "{}";
+        Assert.True(store.Write("fact", "Owns a cat", MemoryOrigins.Explicit, "").Saved);
+        storage.Values[MemoryStore.NotesKey] = "garbage again";
         storage.Values[MemoryStore.LegacyProfileKey] = LegacyBlob();
         storage.Values["somethingelse"] = "kept";
-        StoreOf(storage).Clear();
-        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix) || k.StartsWith(MemoryStore.VectorPrefix) || k == MemoryStore.LegacyProfileKey));
+        Assert.Contains(storage.Values.Keys, k => k.StartsWith(MemoryStore.BackupPrefix));
+        Assert.Contains(storage.Values.Keys, k => k.StartsWith(MemoryStore.VectorPrefix));
+
+        store.Clear();
+        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix) || k.StartsWith(MemoryStore.VectorPrefix) || k == MemoryStore.LegacyProfileKey || k == MemoryStore.IndexKey));
         Assert.Equal("kept", storage.Values["somethingelse"]);
         Assert.Empty(StoreOf(storage).Load().Notes);
         Assert.Equal(MemoryLoadStatus.Ok, StoreOf(storage).Status());
         // A newer value goes too: clearing is the user asking for it to be gone.
         storage.Values[MemoryStore.NotesKey] = NotesJson(MemoryNoteSet.CurrentVersion + 1, NoteJson("a", "Likes tea"));
         StoreOf(storage).Clear();
-        Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.BackupPrefix)));
         Assert.Equal(MemoryLoadStatus.Ok, StoreOf(storage).Status());
+    }
+
+    [Fact]
+    public void An_ordinary_write_touches_only_the_notes_and_nothing_ever_lists_a_users_data()
+    {
+        // The storage has no way to list keys (listing reads every row of the user's data, chat threads included, under the database lock), so this is structural.
+        Assert.Equal(["Delete", "Get", "Save"], typeof(IMemoryStorage).GetMethods().Select(m => m.Name).Order().ToArray());
+        FakeStorage storage = new();
+        MemoryStore store = StoreOf(storage);
+        store.Write("fact", "Likes tea", MemoryOrigins.Explicit, "");
+        while (storage.Operations.TryDequeue(out _)) { }
+        Assert.True(store.Write("fact", "Owns a cat", MemoryOrigins.Explicit, "").Saved);
+        Assert.True(store.Write("name", "Kaleb", MemoryOrigins.Explicit, "").Saved);
+        Assert.True(store.Write("name", "Kal", MemoryOrigins.Explicit, "").Saved);
+        string[] operations = [.. storage.Operations];
+        Assert.DoesNotContain(operations, o => o.Contains(MemoryStore.IndexKey) || o.Contains(MemoryStore.BackupPrefix));
+        Assert.All(operations, o => Assert.True(o.EndsWith(MemoryStore.NotesKey) || o.Contains(MemoryStore.VectorPrefix), o));
     }
 
     [Fact]
@@ -124,7 +159,9 @@ public class MemoryStoreTests
         FakeStorage storage = new();
         DateTime now = T0;
         MemoryStore store = new(storage) { Clock = () => now };
-        storage.Values[MemoryStore.BackupPrefix + now.AddDays(-40).ToString("yyyyMMddHHmmssfff")] = "too old";
+        string old = MemoryStore.BackupPrefix + now.AddDays(-40).ToString("yyyyMMddHHmmssfff");
+        storage.Values[old] = "too old";
+        storage.Values[MemoryStore.IndexKey] = new JArray(old).ToString();
         for (int i = 0; i < 6; i++)
         {
             storage.Values[MemoryStore.NotesKey] = "garbage " + i;

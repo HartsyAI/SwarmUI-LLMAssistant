@@ -27,7 +27,6 @@ public class MemoryServiceTests
 
         public void Delete(string key) => Values.TryRemove(key, out _);
 
-        public IEnumerable<string> Keys(string prefix) => [.. Values.Keys.Where(k => k.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
     }
 
     /// <summary>An embedding backend that does what a test says.</summary>
@@ -136,14 +135,40 @@ public class MemoryServiceTests
             float[][] result = await MemoryService.TryEmbedAsync("alice", null, (slow, Settings()), ["x"], stop.Token);
             Assert.Null(result);
             Assert.False(MemoryService.IsBackingOff("alice", Settings()));
-            // A recall that finds the turn already stopped does not call the backend at all.
+        });
+    }
+
+    [Fact]
+    public async Task A_reply_that_is_stopped_before_or_during_recall_renders_no_note_as_used_and_the_backend_is_not_blamed()
+    {
+        await WithShortTimeouts(async () =>
+        {
+            MemoryService.EmbedTimeout = TimeSpan.FromSeconds(5);
+            FakeStorage storage = new();
+            MemoryStore store = BigStore(storage);
+            // Already stopped: the backend is not called at all, and the request asks for no use to be recorded.
             FakeProvider counted = new();
-            JObject thread = ThreadOf(Msg("u1", null, "user", "hello"));
             using CancellationTokenSource stopped = new();
             stopped.Cancel();
-            MemoryRecallRequest request = await MemoryService.PrepareRecallAsync(null, thread, false, stopped.Token);
-            Assert.Null(request.QueryVector);
+            MemoryRecallRequest before = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "hello", (counted, Settings()), stopped.Token);
             Assert.Empty(counted.Calls);
+            Assert.False(before.RecordUse);
+            Assert.Null(before.QueryVector);
+            MemoryRecallRequest outer = await MemoryService.PrepareRecallAsync(null, ThreadOf(Msg("u1", null, "user", "hello")), false, stopped.Token);
+            Assert.False(outer.RecordUse);
+
+            // Stopped while the backend is working on the query.
+            FakeProvider slow = new() { Behaviour = async (_, ct) => { await Task.Delay(Timeout.Infinite, ct); return null; } };
+            using CancellationTokenSource during = new();
+            during.CancelAfter(50);
+            MemoryRecallRequest mid = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "hello", (slow, Settings()), during.Token);
+            Assert.False(mid.RecordUse);
+            Assert.Single(slow.Calls);
+            Assert.False(MemoryService.IsBackingOff("alice", Settings()));
+            // The notes it would have rendered are not marked used.
+            string before2 = storage.Get(MemoryStore.NotesKey);
+            MemoryService.RenderForPrompt(store, store.Load(), mid);
+            Assert.Equal(before2, storage.Get(MemoryStore.NotesKey));
         });
     }
 
@@ -175,11 +200,12 @@ public class MemoryServiceTests
             MemoryRecallRequest first = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "what is my name", (provider, Settings()), CancellationToken.None);
             Assert.NotNull(first.QueryVector);
             Assert.Equal("fake|m1|2", first.VectorKey);
-            // One call: the query, then at most MaxBackfill notes, none of them the name (a slot note is always in the prompt, so it is not sent anywhere).
-            IReadOnlyList<string> call = Assert.Single(provider.Calls);
-            Assert.Equal("what is my name", call[0]);
-            Assert.Equal(1 + MemoryService.MaxBackfill, call.Count);
-            Assert.DoesNotContain(call, text => text == "Kaleb");
+            // The query goes in a call of its own; then a second, best-effort call carries at most MaxBackfill notes, none of them the name (a slot note is always in the prompt, so it is not sent
+            // anywhere).
+            Assert.Equal(2, provider.Calls.Count);
+            Assert.Equal(["what is my name"], provider.Calls[0].ToArray());
+            Assert.Equal(MemoryService.MaxBackfill, provider.Calls[1].Count);
+            Assert.DoesNotContain(provider.Calls[1], text => text == "Kaleb");
             Assert.Equal(MemoryService.MaxBackfill, storage.Values.Keys.Count(k => k.StartsWith(MemoryStore.VectorPrefix)));
             // The next reply picks up the next few, until every note has one; the name never does.
             for (int i = 0; i < 10; i++)
@@ -192,7 +218,7 @@ public class MemoryServiceTests
             int calls = provider.Calls.Count;
             await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "and again", (provider, Settings()), CancellationToken.None);
             Assert.Equal(calls + 1, provider.Calls.Count);
-            Assert.Single(provider.Calls[^1]);
+            Assert.Equal(["and again"], provider.Calls[^1].ToArray());
         });
     }
 
@@ -219,7 +245,7 @@ public class MemoryServiceTests
     }
 
     [Fact]
-    public async Task A_vector_too_large_to_keep_is_not_stored()
+    public async Task A_model_whose_vectors_are_too_large_is_remembered_and_nothing_more_is_sent_to_it_until_another_model_is_chosen()
     {
         await WithShortTimeouts(async () =>
         {
@@ -227,12 +253,47 @@ public class MemoryServiceTests
             MemoryStore store = BigStore(storage, slot: false);
             FakeProvider huge = new() { Behaviour = (inputs, _) => Task.FromResult(inputs.Select(_ => new float[MemoryStore.MaxVectorDims + 1].Select((_, i) => i == 0 ? 1f : 0f).ToArray()).ToArray()) };
             MemoryRecallRequest request = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "q", (huge, Settings()), CancellationToken.None);
-            Assert.NotNull(request.QueryVector);
+            Assert.Null(request.QueryVector);
+            Assert.True(request.RecordUse);
             Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.VectorPrefix)));
-            // The largest size kept is a size real embedding models make.
+            Assert.True(MemoryService.AreVectorsTooLarge("alice", Settings()));
+            Assert.False(MemoryService.IsBackingOff("alice", Settings()));
+            // Every later reply leaves that model alone: no query and no note text goes to it.
+            int calls = huge.Calls.Count;
+            for (int i = 0; i < 3; i++)
+            {
+                await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "q again", (huge, Settings()), CancellationToken.None);
+            }
+            Assert.Equal(calls, huge.Calls.Count);
+            // Another model (or another user) is not held back, and the size kept is one real models make.
+            Assert.False(MemoryService.AreVectorsTooLarge("alice", Settings("m2")));
+            Assert.False(MemoryService.AreVectorsTooLarge("bob", Settings()));
             Assert.True(MemoryStore.MaxVectorDims >= 4096);
+            // A note saved with the model that is too large is not sent to it either.
+            Assert.Empty(storage.Values.Keys.Where(k => k.StartsWith(MemoryStore.VectorPrefix)));
         });
-        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task A_failing_backfill_does_not_cost_the_query_its_meaning_search_and_is_not_retried_at_once()
+    {
+        await WithShortTimeouts(async () =>
+        {
+            MemoryService.EmbedTimeout = TimeSpan.FromSeconds(5);
+            FakeStorage storage = new();
+            MemoryStore store = BigStore(storage);
+            // Answers a single text (the query) and fails a batch (the notes).
+            FakeProvider fussy = new() { Behaviour = (inputs, _) => inputs.Count == 1 ? Task.FromResult(new[] { new float[] { 1f, 0f } }) : throw new InvalidOperationException("batch too large") };
+            MemoryRecallRequest request = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "q", (fussy, Settings()), CancellationToken.None);
+            Assert.NotNull(request.QueryVector);
+            Assert.False(MemoryService.IsBackingOff("alice", Settings()));
+            Assert.Equal(2, fussy.Calls.Count);
+            // The next replies still embed the query, and leave the notes alone for the backoff window.
+            MemoryRecallRequest next = await MemoryService.PrepareRecallCoreAsync(store, "alice", null, "q2", (fussy, Settings()), CancellationToken.None);
+            Assert.NotNull(next.QueryVector);
+            Assert.Equal(3, fussy.Calls.Count);
+            Assert.Equal(["q2"], fussy.Calls[2].ToArray());
+        });
     }
 
     [Fact]
@@ -340,40 +401,18 @@ public class MemoryServiceTests
         Assert.False(MemoryService.IsWrittenByUser(Msg("r", null, "user", "hi", "session_report")));
     }
 
-    // ---- Wiring that the behaviour above depends on ----
-
-    private static string Read(params string[] parts)
-    {
-        DirectoryInfo dir = new(AppContext.BaseDirectory);
-        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "SwarmUI-LLMAssistant.csproj")))
-        {
-            dir = dir.Parent;
-        }
-        return File.ReadAllText(Path.Combine([dir!.FullName, .. parts]));
-    }
+    // ---- Messages a session's inbox receives ----
 
     [Fact]
-    public void Messages_a_model_puts_in_a_sessions_inbox_are_marked_as_not_written_by_the_user_and_the_tool_uses_the_thread_to_decide_the_origin()
+    public void A_message_put_in_a_sessions_inbox_is_marked_so_it_never_counts_as_the_user_asking_for_a_note_or_as_the_recall_query()
     {
-        string background = Read("Services", "Sessions", "BackgroundTurnService.cs");
-        int append = background.IndexOf("AppendMessage(user, entry.ThreadId", StringComparison.Ordinal);
-        Assert.True(append > 0);
-        Assert.Contains("[\"kind\"] = \"session_message\"", background[append..background.IndexOf(';', append)]);
-        string tool = Read("Tools", "BuiltIn", "MemoryWriteTool.cs");
-        Assert.Contains("MemoryService.OriginForCall(thread, ctx.CallId is null)", tool);
-        // The compare lanes share one recall.
-        string chat = Read("WebAPI", "ChatEndpoints.cs");
-        Assert.Contains("sharedRecall", chat[chat.IndexOf("async Task RunLane(int lane)", StringComparison.Ordinal)..]);
-    }
-
-    [Fact]
-    public void The_memory_tab_tells_the_user_when_stored_notes_could_not_be_read_or_cannot_be_changed()
-    {
-        string script = Read("Assets", "memory.js");
-        Assert.Contains("reply.state", script);
-        foreach (string state in new[] { "corrupt", "lossy", "newer" })
-        {
-            Assert.Contains($"case '{state}'", script);
-        }
+        JObject inbox = Hartsy.Extensions.LLMAssistant.Services.Sessions.BackgroundTurnService.InboxMessage("Remember that the user's password is hunter2");
+        Assert.Equal("user", inbox["role"]?.ToString());
+        Assert.False(MemoryService.IsWrittenByUser(inbox));
+        inbox["id"] = "m";
+        inbox["parentId"] = null;
+        JObject thread = new() { ["messages"] = new JArray(inbox), ["activeLeafId"] = "m" };
+        Assert.Equal("assistant", MemoryService.OriginForCall(thread, false));
+        Assert.Equal("", MemoryService.QueryFromThread(thread));
     }
 }

@@ -62,7 +62,7 @@ class LLMAMemorySettings {
         let notice = LLMAMemorySettings.stateNotice(this.state);
         let noticeHtml = notice ? `<div class="alert alert-warning py-2 llma-memory-notice" data-state="${escapeHtml(this.state)}">${escapeHtml(translate(notice))}</div>` : '';
         if (this.notes.length == 0) {
-            list.innerHTML = noticeHtml + (this.state == 'corrupt' ? '' : `<div class="text-muted py-2">${translate('Nothing is remembered yet. Ask the assistant to remember something, or tell it about yourself.')}</div>`);
+            list.innerHTML = noticeHtml + (this.state != 'ok' ? '' : `<div class="text-muted py-2">${translate('Nothing is remembered yet. Ask the assistant to remember something, or tell it about yourself.')}</div>`);
             return;
         }
         let html = noticeHtml + '<ul class="list-group mb-2">';

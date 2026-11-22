@@ -5,7 +5,8 @@ using Newtonsoft.Json.Linq;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.Memory;
 
-/// <summary>Where one user's memory values are kept: a tiny key-value store. In the extension it is the user's generic data (<see cref="GenericDataCache"/>); tests use a dictionary.</summary>
+/// <summary>Where one user's memory values are kept: a tiny key-value store with no way to list keys (listing a user's generic data reads every row of it, chat threads included, under the
+/// database lock, so nothing here may need it: <see cref="MemoryStore"/> keeps its own small index of the keys it made). In the extension it is the user's generic data (<see cref="GenericDataCache"/>); tests use a dictionary.</summary>
 public interface IMemoryStorage
 {
     /// <summary>The value under <paramref name="key"/>, or null when there is none.</summary>
@@ -16,9 +17,6 @@ public interface IMemoryStorage
 
     /// <summary>Deletes a value (nothing happens when there is none).</summary>
     void Delete(string key);
-
-    /// <summary>The keys that start with <paramref name="prefix"/> (compared ignoring case).</summary>
-    IEnumerable<string> Keys(string prefix);
 }
 
 /// <summary>One user's notes on top of an <see cref="IMemoryStorage"/>: every read-modify-write under that user's own lock, the first-read migration of the old profile, and the rules that
@@ -40,6 +38,9 @@ public sealed class MemoryStore
 
     /// <summary>The start of the key a backup of an unreadable value is kept under.</summary>
     public const string BackupPrefix = "memory_notes_backup_";
+
+    /// <summary>The key of the index of the vector and backup keys this store made (a JSON array of key names), so deleting them never needs a listing of the user's data.</summary>
+    public const string IndexKey = "memory_keys";
 
     /// <summary>The most numbers in a vector that are kept (a larger one is not stored, which bounds the storage a user's notes can take: 400 notes at about 22 KB each).</summary>
     public const int MaxVectorDims = 4096;
@@ -101,7 +102,9 @@ public sealed class MemoryStore
             state.Status = parsed.Status;
             if (parsed.Status != MemoryLoadStatus.Ok)
             {
-                Log?.Invoke($"The saved memory notes did not read cleanly ({parsed.Status}, {parsed.Skipped} notes skipped); they are kept as they are and backed up before anything overwrites them.");
+                Log?.Invoke(parsed.Status == MemoryLoadStatus.Newer
+                    ? "The saved memory notes were written by a newer version of the extension; they are read-only until the extension is updated (writes are refused, nothing is overwritten)."
+                    : $"The saved memory notes did not read cleanly ({parsed.Status}, {parsed.Skipped} notes skipped); they are kept as they are and backed up before anything overwrites them.");
             }
         }
         return new Loaded(parsed.Set, parsed.Status, raw);
@@ -125,17 +128,87 @@ public sealed class MemoryStore
         }
     }
 
-    /// <summary>Keeps the raw text of a value that did not read cleanly (or was written by a newer version), so overwriting it loses nothing. Backups are bounded: only the newest
-    /// <see cref="MaxBackups"/> are kept, and none older than <see cref="BackupMaxAge"/>.</summary>
+    // ---- The index of keys ----
+
+    /// <summary>The keys in the index.</summary>
+    private HashSet<string> LoadIndex()
+    {
+        string raw = Storage.Get(IndexKey);
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return [];
+        }
+        try
+        {
+            return [.. JArray.Parse(raw).Select(t => t.ToString())];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Saves the index (deleting it when it is empty).</summary>
+    private void SaveIndex(HashSet<string> keys)
+    {
+        if (keys.Count == 0)
+        {
+            Storage.Delete(IndexKey);
+        }
+        else
+        {
+            Storage.Save(IndexKey, new JArray(keys.OrderBy(k => k, StringComparer.Ordinal)).ToString(Formatting.None));
+        }
+    }
+
+    /// <summary>Saves a value and records its key in the index.</summary>
+    private void SaveTracked(string key, string value)
+    {
+        Storage.Save(key, value);
+        HashSet<string> index = LoadIndex();
+        if (index.Add(key))
+        {
+            SaveIndex(index);
+        }
+    }
+
+    /// <summary>Deletes values and takes their keys out of the index.</summary>
+    private void DeleteTracked(IEnumerable<string> keys)
+    {
+        HashSet<string> index = LoadIndex();
+        bool changed = false;
+        foreach (string key in keys)
+        {
+            Storage.Delete(key);
+            changed |= index.Remove(key);
+        }
+        if (changed)
+        {
+            SaveIndex(index);
+        }
+    }
+
+    /// <summary>Deletes a note's vector when it has one (a cheap check first, so an ordinary write touches nothing).</summary>
+    private void DeleteVector(string noteId)
+    {
+        string key = VectorPrefix + noteId;
+        if (Storage.Get(key) is not null)
+        {
+            DeleteTracked([key]);
+        }
+    }
+
+    /// <summary>Keeps the raw text of a value that did not read cleanly (or was written by a newer version), so overwriting it loses nothing. Only when a backup is made are the backups
+    /// pruned (the newest <see cref="MaxBackups"/> are kept, none older than <see cref="BackupMaxAge"/>), so an ordinary write does none of this.</summary>
     private void BackupIfNeeded(Loaded loaded)
     {
         if (loaded.Status is MemoryLoadStatus.Lossy or MemoryLoadStatus.Corrupt or MemoryLoadStatus.Newer && !string.IsNullOrEmpty(loaded.Raw))
         {
             string key = BackupPrefix + Clock().ToUniversalTime().ToString("yyyyMMddHHmmssfff");
-            Storage.Save(key, loaded.Raw);
+            SaveTracked(key, loaded.Raw);
             Log?.Invoke($"Backed up the unreadable memory notes under '{key}' before replacing them.");
+            PruneBackups();
         }
-        PruneBackups();
     }
 
     /// <summary>Deletes the backups beyond the newest <see cref="MaxBackups"/> and any older than <see cref="BackupMaxAge"/>. The key's time is the backup's time.</summary>
@@ -143,17 +216,22 @@ public sealed class MemoryStore
     {
         DateTime now = Clock().ToUniversalTime();
         int kept = 0;
-        foreach (string key in Storage.Keys(BackupPrefix).OrderByDescending(k => k, StringComparer.Ordinal).ToList())
+        List<string> drop = [];
+        foreach (string key in LoadIndex().Where(k => k.StartsWith(BackupPrefix, StringComparison.Ordinal)).OrderByDescending(k => k, StringComparer.Ordinal))
         {
             bool parsed = DateTime.TryParseExact(key[BackupPrefix.Length..], "yyyyMMddHHmmssfff", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out DateTime when);
             if (kept >= MaxBackups || parsed && now - when > BackupMaxAge)
             {
-                Storage.Delete(key);
+                drop.Add(key);
             }
             else
             {
                 kept++;
             }
+        }
+        if (drop.Count > 0)
+        {
+            DeleteTracked(drop);
         }
     }
 
@@ -193,12 +271,12 @@ public sealed class MemoryStore
                 Storage.Save(NotesKey, loaded.Set.Serialize());
                 foreach (string id in result.Evicted ?? [])
                 {
-                    Storage.Delete(VectorPrefix + id);
+                    DeleteVector(id);
                 }
                 // A slot note (name, pronouns, bio, current work) is always in the prompt and never ranked, so it has no vector; one left from before, or from an earlier value, goes.
                 if (result.Note is { Slot.Length: > 0 })
                 {
-                    Storage.Delete(VectorPrefix + result.Note.Id);
+                    DeleteVector(result.Note.Id);
                 }
             }
             return result;
@@ -213,10 +291,9 @@ public sealed class MemoryStore
         {
             Storage.Save(NotesKey, new MemoryNoteSet().Serialize());
             Logged.GetOrCreateValue(Gate).Status = MemoryLoadStatus.Ok;
-            foreach (string key in Storage.Keys(VectorPrefix).Concat(Storage.Keys(BackupPrefix)).ToList())
-            {
-                Storage.Delete(key);
-            }
+            // Every vector and backup this store made is in the index (which is all there is to go through: the user's data is never listed).
+            DeleteTracked(LoadIndex());
+            Storage.Delete(IndexKey);
             Storage.Delete(LegacyProfileKey);
         }
     }
@@ -254,7 +331,7 @@ public sealed class MemoryStore
             {
                 return false;
             }
-            Storage.Save(VectorPrefix + noteId, new JObject { ["k"] = vectorKey, ["h"] = TextHash(embeddedText), ["d"] = Knowledge.KnowledgeVectors.Pack(unitVector) }.ToString(Formatting.None));
+            SaveTracked(VectorPrefix + noteId, new JObject { ["k"] = vectorKey, ["h"] = TextHash(embeddedText), ["d"] = Knowledge.KnowledgeVectors.Pack(unitVector) }.ToString(Formatting.None));
             return true;
         }
     }
