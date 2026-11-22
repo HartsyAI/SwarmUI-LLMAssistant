@@ -290,6 +290,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="prompt-styles" role="tab" aria-selected="false">Prompt styles</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="schedules" role="tab" aria-selected="false">Schedules</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="knowledge" role="tab" aria-selected="false">Knowledge</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="memory" role="tab" aria-selected="false">Memory</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -560,6 +561,12 @@
                     <input type="file" id="llma-knowledge-files" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.html,.htm,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.js,.ts,.py,.cs,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,text/*">
                     <div id="llma-knowledge-embedding" class="mt-3"></div>
                     <div id="llma-knowledge-search"></div>
+                </div>
+
+                <!-- Memory: the notes saved about the user, read-only for now (memory.js) -->
+                <div class="llma-modal-panel" id="llma-settings-memory" style="display:none;">
+                    <div id="llma-memory-totals" class="text-muted small mb-2"></div>
+                    <div id="llma-memory-list"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

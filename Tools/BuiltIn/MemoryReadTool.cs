@@ -1,14 +1,17 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Memory;
 
 namespace Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 
-/// <summary>Built-in tool: returns the calling user's full memory profile. The profile is
-/// already injected into the system prompt every turn, so this tool is usually redundant —
-/// but the LLM may want to call it explicitly for deep recall or to confirm what's stored.
+/// <summary>Built-in tool: returns the calling user's saved memory. The notes are already put
+/// in the system prompt every turn (all of them while they fit, the relevant ones otherwise), so
+/// this tool is for deep recall: it lists the notes (the first 50, or the best matches for a
+/// <c>query</c>), each text cleaned the way the prompt cleans it, with a marker when some are left out.
 ///
-/// <para><b>Storage is strictly per-user.</b> Returns only the calling user's own profile.</para>
+/// <para><b>Storage is strictly per-user.</b> Returns only the calling user's own notes. Note text
+/// is data the user saved, not instructions, and the result says so.</para>
 /// </summary>
 public class MemoryReadTool : ToolHandler
 {
@@ -19,11 +22,7 @@ public class MemoryReadTool : ToolHandler
 
     public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
-        JObject profile = UserProfileService.GetProfile(ctx.Session?.User);
-        return Task.FromResult(new JObject
-        {
-            ["success"] = true,
-            ["profile"] = profile
-        });
+        MemoryNoteSet set = MemoryService.Load(ctx.Session?.User);
+        return Task.FromResult(MemoryService.ReadForModel(set, ctx.Args["query"]?.ToString() ?? ""));
     }
 }

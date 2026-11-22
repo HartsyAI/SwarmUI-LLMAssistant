@@ -49,7 +49,8 @@ public static class TurnSetupService
         }
         // Resolve model facts once so per-model instruction variants can pick the right text.
         LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
-        string systemPrompt = ChatEndpoints.ResolveInstructionForRequest(instructionId, assistantId, settings, session.User, modelInfo);
+        // The saved notes {{userProfile}} shows depend on what the user just said (see MemoryRecall); a dry run records no use.
+        string systemPrompt = await ChatEndpoints.ResolveInstructionForTurnAsync(instructionId, assistantId, settings, session, thread, dryRun, ct, modelInfo);
         // Attach the tools enabled for this assistant, unless tool calling is switched off for this thread or assistant (see EffectiveToolsEnabled).
         bool toolsOn = ChatEndpoints.EffectiveToolsEnabled(thread, assistantId, settings, session.User);
         List<JObject> enabledTools = toolsOn

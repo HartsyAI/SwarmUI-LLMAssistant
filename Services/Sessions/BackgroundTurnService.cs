@@ -191,6 +191,10 @@ public static class BackgroundTurnService
         return true;
     }
 
+    /// <summary>The chat message an inbox message becomes. It is marked: it comes from the model that started or messaged the session (or from a schedule), not from the user typing, so it never
+    /// counts as the user asking for something (see <see cref="Memory.MemoryService.IsWrittenByUser"/>).</summary>
+    internal static JObject InboxMessage(string message) => new() { ["role"] = Roles.User, ["content"] = message, ["kind"] = "session_message" };
+
     /// <summary>Does the entry's work: runs a turn for each batch of messages in its inbox until there are none, records how each turn ended, and then leaves the table.</summary>
     private static async Task RunAsync(Entry entry)
     {
@@ -208,7 +212,7 @@ public static class BackgroundTurnService
                 {
                     foreach (string message in batch)
                     {
-                        ThreadStorageService.AppendMessage(user, entry.ThreadId, new JObject { ["role"] = Roles.User, ["content"] = message });
+                        ThreadStorageService.AppendMessage(user, entry.ThreadId, InboxMessage(message));
                     }
                     SessionManager.SetStatus(user, entry.ThreadId, SessionStatuses.Running);
                     (string status, string error) = await RunTurnAsync(entry);
