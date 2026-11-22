@@ -1230,4 +1230,51 @@ public class MemoryExtractionTests : IDisposable
         Assert.NotNull(after);
         after.Dispose();
     }
+
+    [Fact]
+    public void A_named_user_message_is_read_with_its_own_reply_and_not_the_later_turns()
+    {
+        JObject thread = Thread(("user", "I moved to Lyon last month and I work as a nurse.", null), ("assistant", "Nice, Lyon is lovely.", null), ("user", "I also have two cats at home.", null), ("assistant", "Lovely names.", null));
+        MemoryTranscript first = MemoryTranscriptBuilder.Build(thread, thread["messages"][0]["id"].ToString());
+        Assert.Equal(2, first.Lines.Count);
+        Assert.Contains("Lyon", first.LatestUserText);
+        Assert.Equal("Nice, Lyon is lovely.", first.Lines[1].Text);
+        MemoryTranscript latest = MemoryTranscriptBuilder.Build(thread);
+        Assert.Contains("two cats", latest.LatestUserText);
+        Assert.Null(MemoryTranscriptBuilder.Build(thread, "no-such-message"));
+        Assert.Null(MemoryTranscriptBuilder.Build(thread, thread["messages"][1]["id"].ToString())); // an assistant message is not a user message
+    }
+
+    [Fact]
+    public async Task Extracting_a_named_message_uses_the_same_claim_so_it_runs_once()
+    {
+        JObject thread = Thread(("user", "I moved to Lyon last month and I work as a nurse.", null), ("assistant", "Nice.", null), ("user", "I also have two cats at home.", null), ("assistant", "Lovely.", null));
+        string firstId = thread["messages"][0]["id"].ToString();
+        Fake fake = new();
+        MemoryStore store = StoreOf(new FakeStorage());
+        Assert.Equal("nothing", (await MemoryExtractionService.ExtractAsync(store, "u1", "t1", thread, On, "m", null, fake.Generate, CancellationToken.None, firstId)).Status);
+        Assert.Contains("Lyon", fake.Calls[0].UserMessage);
+        Assert.DoesNotContain("two cats", fake.Calls[0].UserMessage);
+        Assert.Equal("skipped", (await MemoryExtractionService.ExtractAsync(store, "u1", "t1", thread, On, "m", null, fake.Generate, CancellationToken.None, firstId)).Status);
+    }
+
+    [Theory]
+    [InlineData("health", null)]
+    [InlineData("/card [0-9]+/", null)]
+    [InlineData("", "empty")]
+    [InlineData("   ", "empty")]
+    [InlineData("/(unclosed/", "valid regular expression")]
+    public void A_never_save_entry_is_checked_when_it_is_set(string entry, string problem)
+    {
+        string result = MemoryNeverSave.Problem(entry);
+        if (problem is null)
+        {
+            Assert.Null(result);
+        }
+        else
+        {
+            Assert.Contains(problem, result);
+        }
+        Assert.Contains("at most", MemoryNeverSave.Problem(new string('x', 201)));
+    }
 }

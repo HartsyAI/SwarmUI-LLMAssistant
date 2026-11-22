@@ -65,10 +65,21 @@ class LLMAMemorySettings {
     /** Saves the extractor's settings in the user's own settings. */
     async saveExtraction() {
         let out = document.getElementById('llma-memx-out');
-        let never = document.getElementById('llma-memx-never').value.split('\n').map(s => s.trim()).filter(s => s.length > 0).slice(0, 50);
+        let never = document.getElementById('llma-memx-never').value.split('\n').map(s => s.trim()).filter(s => s.length > 0);
+        let reply = null;
+        try {
+            reply = await llmaRequest('LLMAssistantSetMemorySettings', { enabled: document.getElementById('llma-memx-enabled').checked, model: document.getElementById('llma-memx-model').value.trim(), neverSave: never });
+        }
+        catch (err) {
+            out.textContent = llmaShortError(err) || translate('That did not work.');
+            return;
+        }
+        if (!reply?.success) {
+            out.textContent = reply?.error || translate('That did not work.');
+            return;
+        }
         LLMAState.settings = LLMAState.settings || {};
-        LLMAState.settings.memoryExtraction = { enabled: document.getElementById('llma-memx-enabled').checked, model: document.getElementById('llma-memx-model').value.trim(), neverSave: never };
-        await llmaSaveSettings();
+        LLMAState.settings.memoryExtraction = reply.settings;
         llmaUpdateMemoryToggleBtn();
         out.textContent = translate('Saved.');
     }
@@ -114,6 +125,15 @@ class LLMAMemorySettings {
 
     /** Loads the notes from the server and draws them. */
     async load() {
+        // The extractor's settings come from their own route (the page keeps no other copy of the truth).
+        try {
+            let current = await llmaRequest('LLMAssistantGetMemorySettings', {});
+            if (current?.success) {
+                LLMAState.settings = LLMAState.settings || {};
+                LLMAState.settings.memoryExtraction = current.settings;
+            }
+        }
+        catch { /* the copy from the general settings is used */ }
         this.renderExtraction();
         this.loadChanges();
         let list = document.getElementById('llma-memory-list');

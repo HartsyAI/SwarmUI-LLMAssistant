@@ -87,6 +87,33 @@ public sealed class MemoryNeverSave
         }
     }
 
+    /// <summary>The problem with a never-save entry, or null when it is fine: an entry between slashes must be a valid regular expression, and no entry may be empty or longer than
+    /// <see cref="MemoryExtractionSettings.MaxNeverSaveChars"/>.</summary>
+    public static string Problem(string entry)
+    {
+        string pattern = (entry ?? "").Trim();
+        if (pattern.Length == 0)
+        {
+            return "A never-save entry cannot be empty.";
+        }
+        if (pattern.Length > MemoryExtractionSettings.MaxNeverSaveChars)
+        {
+            return $"A never-save entry can have at most {MemoryExtractionSettings.MaxNeverSaveChars} characters.";
+        }
+        if (pattern.Length > 2 && pattern[0] == '/' && pattern[^1] == '/')
+        {
+            try
+            {
+                _ = new Regex(pattern[1..^1], RegexOptions.IgnoreCase, MatchLimit);
+            }
+            catch (ArgumentException ex)
+            {
+                return $"'{pattern}' is not a valid regular expression: {ex.Message}";
+            }
+        }
+        return null;
+    }
+
     /// <summary>Whether <paramref name="text"/> mentions something that must not be saved.</summary>
     public bool Matches(string text)
     {
@@ -141,13 +168,14 @@ public static class MemoryTranscriptBuilder
 
     /// <summary>The transcript for the turn that just ended on <paramref name="thread"/>'s active branch, or null when there is nothing to read: the latest user-role message was not written by the
     /// user, or the turn has no finished, successful reply.</summary>
-    public static MemoryTranscript Build(JObject thread)
+    public static MemoryTranscript Build(JObject thread, string userMessageId = null)
     {
         List<JObject> path = thread is null ? [] : ThreadStorageService.GetActivePath(thread);
         int user = -1;
         for (int i = path.Count - 1; i >= 0; i--)
         {
-            if (path[i]["role"]?.ToString() == Roles.User)
+            // The latest user-role message, or the one named (which must be on the active branch).
+            if (path[i]["role"]?.ToString() == Roles.User && (string.IsNullOrEmpty(userMessageId) || path[i]["id"]?.ToString() == userMessageId))
             {
                 user = i;
                 break;
@@ -169,6 +197,11 @@ public static class MemoryTranscriptBuilder
         bool attached = HasMedia(path[user]);
         for (int i = user + 1; i < path.Count; i++)
         {
+            if (path[i]["role"]?.ToString() == Roles.User)
+            {
+                // The next message of the user: what follows it is another turn.
+                break;
+            }
             if (path[i]["role"]?.ToString() != Roles.Assistant)
             {
                 continue;

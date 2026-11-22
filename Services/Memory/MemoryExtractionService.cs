@@ -252,35 +252,42 @@ public static class MemoryExtractionService
         }
     }
 
-    /// <summary>The chat reply has been delivered: runs the extraction if the user has turned it on, and tells <paramref name="notify"/> what it changed. Never throws and never waits on anything the
-    /// reply needed; the caller awaits it only so the chat socket stays open to carry the notice. Everything cheap that can say no is checked first: the master switch, the user's memory
-    /// permission, a session chat, the chat's and the assistant's own opt-outs.</summary>
-    public static async Task RunAfterTurnAsync(Session session, string threadId, string chatModel, Func<JObject, Task> notify, MemoryExtractionSlot slot = null, Generator generate = null)
+    /// <summary>The one entry point for an extraction on an existing chat, used by the chat socket (after a reply) and by the <c>LLMAssistantExtractMemory</c> route: everything cheap that can say no
+    /// is checked first, in order (the master switch, the user's memory permission, a session chat, the chat's and the assistant's own opt-outs), and then the extraction runs on the caller's
+    /// reserved <paramref name="slot"/> (so Stop, a new reply, a closed socket and Clear reach it). <paramref name="userMessageId"/> names a user message on the active branch (the latest one when
+    /// empty). Never throws; the slot is the caller's to dispose. A gate that says no is a <c>skipped</c> outcome with the reason.</summary>
+    public static async Task<ExtractionOutcome> ExtractForThreadAsync(Session session, string threadId, string chatModel, MemoryExtractionSlot slot, string userMessageId = null, Generator generate = null)
     {
-        // The slot reserved by the caller (before the title was made) is used and disposed here. Without one (the socket was already closed, or one is already running) nothing runs: it is never
-        // reserved here, so an extraction cannot start for a chat nobody is left to show a notice to.
-        if (slot is null)
-        {
-            return;
-        }
         try
         {
             User user = session?.User;
             if (user is null || string.IsNullOrEmpty(threadId))
             {
-                return;
+                return Skipped("no user or chat");
             }
             // The cheapest check first: with the master switch off (the default) a reply costs nothing more than this.
             MemoryExtractionSettings config = MemoryExtractionSettings.ForUser(user);
-            if (!config.Enabled || !user.HasPermission(LLMAssistantAPI.PermToolMemory))
+            if (!config.Enabled)
             {
-                return;
+                return Skipped("automatic memory is switched off (Settings > Memory)");
+            }
+            if (!user.HasPermission(LLMAssistantAPI.PermToolMemory))
+            {
+                return Skipped("the user does not have the memory permission (llm_tool_memory)");
             }
             JObject settings = SettingsService.GetMergedSettings(user);
             JObject thread = ThreadStorageService.GetThread(user, threadId);
-            if (thread is null || SessionManager.IsSession(thread) || (thread["memoryExtraction"]?.Type == JTokenType.Boolean && !thread["memoryExtraction"].Value<bool>()))
+            if (thread is null)
             {
-                return;
+                return Skipped("chat not found");
+            }
+            if (SessionManager.IsSession(thread))
+            {
+                return Skipped("a session chat is never extracted");
+            }
+            if (thread["memoryExtraction"]?.Type == JTokenType.Boolean && !thread["memoryExtraction"].Value<bool>())
+            {
+                return Skipped("this chat is marked don't remember");
             }
             string assistantId = thread["assistantId"]?.ToString();
             if (string.IsNullOrEmpty(assistantId))
@@ -289,37 +296,57 @@ public static class MemoryExtractionService
             }
             if (!AssistantResolver.Resolve(assistantId, user, settings).MemoryExtraction)
             {
-                return;
+                return Skipped("this chat's assistant has memory extraction switched off");
             }
             if (slot is null || slot.Cts.IsCancellationRequested)
             {
-                return;
+                return new ExtractionOutcome("cancelled", null, "stopped before it started");
             }
-            ExtractionOutcome outcome = await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, slot.Cts.Token);
+            return await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, slot.Cts.Token, userMessageId);
+        }
+        catch (OperationCanceledException)
+        {
+            return new ExtractionOutcome("cancelled", null, "stopped");
+        }
+        catch (Exception ex)
+        {
+            Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId} failed: {ex.Message}");
+            return new ExtractionOutcome("failed", null, ex.Message);
+        }
+    }
+
+    /// <summary>The chat reply has been delivered: runs the extraction (see <see cref="ExtractForThreadAsync"/>) on the reserved slot and tells <paramref name="notify"/> what it changed, as a
+    /// <c>memoryChanges</c> frame. Never throws and never waits on anything the reply needed; the caller awaits it only so the chat socket stays open to carry the notice. Without a slot (the socket
+    /// was already closed, or one is already running) nothing runs: it is never reserved here, so an extraction cannot start for a chat nobody is left to show a notice to.</summary>
+    public static async Task RunAfterTurnAsync(Session session, string threadId, string chatModel, Func<JObject, Task> notify, MemoryExtractionSlot slot = null, Generator generate = null)
+    {
+        if (slot is null)
+        {
+            return;
+        }
+        try
+        {
+            ExtractionOutcome outcome = await ExtractForThreadAsync(session, threadId, chatModel, slot, null, generate);
             Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId}: {outcome.Status} ({outcome.Detail}).");
             if (outcome.Changes is not null && notify is not null)
             {
                 await notify(new JObject { ["memoryChanges"] = outcome.Changes.ToClientJson() });
             }
         }
-        catch (OperationCanceledException)
-        {
-            // Stopped: nothing was saved.
-        }
         catch (Exception ex)
         {
-            Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId} failed: {ex.Message}");
+            Logs.Debug($"[LLMAssistant] Memory extraction notice for chat {threadId} failed: {ex.Message}");
         }
         finally
         {
-            slot?.Dispose();
+            slot.Dispose();
         }
     }
 
     /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
-    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct)
+    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, string userMessageId = null)
     {
-        MemoryTranscript transcript = MemoryTranscriptBuilder.Build(thread);
+        MemoryTranscript transcript = MemoryTranscriptBuilder.Build(thread, userMessageId);
         if (transcript is null)
         {
             return Skipped("nothing to read (no finished reply to a message the user wrote)");

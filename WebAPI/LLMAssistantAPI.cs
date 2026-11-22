@@ -336,5 +336,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantClearUserProfile, true, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemoryChanges, false, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantUndoMemoryChange, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemorySettings, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetMemorySettings, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantExtractMemory, true, PermChat);
     }
 }
