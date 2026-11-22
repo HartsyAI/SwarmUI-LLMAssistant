@@ -43,6 +43,8 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 14 | **Run non-interactively / dry run** (done in Phase 11: `LLMAssistantRunTurn`, its `dryRun`, and the setup check, see the README, "Setup check and headless turns") | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
 | 15 | **Artifacts and code interpreter** | React/HTML/Mermaid artifacts, sandboxed code exec (LibreChat) | Asset index with HTML/SVG/Mermaid preview; no code execution | Part of Code mode |
 
+Known follow-up (prompt styles, P2): the chat-model style addendum is added by `TurnSetupService` and the compare lanes only. The voice endpoints, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite build their own system prompt and do not get it yet.
+
 Not worth copying: chat-channel gateways (OpenHarness's `ohmo` for Telegram/Slack), plugin marketplaces, 54 slash commands. They do not fit a SwarmUI tab.
 
 ## 3. Code mode

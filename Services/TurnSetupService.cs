@@ -1,5 +1,6 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
+using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using HartsyInference.Engine.Requests;
@@ -15,7 +16,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 /// <param name="Thread">The chat as it was read for this turn (after any summarizing).</param>
 /// <param name="WouldCompact">For a dry run: whether the reply would summarize the start of the chat first (which a dry run does not do).</param>
 /// <param name="ContextWindow">The model's window in tokens, or 0 when it is not known.</param>
-public sealed record PreparedTurn(ExtendedLLMInput Input, List<JObject> EnabledTools, string AssistantId, JObject Thread, bool WouldCompact = false, int ContextWindow = 0);
+/// <param name="Addendum">What the chat-model prompt style added to the system prompt (see <see cref="LlmAddendumService"/>), or null.</param>
+public sealed record PreparedTurn(ExtendedLLMInput Input, List<JObject> EnabledTools, string AssistantId, JObject Thread, bool WouldCompact = false, int ContextWindow = 0, LlmAddendum Addendum = null);
 
 /// <summary>Builds the request for one reply in a chat: the instructions, the tools, the history and the parameters. One builder for a reply on a chat socket and for a
 /// session working in the background, so the two never differ in what a model is told or offered (skills, code tools, project instructions, summaries).</summary>
@@ -59,6 +61,8 @@ public static class TurnSetupService
         enabledTools = PromptAssetService.WithSkillTool(enabledTools, thread, settings, session.User, toolsOn);
         // A session the assistant started can use only the tools it was given, whatever its assistant lists, and is told what it is for.
         enabledTools = SessionManager.NarrowTools(enabledTools, thread);
+        // The chat-model style for the model answering this turn goes right after the instruction, before anything else is appended; its tools task is on when tools are really sent (see LlmAddendumService).
+        (systemPrompt, LlmAddendum addendum) = await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, model, modelInfo, enabledTools.Count > 0);
         systemPrompt = SessionManager.AppendSessionNote(systemPrompt, thread);
         systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
         // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
@@ -82,6 +86,6 @@ public static class TurnSetupService
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         ChatEndpoints.ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
         ChatEndpoints.AttachTools(input, enabledTools, session, assistantId, forceToolId);
-        return ct.IsCancellationRequested ? null : new PreparedTurn(input, enabledTools, assistantId, thread, wouldCompact, ContextWindowService.Resolve(modelInfo, settings));
+        return ct.IsCancellationRequested ? null : new PreparedTurn(input, enabledTools, assistantId, thread, wouldCompact, ContextWindowService.Resolve(modelInfo, settings), addendum);
     }
 }
