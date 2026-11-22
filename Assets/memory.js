@@ -205,7 +205,14 @@ class LLMAMemoryNotice {
             + `<span><button type="button" class="basic-button llma-memory-notice-undo">${translate('Undo')}</button>`
             + `<button type="button" class="llma-memory-notice-close" aria-label="${escapeHtml(translate('Dismiss'))}" title="${escapeHtml(translate('Dismiss'))}">&times;</button></span></div>`
             + `<div class="llma-memory-notice-body">${LLMAMemoryNotice.linesHtml(set)}</div>`;
-        container.appendChild(el);
+        // Just above the composer, in the flow of the chat, so it never covers what is being typed.
+        let wrap = container.querySelector('.llma-input-wrap');
+        if (wrap?.parentElement) {
+            wrap.parentElement.insertBefore(el, wrap);
+        }
+        else {
+            container.appendChild(el);
+        }
         let timer = null;
         let arm = () => {
             clearTimeout(timer);

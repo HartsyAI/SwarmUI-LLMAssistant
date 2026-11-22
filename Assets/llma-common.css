@@ -236,12 +236,10 @@
 
 /* ── Memory notice: what the automatic memory extractor saved, with Undo (memory.js) ── */
 .llma-memory-notice {
-    position: absolute;
-    bottom: 76px;
-    left: 50%;
-    transform: translateX(-50%);
+    position: relative;
+    margin: 0 auto 8px;
     width: min(520px, calc(100% - 32px));
-    max-height: 40%;
+    max-height: 30vh;
     overflow-y: auto;
     padding: 8px 12px;
     border-radius: 8px;
@@ -251,8 +249,9 @@
     border: 1px solid var(--border-color);
     color: var(--text);
     box-shadow: 0 2px 10px color-mix(in srgb, var(--text) 18%, transparent);
-    animation: llma-toast-in 0.2s ease;
+    animation: llma-memory-notice-in 0.2s ease;
 }
+@keyframes llma-memory-notice-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 .llma-memory-notice-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }
 .llma-memory-notice-head .basic-button { padding: 2px 10px; }
 .llma-memory-notice-close { background: none; border: none; color: var(--text); font-size: 18px; line-height: 1; padding: 0 6px; cursor: pointer; opacity: 0.7; }
