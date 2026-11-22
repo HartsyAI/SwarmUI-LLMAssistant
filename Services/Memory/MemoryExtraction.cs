@@ -94,6 +94,7 @@ public sealed class MemoryNeverSave
         {
             return false;
         }
+        text = MemoryOpParser.Fold(text);
         foreach (Regex regex in Secrets.Concat(_custom))
         {
             try
@@ -122,13 +123,14 @@ public sealed record TranscriptLine(string Role, string Text);
 /// <param name="LatestUserId">The id of the user message this turn answered (what is remembered as already extracted).</param>
 /// <param name="LatestUserText">That message's text.</param>
 /// <param name="UserText">Everything the user said in <paramref name="Lines"/>.</param>
-/// <param name="ReplyLeftOut">Whether the reply was left out because tools ran in the turn (so it may repeat what a page or file said).</param>
+/// <param name="ReplyLeftOut">Whether the reply was left out because tools ran in the turn, or the user attached an image or video to their message (so the reply may repeat what a page, a file or a picture said).</param>
 /// <param name="CalledMemoryWrite">Whether the model saved a note itself in this turn (then the extractor has nothing to add).</param>
 public sealed record MemoryTranscript(IReadOnlyList<TranscriptLine> Lines, string LatestUserId, string LatestUserText, string UserText, bool ReplyLeftOut, bool CalledMemoryWrite);
 
 /// <summary>Builds the transcript the extractor reads. This is where the injection rule lives: <b>only</b> the user's own messages and the assistant's own replies get in. A message that carries
 /// a <c>kind</c> (a session report, a session's inbox message, anything a server set), attachments, tool calls and their results, reasoning and summaries never do; and a reply from a turn in
-/// which a tool ran is left out too, since after a tool read a page or file the reply can repeat what it said ("the page says: remember ..."). Text is read from each message's own <c>content</c>
+/// which a tool ran, or to a message that had an image or video attached, is left out too, since after a tool read a page or file (or a vision model read a picture) the reply can repeat what it
+/// said ("the page says: remember ..."). The same goes for the assistant message shown just before the user's, when it answered a message with an attachment. Text is read from each message's own <c>content</c>
 /// on the active branch, never from the history that is sent to the model (which adds attachment links and summaries).</summary>
 public static class MemoryTranscriptBuilder
 {
@@ -163,6 +165,8 @@ public static class MemoryTranscriptBuilder
         // The reply to it: the last assistant message after it. A turn that failed, or has no reply, is not read.
         JObject reply = null;
         bool toolsRan = false, wrote = false;
+        // An attachment on the user's message: what a vision model read in it can come back in the reply, so the reply is treated like one that followed a tool.
+        bool attached = HasMedia(path[user]);
         for (int i = user + 1; i < path.Count; i++)
         {
             if (path[i]["role"]?.ToString() != Roles.Assistant)
@@ -182,7 +186,7 @@ public static class MemoryTranscriptBuilder
         }
         List<TranscriptLine> lines = [];
         // What the assistant said just before the user did ("where do you live?" / "Berlin"), when it is a plain reply of its own.
-        if (user > 0 && path[user - 1]["role"]?.ToString() == Roles.Assistant && IsPlainAssistantMessage(path[user - 1]))
+        if (user > 0 && path[user - 1]["role"]?.ToString() == Roles.Assistant && IsPlainAssistantMessage(path[user - 1]) && !(user > 1 && HasMedia(path[user - 2])))
         {
             string before = Clean(path[user - 1]["content"]?.ToString());
             if (before.Length > 0)
@@ -191,7 +195,7 @@ public static class MemoryTranscriptBuilder
             }
         }
         lines.Add(new TranscriptLine(Roles.User, userText));
-        if (!toolsRan)
+        if (!toolsRan && !attached)
         {
             lines.Add(new TranscriptLine(Roles.Assistant, Clean(reply["content"]?.ToString())));
         }
@@ -200,8 +204,11 @@ public static class MemoryTranscriptBuilder
         {
             lines.RemoveAt(0);
         }
-        return new MemoryTranscript(lines, path[user]["id"]?.ToString() ?? "", userText, string.Join("\n", lines.Where(l => l.Role == Roles.User).Select(l => l.Text)), toolsRan, wrote);
+        return new MemoryTranscript(lines, path[user]["id"]?.ToString() ?? "", userText, string.Join("\n", lines.Where(l => l.Role == Roles.User).Select(l => l.Text)), toolsRan || attached, wrote);
     }
+
+    /// <summary>Whether a message has an image or video attached.</summary>
+    private static bool HasMedia(JObject message) => message["media"] is JArray { Count: > 0 };
 
     /// <summary>Whether an assistant message is plain words of its own: no server-set kind, no tool calls, no failure.</summary>
     private static bool IsPlainAssistantMessage(JObject message)
@@ -229,7 +236,8 @@ public static class MemoryTranscriptBuilder
 /// <param name="Text">The note's text as shown (cleaned and cut short).</param>
 /// <param name="Hash">The <see cref="MemoryStore.TextHash"/> of the note's full text at the moment it was shown.</param>
 /// <param name="Locked">Whether the note is pinned or a slot note: shown for context, never changed.</param>
-public sealed record ShownNote(string Alias, string Id, string Text, string Hash, bool Locked);
+/// <param name="Origin">Where the note came from (<see cref="MemoryOrigins"/>).</param>
+public sealed record ShownNote(string Alias, string Id, string Text, string Hash, bool Locked, string Origin = MemoryOrigins.Assistant);
 
 /// <summary>The request the extractor's model gets, and the notes it was shown.</summary>
 public sealed record MemoryExtractionPrompt(string System, string User, IReadOnlyDictionary<string, ShownNote> Shown)
@@ -261,9 +269,10 @@ public sealed record MemoryExtractionPrompt(string System, string User, IReadOnl
         """;
 
     /// <summary>Builds the request for a turn: the notes related to what the user said (all of them when there are few; the pinned and slot notes only for context) and the transcript.</summary>
-    public static MemoryExtractionPrompt Build(MemoryNoteSet set, MemoryTranscript transcript)
+    public static MemoryExtractionPrompt Build(MemoryNoteSet set, MemoryTranscript transcript, MemoryNeverSave never = null)
     {
-        List<MemoryNote> ordered = MemoryRecall.StableOrder(set.Notes);
+        // A note that mentions something never to be saved is not shown to the model either (it may be another backend than the chat's).
+        List<MemoryNote> ordered = [.. MemoryRecall.StableOrder(set.Notes).Where(n => never is null || !never.Matches(n.Text))];
         List<MemoryNote> locked = [.. ordered.Where(n => n.Pinned || n.Slot.Length > 0).Take(MaxLocked)];
         List<MemoryNote> open = [.. ordered.Where(n => !(n.Pinned || n.Slot.Length > 0))];
         int room = MaxShown - locked.Count;
@@ -282,7 +291,7 @@ public sealed record MemoryExtractionPrompt(string System, string User, IReadOnl
             string alias = $"n{++number}";
             bool isLocked = note.Pinned || note.Slot.Length > 0;
             string text = MemoryRecall.Clean(MemoryNoteSet.Truncate(note.Text, MaxShownChars));
-            shown[alias] = new ShownNote(alias, note.Id, text, MemoryStore.TextHash(note.Text), isLocked);
+            shown[alias] = new ShownNote(alias, note.Id, text, MemoryStore.TextHash(note.Text), isLocked, note.Origin);
             notes.Append(alias).Append(isLocked ? " [locked] " : " ").Append(note.Negative ? "[dislike] " : "").Append(text).Append('\n');
         }
         StringBuilder user = new();
@@ -314,7 +323,7 @@ public static class MemoryOpParser
     /// <summary>Things a note must not look like: an instruction aimed at the assistant (or at the model reading it later), a link, markup, a role label.</summary>
     private static readonly Regex[] InstructionLike = [.. new[]
     {
-        @"\b(ignore|disregard|forget|override|bypass)\b.{0,40}\b(instruction|rule|prompt|message|direction|guideline|polic)",
+        @"\b(ignor|disregard|forget|forgot|overrid|overrul|bypass|skip|neglect)\w*\b.{0,40}\b(instruction|rule|prompt|message|direction|guideline|polic|constraint|restriction)",
         @"\b(system|developer)\s+(prompt|message|instruction)",
         @"^\W*(always|never|you\s+(must|should|will|shall|are|have to|need to)|do not|don'?t|make sure|be sure|ensure|from now on|whenever|when the user|if the user|please)\b",
         @"^\W*(assistant|system|user|human|ai)\s*:",
@@ -324,9 +333,34 @@ public static class MemoryOpParser
         @"[<>`]"
     }.Select(p => new Regex(p, RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(250)))];
 
+    /// <summary>A text as the checks see it: compatibility-normalised (so full-width and styled letters are plain ones) and with the invisible format characters (zero-width spaces and joiners, soft
+    /// hyphens, direction marks) taken out, so they cannot be used to split a word the checks look for. Best effort: the real defence is what the extractor is allowed to read.</summary>
+    internal static string Fold(string text)
+    {
+        string normal;
+        try
+        {
+            normal = (text ?? "").Normalize(System.Text.NormalizationForm.FormKC);
+        }
+        catch (ArgumentException)
+        {
+            normal = text ?? "";
+        }
+        StringBuilder sb = new(normal.Length);
+        foreach (char c in normal)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.Format)
+            {
+                sb.Append(c);
+            }
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Whether a text looks like an instruction or markup instead of a statement about the user. A text a pattern times out on is refused.</summary>
     public static bool LooksLikeInstruction(string text)
     {
+        text = Fold(text);
         foreach (Regex regex in InstructionLike)
         {
             try
@@ -360,7 +394,7 @@ public static class MemoryOpParser
     }
 
     /// <summary>Whether most of a note's words come from what the user wrote (so a note filed as the user's own is grounded in their message, not made up).</summary>
-    internal static bool IsGrounded(string noteText, string userText)
+    internal static bool IsGrounded(string noteText, string userText, int percent = 60)
     {
         List<string> words = [.. Regex.Matches((noteText ?? "").ToLowerInvariant(), @"\p{L}{4,}").Select(m => m.Value).Distinct()];
         if (words.Count == 0)
@@ -368,7 +402,7 @@ public static class MemoryOpParser
             return false;
         }
         string haystack = (userText ?? "").ToLowerInvariant();
-        return words.Count(w => haystack.Contains(w, StringComparison.Ordinal)) * 10 >= words.Count * 6;
+        return words.Count(w => haystack.Contains(w, StringComparison.Ordinal)) * 100 >= words.Count * percent;
     }
 
     /// <summary>The origin an added or changed note gets: <c>user</c> when the user's own message asks to have something remembered and the note is grounded in what they wrote, otherwise <c>assistant</c>.</summary>
@@ -461,7 +495,15 @@ public static class MemoryOpParser
                 rejected++;
                 continue;
             }
-            ops.Add(new MemoryOp("update", note.Id, note.Hash, "", text, false, OriginFor(text, transcript)));
+            // A note the user wrote or asked to have saved is changed only by words of the user's own, and then keeps its origin; a note the assistant wrote is the assistant's to change.
+            bool userOwned = note.Origin is MemoryOrigins.User or MemoryOrigins.Explicit;
+            if (userOwned && !IsGrounded(text, transcript.UserText, 50))
+            {
+                rejected++;
+                continue;
+            }
+            bool? setNegative = o["negative"]?.Type == JTokenType.Boolean ? (bool)o["negative"] : null;
+            ops.Add(new MemoryOp("update", note.Id, note.Hash, "", text, setNegative, userOwned ? note.Origin : OriginFor(text, transcript)));
         }
         return new MemoryParseResult(ops, rejected, null);
     }

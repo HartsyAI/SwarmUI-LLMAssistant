@@ -195,6 +195,10 @@ class LLMAMemoryNotice {
         if (!container || !set || !set.id) {
             return;
         }
+        // Only in the chat it belongs to; in another one it is not shown (it stays listed in Settings > Memory).
+        if (set.threadId && typeof LLMAState != 'undefined' && LLMAState.activeThreadId && set.threadId != LLMAState.activeThreadId) {
+            return;
+        }
         container.querySelector('.llma-memory-notice')?.remove();
         let el = document.createElement('div');
         el.className = 'llma-memory-notice';
@@ -258,12 +262,26 @@ class LLMAMemoryNotice {
             llmaShowToast('That change was already undone.', 'info');
             return true;
         }
+        if (!(reply.undone > 0)) {
+            // Every note was changed since (or cannot come back): nothing was undone, and the change stays listed.
+            llmaShowToast('Nothing was undone: those notes have been changed since.', 'info');
+            return false;
+        }
         llmaShowToast(reply.skipped > 0 ? 'Undone, except notes that were changed since.' : 'Undone.', 'success');
         return true;
     }
 }
 
 let llmaMemorySettings = new LLMAMemorySettings();
+
+/** Closes the chat socket that stays open after a reply to carry the memory notice (the server stops an extraction when it closes). Called when another chat is opened. */
+function llmaCloseLingeringSocket() {
+    const socket = LLMAState._lingerSocket;
+    LLMAState._lingerSocket = null;
+    if (socket && socket !== LLMAState._activeSocket) {
+        try { socket.close(); } catch (_) { /* already closed */ }
+    }
+}
 
 /** Whether the automatic extractor is switched on in the user's own settings (the per-chat button is only shown then). */
 function llmaMemoryExtractionOn() {

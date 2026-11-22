@@ -289,6 +289,7 @@ public sealed partial class MemoryStore
     {
         lock (Gate)
         {
+            BumpEpoch();
             Storage.Save(NotesKey, new MemoryNoteSet().Serialize());
             Logged.GetOrCreateValue(Gate).Status = MemoryLoadStatus.Ok;
             // Every vector and backup this store made is in the index (which is all there is to go through: the user's data is never listed).

@@ -9,16 +9,19 @@ using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.Memory;
 
-/// <summary>Extraction calls in flight, by chat, so Stop can reach one: a reply's own cancellation source is gone once the reply has ended, and the extractor runs after that.</summary>
+/// <summary>Extraction calls in flight, by user and chat (a chat id is chosen by the client, so it is never a key on its own), so Stop, a new turn, a closed socket or Clear can reach one: a reply's own
+/// cancellation source is gone once the reply has ended, and the extractor runs after that.</summary>
 public static class MemoryExtractionRegistry
 {
     private static readonly ConcurrentDictionary<string, CancellationTokenSource> Active = new();
 
-    /// <summary>Registers an extraction for a chat; null when one is already running for it.</summary>
-    public static CancellationTokenSource Begin(string threadId)
+    private static string Key(string userId, string threadId) => $"{userId}|{threadId}";
+
+    /// <summary>Registers an extraction for a user's chat; null when one is already running for it.</summary>
+    public static CancellationTokenSource Begin(string userId, string threadId)
     {
         CancellationTokenSource cts = new();
-        if (!Active.TryAdd(threadId, cts))
+        if (!Active.TryAdd(Key(userId, threadId), cts))
         {
             cts.Dispose();
             return null;
@@ -27,9 +30,9 @@ public static class MemoryExtractionRegistry
     }
 
     /// <summary>Unregisters and disposes the extraction (only if it is still the one registered).</summary>
-    public static void End(string threadId, CancellationTokenSource cts)
+    public static void End(string userId, string threadId, CancellationTokenSource cts)
     {
-        ((ICollection<KeyValuePair<string, CancellationTokenSource>>)Active).Remove(new(threadId, cts));
+        ((ICollection<KeyValuePair<string, CancellationTokenSource>>)Active).Remove(new(Key(userId, threadId), cts));
         try
         {
             cts.Dispose();
@@ -40,10 +43,23 @@ public static class MemoryExtractionRegistry
         }
     }
 
-    /// <summary>Cancels the extraction running for a chat, if any (what Stop does). Returns whether there was one.</summary>
-    public static bool Cancel(string threadId)
+    /// <summary>Cancels the extraction running for a user's chat, if any (what Stop does). Returns whether there was one.</summary>
+    public static bool Cancel(string userId, string threadId) => CancelKey(Key(userId, threadId));
+
+    /// <summary>Cancels every extraction running for a user (a new turn of theirs begins, or they clear their memory). Returns whether there was one.</summary>
+    public static bool CancelUser(string userId)
     {
-        if (!string.IsNullOrEmpty(threadId) && Active.TryGetValue(threadId, out CancellationTokenSource cts))
+        bool any = false;
+        foreach (string key in Active.Keys.Where(k => k.StartsWith(userId + "|", StringComparison.Ordinal)).ToList())
+        {
+            any |= CancelKey(key);
+        }
+        return any;
+    }
+
+    private static bool CancelKey(string key)
+    {
+        if (Active.TryGetValue(key, out CancellationTokenSource cts))
         {
             try
             {
@@ -83,7 +99,10 @@ public static class MemoryExtractionService
     public const int MaxTokens = 600;
 
     /// <summary>How long one call may take before it is given up on.</summary>
-    internal static TimeSpan CallTimeout = TimeSpan.FromSeconds(45);
+    internal static TimeSpan CallTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>How long a whole extraction (both calls, when the first answer was unusable) may take.</summary>
+    internal static TimeSpan OverallTimeout = TimeSpan.FromSeconds(45);
 
     /// <summary>How long a model that failed is left alone (per user and model).</summary>
     internal static TimeSpan Backoff = TimeSpan.FromMinutes(5);
@@ -218,7 +237,7 @@ public static class MemoryExtractionService
             {
                 return;
             }
-            cts = MemoryExtractionRegistry.Begin(threadId);
+            cts = MemoryExtractionRegistry.Begin(user.UserID, threadId);
             if (cts is null)
             {
                 return;
@@ -242,7 +261,7 @@ public static class MemoryExtractionService
         {
             if (cts is not null)
             {
-                MemoryExtractionRegistry.End(threadId, cts);
+                MemoryExtractionRegistry.End(session.User.UserID, threadId, cts);
             }
         }
     }
@@ -278,30 +297,36 @@ public static class MemoryExtractionService
         {
             return Skipped("the stored notes are not in a state that is written automatically");
         }
-        if (!Claim(userId, threadId, transcript.LatestUserId, transcript.LatestUserText))
-        {
-            return Skipped("this message was already extracted");
-        }
-        if (!TryAcquire(userId))
-        {
-            return Skipped($"{MaxPerHour} extractions in the last hour");
-        }
+        // One at a time per user, checked first so a message that is turned away for it is not used up (nor counted against the hour).
         if (!Running.TryAdd(userId, true))
         {
             return Skipped("another extraction is running for this user");
         }
         try
         {
+            if (!Claim(userId, threadId, transcript.LatestUserId, transcript.LatestUserText))
+            {
+                return Skipped("this message was already extracted");
+            }
+            if (!TryAcquire(userId))
+            {
+                return Skipped($"{MaxPerHour} extractions in the last hour");
+            }
             ct.ThrowIfCancellationRequested();
-            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(store.Load(), transcript);
+            // Memory cleared while the model is working must not be written to afterwards: the epoch is read before the notes are, and checked again under the lock when saving.
+            int epoch = store.Epoch();
+            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(store.Load(), transcript, never);
             string userMessage = prompt.User;
             MemoryParseResult parsed = null;
+            // The whole extraction, retry included, has one deadline.
+            using CancellationTokenSource overall = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            overall.CancelAfter(OverallTimeout);
             for (int attempt = 1; attempt <= 2; attempt++)
             {
                 string answer;
                 try
                 {
-                    answer = await CallAsync(prompt.System, userMessage, model, session, generate, ct);
+                    answer = await CallAsync(prompt.System, userMessage, model, session, generate, overall.Token);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {
@@ -330,10 +355,10 @@ public static class MemoryExtractionService
             {
                 return new ExtractionOutcome("nothing", null, parsed.Rejected > 0 ? $"{parsed.Rejected} operations were refused" : "nothing worth saving");
             }
-            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested);
-            if (applied.Refused == "cancelled")
+            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested, epoch);
+            if (applied.Refused is "cancelled" or "cleared")
             {
-                return new ExtractionOutcome("cancelled", null, "stopped before saving");
+                return new ExtractionOutcome("cancelled", null, applied.Refused == "cleared" ? "memory was cleared meanwhile" : "stopped before saving");
             }
             return applied.Changes is null
                 ? new ExtractionOutcome("nothing", null, applied.Refused.Length > 0 ? $"not saved: {applied.Refused}" : $"{applied.Skipped} operations had nothing to do")
