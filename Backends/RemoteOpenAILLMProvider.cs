@@ -72,7 +72,7 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
     public override string DefaultModelId => string.IsNullOrWhiteSpace(Settings.DefaultModel) ? null : Settings.DefaultModel.Trim();
 
     /// <inheritdoc/>
-    public override Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModelsAs(new ExtendedLLMInput { RequestSession = session }, ct);
+    public override Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModelsAs(new ExtendedLLMInput { RequestSession = session }, ct, reportRejectedKey: true);
 
     /// <summary>The <c>anthropic-version</c> Anthropic's own (non-OpenAI-shaped) routes require, here the Models API.</summary>
     public const string AnthropicVersion = "2023-06-01";
@@ -577,7 +577,11 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
 
     /// <summary>Lists the endpoint's models with the headers a request from <paramref name="asUser"/>'s session would carry
     /// (that user's own key, when set), or the configured headers alone when null.</summary>
-    public async Task<List<LLMModelInfo>> ListModelsAs(ExtendedLLMInput asUser, CancellationToken ct = default)
+    /// <remarks>An endpoint that refuses the key (401 or 403) lists nothing, which looked exactly like having no models: the
+    /// model picker was empty and the log said only "HTTP Unauthorized". The log now says what the endpoint answered, and with
+    /// <paramref name="reportRejectedKey"/> (a listing made for a user, whose answer reaches them as a warning) the refusal is thrown
+    /// as a readable error saying so, instead of an empty list.</remarks>
+    public async Task<List<LLMModelInfo>> ListModelsAs(ExtendedLLMInput asUser, CancellationToken ct = default, bool reportRejectedKey = false)
     {
         List<LLMModelInfo> models = [];
         if (string.IsNullOrWhiteSpace(Settings.Address))
@@ -597,15 +601,24 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
             HttpRequestMessage request = new(HttpMethod.Get, ModelsUrl(address));
             ApplyHeaders(request, asUser, true);
             HttpResponseMessage response = await HttpClient.SendAsync(request, linked.Token);
+            string body = await response.Content.ReadAsStringAsync(linked.Token);
             if (!response.IsSuccessStatusCode)
             {
-                Logs.Warning($"[RemoteOpenAILLMProvider] Failed to list models from {address}: HTTP {response.StatusCode}");
+                string detail = DescribeListFailure(response.StatusCode, body);
+                Logs.Warning($"[RemoteOpenAILLMProvider] Failed to list models from {address}: {detail}");
+                if (reportRejectedKey && response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                {
+                    throw new SwarmReadableErrorException(RejectedKeyMessage(IsAnthropic, detail));
+                }
                 return models;
             }
-            string body = await response.Content.ReadAsStringAsync(linked.Token);
             models = ParseModelList(JObject.Parse(body), AbstractBackendData?.ID ?? -1, IsAnthropic);
         }
         catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (SwarmReadableErrorException)
         {
             throw;
         }
@@ -615,6 +628,35 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
         }
         return models;
     }
+
+    /// <summary>What an endpoint answered to a model list request that failed: its status and, when the body carries one, its own
+    /// message (<c>error.message</c> in Anthropic's and OpenAI's shapes, or <c>message</c>), cut to 200 characters. Never the request.</summary>
+    internal static string DescribeListFailure(HttpStatusCode status, string body)
+    {
+        string message = null;
+        try
+        {
+            JObject parsed = JObject.Parse(body ?? "");
+            message = parsed["error"] is JObject error ? error.Value<string>("message") : parsed["error"]?.Type == JTokenType.String ? parsed.Value<string>("error") : parsed.Value<string>("message");
+        }
+        catch (Exception)
+        {
+            message = string.IsNullOrWhiteSpace(body) || body.TrimStart().StartsWith('<') ? null : body;
+        }
+        message = string.Join(' ', (message ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries));
+        if (message.Length > 200)
+        {
+            message = message[..200] + "...";
+        }
+        string head = $"HTTP {(int)status} {status}";
+        return message.Length == 0 ? head : $"{head}: {message}";
+    }
+
+    /// <summary>The readable error for a key the endpoint refused: whose key it is, what the endpoint said, and where to set one.</summary>
+    internal static string RejectedKeyMessage(bool anthropic, string detail)
+        => anthropic
+            ? $"Anthropic rejected the API key ({detail}). Check the key saved in the User tab (and the workspace it belongs to)."
+            : $"The server rejected the API key ({detail}). Check the key saved in the User tab, or this backend's Authorization Header.";
 
     /// <summary>The model's context window in tokens as its listing states it, or -1. Endpoints name it differently: Anthropic
     /// <c>max_input_tokens</c>, OpenRouter and Together <c>context_length</c>, vLLM <c>max_model_len</c>, LM Studio <c>max_context_length</c>,
