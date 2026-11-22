@@ -50,9 +50,13 @@ public sealed record MemoryControls(bool SavingPaused, bool RecallPaused, int Re
     public bool ExtractionAllowed(bool userEnabled) => userEnabled && !SavingPaused && !AdminExtractionDisabled;
 
     /// <summary>The patch for the user's own settings that a client's request asks for: only the fields it names (<c>savingPaused</c>, <c>recallPaused</c>, <c>unusedDays</c>), each checked, or null
-    /// when it names none. <c>unusedDays</c> is kept between <see cref="MinRetentionDays"/> and <see cref="MaxRetentionDays"/>, or 0 for off.</summary>
-    public static JObject UserPatch(JObject request)
+    /// when it names none. <c>unusedDays</c> is 0 for off or a whole number from <see cref="MinRetentionDays"/> to <see cref="MaxRetentionDays"/>.</summary>
+    public static JObject UserPatch(JObject request) => UserPatch(request, out _);
+
+    /// <summary>The same, with <paramref name="error"/> set (and null returned) when <c>unusedDays</c> is not a whole number that is 0 or between <see cref="MinRetentionDays"/> and <see cref="MaxRetentionDays"/>.</summary>
+    public static JObject UserPatch(JObject request, out string error)
     {
+        error = null;
         JObject patch = [];
         JObject pause = [];
         if (request?["savingPaused"]?.Type == JTokenType.Boolean)
@@ -67,10 +71,15 @@ public sealed record MemoryControls(bool SavingPaused, bool RecallPaused, int Re
         {
             patch[PauseKey] = pause;
         }
-        if (request?["unusedDays"]?.Type is JTokenType.Integer or JTokenType.Float)
+        if (request?["unusedDays"] is JToken raw && raw.Type != JTokenType.Null)
         {
-            double days = (double)request["unusedDays"];
-            patch[RetentionKey] = new JObject { ["unusedDays"] = double.IsFinite(days) ? ClampDays((int)Math.Clamp(Math.Round(days), 0, MaxRetentionDays)) : 0 };
+            long days = raw.Type == JTokenType.Integer ? raw.Value<long>() : -1;
+            if (raw.Type != JTokenType.Integer || (days != 0 && (days < MinRetentionDays || days > MaxRetentionDays)))
+            {
+                error = $"unusedDays must be 0 (off) or a whole number from {MinRetentionDays} to {MaxRetentionDays}.";
+                return null;
+            }
+            patch[RetentionKey] = new JObject { ["unusedDays"] = (int)days };
         }
         return patch.Count == 0 ? null : patch;
     }

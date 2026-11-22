@@ -25,9 +25,9 @@ public class MemoryWriteTool : ToolHandler
 
     public override async Task<JObject> Execute(ToolExecutionContext ctx)
     {
-        if (MemoryControls.ForUser(ctx.Session?.User).SavingPaused)
+        if (MemoryService.WriteRefusedWhilePaused(MemoryControls.ForUser(ctx.Session?.User)) is JObject refused)
         {
-            return new JObject { ["success"] = false, ["paused"] = true, ["error"] = "The user has paused memory saving, so nothing was saved. Do not try again until they resume it." };
+            return refused;
         }
         JObject args = ctx.Args;
         string category = args["category"]?.ToString();

@@ -50,6 +50,8 @@ class LLMAMemorySettings {
         this.matched = 0;
         this.total = 0;
         this.searchTimer = null;
+        /** Counts the list requests, so the answer to an older one (a slower search) never replaces a newer one. */
+        this.loadSeq = 0;
         /** The text of the file chosen for import, kept while its preview is shown. */
         this.pendingImport = null;
         this.wired = false;
@@ -181,7 +183,7 @@ class LLMAMemorySettings {
                 + `<button type="button" class="basic-button" id="llma-memory-chat-btn">${translate(remembers ? 'Don\'t remember this chat' : 'Remember this chat')}</button></div>`;
             let assistants = (LLMAState.assistants || []).slice(0, 50);
             if (assistants.length > 0) {
-                html += `<div class="mt-2">${translate('Save memories from chats with these assistants:')}</div>` + assistants.map(a => `<label class="d-block ms-3"><input type="checkbox" class="llma-memory-assistant" data-assistant-id="${escapeHtml(a.id)}" ${a._effectiveMemoryExtraction === false ? '' : 'checked'}> ${escapeHtml(a.name || a.id)}</label>`).join('');
+                html += `<div class="mt-2">${translate('Save memories from chats with these assistants:')}</div>` + assistants.map(a => { let shared = a._scope === 'shared'; let locked = shared && !LLMAState.canWriteShared; return `<label class="d-block ms-3" ${locked ? `title="${escapeHtml(translate('A shared assistant: an administrator changes this. Use this chat\'s own switch above.'))}"` : ''}><input type="checkbox" class="llma-memory-assistant" data-assistant-id="${escapeHtml(a.id)}" data-scope="${shared ? 'shared' : 'personal'}" ${a._effectiveMemoryExtraction === false ? '' : 'checked'} ${locked ? 'disabled' : ''}> ${escapeHtml(a.name || a.id)}</label>`; }).join('');
             }
         }
         where.innerHTML = html;
@@ -193,7 +195,7 @@ class LLMAMemorySettings {
             box.addEventListener('change', async () => {
                 let reply = null;
                 try {
-                    reply = await llmaRequest('LLMAssistantSetAssistantMemory', { assistantId: box.dataset.assistantId, enabled: box.checked });
+                    reply = await llmaRequest('LLMAssistantSetAssistantMemory', { assistantId: box.dataset.assistantId, enabled: box.checked, scope: box.dataset.scope });
                 }
                 catch (err) {
                     reply = { success: false, error: llmaShortError(err) };
@@ -312,7 +314,7 @@ class LLMAMemorySettings {
             + `<div class="d-flex align-items-center gap-2 flex-wrap mb-1"><label for="llma-memret-days" class="small mb-0">${translate('Forget notes not used for')}</label>`
             + `<input type="number" class="form-control llma-memory-days" id="llma-memret-days" min="${r.min}" max="${r.max}" step="1" placeholder="${escapeHtml(translate('off'))}" value="${r.unusedDays > 0 ? r.unusedDays : ''}">`
             + `<span class="small">${translate('days')}</span><button type="button" class="basic-button" id="llma-memret-save">${translate('Save')}</button> <span class="small text-muted" id="llma-memret-out"></span></div>`
-            + `<div class="small text-muted">${translate('Off when empty. A note counts as used when it is put in a reply\'s prompt (or from when it was saved, if never). Pinned notes and your name, pronouns, bio and current work are never forgotten. What is forgotten is listed under Recent automatic changes, where Undo brings it back.')}</div><hr>`;
+            + `<div class="small text-muted">${translate('Off when empty. A note counts as used when it is put in a reply\'s prompt or read by the assistant\'s memory tool (or from when it was saved, if never used). After you have been away for longer than this, nothing is forgotten when you come back: every note starts counting again. Pinned notes and your name, pronouns, bio and current work are never forgotten. What is forgotten is listed under Recent automatic changes, where Undo brings it back.')}</div><hr>`;
         document.getElementById('llma-memret-save').addEventListener('click', async () => {
             let raw = document.getElementById('llma-memret-days').value.trim();
             let days = raw === '' ? 0 : Number(raw);
@@ -411,6 +413,7 @@ class LLMAMemorySettings {
         if (!list) {
             return;
         }
+        let seq = ++this.loadSeq;
         let reply = null;
         try {
             reply = await llmaRequest('LLMAssistantListMemoryNotes', { query: this.query.trim(), kind: this.kindFilter, limit: LLMAMemorySettings.PAGE, cursor: append ? this.cursor : '' });
@@ -418,11 +421,16 @@ class LLMAMemorySettings {
         catch {
             reply = null;
         }
+        if (seq !== this.loadSeq) {
+            return;
+        }
         if (!reply || !reply.success) {
             list.innerHTML = `<div class="text-muted py-2">${translate('Memory is not available to you.')}</div>`;
             return;
         }
-        this.notes = append ? this.notes.concat(reply.notes || []) : (reply.notes || []);
+        // A note that moved to the next page meanwhile (the paging is by position) is not drawn twice.
+        let have = new Set(append ? this.notes.map(n => n.id) : []);
+        this.notes = append ? this.notes.concat((reply.notes || []).filter(n => !have.has(n.id))) : (reply.notes || []);
         this.cursor = reply.nextCursor || '';
         this.matched = reply.matched ?? this.notes.length;
         this.total = reply.total ?? this.notes.length;
@@ -745,7 +753,8 @@ class LLMAMemorySettings {
 
     /** Deletes notes (final), asking first when there is more than one. */
     async deleteNotes(ids) {
-        if (ids.length > 1 && !confirm(`${translate('Delete')} ${ids.length} ${translate('notes? This cannot be undone.')}`)) {
+        let question = ids.length > 1 ? `${translate('Delete')} ${ids.length} ${translate('notes? This cannot be undone.')}` : translate('Delete this note? This cannot be undone.');
+        if (!confirm(question)) {
             return;
         }
         let reply = null;
@@ -952,7 +961,7 @@ class LLMAMemoryNotice {
         el.setAttribute('role', 'status');
         el.setAttribute('aria-live', 'polite');
         el.dataset.changeId = set.id;
-        el.innerHTML = `<div class="llma-memory-notice-head"><strong>${translate('Saved to memory')}</strong>`
+        el.innerHTML = `<div class="llma-memory-notice-head"><strong>${translate(set.reason == 'retention' ? 'Forgotten: not used for a while' : 'Saved to memory')}</strong>`
             + `<span><button type="button" class="basic-button llma-memory-notice-undo">${translate('Undo')}</button>`
             + `<button type="button" class="llma-memory-notice-close" aria-label="${escapeHtml(translate('Dismiss'))}" title="${escapeHtml(translate('Dismiss'))}">&times;</button></span></div>`
             + `<div class="llma-memory-notice-body">${LLMAMemoryNotice.linesHtml(set)}</div>`;

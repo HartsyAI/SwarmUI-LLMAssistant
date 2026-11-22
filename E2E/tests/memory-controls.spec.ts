@@ -134,6 +134,11 @@ test('editing a note\'s text and kind, pinning, and deleting one note all work i
     await note(llm, 'Likes jazz').locator('.llma-memory-pin').click();
     await expect(note(llm, 'Likes jazz').locator('.llma-memory-pinned')).toHaveCount(0);
 
+    // A single delete asks first too: declining changes nothing.
+    llm.once('dialog', d => d.dismiss());
+    await note(llm, 'Likes jazz').locator('.llma-memory-delete').click();
+    expect(await notes(llm)).toHaveLength(2);
+    llm.once('dialog', d => d.accept());
     await note(llm, 'Likes jazz').locator('.llma-memory-delete').click();
     await expect(note(llm, 'Likes jazz')).toHaveCount(0);
     expect((await notes(llm)).map((n: any) => n.text)).toEqual(['Lives in Lyon']);

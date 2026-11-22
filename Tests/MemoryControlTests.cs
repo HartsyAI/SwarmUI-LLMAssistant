@@ -402,9 +402,13 @@ public class MemoryControlTests
         DateTime now = T0;
         MemoryStore store = StoreOf(new Storage(), () => now);
         Add(store, "fact", "Old");
+        now = T0.AddDays(50);
+        MemoryNote active = Add(store, "fact", "Active");
+        store.MarkUsed([active.Id]);
         // The real clock is used for the throttle, the store's for the notes' ages.
         now = T0.AddDays(60);
         Assert.NotNull(MemoryService.RunRetentionIfDue(store, "u1", 30, false));
+        now = T0.AddDays(75);
         MemoryNote again = Add(store, "fact", "Old again");
         now = T0.AddDays(200);
         Assert.Null(MemoryService.RunRetentionIfDue(store, "u1", 30, false));
@@ -456,16 +460,24 @@ public class MemoryControlTests
     }
 
     [Fact]
-    public void A_users_request_becomes_a_patch_of_only_the_fields_it_names()
+    public void A_users_request_becomes_a_patch_of_only_the_fields_it_names_and_a_bad_retention_is_an_error_not_a_clamp()
     {
         Assert.Null(MemoryControls.UserPatch(new JObject()));
         Assert.Null(MemoryControls.UserPatch(new JObject { ["savingPaused"] = "yes" }));
-        JObject patch = MemoryControls.UserPatch(new JObject { ["savingPaused"] = true, ["unusedDays"] = 3 });
+        JObject patch = MemoryControls.UserPatch(new JObject { ["savingPaused"] = true, ["unusedDays"] = 7 }, out string error);
+        Assert.Null(error);
         Assert.True((bool)patch["memoryPause"]["saving"]);
         Assert.Null(patch["memoryPause"]["recall"]);
-        Assert.Equal(MemoryControls.MinRetentionDays, (int)patch["memoryRetention"]["unusedDays"]);
+        Assert.Equal(7, (int)patch["memoryRetention"]["unusedDays"]);
         Assert.Equal(0, (int)MemoryControls.UserPatch(new JObject { ["unusedDays"] = 0 })["memoryRetention"]["unusedDays"]);
-        Assert.Equal(MemoryControls.MaxRetentionDays, (int)MemoryControls.UserPatch(new JObject { ["unusedDays"] = 1e12 })["memoryRetention"]["unusedDays"]);
+        Assert.Equal(3650, (int)MemoryControls.UserPatch(new JObject { ["unusedDays"] = 3650 })["memoryRetention"]["unusedDays"]);
+        Assert.Null(MemoryControls.UserPatch(new JObject { ["unusedDays"] = JValue.CreateNull() }));
+        foreach (JToken bad in new JToken[] { 1, 6, -5, 3651, 1_000_000_000_000L, 12.5, "30", true })
+        {
+            Assert.Null(MemoryControls.UserPatch(new JObject { ["savingPaused"] = true, ["unusedDays"] = bad }, out string why));
+            Assert.Contains("7", why);
+            Assert.Contains("3650", why);
+        }
         // The admin switch is not something a user's request can carry.
         Assert.Null(MemoryControls.UserPatch(new JObject { ["extractionDisabled"] = true, ["memoryAdmin"] = new JObject() }));
     }
@@ -482,7 +494,7 @@ public class MemoryControlTests
         Assert.All(keys, k => Assert.Contains(k, Hartsy.Extensions.LLMAssistant.WebAPI.SettingsEndpoints.OwnRouteKeys));
     }
 
-// ---- Pause recall and what else it covers ----
+    // ---- Pause recall and what else it covers ----
 
     [Fact]
     public void Resuming_recall_restarts_the_unused_clock_so_a_long_pause_forgets_nothing_and_a_sweep_never_runs_while_paused()
@@ -655,24 +667,264 @@ public class MemoryControlTests
 
     // ---- One user never touches another's ----
 
+    // ---- Retention after a quiet spell, memory_read, its own journal, and a partial Undo ----
+
     [Fact]
-    public void Every_change_stays_in_the_users_own_notes()
+    public void After_a_long_idle_gap_a_lazy_sweep_forgets_nothing_and_the_first_reply_back_still_recalls_the_notes()
+    {
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        Add(store, "fact", "Keeps bees in the garden");
+        Add(store, "preference", "Green tea");
+        now = T0.AddDays(31);
+        Assert.Null(store.ApplyRetention(30, lazy: true));
+        Assert.Equal(2, store.Load().Notes.Count);
+        Assert.All(store.Load().Notes, n => Assert.Equal(now.ToString("o"), n.LastUsed));
+        string prompt = MemoryService.RenderForPrompt(store, store.Load(), new MemoryRecallRequest("anything", null, null, true));
+        Assert.Contains("Keeps bees in the garden", prompt);
+        Assert.Contains("Green tea", prompt);
+        now = now.AddDays(10);
+        Assert.Null(store.ApplyRetention(30, lazy: true));
+        Assert.Equal(2, store.Load().Notes.Count);
+
+        // A sweep the user asked for (saving the setting) still forgets what is old, the gap rule being for the sweeps a reply starts.
+        DateTime later = T0;
+        MemoryStore asked = StoreOf(new Storage(), () => later);
+        Add(asked, "fact", "Old");
+        later = T0.AddDays(31);
+        Assert.Single(asked.ApplyRetention(30).Changes);
+    }
+
+    [Fact]
+    public void A_lazy_sweep_while_the_user_is_active_forgets_only_what_is_old_and_is_announced_once()
+    {
+        MemoryService.ResetRetentionForTests();
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        Add(store, "fact", "Old");
+        now = T0.AddDays(50);
+        MemoryNote active = Add(store, "fact", "Active");
+        store.MarkUsed([active.Id]);
+        now = T0.AddDays(60);
+        MemoryChangeSet forgotten = MemoryService.RunRetentionIfDue(store, "u1", 30, false);
+        Assert.NotNull(forgotten);
+        Assert.Equal(["Active"], store.Load().Notes.Select(n => n.Text));
+        // The next reply says so, once.
+        Assert.Equal(forgotten.Id, MemoryService.TakeRetentionNotice("u1").Id);
+        Assert.Null(MemoryService.TakeRetentionNotice("u1"));
+        Assert.Null(MemoryService.TakeRetentionNotice("u2"));
+        // A sweep the user asked for is not announced to them again.
+        now = T0.AddDays(200);
+        Assert.NotNull(MemoryService.RunRetentionIfDue(store, "u1", 30, true));
+        Assert.Null(MemoryService.TakeRetentionNotice("u1"));
+        MemoryService.ResetRetentionForTests();
+    }
+
+    [Fact]
+    public void Notes_the_model_reads_with_memory_read_count_as_used_and_a_paused_read_or_write_does_nothing()
+    {
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        MemoryNote note = Add(store, "fact", "Read by the model");
+        now = T0.AddDays(40);
+        JObject reply = MemoryService.ReadForTool(store, MemoryControls.Default, "");
+        Assert.Equal(1, (int)reply["returned"]);
+        Assert.Equal(now.ToString("o"), store.Load().Find(note.Id).LastUsed);
+        Assert.Null(store.ApplyRetention(30));
+
+        now = T0.AddDays(100);
+        JObject paused = MemoryService.ReadForTool(store, new MemoryControls(false, true, 0, false), "");
+        Assert.True((bool)paused["paused"]);
+        Assert.Empty((JArray)paused["notes"]);
+        Assert.NotEqual(now.ToString("o"), store.Load().Find(note.Id).LastUsed);
+        Assert.Equal(0, (int)MemoryService.ReadForTool(null, MemoryControls.Default, "")["returned"]);
+
+        Assert.Null(MemoryService.WriteRefusedWhilePaused(MemoryControls.Default));
+        JObject refused = MemoryService.WriteRefusedWhilePaused(new MemoryControls(true, false, 0, false));
+        Assert.False((bool)refused["success"]);
+        Assert.True((bool)refused["paused"]);
+        Assert.Contains("Do not try again", (string)refused["error"]);
+    }
+
+    [Fact]
+    public void A_retention_sweep_is_not_pushed_out_of_the_history_by_later_extractions_and_a_partial_undo_keeps_what_could_not_come_back()
+    {
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        MemoryNote one = Add(store, "fact", "Forgotten one");
+        MemoryNote two = Add(store, "fact", "Forgotten two");
+        MemoryNote three = Add(store, "fact", "Forgotten three");
+        now = T0.AddDays(100);
+        Add(store, "fact", "Kept");
+        store.MarkUsed([store.Load().Notes.Last().Id]);
+        MemoryChangeSet sweep = store.ApplyRetention(30);
+        Assert.Equal(3, sweep.Changes.Count);
+        for (int i = 0; i < MemoryStore.MaxChangeSets + 2; i++)
+        {
+            Assert.NotNull(store.ApplyExtraction([new MemoryOp("add", "", "", MemoryKinds.Fact, $"Learned {i}", false, MemoryOrigins.Assistant)], "t1").Changes);
+        }
+        IReadOnlyList<MemoryChangeSet> history = store.Changes();
+        Assert.Equal(MemoryStore.MaxChangeSets + 1, history.Count);
+        Assert.Contains(history, s => s.Id == sweep.Id);
+        Assert.Equal(MemoryStore.MaxChangeSets, history.Count(s => s.Reason == ""));
+
+        // Someone saved the words of one forgotten note again, so that one cannot come back: the other two do, and it stays in the set.
+        Add(store, "fact", "Forgotten two");
+        MemoryUndoResult partial = store.Undo(sweep.Id);
+        Assert.Equal(2, partial.Undone);
+        Assert.Equal(1, partial.Skipped);
+        MemoryChangeSet left = store.Changes().Single(s => s.Id == sweep.Id);
+        Assert.Equal([two.Id], left.Changes.Select(c => c.NoteId));
+        Assert.Contains(store.Load().Notes, n => n.Id == one.Id);
+        Assert.Contains(store.Load().Notes, n => n.Id == three.Id);
+
+        // Once the clash is gone, it can be undone again, and then the set is gone.
+        store.Delete([store.Load().Notes.Single(n => n.Text == "Forgotten two").Id]);
+        MemoryUndoResult rest = store.Undo(sweep.Id);
+        Assert.Equal(1, rest.Undone);
+        Assert.DoesNotContain(store.Changes(), s => s.Id == sweep.Id);
+        Assert.Equal(0, store.Undo(sweep.Id).Undone);
+    }
+
+    [Fact]
+    public void Clearing_memory_removes_the_retention_history_too()
+    {
+        DateTime now = T0;
+        Storage storage = new();
+        MemoryStore store = StoreOf(storage, () => now);
+        Add(store, "fact", "Old");
+        now = T0.AddDays(100);
+        Add(store, "fact", "Fresh");
+        store.MarkUsed([store.Load().Notes.Last().Id]);
+        Assert.NotNull(store.ApplyRetention(30));
+        Assert.NotNull(storage.Get(MemoryStore.RetentionJournalKey));
+        store.Clear();
+        Assert.Null(storage.Get(MemoryStore.RetentionJournalKey));
+        Assert.Empty(store.Changes());
+    }
+
+    // ---- The name, pronouns, bio and work notes are always pinned and do not count against the pin limit ----
+
+    [Fact]
+    public void A_slot_note_is_always_pinned_and_never_counts_toward_the_pin_limit()
+    {
+        MemoryStore store = StoreOf(new Storage());
+        for (int i = 0; i < MemoryNoteSet.MaxPinned; i++)
+        {
+            Assert.True(store.Add($"Pinned {i}", null, true, null).Ok);
+        }
+        Assert.True(store.Add("Sam", null, false, "name").Note.Pinned);
+        Assert.Equal("pinlimit", store.Add("One more", null, true, null).Error);
+        MemoryNote other = store.Add("Not pinned", null, false, null).Note;
+        Assert.Equal("pinlimit", store.Update(other.Id, null, null, true).Error);
+
+        // An import with the pins full and a slot note: the slot note comes in pinned, the others lose the pin.
+        string file = new JObject { ["notes"] = new JArray(new JObject { ["text"] = "Teaches maths", ["slot"] = "bio", ["pinned"] = true }, new JObject { ["text"] = "Wants a pin", ["pinned"] = true }) }.ToString();
+        MemoryImportPlan plan = store.PreviewImport(file, NoNever);
+        Assert.Equal(2, plan.Add.Count);
+        Assert.True(plan.Add.Single(n => n.Slot == "bio").Pinned);
+        Assert.False(plan.Add.Single(n => n.Slot == "").Pinned);
+        Assert.Equal(1, plan.Unpinned);
+        store.Import(file, NoNever, out _);
+        Assert.True(store.Load().Slot(MemorySlots.Bio).Pinned);
+
+        // A file of many slot notes and pinned notes never leaves a slot note unpinned.
+        MemoryStore empty = StoreOf(new Storage());
+        string many = new JObject { ["notes"] = new JArray(Enumerable.Range(0, 40).Select(i => new JObject { ["text"] = $"P{i}", ["pinned"] = true }).Concat([new JObject { ["text"] = "Sam", ["slot"] = "name" }, new JObject { ["text"] = "he/him", ["slot"] = "pronouns" }])) }.ToString();
+        empty.Import(many, NoNever, out _);
+        Assert.All(empty.Load().Notes.Where(n => n.Slot.Length > 0), n => Assert.True(n.Pinned));
+        Assert.Equal(MemoryNoteSet.MaxPinned, empty.Load().Notes.Count(n => n.Pinned && n.Slot.Length == 0));
+    }
+
+    // ---- Settings resets keep what is about memory ----
+
+    [Fact]
+    public void A_settings_reset_keeps_the_memory_controls_and_nothing_else()
+    {
+        JObject layer = JObject.Parse("{\"memoryExtraction\":{\"enabled\":true},\"memoryPause\":{\"saving\":true},\"memoryRetention\":{\"unusedDays\":30},\"preferredModel\":\"x\",\"memoryAdmin\":{\"extractionDisabled\":true}}");
+        JObject kept = Hartsy.Extensions.LLMAssistant.Services.SettingsService.KeepKeys(layer, Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacyUserKeys);
+        Assert.Equal(["memoryExtraction", "memoryPause", "memoryRetention"], kept.Properties().Select(p => p.Name).OrderBy(n => n));
+        Assert.True((bool)kept["memoryPause"]["saving"]);
+        Assert.NotSame(layer["memoryPause"], kept["memoryPause"]);
+        JObject sharedKept = Hartsy.Extensions.LLMAssistant.Services.SettingsService.KeepKeys(layer, Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacySharedKeys);
+        Assert.Equal(["memoryAdmin"], sharedKept.Properties().Select(p => p.Name));
+        Assert.Empty(Hartsy.Extensions.LLMAssistant.Services.SettingsService.KeepKeys(new JObject { ["preferredModel"] = "x" }, Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacyUserKeys));
+        Assert.Empty(Hartsy.Extensions.LLMAssistant.Services.SettingsService.KeepKeys(null, Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacyUserKeys));
+        // What a reset keeps is exactly what the memory settings routes own.
+        Assert.All(Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacyUserKeys.Concat(Hartsy.Extensions.LLMAssistant.Services.SettingsService.PrivacySharedKeys).Where(k => k != "memoryExtraction"), k => Assert.Contains(k, Hartsy.Extensions.LLMAssistant.WebAPI.SettingsEndpoints.OwnRouteKeys));
+        Assert.Contains("memoryExtraction", Hartsy.Extensions.LLMAssistant.Services.SettingsService.UserOnlyKeys);
+    }
+
+    // ---- Pause and the admin switch in the extractor ----
+
+    [Fact]
+    public void The_extractor_says_which_switch_stopped_it()
+    {
+        MemoryExtractionSettings on = new(true, "", []);
+        MemoryExtractionSettings off = new(false, "", []);
+        Assert.Null(MemoryExtractionService.GateReason(on, MemoryControls.Default));
+        Assert.Contains("switched off (Settings", MemoryExtractionService.GateReason(off, MemoryControls.Default));
+        Assert.Contains("administrator", MemoryExtractionService.GateReason(on, new MemoryControls(false, false, 0, true)));
+        Assert.Contains("paused", MemoryExtractionService.GateReason(on, new MemoryControls(true, false, 0, false)));
+        // Recall paused alone does not stop saving.
+        Assert.Null(MemoryExtractionService.GateReason(on, new MemoryControls(false, true, 0, false)));
+        Assert.NotNull(MemoryExtractionService.GateReason(off, new MemoryControls(true, false, 0, true)));
+    }
+
+    [Fact]
+    public async Task Saving_paused_while_the_model_is_working_saves_nothing_and_is_asked_once()
+    {
+        MemoryExtractionService.ResetForTests();
+        MemoryStore store = StoreOf(new Storage());
+        string thread = new JObject
+        {
+            ["id"] = "t1",
+            ["activeLeafId"] = "pb",
+            ["messages"] = new JArray(
+                new JObject { ["id"] = "pa", ["role"] = "user", ["content"] = "I moved to Lyon last month and I work as a nurse.", ["parentId"] = null },
+                new JObject { ["id"] = "pb", ["role"] = "assistant", ["content"] = "Lyon is lovely.", ["parentId"] = "pa" })
+        }.ToString();
+        Task<Hartsy.Extensions.LLMAssistant.LLMs.LLMGenerateResult> Generate(Hartsy.Extensions.LLMAssistant.LLMs.ExtendedLLMInput input, CancellationToken ct)
+            => Task.FromResult(Hartsy.Extensions.LLMAssistant.LLMs.LLMGenerateResult.FromText("{\"ops\":[{\"op\":\"add\",\"kind\":\"fact\",\"text\":\"Works as a nurse in Lyon.\"}]}"));
+        int asked = 0;
+        ExtractionOutcome outcome = await MemoryExtractionService.ExtractAsync(store, "u1", "t1", JObject.Parse(thread), new MemoryExtractionSettings(true, "", []), "m", null, Generate, CancellationToken.None, null, () => { asked++; return true; });
+        Assert.Equal("cancelled", outcome.Status);
+        Assert.Empty(store.Load().Notes);
+        Assert.Equal(1, asked);
+
+        MemoryExtractionService.ResetForTests();
+        ExtractionOutcome saved = await MemoryExtractionService.ExtractAsync(store, "u1", "t1", JObject.Parse(thread), new MemoryExtractionSettings(true, "", []), "m", null, Generate, CancellationToken.None, null, () => false);
+        Assert.Equal("saved", saved.Status);
+        Assert.Single(store.Load().Notes);
+        MemoryExtractionService.ResetForTests();
+    }
+
+    // ---- Users and their locks ----
+
+    [Fact]
+    public async Task Two_users_never_see_each_others_notes_and_the_stores_of_one_user_share_one_lock()
     {
         Storage storageA = new();
         Storage storageB = new();
-        MemoryStore a = StoreOf(storageA);
-        MemoryStore b = StoreOf(storageB);
-        MemoryNote mine = Add(a, "fact", "A's secret fact");
-        MemoryNote theirs = Add(b, "fact", "B's secret fact");
+        MemoryStore a1 = MemoryService.StoreOver(storageA, "user-a");
+        MemoryStore a2 = MemoryService.StoreOver(storageA, "user-a");
+        MemoryStore b = MemoryService.StoreOver(storageB, "user-b");
+        MemoryNote theirs = b.Write("fact", "B's secret fact", MemoryOrigins.Explicit, "").Note;
 
-        Assert.Equal("notfound", a.Update(theirs.Id, "hacked", null, null).Error);
-        Assert.Equal(0, a.Delete([theirs.Id]).Count);
-        Assert.Null(a.Get(theirs.Id));
-        Assert.DoesNotContain("B's", a.Export().ToString());
-        Assert.Equal(0, a.PreviewImport(b.Export().ToString(), NoNever).Duplicates);
-        a.Import(b.Export().ToString(), NoNever, out _);
+        // Two store objects for one user (every request makes its own) write at once: nothing is lost, because they share the user's lock.
+        await Task.WhenAll(Enumerable.Range(0, 60).Select(i => Task.Run(() => (i % 2 == 0 ? a1 : a2).Write("fact", $"A fact {i}", MemoryOrigins.Explicit, ""))));
+        Assert.Equal(60, a1.Load().Notes.Count);
+        Assert.Equal(60, a2.Load().Notes.Count);
+        Assert.Equal(1, b.Load().Notes.Count);
+
+        Assert.Equal("notfound", a1.Update(theirs.Id, "hacked", null, null).Error);
+        Assert.Equal(0, a2.Delete([theirs.Id]).Count);
+        Assert.Null(a1.Get(theirs.Id));
+        Assert.DoesNotContain("B's", a1.Export().ToString());
+        Assert.Equal(0, a1.PreviewImport(b.Export().ToString(), NoNever).Duplicates);
+        a1.Clear();
+        Assert.Empty(a2.Load().Notes);
         Assert.Equal(["B's secret fact"], b.Load().Notes.Select(n => n.Text));
-        Assert.Equal(2, a.Load().Notes.Count);
-        Assert.Equal("A's secret fact", a.Load().Find(mine.Id).Text);
+        Assert.Equal(theirs.Id, b.Load().Notes[0].Id);
     }
 }

@@ -252,6 +252,21 @@ public static class MemoryExtractionService
         }
     }
 
+    /// <summary>Why the automatic extractor may not run for a user (null when it may): their own switch is off, an administrator switched it off for everyone, or saving is paused. Distinct reasons, so
+    /// the <c>LLMAssistantExtractMemory</c> reply and the log say which one it is.</summary>
+    public static string GateReason(MemoryExtractionSettings config, MemoryControls controls)
+    {
+        if (!config.Enabled)
+        {
+            return "automatic memory is switched off (Settings > Memory)";
+        }
+        if (controls.AdminExtractionDisabled)
+        {
+            return "an administrator has switched off automatic memory for everyone";
+        }
+        return controls.SavingPaused ? "memory saving is paused" : null;
+    }
+
     /// <summary>The one entry point for an extraction on an existing chat, used by the chat socket (after a reply) and by the <c>LLMAssistantExtractMemory</c> route: everything cheap that can say no
     /// is checked first, in order (the master switch, the user's memory permission, a session chat, the chat's and the assistant's own opt-outs), and then the extraction runs on the caller's
     /// reserved <paramref name="slot"/> (so Stop, a new reply, a closed socket and Clear reach it). <paramref name="userMessageId"/> names a user message on the active branch (the latest one when
@@ -267,9 +282,9 @@ public static class MemoryExtractionService
             }
             // The cheapest check first: with the master switch off (the default) a reply costs nothing more than this.
             MemoryExtractionSettings config = MemoryExtractionSettings.ForUser(user);
-            if (!MemoryControls.ForUser(user).ExtractionAllowed(config.Enabled))
+            if (GateReason(config, MemoryControls.ForUser(user)) is string off)
             {
-                return Skipped("automatic memory is switched off (Settings > Memory)");
+                return Skipped(off);
             }
             if (!user.HasPermission(LLMAssistantAPI.PermToolMemory))
             {
@@ -327,6 +342,12 @@ public static class MemoryExtractionService
         }
         try
         {
+            // Notes a sweep forgot while this reply was being prepared: said first, with the same Undo (the sweep is not the extractor's, and runs whether or not it is on).
+            MemoryChangeSet forgotten = MemoryService.TakeRetentionNotice(session?.User?.UserID);
+            if (forgotten is not null && notify is not null)
+            {
+                await notify(new JObject { ["memoryChanges"] = forgotten.ToClientJson() });
+            }
             ExtractionOutcome outcome = await ExtractForThreadAsync(session, threadId, chatModel, slot, null, generate);
             if (outcome.Status != "skipped")
             {
@@ -455,7 +476,9 @@ public static class MemoryExtractionService
             {
                 return new ExtractionOutcome("nothing", null, parsed.Rejected > 0 ? $"{parsed.Rejected} operations were refused" : "nothing worth saving");
             }
-            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested || blocked?.Invoke() == true, epoch);
+            // Asked once, here, not for every operation while the user's lock is held (it reads settings).
+            bool stopped = blocked?.Invoke() == true;
+            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => stopped || ct.IsCancellationRequested, epoch);
             if (applied.Refused is "cancelled" or "cleared")
             {
                 return Cancelled(applied.Refused == "cleared" ? "memory was cleared meanwhile" : "stopped before saving");

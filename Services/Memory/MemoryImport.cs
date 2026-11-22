@@ -28,7 +28,7 @@ public sealed class MemoryImportPlan
     /// <summary>Entries past the first <see cref="MemoryNoteSet.MaxNotes"/> in the file.</summary>
     public int Ignored;
 
-    /// <summary>Notes whose pinned flag was not kept because <see cref="MemoryNoteSet.MaxPinned"/> would have been passed.</summary>
+    /// <summary>Notes whose pinned flag was not kept because <see cref="MemoryNoteSet.MaxPinned"/> would have been passed (a slot note is always pinned and does not count).</summary>
     public int Unpinned;
 
     /// <summary>Why the file could not be read at all, or empty.</summary>
@@ -130,7 +130,8 @@ public static class MemoryImport
         string stamp = now.ToUniversalTime().ToString("o");
         HashSet<string> seen = [.. existing.Notes.Where(n => n.Slot.Length == 0).Select(n => Key(n.Kind, n.Negative, n.Text))];
         HashSet<string> slotsTaken = [.. existing.Notes.Where(n => n.Slot.Length > 0).Select(n => n.Slot)];
-        int pinned = existing.Notes.Count(n => n.Pinned);
+        // The name, pronouns, bio and current work notes are always pinned and are not counted: only the notes the user pins are limited.
+        int pinned = existing.Notes.Count(n => n.Pinned && n.Slot.Length == 0);
         foreach (JToken entry in entries.Take(MemoryNoteSet.MaxNotes))
         {
             if (entry is not JObject o || o["text"]?.Type != JTokenType.String)
@@ -182,12 +183,12 @@ public static class MemoryImport
                 continue;
             }
             bool wantsPin = slot.Length > 0 || (o["pinned"]?.Type == JTokenType.Boolean && (bool)o["pinned"]);
-            bool pin = wantsPin && pinned < MemoryNoteSet.MaxPinned;
+            bool pin = slot.Length > 0 || (wantsPin && pinned < MemoryNoteSet.MaxPinned);
             if (wantsPin && !pin)
             {
                 plan.Unpinned++;
             }
-            if (pin)
+            if (pin && slot.Length == 0)
             {
                 pinned++;
             }

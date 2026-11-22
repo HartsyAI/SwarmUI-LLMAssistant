@@ -249,13 +249,14 @@ public static class MemoryEndpoints
             string cursor = rawInput?["cursor"]?.Type is JTokenType.String or JTokenType.Integer ? rawInput["cursor"].ToString() : "";
             int limit = rawInput?["limit"]?.Type == JTokenType.Integer ? (int)Math.Clamp(rawInput["limit"].Value<long>(), 0, MemoryService.MaxListPage) : 0;
             MemoryStore store = MemoryService.StoreFor(session.User);
-            JObject page = MemoryService.ListNotes(store.Load(), query, kind, limit, cursor);
+            (MemoryNoteSet set, MemoryLoadStatus status) = store.LoadWithStatus();
+            JObject page = MemoryService.ListNotes(set, query, kind, limit, cursor);
             if (page is null)
             {
                 return Failure(MemoryService.ListKinds.Contains((kind ?? "").Trim().ToLowerInvariant()) || string.IsNullOrWhiteSpace(kind) ? "cursor" : "filter");
             }
             page["success"] = true;
-            page["state"] = store.Status() switch { MemoryLoadStatus.Lossy => "lossy", MemoryLoadStatus.Corrupt => "corrupt", MemoryLoadStatus.Newer => "newer", _ => "ok" };
+            page["state"] = status switch { MemoryLoadStatus.Lossy => "lossy", MemoryLoadStatus.Corrupt => "corrupt", MemoryLoadStatus.Newer => "newer", _ => "ok" };
             page["limits"] = new JObject { ["maxNotes"] = MemoryNoteSet.MaxNotes, ["maxNoteChars"] = MemoryNoteSet.MaxNoteChars, ["maxPinned"] = MemoryNoteSet.MaxPinned };
             return page;
         }
@@ -331,19 +332,12 @@ public static class MemoryEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "enabled must be true or false." };
             }
-            // GetAssistant falls back to the default assistant for an id it does not know, which must not be saved as this one.
-            bool exists = SettingsService.GetMergedSettings(session.User)["assistants"] is JObject all && all[id] is JObject;
-            JObject assistant = exists ? AssistantService.GetAssistant(id, user: session.User) : null;
-            if (assistant is null)
-            {
-                return new JObject { ["success"] = false, ["error"] = "Assistant not found." };
-            }
-            assistant["memoryExtraction"] = (bool)rawInput["enabled"];
             string scope = rawInput["scope"]?.Type == JTokenType.String ? (string)rawInput["scope"] : null;
-            (string saved, string error) = AssistantService.SaveAssistant(assistant, session.User, scope);
-            return saved is null
-                ? new JObject { ["success"] = false, ["error"] = error ?? "Could not save the assistant." }
-                : new JObject { ["success"] = true, ["id"] = saved, ["enabled"] = (bool)rawInput["enabled"] };
+            bool enabled = (bool)rawInput["enabled"];
+            (bool ok, string error) = AssistantService.SetMemoryExtraction(id, enabled, session.User, scope);
+            return ok
+                ? new JObject { ["success"] = true, ["id"] = id, ["enabled"] = enabled }
+                : new JObject { ["success"] = false, ["error"] = error };
         }
         catch (Exception ex)
         {
@@ -520,7 +514,7 @@ public static class MemoryEndpoints
     }
 
     /// <summary>Changes the calling user's own pause switches and retention. Request: any of <c>savingPaused</c>, <c>recallPaused</c> (booleans) and <c>unusedDays</c> (0 for off, otherwise
-    /// 7 to 3650). Setting <c>unusedDays</c> applies it at once (not while recall is paused); the reply says what was forgotten in <c>forgotten</c> (it can be undone from the history). Replies with the new controls, like
+    /// a whole number from 7 to 3650; anything else is refused). Setting <c>unusedDays</c> applies it at once (not while recall is paused); the reply says what was forgotten in <c>forgotten</c> (it can be undone from the history). Replies with the new controls, like
     /// <see cref="LLMAssistantGetMemoryControls"/>.</summary>
     public static async Task<JObject> LLMAssistantSetMemoryControls(Session session, JObject rawInput)
     {
@@ -530,7 +524,11 @@ public static class MemoryEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "No user." };
             }
-            JObject patch = MemoryControls.UserPatch(rawInput);
+            JObject patch = MemoryControls.UserPatch(rawInput, out string patchError);
+            if (patchError is not null)
+            {
+                return new JObject { ["success"] = false, ["error"] = patchError };
+            }
             if (patch is null)
             {
                 return new JObject { ["success"] = false, ["error"] = "Nothing to change." };

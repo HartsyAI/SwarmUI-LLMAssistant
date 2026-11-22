@@ -254,6 +254,34 @@ public static class MemoryService
         return result;
     }
 
+    /// <summary>What <c>memory_read</c> returns: nothing while recall is paused (and it says so), otherwise <see cref="ReadForModel"/>. The notes it returns count as used, as the ones in the prompt do, so the
+    /// retention setting does not forget notes the model is reading. A null <paramref name="store"/> (no user) reads nothing.</summary>
+    public static JObject ReadForTool(MemoryStore store, MemoryControls controls, string query)
+    {
+        if (controls.RecallPaused)
+        {
+            return new JObject
+            {
+                ["success"] = true,
+                ["paused"] = true,
+                ["total"] = 0,
+                ["returned"] = 0,
+                ["notes"] = new JArray(),
+                ["data_notice"] = "The user has paused memory, so no notes are available right now. Do not mention or guess at saved notes."
+            };
+        }
+        JObject reply = ReadForModel(store?.Load() ?? new MemoryNoteSet(), query);
+        if (store is not null && reply["notes"] is JArray returned && returned.Count > 0)
+        {
+            store.MarkUsed(returned.Select(n => (string)n["id"]));
+        }
+        return reply;
+    }
+
+    /// <summary>The answer <c>memory_write</c> gives while saving is paused (the model is told not to try again), or null when saving is not paused.</summary>
+    public static JObject WriteRefusedWhilePaused(MemoryControls controls)
+        => controls.SavingPaused ? new JObject { ["success"] = false, ["paused"] = true, ["error"] = "The user has paused memory saving, so nothing was saved. Do not try again until they resume it." } : null;
+
     /// <summary>One note as the Settings list shows it (text cut to <see cref="MaxListChars"/>).</summary>
     public static JObject NoteView(MemoryNote note) => NoteJson(note, MemoryNoteSet.Truncate(note.Text, MaxListChars), note.Text.Length > MaxListChars);
 
@@ -322,6 +350,23 @@ public static class MemoryService
     /// does). Returns the change set, or null when nothing went or it was not due. Never throws.</summary>
     public static MemoryChangeSet RunRetentionIfDue(MemoryStore store, string userId, int days, bool force)
     {
+        MemoryChangeSet forgotten = SweepRetention(store, userId, days, force);
+        if (forgotten is not null && !force)
+        {
+            // The user did not ask for this sweep, so the next reply tells them about it (see TakeRetentionNotice).
+            PendingRetentionNotice[userId ?? ""] = forgotten;
+        }
+        return forgotten;
+    }
+
+    /// <summary>The sweep forgot notes for this user without them asking and they have not been told yet, by user id.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, MemoryChangeSet> PendingRetentionNotice = new();
+
+    /// <summary>The change set of a lazy sweep that forgot notes, once (null when there is none): the chat shows it as a notice with Undo.</summary>
+    public static MemoryChangeSet TakeRetentionNotice(string userId) => PendingRetentionNotice.TryRemove(userId ?? "", out MemoryChangeSet set) ? set : null;
+
+    private static MemoryChangeSet SweepRetention(MemoryStore store, string userId, int days, bool force)
+    {
         if (days <= 0 || store is null)
         {
             return null;
@@ -337,7 +382,7 @@ public static class MemoryService
         LastRetention[userId ?? ""] = now;
         try
         {
-            return store.ApplyRetention(days);
+            return store.ApplyRetention(days, lazy: !force);
         }
         catch (Exception ex)
         {

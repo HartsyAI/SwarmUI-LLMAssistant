@@ -10,7 +10,7 @@ const test = base.extend<{ llm: Page }>({
         await use(llm);
         await api(llm, 'LLMAssistantSetMemoryAdmin', { extractionDisabled: false });
         await api(llm, 'LLMAssistantSetMemoryControls', { savingPaused: false, recallPaused: false, unusedDays: 0 });
-        await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: true });
+        await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: true, scope: 'shared' });
         await clearMemory(llm);
     }
 });
@@ -212,10 +212,16 @@ test('pause, retention and the admin switch through the API', async ({ llm }) =>
     expect(await api(llm, 'LLMAssistantSetMemoryControls', { savingPaused: 'yes' })).toMatchObject({ success: false });
     expect(await api(llm, 'LLMAssistantSetMemoryControls', {})).toMatchObject({ success: false });
 
-    // Retention: 0 is off, anything else is kept between 7 and 3650, and a fresh note is not old enough to be forgotten.
+    // Retention: 0 is off, anything else must be a whole number from 7 to 3650 (refused, not clamped), and a fresh note is not old enough to be forgotten.
     await add(llm, 'A fresh note');
-    expect(await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 3 })).toMatchObject({ success: true, retention: { unusedDays: 7 }, forgotten: 0 });
-    expect((await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 99999 })).retention.unusedDays).toBe(3650);
+    for (let bad of [3, 6, -1, 3651, 99999, 12.5, '30', true]) {
+        let refused = await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: bad });
+        expect(refused.success, JSON.stringify(bad)).toBe(false);
+        expect(refused.error).toContain('from 7 to 3650');
+    }
+    expect((await api(llm, 'LLMAssistantGetMemoryControls')).retention.unusedDays).toBe(0);
+    expect(await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 7 })).toMatchObject({ success: true, retention: { unusedDays: 7 }, forgotten: 0 });
+    expect((await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 3650 })).retention.unusedDays).toBe(3650);
     expect((await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 90 })).retention.unusedDays).toBe(90);
     expect((await api(llm, 'LLMAssistantSetMemoryControls', { unusedDays: 0 })).retention.unusedDays).toBe(0);
     expect((await api(llm, 'LLMAssistantListMemoryNotes')).total).toBe(1);
@@ -241,18 +247,82 @@ test('the history and Undo through the API, and clearing memory', async ({ llm }
     expect((await api(llm, 'LLMAssistantListMemoryNotes')).total).toBe(0);
 });
 
-test('the per-assistant and per-chat switches through the API', async ({ llm }) => {
-    expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: false })).toMatchObject({ success: true, id: 'default', enabled: false });
-    expect((await api(llm, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant.memoryExtraction).toBe(false);
-    expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id === 'default')._effectiveMemoryExtraction).toBe(false);
-    expect((await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: true })).enabled).toBe(true);
-    expect((await api(llm, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant.memoryExtraction).toBe(true);
+test('the per-assistant switch writes only its own flag and never copies a shared assistant into the user\'s settings', async ({ llm }) => {
+    // A shared assistant (the built-in one): the personal scope is refused, and nothing is copied into the user's own settings.
+    let refused = await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: false });
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain('shared');
+    expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id === 'default')._scope).toBe('shared');
+    expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: false, scope: 'shared' })).toMatchObject({ success: true, id: 'default', enabled: false });
+    let shared = (await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id === 'default');
+    expect(shared._scope).toBe('shared');
+    expect(shared._effectiveMemoryExtraction).toBe(false);
+    expect((await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: true, scope: 'shared' })).enabled).toBe(true);
+    expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.find((a: any) => a.id === 'default')._effectiveMemoryExtraction).toBe(true);
+
+    // The input is checked.
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default' })).toMatchObject({ success: false });
+    expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'default', enabled: 'no' })).toMatchObject({ success: false });
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { enabled: true })).toMatchObject({ success: false });
     expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'no-such-assistant', enabled: true })).toMatchObject({ success: false });
-    // ...and it saved nothing under the default assistant's name.
+    expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: 'no-such-assistant', enabled: true, scope: 'shared' })).toMatchObject({ success: false });
     expect((await api(llm, 'LLMAssistantGetAssistants')).assistants.map((a: any) => a.id)).not.toContain('no-such-assistant');
 
+    // A personal assistant is changed in the user's own settings, and only its flag changes.
+    let made = await api(llm, 'LLMAssistantSaveAssistant', { assistant: { name: 'Memory Test Assistant', description: 'for the memory API spec', systemPrompt: 'Be brief.' }, scope: 'personal' });
+    expect(made.success, JSON.stringify(made)).toBe(true);
+    try {
+        let before = (await api(llm, 'LLMAssistantGetAssistant', { assistantId: made.id })).assistant;
+        expect(await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: made.id, enabled: false })).toMatchObject({ success: true, enabled: false });
+        let after = (await api(llm, 'LLMAssistantGetAssistant', { assistantId: made.id })).assistant;
+        expect(after.memoryExtraction).toBe(false);
+        expect({ ...after, memoryExtraction: undefined, _effectiveMemoryExtraction: undefined }).toEqual({ ...before, memoryExtraction: undefined, _effectiveMemoryExtraction: undefined });
+        // The shared scope does not reach a personal assistant.
+        expect((await api(llm, 'LLMAssistantSetAssistantMemory', { assistantId: made.id, enabled: true, scope: 'shared' })).success).toBe(false);
+    } finally {
+        await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: made.id });
+    }
+});
+
+test('a settings reset keeps the memory controls', async ({ llm }) => {
+    await api(llm, 'LLMAssistantSetMemoryControls', { savingPaused: true, recallPaused: true, unusedDays: 90 });
+    await api(llm, 'LLMAssistantSetMemorySettings', { enabled: true, model: 'mock-model-b', neverSave: ['divorce'] });
+    await api(llm, 'LLMAssistantSetMemoryAdmin', { extractionDisabled: true });
+    expect((await api(llm, 'LLMAssistantResetSettings', {})).success).toBe(true);
+    let after = await api(llm, 'LLMAssistantGetMemoryControls');
+    expect(after.pause).toEqual({ saving: true, recall: true });
+    expect(after.retention.unusedDays).toBe(90);
+    expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings).toMatchObject({ enabled: true, model: 'mock-model-b', neverSave: ['divorce'] });
+    // The shared reset (this user may) keeps the admin's switch too, so it cannot switch the extractor back on for everyone.
+    expect((await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' })).success).toBe(true);
+    expect((await api(llm, 'LLMAssistantGetMemoryControls')).admin.extractionDisabled).toBe(true);
+    await api(llm, 'LLMAssistantSetMemorySettings', { enabled: false, model: '', neverSave: [] });
+});
+
+test('memory_read counts the notes it returns as used, and does nothing while recall is paused', async ({ llm }) => {
+    await add(llm, 'Read by the model');
+    expect((await api(llm, 'LLMAssistantListMemoryNotes')).notes[0].lastUsed).toBe('');
+    await api(llm, 'LLMAssistantSetMemoryControls', { recallPaused: true });
+    let paused = await api(llm, 'LLMAssistantExecuteTool', { toolId: 'memory_read', args: {} });
+    expect(JSON.stringify(paused)).toContain('paused');
+    expect((await api(llm, 'LLMAssistantListMemoryNotes')).notes[0].lastUsed).toBe('');
+    await api(llm, 'LLMAssistantSetMemoryControls', { recallPaused: false });
+    let read = await api(llm, 'LLMAssistantExecuteTool', { toolId: 'memory_read', args: {} });
+    expect(read.success, JSON.stringify(read)).toBe(true);
+    expect((await api(llm, 'LLMAssistantListMemoryNotes')).notes[0].lastUsed).not.toBe('');
+});
+
+test('the name, pronouns, bio and work notes do not count against the pin limit', async ({ llm }) => {
+    let data = JSON.stringify({ notes: [...Array.from({ length: 30 }, (_, i) => ({ text: `Pinned ${i}`, pinned: true })), { text: 'Sam', slot: 'name' }, { text: 'Teaches', slot: 'bio' }] });
+    let imported = await api(llm, 'LLMAssistantImportMemory', { data });
+    expect(imported.preview).toMatchObject({ addCount: 32, unpinned: 5 });
+    let slots = (await api(llm, 'LLMAssistantListMemoryNotes', { kind: 'profile' })).notes;
+    expect(slots).toHaveLength(2);
+    expect(slots.every((n: any) => n.pinned)).toBe(true);
+    expect((await api(llm, 'LLMAssistantListMemoryNotes', { kind: 'pinned' })).matched).toBe(27);
+});
+
+test('the per-chat switch through the API', async ({ llm }) => {
     let created = await api(llm, 'LLMAssistantCreateThread', { rememberChat: true });
     expect(created.success, JSON.stringify(created)).toBe(true);
     let threadId = created.thread.id;

@@ -31,6 +31,16 @@ public sealed partial class MemoryStore
         }
     }
 
+    /// <summary>The notes and how they read, from one parse (reading them and then asking for the status would be two).</summary>
+    public (MemoryNoteSet Set, MemoryLoadStatus Status) LoadWithStatus()
+    {
+        lock (Gate)
+        {
+            Loaded loaded = LoadLocked();
+            return (loaded.Set, loaded.Status);
+        }
+    }
+
     /// <summary>Whether the stored notes may be written by the user's own hand: not when a newer version of the extension wrote them.</summary>
     private bool TryBeginManualWrite(out Loaded loaded, out MemoryManageResult refused)
     {
@@ -86,7 +96,7 @@ public sealed partial class MemoryStore
             {
                 return new MemoryManageResult(false, "slot");
             }
-            if (pinned == true && !note.Pinned && set.Notes.Count(n => n.Pinned) >= MemoryNoteSet.MaxPinned)
+            if (pinned == true && !note.Pinned && set.Notes.Count(n => n.Pinned && n.Slot.Length == 0) >= MemoryNoteSet.MaxPinned)
             {
                 return new MemoryManageResult(false, "pinlimit");
             }
@@ -172,7 +182,7 @@ public sealed partial class MemoryStore
             {
                 return new MemoryManageResult(false, "full");
             }
-            if (pinned && slot.Length == 0 && set.Notes.Count(n => n.Pinned) >= MemoryNoteSet.MaxPinned)
+            if (pinned && slot.Length == 0 && set.Notes.Count(n => n.Pinned && n.Slot.Length == 0) >= MemoryNoteSet.MaxPinned)
             {
                 return new MemoryManageResult(false, "pinlimit");
             }
@@ -263,10 +273,11 @@ public sealed partial class MemoryStore
     }
 
     /// <summary>Forgets the notes that have not been used for <paramref name="days"/> days (a note never used counts from when it was saved): never a pinned or slot note, at most
-    /// <see cref="MaxRetentionPerSweep"/> at a time, oldest first. What went is kept in the journal as a change set with the reason <see cref="MemoryChangeReasons.Retention"/>, so it can be
-    /// undone from the history. Does nothing (returns null) when <paramref name="days"/> is not above 0, when nothing is old enough, or when the stored notes were written by a newer version
+    /// <see cref="MaxRetentionPerSweep"/> at a time, oldest first. What went is kept in the retention journal (<see cref="RetentionJournalKey"/>, its own, up to <see cref="MaxRetentionSets"/> sets, apart from the
+    /// extractor's) as a change set with the reason <see cref="MemoryChangeReasons.Retention"/>, so it can be undone from the history. With <paramref name="lazy"/> (a sweep a reply starts) nothing is forgotten when the user has
+    /// been away for longer than <paramref name="days"/>: every note's unused time starts again instead. Does nothing (returns null) when <paramref name="days"/> is not above 0, when nothing is old enough, or when the stored notes were written by a newer version
     /// or do not read cleanly (nothing is deleted from a store that cannot be trusted).</summary>
-    public MemoryChangeSet ApplyRetention(int days)
+    public MemoryChangeSet ApplyRetention(int days, bool lazy = false)
     {
         if (days <= 0)
         {
@@ -281,6 +292,22 @@ public sealed partial class MemoryStore
             }
             DateTime now = Clock().ToUniversalTime();
             DateTime cutoff = now - TimeSpan.FromDays(days);
+            if (lazy && loaded.Set.Notes.Count > 0)
+            {
+                // A lazy sweep (one a reply starts) after the user has been away for longer than the retention time forgets nothing: the notes were not unused, memory was. Every note's unused time
+                // starts again, so the first reply back can recall them. The last use of anything is the best record of when memory was last in use.
+                DateTime lastActivity = loaded.Set.Notes.Max(n => n.LastUsedAt ?? (n.CreatedAt == DateTime.MinValue ? now : n.CreatedAt));
+                if (now - lastActivity.ToUniversalTime() > TimeSpan.FromDays(days))
+                {
+                    string stamp = now.ToString("o");
+                    foreach (MemoryNote n in loaded.Set.Notes)
+                    {
+                        n.LastUsed = stamp;
+                    }
+                    Storage.Save(NotesKey, loaded.Set.Serialize());
+                    return null;
+                }
+            }
             // A note whose times do not read is not old: it is left alone rather than forgotten on a guess.
             List<MemoryNote> old = [.. loaded.Set.Notes
                 .Where(n => !n.Pinned && n.Slot.Length == 0)
@@ -302,9 +329,9 @@ public sealed partial class MemoryStore
                 DeleteVector(id);
             }
             MemoryChangeSet record = new(Guid.NewGuid().ToString("N")[..12], now.ToString("o"), "", changes, MemoryChangeReasons.Retention);
-            List<MemoryChangeSet> journal = LoadJournal();
+            List<MemoryChangeSet> journal = LoadJournal(RetentionJournalKey);
             journal.Add(record);
-            SaveJournal(journal);
+            SaveJournal(journal, RetentionJournalKey, MaxRetentionSets);
             return record;
         }
     }
