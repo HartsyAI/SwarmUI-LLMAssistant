@@ -259,6 +259,8 @@ public static class MemoryService
     {
         if (user is not null)
         {
+            // An extraction waiting on its model must not write into the memory that was just forgotten (the store's epoch, bumped by Clear, also refuses it).
+            MemoryExtractionRegistry.CancelUser(user.UserID);
             StoreFor(user).Clear();
         }
     }

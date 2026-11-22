@@ -13,6 +13,8 @@ const LLMAState = {
     // null/undefined means "inherit the active assistant's toolsEnabled". See tool-picker.js's
     // llmaEffectiveToolsEnabled()/llmaToggleThreadTools() and the composer's Tools toggle button.
     activeThreadToolsEnabled: null,
+    // Per-thread memory opt-out: false = "don't remember this chat"; null = follow the assistant and the master switch (see memory.js).
+    activeThreadMemoryExtraction: null,
     activeAssistantId: null,
     messages:          [],
     threads:           [],

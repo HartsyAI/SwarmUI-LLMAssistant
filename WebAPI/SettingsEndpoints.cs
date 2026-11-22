@@ -78,6 +78,12 @@ public static class SettingsEndpoints
         {
             filtered.Remove(key);
         }
+        // The user's own switches (memoryExtraction) are changed only by their own route (LLMAssistantSetMemorySettings): a page that saves its copy of the settings back would otherwise silently
+        // restore a switch that was turned off meanwhile.
+        foreach (string key in SettingsService.UserOnlyKeys)
+        {
+            filtered.Remove(key);
+        }
         return filtered;
     }
 

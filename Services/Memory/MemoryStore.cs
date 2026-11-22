@@ -25,7 +25,7 @@ public interface IMemoryStorage
 /// <c>memory_notes_backup_&lt;time&gt;</c> key, and a value written by a newer version of the extension is read-only (writes are refused, nothing is overwritten).</para>
 /// <para><b>Vectors</b> (optional embeddings) are one small value per note (<c>memory_vec_&lt;id&gt;</c>), not one blob, so a write never parses or rewrites the others, and a vector is only
 /// accepted for the text it was made from.</para></summary>
-public sealed class MemoryStore
+public sealed partial class MemoryStore
 {
     /// <summary>The key of the notes.</summary>
     public const string NotesKey = "memory_notes";
@@ -289,6 +289,7 @@ public sealed class MemoryStore
     {
         lock (Gate)
         {
+            BumpEpoch();
             Storage.Save(NotesKey, new MemoryNoteSet().Serialize());
             Logged.GetOrCreateValue(Gate).Status = MemoryLoadStatus.Ok;
             // Every vector and backup this store made is in the index (which is all there is to go through: the user's data is never listed).

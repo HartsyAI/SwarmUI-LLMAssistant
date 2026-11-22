@@ -182,8 +182,9 @@ public static class ChatEndpoints
 
     /// <summary>Creates a new empty chat thread for the given assistant. The frontend calls this
     /// before sending the first message in a fresh chat; subsequent messages reference the returned
-    /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used.</summary>
-    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null, string mode = null)
+    /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used. <paramref name="rememberChat"/> false marks the chat "don't remember" (the
+    /// automatic memory extractor never reads it) from the start.</summary>
+    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null, string mode = null, bool rememberChat = true)
     {
         if (session?.User is null)
         {
@@ -205,6 +206,15 @@ public static class ChatEndpoints
             assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
         }
         JObject thread = ThreadStorageService.CreateThread(session.User, assistantId, title, mode);
+        if (!rememberChat)
+        {
+            // "Don't remember this chat" chosen before the chat existed: set as the chat is created, in one request, so it can never be lost between two.
+            thread = ThreadStorageService.Mutate(session.User, thread["id"]?.ToString(), t =>
+            {
+                t["memoryExtraction"] = false;
+                return true;
+            }) ?? thread;
+        }
         return new JObject
         {
             ["success"] = true,
@@ -587,10 +597,12 @@ public static class ChatEndpoints
 
     /// <summary>Cancels a chat turn that runs tools when its tab closes, so no later call starts and what ran is saved. A turn without
     /// tools is left to finish as before, since nothing runs after its reply.</summary>
-    internal static void CancelToolTurnOnClose(WebSocket socket, CancellationTokenSource turn, bool runsTools)
+    internal static void CancelToolTurnOnClose(WebSocket socket, CancellationTokenSource turn, bool runsTools, Action onClose = null)
     {
         _ = WatchForDisconnectAsync(socket, () =>
         {
+            // Whatever runs on after the reply (the memory extractor) ends with the socket too.
+            onClose?.Invoke();
             if (!runsTools)
             {
                 return;
@@ -703,7 +715,9 @@ public static class ChatEndpoints
         {
             return BackgroundTurnService.StopAsync(session.User, threadId).ContinueWith(t => new JObject { ["success"] = true, ["cancelled"] = t.Result });
         }
-        bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
+        // An extraction still running after the reply (see MemoryExtractionService) is stopped too, and saves nothing.
+        bool extraction = MemoryExtractionRegistry.Cancel(session.User.UserID, threadId);
+        bool cancelled = GenerationCancellationRegistry.Cancel(threadId) || extraction;
         return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
     }
 
@@ -892,6 +906,8 @@ public static class ChatEndpoints
         TurnScope scope = TurnScope.Begin(session, threadId, thread);
         CancellationTokenSource cts = scope.Cts;
         bool stopped;
+        // This turn's own extraction slot (reserved once the reply is over); the socket-close hook below cancels this one and no other, so a late close of this turn never stops a later turn's.
+        MemoryExtractionSlot memorySlot = null;
         try
         {
             PreparedTurn prepared = await TurnSetupService.PrepareAsync(session, threadId, thread, rawInput, frame => SendWsFrame(socket, frame), cts.Token);
@@ -901,7 +917,7 @@ public static class ChatEndpoints
                 scope.MarkIdle();
                 return;
             }
-            CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0);
+            CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0, () => memorySlot?.Cancel());
             await LLMStreamHelper.StreamToWebSocket(socket, prepared.Input, session, threadId, prepared.AssistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
         }
         catch
@@ -919,7 +935,22 @@ public static class ChatEndpoints
             // Skip auto-titling after a stopped reply: MaybeGenerateTitleAsync starts a new, uncancellable
             // generation (LLMDispatcher.Generate, no token), and running it right after Stop would silently
             // start more model work the instant the user asked for it to stop.
-            await MaybeGenerateTitleAsync(socket, session, threadId, model);
+            // The automatic memory extractor (off unless the user turned it on) is reserved now, before the title is made, so a Stop, a closed socket or a new reply during the title already reaches it;
+            // with the socket already closed there is nobody to show a notice to, so it does not run at all. See MemoryExtractionService.
+            memorySlot = MemoryExtractionRegistry.ReserveIfOpen(socket.State == WebSocketState.Open, session.User.UserID, threadId);
+            try
+            {
+                await MaybeGenerateTitleAsync(socket, session, threadId, model);
+                // The reply is already delivered. The extractor runs after the title, on the reserved slot; the socket is awaited only so it stays open to carry the notice.
+                if (memorySlot is not null)
+                {
+                    await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame), memorySlot);
+                }
+            }
+            finally
+            {
+                memorySlot?.Dispose();
+            }
         }
     }
 

@@ -244,6 +244,7 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantRenameThread, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetActiveLeaf, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadToolsEnabled, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSetThreadMemory, true, PermThreads);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantListWorkspaceFiles, false, PermChat);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantReadWorkspaceFile, false, PermChat);
         API.RegisterAPICall(WorkspaceEndpoints.LLMAssistantListWorkspaceChanges, false, PermChat);
@@ -333,5 +334,10 @@ public static class LLMAssistantAPI
         // conversation state rather than extension configuration)
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetUserProfile, false, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantClearUserProfile, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemoryChanges, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantUndoMemoryChange, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemorySettings, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetMemorySettings, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantExtractMemory, true, PermChat);
     }
 }

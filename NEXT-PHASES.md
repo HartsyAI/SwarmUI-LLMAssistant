@@ -12,6 +12,8 @@ Status: plan only, nothing built. Phases 0-11 are merged (#58-#73). This file is
 
 # PRIORITY 1: Memory and prompts slice (design stage)
 
+> **Status (2026-11-22):** M1 (the note store, #78) is merged. **M2 (the after-turn extractor) is built** on branch `hartsy/m2-note-extractor-7e4142`: it answers questions 2, 5 (master switch off by default, per-chat and per-assistant opt-out, a never-save list, a notice with Undo), 6 (add/update/delete against the most related notes, a cap with oldest-unused eviction) and 7 (only user messages and assistant replies, never tool results or server-set `kind` messages) as recommended; see the README's "Per-user memory". Still open: **M3**, the review, edit, delete screen (and a pause switch, an admin switch, retention), and anything that reads `style` notes (the image rewrite, S1-c). The extractor runs after each qualifying turn rather than every N turns or on idle (a cheap check and an hourly cap bound the cost); there is no central budget limit yet (suggested addition 1), so it carries its own.
+
 ## Goals (from the user)
 
 1. **Memory:** the assistant saves memories by itself, continuously, without being asked.

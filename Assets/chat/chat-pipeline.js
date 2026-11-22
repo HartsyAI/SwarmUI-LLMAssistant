@@ -227,6 +227,11 @@
                     }
                     return;
                 }
+                // The automatic memory extractor saved something after this reply (see MemoryExtractionService): a small notice with Undo, nothing more.
+                if (data.memoryChanges) {
+                    if (typeof LLMAMemoryNotice !== 'undefined') LLMAMemoryNotice.show(data.memoryChanges);
+                    return;
+                }
                 if (data.chunk) {
                     if (firstChunk) {
                         firstChunk = false;
@@ -406,6 +411,8 @@
     /** Terminal state of a chat stream, shared by a finished reply and a failed one: detaches the socket and refreshes the
      *  thread list, context bar and token counts. The caller keeps its own bubble and completion callback. */
     function llmaFinishStreamState() {
+        // The socket stays open after the reply (a title or a memory notice may still arrive on it); it is remembered so opening another chat can close it.
+        LLMAState._lingerSocket = LLMAState._activeSocket || LLMAState._lingerSocket;
         LLMAState._activeSocket = null;
         LLMAState._streamingMsgId = null;
         LLMAState._streamingText = '';

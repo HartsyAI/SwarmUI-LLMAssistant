@@ -623,7 +623,7 @@ async function llmaCreateThread(assistantId) {
 
     let thread;
     try {
-        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat });
+        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat, rememberChat: LLMAState.activeThreadMemoryExtraction !== false });
         if (!result?.success || !result.thread) {
             llmaShowToast(result?.error || 'Failed to create chat', 'error');
             return;
@@ -662,6 +662,8 @@ async function llmaCreateThread(assistantId) {
         } catch { /* best-effort — worst case this send falls back to the assistant default */ }
     }
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+    // "Don't remember this chat", flipped before the chat existed, was sent with the creation itself (rememberChat), so there is no second call that could fail and leave the chat remembered.
+    if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
@@ -705,6 +707,9 @@ async function llmaSwitchThread(threadId) {
         // null when the thread has no override (inherits the assistant's toolsEnabled default).
         LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
         if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+        if (typeof llmaCloseLingeringSocket === 'function') llmaCloseLingeringSocket();
+        LLMAState.activeThreadMemoryExtraction = thread.memoryExtraction === false ? false : null;
+        if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         llmaCodeMode.onThreadLoaded(thread);
         llmaSessions.onThreadLoaded(thread);
@@ -778,6 +783,9 @@ async function llmaReloadActiveThread() {
     llmaContext.activeCompaction = compaction;
     LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
+    if (typeof llmaCloseLingeringSocket === 'function') llmaCloseLingeringSocket();
+    LLMAState.activeThreadMemoryExtraction = thread.memoryExtraction === false ? false : null;
+    if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaSessions.onThreadLoaded(thread);

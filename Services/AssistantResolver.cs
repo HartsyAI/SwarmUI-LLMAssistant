@@ -41,6 +41,10 @@ public class ResolvedAssistant
     /// <c>promptAddendum: false</c>; child wins when explicitly set, like <see cref="ToolsEnabled"/>.</summary>
     public bool PromptAddendum = true;
 
+    /// <summary>Whether the automatic after-turn memory extractor (see <c>MemoryExtractionService</c>) may read this assistant's chats. On unless the assistant says <c>memoryExtraction: false</c>
+    /// ("this assistant never saves memories"); child wins when explicitly set, like <see cref="ToolsEnabled"/>. The master switch in Settings is a separate, off-by-default switch above it.</summary>
+    public bool MemoryExtraction = true;
+
     /// <summary>Per-tool config blobs, deep-merged across the chain. Read by tools at execution
     /// time via <see cref="ToolConfigService"/>.</summary>
     public Dictionary<string, JObject> ToolConfig = [];
@@ -223,6 +227,11 @@ public static class AssistantResolver
         if (layer["promptAddendum"]?.Type == JTokenType.Boolean)
         {
             target.PromptAddendum = layer["promptAddendum"].Value<bool>();
+        }
+        // MemoryExtraction — child wins iff explicitly present, like ToolsEnabled.
+        if (layer["memoryExtraction"]?.Type == JTokenType.Boolean)
+        {
+            target.MemoryExtraction = layer["memoryExtraction"].Value<bool>();
         }
         // EnabledToolIds — replace-if-present (explicit list, even empty, IS the set; absent inherits).
         if (layer["enabledToolIds"] is JArray ids)

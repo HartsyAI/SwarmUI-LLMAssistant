@@ -243,6 +243,37 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Sets (or clears) this chat's memory opt-out ("don't remember this chat"). <c>enabled</c> false → the automatic memory extractor never reads this chat; <c>enabled</c> true or absent
+    /// → clears the override, so the chat follows the assistant and the master switch. Request: <c>{ threadId, enabled? }</c>. A chat that is a session ignores it (sessions are never extracted).</summary>
+    public static async Task<JObject> LLMAssistantSetThreadMemory(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        string threadId = rawInput["threadId"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        bool optOut = rawInput["enabled"]?.Type == JTokenType.Boolean && !rawInput["enabled"].Value<bool>();
+        // Read, change and saved under the thread write lock, so a message appended at the same moment is not lost and the flag is not.
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            if (optOut)
+            {
+                t["memoryExtraction"] = false;
+            }
+            else
+            {
+                t.Remove("memoryExtraction");
+            }
+            return true;
+        });
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        return new JObject { ["success"] = true, ["threadId"] = threadId, ["memoryExtraction"] = thread["memoryExtraction"] ?? JValue.CreateNull() };
+    }
+
     /// <summary>Points a thread's active branch at a specific message (Fork / branch-switcher pager).
     /// In the in-thread tree model "forking" doesn't copy the thread — it just moves the active leaf so the
     /// rendered conversation becomes root→that message and the next sent message branches from there.
