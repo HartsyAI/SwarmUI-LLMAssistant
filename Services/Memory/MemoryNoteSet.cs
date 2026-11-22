@@ -76,7 +76,7 @@ public sealed class MemoryNoteSet
         }
         try
         {
-            JObject root = JObject.Parse(raw);
+            JObject root = ParseJson(raw);
             // A newer version is recognised before anything about the shape is checked: a newer file may have renamed or moved the notes, and it must still be left alone.
             bool newer = IsNewerVersion(root["version"]);
             if (root["notes"] is not JArray array)
@@ -115,6 +115,14 @@ public sealed class MemoryNoteSet
         {
             return new MemoryParse(new MemoryNoteSet(), MemoryLoadStatus.Corrupt, 0);
         }
+    }
+
+    /// <summary>Reads JSON text without turning strings that look like dates into dates: a note's time must stay the exact text it was saved as (Newtonsoft would otherwise read it as a date and
+    /// write it back in the machine's own format, cutting it to whole seconds and dropping its time zone, which reorders notes saved within a second of each other).</summary>
+    public static JObject ParseJson(string raw)
+    {
+        using JsonTextReader reader = new(new System.IO.StringReader(raw)) { DateParseHandling = DateParseHandling.None };
+        return JObject.Load(reader);
     }
 
     /// <summary>Whether a stored <c>version</c> is one this build does not know: a number (or a numeric string) above <see cref="CurrentVersion"/>, or anything that is not a number at all

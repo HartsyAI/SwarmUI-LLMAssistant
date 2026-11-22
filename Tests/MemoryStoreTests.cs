@@ -201,6 +201,27 @@ public class MemoryStoreTests
         Assert.Equal(skipped, parsed.Skipped);
     }
 
+    [Fact]
+    public void A_notes_time_survives_being_read_and_written_exactly_so_notes_saved_in_one_second_keep_their_order()
+    {
+        FakeStorage storage = new();
+        string a = "2026-11-01T11:59:00.1000000Z", b = "2026-11-01T11:59:00.2000000Z";
+        storage.Values[MemoryStore.NotesKey] = NotesJson(1, NoteJson("b", "Second", "").Replace("2026-10-01T00:00:00.0000000Z", b), NoteJson("a", "First", "").Replace("2026-10-01T00:00:00.0000000Z", a));
+        MemoryStore store = StoreOf(storage);
+        MemoryNoteSet read = store.Load();
+        Assert.Equal([b, a], read.Notes.Select(n => n.Created).ToArray());
+        // Written back (any write does), the stored text still carries the exact time and its zone, and the fixed order is oldest first.
+        Assert.True(store.Write("fact", "Third", MemoryOrigins.Explicit, "").Saved);
+        Assert.Contains(a, storage.Values[MemoryStore.NotesKey]);
+        Assert.Contains(b, storage.Values[MemoryStore.NotesKey]);
+        Assert.Equal(["First", "Second", "Third"], MemoryRecall.StableOrder(store.Load().Notes).Select(n => n.Text).ToArray());
+        // The old profile's times are kept as written too.
+        storage.Values[MemoryStore.NotesKey] = null;
+        storage.Values.TryRemove(MemoryStore.NotesKey, out _);
+        storage.Values[MemoryStore.LegacyProfileKey] = new JObject { ["facts"] = new JArray(new JObject { ["content"] = "Owns a cat", ["created"] = "2026-09-01T10:11:12.3450000Z" }) }.ToString();
+        Assert.Equal("2026-09-01T10:11:12.3450000Z", StoreOf(storage).Load().Notes[0].Created);
+    }
+
     // ---- Migration and clearing ----
 
     private static string LegacyBlob() => new JObject

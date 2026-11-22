@@ -117,7 +117,7 @@ public sealed class MemoryStore
         }
         try
         {
-            return JObject.Parse(raw);
+            return MemoryNoteSet.ParseJson(raw);
         }
         catch (JsonException)
         {

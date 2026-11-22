@@ -215,10 +215,10 @@ test('with an embedding model set, notes and the turn are embedded; when embeddi
     await remember(llm, 'save the oboe', { category: 'fact', content: 'Plays the oboe in an orchestra' });
     expect((await notes(llm)).some(n => n.text === 'Plays the oboe in an orchestra')).toBe(true);
     await clearRequests();
-    await setScenarios([{ match: 'what about the oboe', rounds: [{ text: 'Oboes.' }] }]);
-    await send(llm, 'what about the oboe');
+    await setScenarios([{ match: 'the oboe please', rounds: [{ text: 'Oboes.' }] }]);
+    await send(llm, 'the oboe please');
     await expect(lastAssistant(llm)).toContainText('Oboes.', { timeout: 20_000 });
-    let system = await systemPromptFor('what about the oboe');
+    let system = await systemPromptFor('the oboe please');
     expect(system).toContain('Plays the oboe in an orchestra');
     expect(system).not.toContain('Filler number 0 about');
 });
