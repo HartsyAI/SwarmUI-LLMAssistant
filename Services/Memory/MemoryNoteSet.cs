@@ -125,6 +125,20 @@ public sealed class MemoryNoteSet
         return JObject.Load(reader);
     }
 
+    /// <summary>Reads any JSON value the same way (see <see cref="ParseJson"/>).</summary>
+    public static JToken ParseJsonToken(string raw)
+    {
+        using JsonTextReader reader = new(new System.IO.StringReader(raw)) { DateParseHandling = DateParseHandling.None };
+        return JToken.Load(reader);
+    }
+
+    /// <summary>Reads a JSON array the same way (see <see cref="ParseJson"/>).</summary>
+    public static JArray ParseJsonArray(string raw)
+    {
+        using JsonTextReader reader = new(new System.IO.StringReader(raw)) { DateParseHandling = DateParseHandling.None };
+        return JArray.Load(reader);
+    }
+
     /// <summary>Whether a stored <c>version</c> is one this build does not know: a number (or a numeric string) above <see cref="CurrentVersion"/>, or anything that is not a number at all
     /// (a format this build cannot have written). An absent or null version is not newer.</summary>
     public static bool IsNewerVersion(JToken version)

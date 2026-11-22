@@ -126,6 +126,8 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     LLMAState.activeAssistantId = assistantId;
     LLMAState.activeThreadId    = null;
     LLMAState.activeThreadToolsEnabled = null;
+    LLMAState.activeThreadMemoryExtraction = null;
+    if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
     LLMAState.messages          = [];
     LLMAState.assets            = [];
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
@@ -160,6 +162,8 @@ async function llmaLoadSettings() {
     } catch {
         LLMAState.settings = { ...LLMA_DEFAULT_SETTINGS };
     }
+    // The top bar's "don't remember this chat" button shows only while the automatic extractor is on.
+    if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
 }
 
 async function llmaSaveSettings() {
@@ -1391,6 +1395,8 @@ function llmaSetupSettingsModal() {
         llmaRefreshPromptAddendumBox();
     });
     document.getElementById('llma-asst-extends')?.addEventListener('change', llmaRefreshPromptAddendumBox);
+    document.getElementById('llma-asst-memory-extraction')?.addEventListener('change', () => { LLMAState._editingMemoryExtractionTouched = true; });
+    document.getElementById('llma-memory-toggle-btn')?.addEventListener('click', llmaToggleThreadMemory);
     document.getElementById('llma-asst-tools-enabled')?.addEventListener('change', (e) => {
         llmaUpdateAssistantToolsChecklistState(e.target.checked);
     });
@@ -1786,6 +1792,14 @@ function llmaShowAssistantEditor(assistant) {
     }
     llmaRefreshPromptAddendumBox();
 
+    // Per-assistant opt-out of the automatic memory extractor. Defaults to on; written on save only when this assistant already had its own value or the box was changed.
+    LLMAState._editingMemoryExtractionOwn = typeof assistant?.memoryExtraction === 'boolean';
+    LLMAState._editingMemoryExtractionTouched = false;
+    const memoryExtractionBox = document.getElementById('llma-asst-memory-extraction');
+    if (memoryExtractionBox) {
+        memoryExtractionBox.checked = LLMAState._editingMemoryExtractionOwn ? assistant.memoryExtraction : assistant?._effectiveMemoryExtraction !== false;
+    }
+
     // Master tool-calling switch (separate from which tools are checked below — this is whether ANY
     // tool system prompt is injected at all). Defaults to on for new/unset assistants.
     const toolsEnabledBox = document.getElementById('llma-asst-tools-enabled');
@@ -1895,6 +1909,9 @@ async function llmaSaveAssistantFromEditor() {
     assistant.toolsEnabled = document.getElementById('llma-asst-tools-enabled')?.checked !== false;
     if (LLMAState._editingPromptAddendumOwn || LLMAState._editingPromptAddendumTouched) {
         assistant.promptAddendum = document.getElementById('llma-asst-prompt-addendum')?.checked !== false;
+    }
+    if (LLMAState._editingMemoryExtractionOwn || LLMAState._editingMemoryExtractionTouched) {
+        assistant.memoryExtraction = document.getElementById('llma-asst-memory-extraction')?.checked !== false;
     }
     // Omitted list = inherit from parent; only send when explicit or touched.
     if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {

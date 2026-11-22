@@ -243,6 +243,33 @@ public static class ThreadEndpoints
         };
     }
 
+    /// <summary>Sets (or clears) this chat's memory opt-out ("don't remember this chat"). <c>enabled</c> false → the automatic memory extractor never reads this chat; <c>enabled</c> true or absent
+    /// → clears the override, so the chat follows the assistant and the master switch. Request: <c>{ threadId, enabled? }</c>. A chat that is a session ignores it (sessions are never extracted).</summary>
+    public static async Task<JObject> LLMAssistantSetThreadMemory(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        string threadId = rawInput["threadId"]?.ToString();
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        if (rawInput["enabled"]?.Type == JTokenType.Boolean && !rawInput["enabled"].Value<bool>())
+        {
+            thread["memoryExtraction"] = false;
+        }
+        else
+        {
+            thread.Remove("memoryExtraction");
+        }
+        ThreadStorageService.SaveThread(session.User, thread);
+        return new JObject { ["success"] = true, ["threadId"] = threadId, ["memoryExtraction"] = thread["memoryExtraction"] ?? JValue.CreateNull() };
+    }
+
     /// <summary>Points a thread's active branch at a specific message (Fork / branch-switcher pager).
     /// In the in-thread tree model "forking" doesn't copy the thread — it just moves the active leaf so the
     /// rendered conversation becomes root→that message and the next sent message branches from there.

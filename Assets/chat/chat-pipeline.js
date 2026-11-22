@@ -227,6 +227,11 @@
                     }
                     return;
                 }
+                // The automatic memory extractor saved something after this reply (see MemoryExtractionService): a small notice with Undo, nothing more.
+                if (data.memoryChanges) {
+                    if (typeof LLMAMemoryNotice !== 'undefined') LLMAMemoryNotice.show(data.memoryChanges);
+                    return;
+                }
                 if (data.chunk) {
                     if (firstChunk) {
                         firstChunk = false;

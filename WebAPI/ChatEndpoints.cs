@@ -703,7 +703,9 @@ public static class ChatEndpoints
         {
             return BackgroundTurnService.StopAsync(session.User, threadId).ContinueWith(t => new JObject { ["success"] = true, ["cancelled"] = t.Result });
         }
-        bool cancelled = GenerationCancellationRegistry.Cancel(threadId);
+        // An extraction still running after the reply (see MemoryExtractionService) is stopped too, and saves nothing.
+        bool extraction = MemoryExtractionRegistry.Cancel(threadId);
+        bool cancelled = GenerationCancellationRegistry.Cancel(threadId) || extraction;
         return Task.FromResult(new JObject { ["success"] = true, ["cancelled"] = cancelled });
     }
 
@@ -920,6 +922,9 @@ public static class ChatEndpoints
             // generation (LLMDispatcher.Generate, no token), and running it right after Stop would silently
             // start more model work the instant the user asked for it to stop.
             await MaybeGenerateTitleAsync(socket, session, threadId, model);
+            // The reply is already delivered. The automatic memory extractor (off unless the user turned it on) runs now, after it, on a cancellation source of its own that Stop reaches; the socket is
+            // awaited only so it stays open to carry the notice. See MemoryExtractionService.
+            await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame));
         }
     }
 

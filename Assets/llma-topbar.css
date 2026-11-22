@@ -383,3 +383,6 @@
 .llma-model-chip.warn { color: var(--backend-errored); border-color: var(--backend-errored); }
 .llma-model-chip.warn .llma-model-chip-dot { background: var(--backend-errored); }
 .llma-model-chip-caret { font-size: 10px; opacity: 0.7; }
+
+/* The "don't remember this chat" button: dimmed while this chat is not remembered. */
+#llma-memory-toggle-btn.off { opacity: 0.6; }

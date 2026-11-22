@@ -46,6 +46,42 @@ public static class MemoryEndpoints
         }
     }
 
+    /// <summary>The automatic extractor's recent changes for the calling user, newest first (at most <see cref="MemoryStore.MaxChangeSets"/>): each with what was added, updated (and what it said before),
+    /// removed and dropped to make room. Request: none.</summary>
+    public static async Task<JObject> LLMAssistantGetMemoryChanges(Session session)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            IReadOnlyList<MemoryChangeSet> sets = session?.User is null ? [] : MemoryService.StoreFor(session.User).Changes();
+            return new JObject { ["success"] = true, ["changes"] = new JArray(sets.Select(s => s.ToClientJson())) };
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Undoes one automatic change set of the calling user: notes that were added are removed, updated ones get their old text back, removed or dropped ones come back as they were. A note changed
+    /// since is left alone. Reply: <c>{ success, found, undone, skipped, refused }</c>. Request: <c>{ changeId }</c>.</summary>
+    public static async Task<JObject> LLMAssistantUndoMemoryChange(Session session, string changeId)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            if (session?.User is null || string.IsNullOrWhiteSpace(changeId))
+            {
+                return new JObject { ["success"] = false, ["error"] = "changeId is required." };
+            }
+            MemoryUndoResult result = MemoryService.StoreFor(session.User).Undo(changeId);
+            return new JObject { ["success"] = true, ["found"] = result.Found, ["undone"] = result.Undone, ["skipped"] = result.Skipped, ["refused"] = result.Refused };
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
     /// <summary>Clears every note of the calling user (and the old profile it was migrated from). Irreversible.</summary>
     public static async Task<JObject> LLMAssistantClearUserProfile(Session session)
     {
