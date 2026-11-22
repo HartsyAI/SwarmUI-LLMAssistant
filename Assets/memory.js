@@ -274,8 +274,8 @@ class LLMAMemorySettings {
             if (!reply) {
                 return;
             }
-            out.textContent = days === 0 ? translate('Off.') : `${translate('Saved.')}${reply.forgotten > 0 ? ` ${reply.forgotten} ${translate('notes forgotten.')}` : ''}`;
             this.renderRetention();
+            document.getElementById('llma-memret-out').textContent = days === 0 ? translate('Off.') : `${translate('Saved.')}${reply.forgotten > 0 ? ` ${reply.forgotten} ${translate('notes forgotten.')}` : ''}`;
             if (reply.forgotten > 0) {
                 await this.loadNotes();
                 this.loadChanges();

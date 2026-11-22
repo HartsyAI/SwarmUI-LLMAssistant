@@ -5,6 +5,8 @@ import * as fs from 'node:fs';
 // The Memory tab as a manager (review, edit, pin, delete, search, export, import with a preview), the history with Undo, the pause switches (saving and recall), the admin switch that turns the
 // automatic extractor off for everyone, and the top bar's pause button. The extractor runs on "mock-model-b" (set in Settings), so its requests are told apart from the chat's.
 
+/** The pause button's highlighted state (a bare /on/ would also match "icon"). */
+const PAUSED = /\bon\b/;
 const MARKER = 'Memory extraction request.';
 const on = { enabled: true, model: 'mock-model-b', neverSave: [] as string[] };
 
@@ -55,7 +57,8 @@ const extractor = (ops: unknown) => ({ model: 'mock-model-b', match: MARKER, rou
 async function systemPromptFor(userText: string): Promise<string> {
     let matching = (await mockRequests()).filter(r => {
         let users = (r.messages ?? []).filter((m: any) => m.role === 'user');
-        return users.length > 0 && String(users[users.length - 1].content).includes(userText);
+        // The chat's own title request carries the same message, with a system prompt of its own.
+        return users.length > 0 && String(users[users.length - 1].content).includes(userText) && !JSON.stringify(r.messages).includes('You write extremely short titles');
     });
     expect(matching.length, `no request for ${userText}`).toBeGreaterThan(0);
     return String((matching[matching.length - 1].messages ?? []).find((m: any) => m.role === 'system')?.content ?? '');
@@ -144,7 +147,8 @@ test('a long note is edited in full, not from the cut text of the list', async (
     await expect(llm.locator('.llma-memory-edit-text')).toHaveValue(new RegExp('THE-END$'));
     await llm.locator('.llma-memory-edit-save').click();
     await expect(llm.locator('#llma-memory-list .llma-memory-editing')).toHaveCount(0);
-    expect((await notes(llm))[0].text.endsWith('THE-END')).toBe(true);
+    let id = (await notes(llm))[0].id;
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id })).note.text.endsWith('THE-END')).toBe(true);
 });
 
 test('delete selected asks first, and clear all asks first and empties memory', async ({ llm }) => {
@@ -256,7 +260,7 @@ test('pausing saving stops the extractor and the memory tool, and resuming bring
     await expect(llm.locator('.llma-memory-paused-badge')).toBeVisible();
     expect((await api(llm, 'LLMAssistantGetMemoryControls')).pause).toEqual({ saving: true, recall: false });
     await closeSettings(llm);
-    await expect(llm.locator('#llma-memory-pause-btn')).toHaveClass(/on/);
+    await expect(llm.locator('#llma-memory-pause-btn')).toHaveClass(PAUSED);
 
     await clearRequests();
     await setScenarios([extractor([{ op: 'add', kind: 'fact', text: 'Works as a nurse in Lyon.' }]),
@@ -281,7 +285,7 @@ test('pausing saving stops the extractor and the memory tool, and resuming bring
 
     // Resume from the top bar: the extractor works again.
     await llm.locator('#llma-memory-pause-btn').click();
-    await expect(llm.locator('#llma-memory-pause-btn')).not.toHaveClass(/on/);
+    await expect(llm.locator('#llma-memory-pause-btn')).not.toHaveClass(PAUSED);
     expect((await api(llm, 'LLMAssistantGetMemoryControls')).pause).toEqual({ saving: false, recall: false });
     await clearRequests();
     await send(llm, 'I moved to Lyon again and I work as a nurse there.');
