@@ -81,7 +81,9 @@ class LLMAMemorySettings {
         LLMAState.settings = LLMAState.settings || {};
         LLMAState.settings.memoryExtraction = reply.settings;
         llmaUpdateMemoryToggleBtn();
-        out.textContent = translate('Saved.');
+        // Drawn again from what the server kept (trimmed, de-duplicated), then said.
+        this.renderExtraction();
+        document.getElementById('llma-memx-out').textContent = translate('Saved.');
     }
 
     /** Loads the recent automatic changes and draws them with an Undo each. */
@@ -125,7 +127,7 @@ class LLMAMemorySettings {
 
     /** Loads the notes from the server and draws them. */
     async load() {
-        // The extractor's settings come from their own route (the page keeps no other copy of the truth).
+        // The extractor's settings come from their own route (LLMAssistantGetMemorySettings) and are saved by their own route; the page's copy in LLMAState.settings is only a cache of what the server last said, and is never sent back with the general settings.
         try {
             let current = await llmaRequest('LLMAssistantGetMemorySettings', {});
             if (current?.success) {
@@ -134,6 +136,7 @@ class LLMAMemorySettings {
             }
         }
         catch { /* the copy from the general settings is used */ }
+        llmaUpdateMemoryToggleBtn();
         this.renderExtraction();
         this.loadChanges();
         let list = document.getElementById('llma-memory-list');

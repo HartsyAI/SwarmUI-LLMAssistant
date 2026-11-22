@@ -1277,4 +1277,85 @@ public class MemoryExtractionTests : IDisposable
         }
         Assert.Contains("at most", MemoryNeverSave.Problem(new string('x', 201)));
     }
+
+    // ---- Third review round ----
+
+    [Fact]
+    public void A_settings_save_never_carries_the_extractor_switch_so_a_stale_page_cannot_turn_it_back_on()
+    {
+        JObject stale = new()
+        {
+            ["memoryExtraction"] = new JObject { ["enabled"] = true, ["model"] = "old", ["neverSave"] = new JArray("old") },
+            ["preferredModel"] = "m",
+            ["assistants"] = new JObject()
+        };
+        JObject filtered = Hartsy.Extensions.LLMAssistant.WebAPI.SettingsEndpoints.FilterIncoming(stale);
+        Assert.Null(filtered["memoryExtraction"]);
+        Assert.Equal("m", (string)filtered["preferredModel"]);
+        Assert.Null(filtered["assistants"]);
+        Assert.NotNull(stale["memoryExtraction"]);
+    }
+
+    [Fact]
+    public void Never_save_matching_has_one_total_time_budget_and_running_out_means_the_turn_is_skipped()
+    {
+        MemoryNeverSave never = new(["/(a+)+$/", "/(a|aa)+$/", "/(a*)*$/", "/(a+)+b/", "/(.*a){20}/"]) { Budget = TimeSpan.FromMilliseconds(400) };
+        string slow = new string('a', 45) + "!";
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        bool first = never.Matches(slow);
+        for (int i = 0; i < 400; i++)
+        {
+            never.Matches(slow);
+        }
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(4), $"took {watch.Elapsed}: 400 more texts and 5 patterns must not each get their own 250 ms");
+        Assert.True(never.Exhausted);
+        Assert.True(never.Matches("anything at all"), "once the budget is spent every answer is a match, so the turn is not used");
+        _ = first;
+    }
+
+    [Fact]
+    public async Task A_turn_whose_never_save_check_runs_out_of_time_calls_no_model_and_saves_nothing()
+    {
+        MemoryStore store = StoreOf(new FakeStorage());
+        Fake fake = new();
+        MemoryExtractionSettings slowList = new(true, "", ["/(a+)+$/", "/(a|aa)+$/", "/(a*)*$/", "/(a+)+b/", "/(.*a){20}/", "/(a+)+c/", "/(a+)+d/", "/(a+)+e/", "/(a+)+f/", "/(a+)+g/"]);
+        ExtractionOutcome o = await Run(store, Turn("I have " + new string('a', 45) + "! cats at home and I love them.", "ok"), fake, slowList);
+        Assert.Equal("skipped", o.Status);
+        Assert.Empty(fake.Calls);
+        Assert.Empty(store.Load().Notes);
+    }
+
+    [Theory]
+    [InlineData("/(a+)+$/")]
+    [InlineData("/(a|aa)+$/")]
+    [InlineData("/(a*)*$/")]
+    public void A_pattern_that_backtracks_badly_is_refused_when_it_is_set(string entry)
+    {
+        Assert.Contains("too slow", MemoryNeverSave.Problem(entry));
+        Assert.Null(MemoryNeverSave.Problem("/card [0-9]+/"));
+    }
+
+    [Fact]
+    public void A_stopped_or_failed_reply_is_not_read_so_the_route_skips_it_as_the_socket_path_does()
+    {
+        foreach (string reason in new[] { "cancelled", "error" })
+        {
+            JObject thread = Thread(("user", Personal, null), ("assistant", "A partial rep", new JObject { ["meta"] = new JObject { ["stopReason"] = reason } }));
+            Assert.Null(MemoryTranscriptBuilder.Build(thread));
+        }
+        Assert.NotNull(MemoryTranscriptBuilder.Build(Thread(("user", Personal, null), ("assistant", "Whole reply.", new JObject { ["meta"] = new JObject { ["stopReason"] = "stop" } }))));
+    }
+
+    [Fact]
+    public async Task A_named_message_the_server_marked_with_a_kind_is_never_read_so_the_route_skips_it()
+    {
+        JObject thread = Thread(("user", Personal, null), ("assistant", "ok", null), ("user", "Session report: I live in Oslo and I love it.", new JObject { ["kind"] = "session_report" }), ("assistant", "noted", null));
+        string reportId = thread["messages"][2]["id"].ToString();
+        Assert.Null(MemoryTranscriptBuilder.Build(thread, reportId));
+        Fake fake = new();
+        ExtractionOutcome o = await MemoryExtractionService.ExtractAsync(StoreOf(new FakeStorage()), "u1", "t1", thread, On, "m", null, fake.Generate, CancellationToken.None, reportId);
+        Assert.Equal("skipped", o.Status);
+        Assert.Contains("nothing to read", o.Detail);
+        Assert.Empty(fake.Calls);
+    }
 }

@@ -169,7 +169,9 @@ async function llmaLoadSettings() {
 
 async function llmaSaveSettings() {
     try {
-        await llmaRequest('LLMAssistantSaveSettings', { settings: JSON.stringify(LLMAState.settings) });
+        // The automatic memory settings are saved only by their own route (LLMAssistantSetMemorySettings), so this page's copy of them never overwrites what was set since.
+        const { memoryExtraction, ...rest } = LLMAState.settings || {};
+        await llmaRequest('LLMAssistantSaveSettings', { settings: JSON.stringify(rest) });
     } catch {
         llmaShowToast('Failed to save settings', 'error');
     }

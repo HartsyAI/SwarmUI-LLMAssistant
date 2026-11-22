@@ -59,6 +59,15 @@ public sealed class MemoryNeverSave
     /// <summary>The user's own entries.</summary>
     private readonly List<Regex> _custom = [];
 
+    /// <summary>The most time all the matching of one extraction may take (every transcript line, every note shown, every pattern). When it is spent the answer is "it matches", so the turn is
+    /// skipped: a pattern that is slow on some text cannot be used to hold the server's CPU.</summary>
+    public TimeSpan Budget = TimeSpan.FromMilliseconds(750);
+
+    private long _spentTicks;
+
+    /// <summary>Whether the time budget has been used up (every answer after that is a match).</summary>
+    public bool Exhausted => _spentTicks >= Budget.Ticks;
+
     /// <summary>Entries from <paramref name="patterns"/>: <c>/text/</c> is a regular expression (when it does not compile it is taken as plain text), anything else is plain text, matched without regard to case.</summary>
     public MemoryNeverSave(IEnumerable<string> patterns)
     {
@@ -102,13 +111,24 @@ public sealed class MemoryNeverSave
         }
         if (pattern.Length > 2 && pattern[0] == '/' && pattern[^1] == '/')
         {
+            Regex probe;
             try
             {
-                _ = new Regex(pattern[1..^1], RegexOptions.IgnoreCase, MatchLimit);
+                probe = new Regex(pattern[1..^1], RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(50));
             }
             catch (ArgumentException ex)
             {
                 return $"'{pattern}' is not a valid regular expression: {ex.Message}";
+            }
+            // A pattern that is already slow on a short adversarial text (nested repetition) is refused when it is set.
+            try
+            {
+                _ = probe.IsMatch(new string('a', 40) + "!");
+                _ = probe.IsMatch(new string(' ', 40) + "!");
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return $"'{pattern}' is too slow to use (it backtracks badly); simplify it.";
             }
         }
         return null;
@@ -121,22 +141,40 @@ public sealed class MemoryNeverSave
         {
             return false;
         }
-        text = MemoryOpParser.Fold(text);
-        foreach (Regex regex in Secrets.Concat(_custom))
+        if (Exhausted)
         {
-            try
+            return true;
+        }
+        text = MemoryOpParser.Fold(text);
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            foreach (Regex regex in Secrets.Concat(_custom))
             {
-                if (regex.IsMatch(text))
+                if (_spentTicks + watch.Elapsed.Ticks >= Budget.Ticks)
                 {
+                    // Out of time: taken as a match, so the turn is not used.
+                    _spentTicks = Budget.Ticks;
                     return true;
                 }
+                try
+                {
+                    if (regex.IsMatch(text))
+                    {
+                        return true;
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    // A pattern that runs too long on this text is taken as not matching, and what it used comes out of the budget.
+                }
             }
-            catch (RegexMatchTimeoutException)
-            {
-                // A pattern that runs too long on this text is taken as not matching, so one bad pattern cannot stop a reply or hold the server.
-            }
+            return false;
         }
-        return false;
+        finally
+        {
+            _spentTicks += watch.Elapsed.Ticks;
+        }
     }
 }
 
@@ -213,7 +251,8 @@ public static class MemoryTranscriptBuilder
                 wrote |= calls.ToString(Formatting.None).Contains(ToolConstants.MemoryWrite, StringComparison.Ordinal);
             }
         }
-        if (reply is null || !string.IsNullOrEmpty(reply["meta"]?["error"]?.ToString()) || !string.IsNullOrEmpty(reply["kind"]?.ToString()) || Clean(reply["content"]?.ToString()).Length == 0)
+        // A reply that was stopped or ended in an error is partial: not read (the chat socket path never extracts a stopped reply either).
+        if (reply is null || reply["meta"]?["stopReason"]?.ToString() is "cancelled" or "error" || !string.IsNullOrEmpty(reply["meta"]?["error"]?.ToString()) || !string.IsNullOrEmpty(reply["kind"]?.ToString()) || Clean(reply["content"]?.ToString()).Length == 0)
         {
             return null;
         }

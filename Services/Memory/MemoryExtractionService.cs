@@ -298,7 +298,7 @@ public static class MemoryExtractionService
             {
                 return Skipped("this chat's assistant has memory extraction switched off");
             }
-            if (slot is null || slot.Cts.IsCancellationRequested)
+            if (slot.Cts.IsCancellationRequested)
             {
                 return new ExtractionOutcome("cancelled", null, "stopped before it started");
             }
@@ -327,7 +327,10 @@ public static class MemoryExtractionService
         try
         {
             ExtractionOutcome outcome = await ExtractForThreadAsync(session, threadId, chatModel, slot, null, generate);
-            Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId}: {outcome.Status} ({outcome.Detail}).");
+            if (outcome.Status != "skipped")
+            {
+                Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId}: {outcome.Status} ({outcome.Detail}).");
+            }
             if (outcome.Changes is not null && notify is not null)
             {
                 await notify(new JObject { ["memoryChanges"] = outcome.Changes.ToClientJson() });
@@ -359,12 +362,6 @@ public static class MemoryExtractionService
         {
             return Skipped("a trivial message");
         }
-        MemoryNeverSave never = new(config.NeverSave);
-        // Before any model sees it: a turn that mentions a secret or something the user listed is not sent to the extractor at all (it may be another backend than the chat's).
-        if (transcript.Lines.Any(l => never.Matches(l.Text)))
-        {
-            return Skipped("the turn mentions something that is never saved");
-        }
         string model = string.IsNullOrWhiteSpace(config.Model) ? chatModel ?? "" : config.Model.Trim();
         if (IsBackingOff(userId, model))
         {
@@ -392,6 +389,13 @@ public static class MemoryExtractionService
                 Claimed.TryRemove(claimKey, out _);
                 return Skipped($"{MaxPerHour} extractions in the last hour");
             }
+            // Before any model sees it: a turn that mentions a secret or something the user listed is not sent to the extractor at all (it may be another backend than the chat's). This is checked
+            // after the message is claimed and the hour is counted, so repeating a call cannot be a way to make the server match patterns again and again, and the matching has one time budget.
+            MemoryNeverSave never = new(config.NeverSave);
+            if (transcript.Lines.Any(l => never.Matches(l.Text)))
+            {
+                return Skipped(never.Exhausted ? "checking the never-save list took too long, so the turn was not used" : "the turn mentions something that is never saved");
+            }
             // A cancelled extraction (Stop, a new turn, a closed socket, Clear) saved nothing, so it does not use the message up or count against the hour.
             ExtractionOutcome Cancelled(string why)
             {
@@ -406,6 +410,10 @@ public static class MemoryExtractionService
             // Memory cleared while the model is working must not be written to afterwards: the epoch is read before the notes are, and checked again under the lock when saving.
             int epoch = store.Epoch();
             MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(store.Load(), transcript, never);
+            if (never.Exhausted)
+            {
+                return Skipped("checking the never-save list took too long, so the turn was not used");
+            }
             string userMessage = prompt.User;
             MemoryParseResult parsed = null;
             // The whole extraction, retry included, has one deadline.

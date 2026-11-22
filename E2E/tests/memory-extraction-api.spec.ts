@@ -81,18 +81,33 @@ test('the settings are read and set by route, validated, partial, and round-trip
 });
 
 test('the shared layer cannot switch the extractor on for a user', async ({ llm }) => {
-    let shared = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: true, model: 'shared-model' } }), scope: 'shared' });
+    // The user's own layer is reset first, so nothing of theirs can shadow what the shared layer would show.
+    expect((await api(llm, 'LLMAssistantResetSettings')).success).toBe(true);
+    let before = (await api(llm, 'LLMAssistantGetSettings')).settings;
+    expect((typeof before === 'string' ? JSON.parse(before) : before).memoryExtraction).toBeUndefined();
+
+    let shared = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: true, model: 'shared-model', neverSave: ['shared'] } }), scope: 'shared' });
     expect(shared.success, JSON.stringify(shared)).toBe(true);
-    expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings).toEqual({ enabled: false, model: '', neverSave: [] });
+    // The write was dropped: the merged view still has no such block, and the route reads the default.
     let general = (await api(llm, 'LLMAssistantGetSettings')).settings;
-    // The merged view shows the user's own block (written by an earlier test), never the shared one's values.
-    let block = (typeof general === 'string' ? JSON.parse(general) : general).memoryExtraction;
-    expect(block?.enabled ?? false).toBe(false);
-    expect(block?.model ?? '').not.toBe('shared-model');
+    expect((typeof general === 'string' ? JSON.parse(general) : general).memoryExtraction).toBeUndefined();
+    expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings).toEqual({ enabled: false, model: '', neverSave: [] });
     let chat = await chatWith(llm);
     let out = await api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
     expect(out).toMatchObject({ success: true, status: 'skipped' });
     expect(out.detail).toContain('switched off');
+});
+
+test('a general settings save with a stale copy of the extractor block cannot turn it back on', async ({ llm }) => {
+    await api(llm, 'LLMAssistantSetMemorySettings', { enabled: true, model: 'new', neverSave: ['new'] });
+    // The page (or any client) still holds the old block, and saves its settings for an unrelated reason after the user turned the switch off by route.
+    await api(llm, 'LLMAssistantSetMemorySettings', { enabled: false });
+    let saved = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: true, model: 'stale', neverSave: ['stale'] }, parameters: { temperature: 1 } }) });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings).toEqual({ enabled: false, model: 'new', neverSave: ['new'] });
+    // The same through a shared-scope save.
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: { enabled: true } }), scope: 'shared' });
+    expect((await api(llm, 'LLMAssistantGetMemorySettings')).settings.enabled).toBe(false);
 });
 
 test('extracting a chat by route saves checked notes, lists them, and undoes them, all without the interface', async ({ llm }) => {
@@ -192,17 +207,24 @@ test('the chat opt-out, the assistant opt-out and the never-save list each make 
     expect(await notes(llm)).toHaveLength(0);
 });
 
-test('Stop on the chat cancels an extraction started by the route, and nothing is saved', async ({ llm }) => {
+test('two calls on one chat at once: the second is skipped as already running, and after Stop a new call runs', async ({ llm }) => {
     await api(llm, 'LLMAssistantSetMemorySettings', on);
     let chat = await chatWith(llm);
     await setScenarios([extractor(addNurse, { delayMs: 6000 })]);
     await clearRequests();
-    // Started without waiting, as a script would run it in the background.
     let running = api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
     await expect.poll(async () => (await extractionRequests()).length, { timeout: 20_000 }).toBe(1);
+    let second = await api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
+    expect(second).toMatchObject({ success: true, status: 'skipped' });
+    expect(second.detail).toContain('already running');
+    expect(await extractionRequests()).toHaveLength(1);
+
+    // Stop cancels the first one: nothing saved, and its message is not used up (nor its hourly slot).
     expect(await api(llm, 'LLMAssistantStopGeneration', { threadId: chat.threadId })).toMatchObject({ success: true, cancelled: true });
-    let outcome = await running;
-    expect(outcome).toMatchObject({ success: true, status: 'cancelled' });
+    expect(await running).toMatchObject({ success: true, status: 'cancelled' });
     expect(await notes(llm)).toHaveLength(0);
-    expect((await api(llm, 'LLMAssistantGetMemoryChanges')).changes).toHaveLength(0);
+    await setScenarios([extractor(addNurse)]);
+    let followUp = await api(llm, 'LLMAssistantExtractMemory', { threadId: chat.threadId });
+    expect(followUp, JSON.stringify(followUp)).toMatchObject({ success: true, status: 'saved' });
+    expect((await notes(llm)).map((n: any) => n.text)).toEqual(['Works as a nurse in Lyon.']);
 });

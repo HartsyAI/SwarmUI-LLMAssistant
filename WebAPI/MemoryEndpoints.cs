@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Utils;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Memory;
 
@@ -98,6 +99,15 @@ public static class MemoryEndpoints
     public static async Task<JObject> LLMAssistantSetMemorySettings(Session session, JObject rawInput)
     {
         await Task.CompletedTask;
+        // Read, change and written under the settings lock, so two partial updates cannot overwrite each other.
+        lock (SettingsService.SettingsLock)
+        {
+            return SetMemorySettings(session, rawInput);
+        }
+    }
+
+    private static JObject SetMemorySettings(Session session, JObject rawInput)
+    {
         if (session?.User is null)
         {
             return new JObject { ["success"] = false, ["error"] = "Authentication required." };
@@ -195,7 +205,8 @@ public static class MemoryEndpoints
         }
         catch (Exception ex)
         {
-            return new JObject { ["success"] = false, ["error"] = ex.Message };
+            Logs.Debug($"[LLMAssistant] LLMAssistantExtractMemory failed: {ex.Message}");
+            return new JObject { ["success"] = false, ["error"] = "The extraction could not be run." };
         }
     }
 
