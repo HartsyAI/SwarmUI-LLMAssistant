@@ -199,7 +199,8 @@ public static class MemoryExtractionService
             }
             // The cheapest check first: with the master switch off (the default) a reply costs nothing more than this.
             MemoryExtractionSettings config = MemoryExtractionSettings.ForUser(user);
-            if (!config.Enabled || !user.HasPermission(LLMAssistantAPI.PermToolMemory))
+            // Off by the user, paused by the user, or switched off for everyone by an admin (which a user cannot undo).
+            if (!MemoryControls.ForUser(user).ExtractionAllowed(config.Enabled) || !user.HasPermission(LLMAssistantAPI.PermToolMemory))
             {
                 return;
             }
@@ -223,7 +224,8 @@ public static class MemoryExtractionService
             {
                 return;
             }
-            ExtractionOutcome outcome = await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, cts.Token);
+            ExtractionOutcome outcome = await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, cts.Token,
+                () => !MemoryControls.ForUser(user).ExtractionAllowed(MemoryExtractionSettings.ForUser(user).Enabled));
             Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId}: {outcome.Status} ({outcome.Detail}).");
             if (outcome.Changes is not null && notify is not null)
             {
@@ -247,8 +249,9 @@ public static class MemoryExtractionService
         }
     }
 
-    /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
-    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct)
+    /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). <paramref name="blocked"/> says whether saving has been paused (or switched off by an admin) since
+    /// the extraction began, and is asked again just before anything is saved. Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
+    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, Func<bool> blocked = null)
     {
         MemoryTranscript transcript = MemoryTranscriptBuilder.Build(thread);
         if (transcript is null)
@@ -330,7 +333,7 @@ public static class MemoryExtractionService
             {
                 return new ExtractionOutcome("nothing", null, parsed.Rejected > 0 ? $"{parsed.Rejected} operations were refused" : "nothing worth saving");
             }
-            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested);
+            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested || blocked?.Invoke() == true);
             if (applied.Refused == "cancelled")
             {
                 return new ExtractionOutcome("cancelled", null, "stopped before saving");

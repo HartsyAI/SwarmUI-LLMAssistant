@@ -212,6 +212,9 @@ public static class MemoryService
         return result;
     }
 
+    /// <summary>One note as the Settings list shows it (text cut to <see cref="MaxListChars"/>).</summary>
+    public static JObject NoteView(MemoryNote note) => NoteJson(note, MemoryNoteSet.Truncate(note.Text, MaxListChars), note.Text.Length > MaxListChars);
+
     /// <summary>One note's fields for a client, with the text given (so a list can send it cut).</summary>
     private static JObject NoteJson(MemoryNote note, string text, bool truncated) => new()
     {
@@ -262,6 +265,45 @@ public static class MemoryService
             StoreFor(user).Clear();
         }
     }
+
+    // ---- Retention ----
+
+    /// <summary>How long after a retention sweep the next one may run for the same user (it is applied lazily, from a turn's recall, not on a timer).</summary>
+    internal static TimeSpan RetentionInterval = TimeSpan.FromHours(24);
+
+    /// <summary>When a user's last retention sweep ran, by user id.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> LastRetention = new();
+
+    /// <summary>Forgets what retention says to forget, at most once per <see cref="RetentionInterval"/> per user unless <paramref name="force"/> (saving the setting forces one, so the user sees what it
+    /// does). Returns the change set, or null when nothing went or it was not due. Never throws.</summary>
+    public static MemoryChangeSet RunRetentionIfDue(MemoryStore store, string userId, int days, bool force)
+    {
+        if (days <= 0 || store is null)
+        {
+            return null;
+        }
+        DateTime now = DateTime.UtcNow;
+        if (!force)
+        {
+            if (LastRetention.TryGetValue(userId ?? "", out DateTime last) && now - last < RetentionInterval)
+            {
+                return null;
+            }
+        }
+        LastRetention[userId ?? ""] = now;
+        try
+        {
+            return store.ApplyRetention(days);
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] {userId}: the memory retention sweep failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Forgets every remembered sweep time (for tests).</summary>
+    internal static void ResetRetentionForTests() => LastRetention.Clear();
 
     // ---- Embeddings (optional) ----
 
@@ -348,6 +390,19 @@ public static class MemoryService
         {
             // A turn that was stopped renders no notes as used.
             return new MemoryRecallRequest(query, null, null, false);
+        }
+        if (session?.User is not null)
+        {
+            MemoryControls controls = MemoryControls.ForUser(session.User);
+            if (controls.RecallPaused)
+            {
+                // Paused: no embedding call, no note marked used (and none rendered: see BuildPromptVariables).
+                return new MemoryRecallRequest(query, null, null, false);
+            }
+            if (!dryRun)
+            {
+                RunRetentionIfDue(StoreFor(session.User), session.User.UserID, controls.RetentionDays, false);
+            }
         }
         if (dryRun || session?.User is null || query.Length == 0)
         {
@@ -473,7 +528,8 @@ public static class MemoryService
     /// prompts that use it). Called when assembling a system prompt; <paramref name="recall"/> is null when the instruction does not use the notes or no turn is being answered.</summary>
     public static Dictionary<string, string> BuildPromptVariables(User user, JObject assistant, MemoryRecallRequest recall = null)
     {
-        MemoryStore store = user is null ? null : StoreFor(user);
+        // While recall is paused no note reaches the model: not the block, not even the name.
+        MemoryStore store = user is null || MemoryControls.ForUser(user).RecallPaused ? null : StoreFor(user);
         MemoryNoteSet set = store?.Load() ?? new MemoryNoteSet();
         return new Dictionary<string, string>
         {

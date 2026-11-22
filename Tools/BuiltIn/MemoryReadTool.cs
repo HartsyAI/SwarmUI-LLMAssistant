@@ -22,6 +22,18 @@ public class MemoryReadTool : ToolHandler
 
     public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
+        if (MemoryControls.ForUser(ctx.Session?.User).RecallPaused)
+        {
+            return Task.FromResult(new JObject
+            {
+                ["success"] = true,
+                ["paused"] = true,
+                ["total"] = 0,
+                ["returned"] = 0,
+                ["notes"] = new JArray(),
+                ["data_notice"] = "The user has paused memory, so no notes are available right now. Do not mention or guess at saved notes."
+            });
+        }
         MemoryNoteSet set = MemoryService.Load(ctx.Session?.User);
         return Task.FromResult(MemoryService.ReadForModel(set, ctx.Args["query"]?.ToString() ?? ""));
     }

@@ -15,6 +15,13 @@ public static class MemoryChangeTypes
     public const string Evicted = "evicted";
 }
 
+/// <summary>What made a change set, when it was not the automatic extractor.</summary>
+public static class MemoryChangeReasons
+{
+    /// <summary>Notes were forgotten because they had not been used for the number of days the user set.</summary>
+    public const string Retention = "retention";
+}
+
 /// <summary>One note's change, with the note as it was and as it became (both whole, so undoing needs nothing else).</summary>
 /// <param name="Type">See <see cref="MemoryChangeTypes"/>.</param>
 /// <param name="NoteId">The note.</param>
@@ -47,10 +54,11 @@ public sealed record MemoryChange(string Type, string NoteId, JObject Before, JO
 /// <param name="At">When (UTC, ISO 8601).</param>
 /// <param name="ThreadId">The chat the notes came from.</param>
 /// <param name="Changes">The changes, in the order they were made.</param>
-public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IReadOnlyList<MemoryChange> Changes)
+/// <param name="Reason">What made the change: empty for the automatic extractor, <see cref="MemoryChangeReasons.Retention"/> for notes forgotten because they were unused. Absent in a set stored before it existed.</param>
+public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IReadOnlyList<MemoryChange> Changes, string Reason = "")
 {
     /// <summary>The set as stored.</summary>
-    public JObject ToJson() => new() { ["id"] = Id, ["at"] = At, ["threadId"] = ThreadId, ["changes"] = new JArray(Changes.Select(c => c.ToJson())) };
+    public JObject ToJson() => new() { ["id"] = Id, ["at"] = At, ["threadId"] = ThreadId, ["reason"] = Reason, ["changes"] = new JArray(Changes.Select(c => c.ToJson())) };
 
     /// <summary>A set from its stored form, or null when it does not read.</summary>
     public static MemoryChangeSet FromJson(JToken token)
@@ -60,7 +68,7 @@ public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IRea
             return null;
         }
         List<MemoryChange> changes = [.. array.Select(MemoryChange.FromJson).Where(c => c is not null)];
-        return changes.Count == 0 ? null : new MemoryChangeSet(o["id"].ToString(), o["at"]?.ToString() ?? "", o["threadId"]?.ToString() ?? "", changes);
+        return changes.Count == 0 ? null : new MemoryChangeSet(o["id"].ToString(), o["at"]?.ToString() ?? "", o["threadId"]?.ToString() ?? "", changes, o["reason"]?.ToString() ?? "");
     }
 
     /// <summary>The set for a client: what was added, updated (with what it said before), removed and dropped to make room, each note's text cleaned the way the prompt block cleans it and
@@ -75,6 +83,7 @@ public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IRea
             ["id"] = Id,
             ["at"] = At,
             ["threadId"] = ThreadId,
+            ["reason"] = Reason,
             ["added"] = Pick(MemoryChangeTypes.Added, false),
             ["updated"] = updated,
             ["removed"] = Pick(MemoryChangeTypes.Removed, true),
@@ -310,6 +319,11 @@ public sealed partial class MemoryStore
                 }
                 back.Slot ??= "";
                 back.ThreadId ??= "";
+                if (target.Reason == MemoryChangeReasons.Retention)
+                {
+                    // Brought back by the user: its unused time starts again, or the next sweep would forget it at once.
+                    back.LastUsed = Clock().ToUniversalTime().ToString("o");
+                }
                 set.Notes.Add(back);
                 undone++;
             }
