@@ -122,6 +122,79 @@ public sealed partial class MemoryStore
         }
     }
 
+    /// <summary>Adds a note the user wrote (origin <c>user</c>): an ordinary note of one of <see cref="ManualKinds"/> (<c>fact</c> when <paramref name="kind"/> is empty), or, with <paramref name="slot"/>
+    /// (name, pronouns, bio or currentWork), a pinned slot note when that slot is empty. Unlike the model's save it never drops an existing note to make room: a full memory refuses. The same duplicate
+    /// rule applies, and pinning stops at <see cref="MemoryNoteSet.MaxPinned"/>. Error codes as <see cref="MemoryManageResult"/>, plus <c>full</c> and <c>slotfilled</c>.</summary>
+    public MemoryManageResult Add(string text, string kind, bool pinned, string slot)
+    {
+        lock (Gate)
+        {
+            if (!TryBeginManualWrite(out Loaded loaded, out MemoryManageResult refused))
+            {
+                return refused;
+            }
+            MemoryNoteSet set = loaded.Set;
+            string body = MemoryNoteSet.Truncate((text ?? "").Trim(), MemoryNoteSet.MaxNoteChars);
+            if (body.Length == 0)
+            {
+                return new MemoryManageResult(false, "empty");
+            }
+            slot = (slot ?? "").Trim();
+            string wanted = (kind ?? "").Trim().ToLowerInvariant();
+            string newKind = MemoryKinds.Fact;
+            bool negative = false;
+            if (slot.Length > 0)
+            {
+                if (!MemorySlots.All.Contains(slot))
+                {
+                    return new MemoryManageResult(false, "slot");
+                }
+                if (set.Slot(slot) is not null)
+                {
+                    return new MemoryManageResult(false, "slotfilled");
+                }
+                newKind = slot == MemorySlots.CurrentWork ? MemoryKinds.Project : MemoryKinds.Fact;
+                pinned = true;
+            }
+            else
+            {
+                if (wanted.Length > 0 && !ManualKinds.Contains(wanted))
+                {
+                    return new MemoryManageResult(false, "kind");
+                }
+                (newKind, negative) = wanted == "dislike" ? (MemoryKinds.Preference, true) : (wanted.Length == 0 ? MemoryKinds.Fact : wanted, false);
+                if (set.Notes.Any(n => n.Slot.Length == 0 && n.Kind == newKind && n.Negative == negative && MemoryNoteSet.Squash(n.Text).Equals(MemoryNoteSet.Squash(body), StringComparison.OrdinalIgnoreCase)))
+                {
+                    return new MemoryManageResult(false, "duplicate");
+                }
+            }
+            if (set.Notes.Count >= MemoryNoteSet.MaxNotes)
+            {
+                return new MemoryManageResult(false, "full");
+            }
+            if (pinned && slot.Length == 0 && set.Notes.Count(n => n.Pinned) >= MemoryNoteSet.MaxPinned)
+            {
+                return new MemoryManageResult(false, "pinlimit");
+            }
+            BackupIfNeeded(loaded);
+            MemoryNote note = new()
+            {
+                Id = Guid.NewGuid().ToString("N")[..12],
+                Text = body,
+                Kind = newKind,
+                Origin = MemoryOrigins.User,
+                ThreadId = "",
+                Created = Clock().ToUniversalTime().ToString("o"),
+                Pinned = pinned,
+                Slot = slot,
+                Negative = negative
+            };
+            set.Notes.Add(note);
+            Storage.Save(NotesKey, set.Serialize());
+            return new MemoryManageResult(true, "", 1, note);
+        }
+    }
+
     /// <summary>Deletes notes by id (an id that is not there is ignored) with their vectors. Returns how many were deleted. Not journaled: it is the user's own deletion, and it is final.</summary>
     public MemoryManageResult Delete(IEnumerable<string> ids)
     {

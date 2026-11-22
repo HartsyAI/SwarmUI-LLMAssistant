@@ -45,8 +45,11 @@ class LLMAMemorySettings {
         this.selected = new Set();
         /** The id of the note being edited, or ''. */
         this.editing = '';
-        /** How many notes the list draws. */
-        this.limit = LLMAMemorySettings.PAGE;
+        /** Where the next page of notes starts (empty on the last page), how many notes match the search and filter, and how many there are in all: the server filters, searches and pages. */
+        this.cursor = '';
+        this.matched = 0;
+        this.total = 0;
+        this.searchTimer = null;
         /** The text of the file chosen for import, kept while its preview is shown. */
         this.pendingImport = null;
         this.wired = false;
@@ -176,9 +179,9 @@ class LLMAMemorySettings {
             let remembers = LLMAState.activeThreadMemoryExtraction !== false;
             html += `<div>${translate('This chat:')} <strong id="llma-memory-chat-state">${translate(remembers ? 'remembered' : 'not remembered')}</strong> `
                 + `<button type="button" class="basic-button" id="llma-memory-chat-btn">${translate(remembers ? 'Don\'t remember this chat' : 'Remember this chat')}</button></div>`;
-            let quiet = (LLMAState.assistants || []).filter(a => a._effectiveMemoryExtraction === false).map(a => a.name || a.id);
-            if (quiet.length > 0) {
-                html += `<div class="text-muted">${translate('Assistants that do not save memories:')} ${quiet.map(n => escapeHtml(n)).join(', ')} <span>(${translate('change it in the assistant\'s own settings')})</span></div>`;
+            let assistants = (LLMAState.assistants || []).slice(0, 50);
+            if (assistants.length > 0) {
+                html += `<div class="mt-2">${translate('Save memories from chats with these assistants:')}</div>` + assistants.map(a => `<label class="d-block ms-3"><input type="checkbox" class="llma-memory-assistant" data-assistant-id="${escapeHtml(a.id)}" ${a._effectiveMemoryExtraction === false ? '' : 'checked'}> ${escapeHtml(a.name || a.id)}</label>`).join('');
             }
         }
         where.innerHTML = html;
@@ -186,6 +189,24 @@ class LLMAMemorySettings {
             await llmaToggleThreadMemory();
             this.renderWhere();
         });
+        for (let box of where.querySelectorAll('.llma-memory-assistant')) {
+            box.addEventListener('change', async () => {
+                let reply = null;
+                try {
+                    reply = await llmaRequest('LLMAssistantSetAssistantMemory', { assistantId: box.dataset.assistantId, enabled: box.checked });
+                }
+                catch (err) {
+                    reply = { success: false, error: llmaShortError(err) };
+                }
+                if (!reply?.success) {
+                    box.checked = !box.checked;
+                    llmaShowToast(reply?.error || 'Could not change that.', 'error');
+                    return;
+                }
+                await llmaLoadAssistants();
+                this.renderWhere();
+            });
+        }
     }
 
     /** Draws the extractor's settings: the master switch (off by default), the model, and the never-save list. */
@@ -361,15 +382,15 @@ class LLMAMemorySettings {
         await this.loadNotes();
     }
 
-    /** Loads the notes from the server and draws them. */
-    async loadNotes() {
+    /** Loads a page of the notes from the server (LLMAssistantListMemoryNotes: the search, the kind filter and the paging are its) and draws them; with `append` the next page is added to the ones shown. */
+    async loadNotes(append = false) {
         let list = document.getElementById('llma-memory-list');
         if (!list) {
             return;
         }
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantGetUserProfile', { includeNotes: true });
+            reply = await llmaRequest('LLMAssistantListMemoryNotes', { query: this.query.trim(), kind: this.kindFilter, limit: LLMAMemorySettings.PAGE, cursor: append ? this.cursor : '' });
         }
         catch {
             reply = null;
@@ -378,7 +399,10 @@ class LLMAMemorySettings {
             list.innerHTML = `<div class="text-muted py-2">${translate('Memory is not available to you.')}</div>`;
             return;
         }
-        this.notes = reply.notes || [];
+        this.notes = append ? this.notes.concat(reply.notes || []) : (reply.notes || []);
+        this.cursor = reply.nextCursor || '';
+        this.matched = reply.matched ?? this.notes.length;
+        this.total = reply.total ?? this.notes.length;
         this.limits = reply.limits || {};
         this.state = reply.state || 'ok';
         let ids = new Set(this.notes.map(n => n.id));
@@ -404,6 +428,10 @@ class LLMAMemorySettings {
             + `<div class="llma-memory-toolbar">`
             + `<input type="search" class="form-control llma-memory-search" id="llma-memory-search" placeholder="${escapeHtml(translate('Search notes'))}" aria-label="${escapeHtml(translate('Search notes'))}" autocomplete="off">`
             + `<select class="form-select llma-memory-kind-filter" id="llma-memory-kind-filter" aria-label="${escapeHtml(translate('Filter by kind'))}">${kinds.join('')}</select></div>`
+            + `<form class="llma-memory-toolbar mt-2" id="llma-memory-add-form" autocomplete="off">`
+            + `<input type="text" class="form-control llma-memory-search" id="llma-memory-add-text" maxlength="2000" placeholder="${escapeHtml(translate('Add a note about yourself'))}" aria-label="${escapeHtml(translate('New note'))}">`
+            + `<select class="form-select llma-memory-kind-filter" id="llma-memory-add-kind" aria-label="${escapeHtml(translate('Kind of the new note'))}">${LLMAMemorySettings.KINDS.map(k => `<option value="${k}" ${k == 'fact' ? 'selected' : ''}>${escapeHtml(translate(k))}</option>`).join('')}</select>`
+            + `<button type="submit" class="basic-button" id="llma-memory-add">${translate('Add')}</button></form>`
             + `<div class="llma-memory-toolbar mt-2">`
             + `<label class="mb-0 small"><input type="checkbox" id="llma-memory-select-all"> ${translate('Select all shown')}</label>`
             + `<button type="button" class="basic-button" id="llma-memory-delete-selected" disabled>${translate('Delete selected')}</button>`
@@ -422,13 +450,16 @@ class LLMAMemorySettings {
         this.wired = true;
         document.getElementById('llma-memory-search').addEventListener('input', (e) => {
             this.query = e.target.value;
-            this.limit = LLMAMemorySettings.PAGE;
-            this.render();
+            clearTimeout(this.searchTimer);
+            this.searchTimer = setTimeout(() => this.loadNotes(), 250);
         });
         document.getElementById('llma-memory-kind-filter').addEventListener('change', (e) => {
             this.kindFilter = e.target.value;
-            this.limit = LLMAMemorySettings.PAGE;
-            this.render();
+            this.loadNotes();
+        });
+        document.getElementById('llma-memory-add-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.addNote();
         });
         document.getElementById('llma-memory-select-all').addEventListener('change', (e) => {
             for (let note of this.filtered()) {
@@ -473,15 +504,9 @@ class LLMAMemorySettings {
         });
     }
 
-    /** The notes that match the search and the kind filter. */
+    /** The notes the list shows: the server has already applied the search and the kind filter. */
     filtered() {
-        let q = this.query.trim().toLowerCase();
-        return this.notes.filter(n => {
-            if (this.kindFilter == 'pinned' ? !n.pinned : (this.kindFilter && LLMAMemorySettings.groupOf(n) != this.kindFilter)) {
-                return false;
-            }
-            return !q || String(n.text).toLowerCase().includes(q);
-        });
+        return this.notes;
     }
 
     /** Draws the totals and the notes. */
@@ -491,35 +516,34 @@ class LLMAMemorySettings {
         if (!totals || !list) {
             return;
         }
-        let shown = this.filtered();
-        totals.textContent = `${this.notes.length} / ${this.limits.maxNotes ?? 0} ${translate('notes')}${shown.length != this.notes.length ? ` · ${shown.length} ${translate('shown')}` : ''}`;
+        let filtering = this.query.trim() !== '' || this.kindFilter !== '';
+        totals.textContent = `${this.total} / ${this.limits.maxNotes ?? 0} ${translate('notes')}${filtering ? ` · ${this.matched} ${translate('shown')}` : ''}`;
         let notice = LLMAMemorySettings.stateNotice(this.state);
         let noticeHtml = notice ? `<div class="alert alert-warning py-2 llma-memory-notice" data-state="${escapeHtml(this.state)}">${escapeHtml(translate(notice))}</div>` : '';
-        if (this.notes.length == 0) {
+        if (this.total == 0) {
             list.innerHTML = noticeHtml + (this.state != 'ok' ? '' : `<div class="text-muted py-2">${translate('Nothing is remembered yet. Ask the assistant to remember something, or tell it about yourself.')}</div>`);
             this.updateSelectionUi();
             return;
         }
-        if (shown.length == 0) {
+        if (this.notes.length == 0) {
             list.innerHTML = noticeHtml + `<div class="text-muted py-2">${translate('No note matches.')}</div>`;
             this.updateSelectionUi();
             return;
         }
-        let drawn = shown.slice(0, this.limit);
         let html = noticeHtml;
         for (let group of LLMAMemorySettings.GROUPS) {
-            let notes = drawn.filter(n => LLMAMemorySettings.groupOf(n) == group);
+            let notes = this.notes.filter(n => LLMAMemorySettings.groupOf(n) == group);
             if (notes.length == 0) {
                 continue;
             }
-            html += `<div class="llma-memory-group" data-group="${group}"><h6 class="mt-2">${translate(LLMAMemorySettings.GROUP_LABELS[group])} <span class="text-muted small">${shown.filter(n => LLMAMemorySettings.groupOf(n) == group).length}</span></h6><ul class="list-group mb-2">`;
+            html += `<div class="llma-memory-group" data-group="${group}"><h6 class="mt-2">${translate(LLMAMemorySettings.GROUP_LABELS[group])} <span class="text-muted small">${notes.length}</span></h6><ul class="list-group mb-2">`;
             for (let note of notes) {
                 html += note.id == this.editing ? this.editHtml(note) : this.noteHtml(note);
             }
             html += '</ul></div>';
         }
-        if (shown.length > drawn.length) {
-            html += `<button type="button" class="basic-button llma-memory-more">${translate('Show more')} (${shown.length - drawn.length})</button>`;
+        if (this.cursor) {
+            html += `<button type="button" class="basic-button llma-memory-more">${translate('Show more')} (${this.matched - this.notes.length})</button>`;
         }
         list.innerHTML = html;
         this.updateSelectionUi();
@@ -574,8 +598,7 @@ class LLMAMemorySettings {
     /** What a click inside the list does (the buttons of a row). */
     async onListClick(e) {
         if (e.target.closest('.llma-memory-more')) {
-            this.limit += LLMAMemorySettings.PAGE;
-            this.render();
+            await this.loadNotes(true);
             return;
         }
         let row = e.target.closest('.llma-memory-note');
@@ -596,7 +619,7 @@ class LLMAMemorySettings {
         }
         else if (button.classList.contains('llma-memory-pin')) {
             let note = this.notes.find(n => n.id == id);
-            await this.updateNote({ id: id, pinned: !note?.pinned });
+            await this.updateNote({ id: id, pinned: !note?.pinned }, null, 'LLMAssistantPinMemoryNote');
         }
         else if (button.classList.contains('llma-memory-delete')) {
             await this.deleteNotes([id]);
@@ -646,10 +669,10 @@ class LLMAMemorySettings {
     }
 
     /** Sends a change to one note and replaces it in the list. Returns whether it was saved; a refusal is shown in `errorEl` when given, else as a toast. */
-    async updateNote(change, errorEl) {
+    async updateNote(change, errorEl, route = 'LLMAssistantUpdateMemoryNote') {
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantUpdateMemoryNote', change);
+            reply = await llmaRequest(route, change);
         }
         catch (err) {
             reply = { success: false, error: llmaShortError(err) };
@@ -672,6 +695,29 @@ class LLMAMemorySettings {
         }
         this.render();
         return true;
+    }
+
+    /** Adds the note typed in the add form. */
+    async addNote() {
+        let input = document.getElementById('llma-memory-add-text');
+        let text = input.value.trim();
+        if (text === '') {
+            return;
+        }
+        let reply = null;
+        try {
+            reply = await llmaRequest('LLMAssistantAddMemoryNote', { text: text, kind: document.getElementById('llma-memory-add-kind').value });
+        }
+        catch (err) {
+            reply = { success: false, error: llmaShortError(err) };
+        }
+        if (!reply?.success) {
+            llmaShowToast(reply?.error || 'Could not add that.', 'error');
+            return;
+        }
+        input.value = '';
+        llmaShowToast('Note added.', 'success');
+        await this.loadNotes();
     }
 
     /** Deletes notes (final), asking first when there is more than one. */

@@ -94,11 +94,132 @@ public static class MemoryEndpoints
         "slot" => "The name, pronouns, bio and current work notes keep their kind and stay pinned.",
         "duplicate" => "Another note already says that.",
         "pinlimit" => $"At most {MemoryNoteSet.MaxPinned} notes can be pinned.",
+        "full" => $"Memory is full ({MemoryNoteSet.MaxNotes} notes); delete one first.",
+        "slotfilled" => "That slot already has a note; change that note instead.",
+        "cursor" => "That cursor is not valid.",
+        "filter" => "That is not a kind to filter by.",
         _ => "That could not be done."
     };
 
     /// <summary>A failure reply: <c>error</c> is a sentence, <c>code</c> the short code.</summary>
     private static JObject Failure(string code) => new() { ["success"] = false, ["code"] = code, ["error"] = Explain(code) };
+
+    /// <summary>One page of the calling user's notes, in the order the prompt shows them. Request: <c>{ query?, kind?, limit?, cursor? }</c> (<c>query</c> matches the text in any case, at most 200 characters;
+    /// <c>kind</c> is profile, preference, dislike, fact, project, style or pinned; <c>limit</c> 1 to 200, 100 when left out; <c>cursor</c> is the <c>nextCursor</c> of the page before). Reply: <c>{ success, notes[],
+    /// total, matched, nextCursor, limits, state }</c> (<c>nextCursor</c> is empty on the last page; each text is cut to 500 characters with <c>truncated</c>), or <c>{ success: false, code, error }</c>.</summary>
+    public static async Task<JObject> LLMAssistantListMemoryNotes(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            if (session?.User is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = "No user." };
+            }
+            string query = rawInput?["query"]?.Type == JTokenType.String ? (string)rawInput["query"] : "";
+            string kind = rawInput?["kind"]?.Type == JTokenType.String ? (string)rawInput["kind"] : "";
+            string cursor = rawInput?["cursor"]?.Type is JTokenType.String or JTokenType.Integer ? rawInput["cursor"].ToString() : "";
+            int limit = rawInput?["limit"]?.Type == JTokenType.Integer ? (int)Math.Clamp(rawInput["limit"].Value<long>(), 0, MemoryService.MaxListPage) : 0;
+            MemoryStore store = MemoryService.StoreFor(session.User);
+            JObject page = MemoryService.ListNotes(store.Load(), query, kind, limit, cursor);
+            if (page is null)
+            {
+                return Failure(MemoryService.ListKinds.Contains((kind ?? "").Trim().ToLowerInvariant()) || string.IsNullOrWhiteSpace(kind) ? "cursor" : "filter");
+            }
+            page["success"] = true;
+            page["state"] = store.Status() switch { MemoryLoadStatus.Lossy => "lossy", MemoryLoadStatus.Corrupt => "corrupt", MemoryLoadStatus.Newer => "newer", _ => "ok" };
+            page["limits"] = new JObject { ["maxNotes"] = MemoryNoteSet.MaxNotes, ["maxNoteChars"] = MemoryNoteSet.MaxNoteChars, ["maxPinned"] = MemoryNoteSet.MaxPinned };
+            return page;
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Adds a note the calling user wrote (origin <c>user</c>). Request: <c>{ text, kind?, pinned?, slot? }</c> (<c>kind</c> is preference, dislike, fact, project or style, fact when left out; <c>slot</c>
+    /// is name, pronouns, bio or currentWork and fills that slot with a pinned note when it is empty). Never drops another note to make room. Reply: <c>{ success, note }</c>, or <c>{ success: false, code, error }</c>
+    /// (<c>empty</c>, <c>kind</c>, <c>slot</c>, <c>slotfilled</c>, <c>duplicate</c>, <c>full</c>, <c>pinlimit</c>, <c>newer</c>).</summary>
+    public static async Task<JObject> LLMAssistantAddMemoryNote(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            if (session?.User is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = "No user." };
+            }
+            string text = rawInput?["text"]?.Type == JTokenType.String ? (string)rawInput["text"] : null;
+            string kind = rawInput?["kind"]?.Type == JTokenType.String ? (string)rawInput["kind"] : null;
+            string slot = rawInput?["slot"]?.Type == JTokenType.String ? (string)rawInput["slot"] : null;
+            bool pinned = rawInput?["pinned"]?.Type == JTokenType.Boolean && (bool)rawInput["pinned"];
+            MemoryManageResult result = MemoryService.StoreFor(session.User).Add(text, kind, pinned, slot);
+            return result.Ok ? new JObject { ["success"] = true, ["note"] = MemoryService.NoteView(result.Note) } : Failure(result.Error);
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Pins or unpins one note of the calling user (a pinned note is always in the prompt; at most 25; the name, pronouns, bio and current work stay pinned). Request: <c>{ id, pinned }</c>.
+    /// Reply: <c>{ success, note }</c>, or <c>{ success: false, code, error }</c> (<c>notfound</c>, <c>slot</c>, <c>pinlimit</c>, <c>newer</c>).</summary>
+    public static async Task<JObject> LLMAssistantPinMemoryNote(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            string id = rawInput?["id"]?.Type == JTokenType.String ? (string)rawInput["id"] : null;
+            if (session?.User is null || string.IsNullOrWhiteSpace(id) || id.Length > 64)
+            {
+                return Failure("notfound");
+            }
+            if (rawInput["pinned"]?.Type != JTokenType.Boolean)
+            {
+                return new JObject { ["success"] = false, ["error"] = "pinned must be true or false." };
+            }
+            MemoryManageResult result = MemoryService.StoreFor(session.User).Update(id, null, null, (bool)rawInput["pinned"]);
+            return result.Ok ? new JObject { ["success"] = true, ["note"] = MemoryService.NoteView(result.Note) } : Failure(result.Error);
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
+
+    /// <summary>Switches the automatic extractor on or off for one assistant (the per-assistant opt-out). Request: <c>{ assistantId, enabled, scope? }</c> (<c>scope</c> is personal, the default, or shared,
+    /// which needs <c>llm_shared_write</c>). Reply: <c>{ success, id, enabled }</c>, or <c>{ success: false, error }</c>.</summary>
+    public static async Task<JObject> LLMAssistantSetAssistantMemory(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            string id = rawInput?["assistantId"]?.Type == JTokenType.String ? (string)rawInput["assistantId"] : null;
+            if (session?.User is null || string.IsNullOrWhiteSpace(id) || id.Length > 200)
+            {
+                return new JObject { ["success"] = false, ["error"] = "assistantId is required." };
+            }
+            if (rawInput["enabled"]?.Type != JTokenType.Boolean)
+            {
+                return new JObject { ["success"] = false, ["error"] = "enabled must be true or false." };
+            }
+            JObject assistant = AssistantService.GetAssistant(id, user: session.User);
+            if (assistant is null)
+            {
+                return new JObject { ["success"] = false, ["error"] = "Assistant not found." };
+            }
+            assistant["memoryExtraction"] = (bool)rawInput["enabled"];
+            string scope = rawInput["scope"]?.Type == JTokenType.String ? (string)rawInput["scope"] : null;
+            (string saved, string error) = AssistantService.SaveAssistant(assistant, session.User, scope);
+            return saved is null
+                ? new JObject { ["success"] = false, ["error"] = error ?? "Could not save the assistant." }
+                : new JObject { ["success"] = true, ["id"] = saved, ["enabled"] = (bool)rawInput["enabled"] };
+        }
+        catch (Exception ex)
+        {
+            return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+    }
 
     /// <summary>One note in full (the list cuts long texts). Request: <c>{ id }</c>. Reply: <c>{ success, note }</c>.</summary>
     public static async Task<JObject> LLMAssistantGetMemoryNote(Session session, string id)

@@ -545,6 +545,114 @@ public class MemoryControlTests
         MemoryExtractionService.ResetForTests();
     }
 
+    // ---- Listing and adding by hand (the API behind the manager) ----
+
+    [Fact]
+    public void Listing_pages_through_the_notes_with_a_cursor_and_filters_by_search_and_kind()
+    {
+        MemoryStore store = StoreOf(new Storage());
+        Add(store, "name", "Sam");
+        for (int i = 0; i < 5; i++)
+        {
+            Add(store, "fact", $"Fact number {i}");
+        }
+        Add(store, "dislike", "Cilantro");
+        Add(store, "preference", "Green tea");
+        MemoryNote pinned = Add(store, "project", "Pinned project");
+        store.Update(pinned.Id, null, null, true);
+        MemoryNoteSet set = store.Load();
+
+        JObject first = MemoryService.ListNotes(set, "", "", 4, "");
+        Assert.Equal(4, ((JArray)first["notes"]).Count);
+        Assert.Equal(9, (int)first["total"]);
+        Assert.Equal(9, (int)first["matched"]);
+        Assert.Equal("4", (string)first["nextCursor"]);
+        List<string> seen = [.. ((JArray)first["notes"]).Select(n => (string)n["id"])];
+        string cursor = (string)first["nextCursor"];
+        while (cursor.Length > 0)
+        {
+            JObject page = MemoryService.ListNotes(set, "", "", 4, cursor);
+            seen.AddRange(((JArray)page["notes"]).Select(n => (string)n["id"]));
+            cursor = (string)page["nextCursor"];
+        }
+        Assert.Equal(9, seen.Distinct().Count());
+
+        Assert.Equal(["Sam"], ((JArray)MemoryService.ListNotes(set, "", "profile", 0, "")["notes"]).Select(n => (string)n["text"]));
+        Assert.Equal(["Cilantro"], ((JArray)MemoryService.ListNotes(set, "", "dislike", 0, "")["notes"]).Select(n => (string)n["text"]));
+        Assert.Equal(["Green tea"], ((JArray)MemoryService.ListNotes(set, "", "preference", 0, "")["notes"]).Select(n => (string)n["text"]));
+        Assert.Equal(5, (int)MemoryService.ListNotes(set, "", "fact", 0, "")["matched"]);
+        Assert.Equal(2, (int)MemoryService.ListNotes(set, "", "pinned", 0, "")["matched"]);
+        JObject searched = MemoryService.ListNotes(set, "NUMBER 3", "", 0, "");
+        Assert.Equal(1, (int)searched["matched"]);
+        Assert.Equal(9, (int)searched["total"]);
+        Assert.Equal("", (string)searched["nextCursor"]);
+    }
+
+    [Fact]
+    public void Listing_refuses_a_bad_kind_or_cursor_clamps_the_page_and_cuts_long_texts()
+    {
+        MemoryStore store = StoreOf(new Storage());
+        Add(store, "fact", new string('x', 900));
+        MemoryNoteSet set = store.Load();
+        Assert.Null(MemoryService.ListNotes(set, "", "banana", 0, ""));
+        Assert.Null(MemoryService.ListNotes(set, "", "", 0, "abc"));
+        Assert.Null(MemoryService.ListNotes(set, "", "", 0, "-1"));
+        Assert.Empty((JArray)MemoryService.ListNotes(set, "", "", 5, "99")["notes"]);
+        JObject page = MemoryService.ListNotes(set, "", "", 100000, "");
+        JToken note = ((JArray)page["notes"])[0];
+        Assert.Equal(MemoryService.MaxListChars, ((string)note["text"]).Length);
+        Assert.True((bool)note["truncated"]);
+        Assert.Equal(1, (int)MemoryService.ListNotes(set, new string('q', 5000), "", 0, "")["total"]);
+    }
+
+    [Fact]
+    public void Adding_by_hand_makes_a_user_note_and_never_drops_another_to_make_room()
+    {
+        MemoryStore store = StoreOf(new Storage());
+        MemoryManageResult added = store.Add("  Likes jazz  ", "preference", false, null);
+        Assert.True(added.Ok);
+        Assert.Equal("Likes jazz", added.Note.Text);
+        Assert.Equal(MemoryOrigins.User, added.Note.Origin);
+        Assert.Equal(MemoryKinds.Preference, added.Note.Kind);
+        Assert.True(store.Add("Hates noise", "dislike", false, null).Note.Negative);
+        Assert.Equal(MemoryKinds.Fact, store.Add("Plain default", null, false, null).Note.Kind);
+        Assert.Equal("duplicate", store.Add("likes   JAZZ", "preference", false, null).Error);
+        Assert.Equal("empty", store.Add("  ", null, false, null).Error);
+        Assert.Equal("kind", store.Add("x", "banana", false, null).Error);
+
+        MemoryManageResult name = store.Add("Sam", "style", false, "name");
+        Assert.True(name.Ok);
+        Assert.True(name.Note.Pinned);
+        Assert.Equal(MemorySlots.Name, name.Note.Slot);
+        Assert.Equal("slotfilled", store.Add("Samuel", null, false, "name").Error);
+        Assert.Equal("slot", store.Add("x", null, false, "shoes").Error);
+
+        MemoryStore full = StoreOf(new Storage());
+        for (int i = 0; i < MemoryNoteSet.MaxNotes; i++)
+        {
+            Add(full, "fact", $"Existing {i}");
+        }
+        Assert.Equal("full", full.Add("One too many", null, false, null).Error);
+        Assert.Equal(MemoryNoteSet.MaxNotes, full.Load().Notes.Count);
+        Assert.Contains(full.Load().Notes, n => n.Text == "Existing 0");
+
+        MemoryStore pins = StoreOf(new Storage());
+        for (int i = 0; i < MemoryNoteSet.MaxPinned; i++)
+        {
+            Assert.True(pins.Add($"Pinned {i}", null, true, null).Ok);
+        }
+        Assert.Equal("pinlimit", pins.Add("One more pin", null, true, null).Error);
+        Assert.True(pins.Add("Unpinned is fine", null, false, null).Ok);
+    }
+
+    [Fact]
+    public void Adding_is_refused_over_notes_written_by_a_newer_version()
+    {
+        Storage storage = new();
+        storage.Values[MemoryStore.NotesKey] = "{\"version\":99,\"notes\":[]}";
+        Assert.Equal("newer", StoreOf(storage).Add("x", null, false, null).Error);
+    }
+
     // ---- One user never touches another's ----
 
     [Fact]

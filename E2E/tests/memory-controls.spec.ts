@@ -402,3 +402,30 @@ test('the Memory tab fits a phone and does not scroll sideways', async ({ llm })
     await expect(note(llm, 'fairly long').locator('.llma-memory-delete')).toBeVisible();
     await llm.setViewportSize({ width: 1280, height: 800 });
 });
+
+test('a note can be added by hand, the list pages with Show more, and an assistant can be switched off from the Memory tab', async ({ llm }) => {
+    await api(llm, 'LLMAssistantImportMemory', { data: JSON.stringify({ notes: Array.from({ length: 130 }, (_, i) => ({ text: `Bulk note ${i}`, kind: 'fact' })) }) });
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ memoryExtraction: on }) });
+    await reopen(llm);
+    await openMemory(llm);
+    await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(100);
+    await llm.locator('.llma-memory-more').click();
+    await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(130);
+    await expect(llm.locator('.llma-memory-more')).toHaveCount(0);
+
+    await llm.locator('#llma-memory-add-text').fill('Added from the form');
+    await llm.locator('#llma-memory-add-kind').selectOption('project');
+    await llm.locator('#llma-memory-add').click();
+    await expect(llm.locator('#llma-memory-add-text')).toHaveValue('');
+    await llm.locator('#llma-memory-search').fill('Added from the form');
+    await expect(llm.locator('#llma-memory-list .llma-memory-note')).toHaveCount(1);
+    await expect(note(llm, 'Added from the form')).toContainText('project');
+    await expect(llm.locator('#llma-memory-totals')).toContainText('131 /');
+
+    let box = llm.locator('.llma-memory-assistant[data-assistant-id="default"]');
+    await expect(box).toBeChecked();
+    await box.uncheck();
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant.memoryExtraction).toBe(false);
+    await box.check();
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant.memoryExtraction).toBe(true);
+});

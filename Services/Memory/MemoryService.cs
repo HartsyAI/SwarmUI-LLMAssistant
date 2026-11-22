@@ -162,6 +162,48 @@ public static class MemoryService
     public static JArray NotesView(MemoryNoteSet set)
         => [.. MemoryRecall.StableOrder(set.Notes).Select(n => NoteJson(n, MemoryNoteSet.Truncate(n.Text, MaxListChars), n.Text.Length > MaxListChars))];
 
+    /// <summary>The kinds <see cref="ListNotes"/> can filter by: the groups the Settings list shows, and <c>pinned</c>.</summary>
+    public static readonly string[] ListKinds = ["profile", MemoryKinds.Preference, "dislike", MemoryKinds.Fact, MemoryKinds.Project, MemoryKinds.Style, "pinned"];
+
+    /// <summary>The most notes one page of <see cref="ListNotes"/> holds, and how many it holds when no limit is given.</summary>
+    public const int MaxListPage = 200, DefaultListPage = 100;
+
+    /// <summary>The longest search text <see cref="ListNotes"/> uses.</summary>
+    public const int MaxListQueryChars = 200;
+
+    /// <summary>One page of the user's notes in the fixed order (see <see cref="MemoryRecall.StableOrder"/>): those whose text contains <paramref name="query"/> (any case; empty for all) and that are of
+    /// <paramref name="kind"/> (one of <see cref="ListKinds"/>; empty for all), starting at the opaque <paramref name="cursor"/> (empty for the first page), at most <paramref name="limit"/> of them (clamped to
+    /// 1..<see cref="MaxListPage"/>, <see cref="DefaultListPage"/> when 0). Each text is cut to <see cref="MaxListChars"/> (with <c>truncated</c>). Returns <c>{ notes, total, matched, nextCursor }</c>
+    /// (<c>nextCursor</c> is empty on the last page), or null when <paramref name="kind"/> or <paramref name="cursor"/> is not valid.</summary>
+    public static JObject ListNotes(MemoryNoteSet set, string query, string kind, int limit, string cursor)
+    {
+        kind = (kind ?? "").Trim().ToLowerInvariant();
+        if (kind.Length > 0 && !ListKinds.Contains(kind))
+        {
+            return null;
+        }
+        int start = 0;
+        if (!string.IsNullOrEmpty(cursor) && (!int.TryParse(cursor, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out start) || start < 0))
+        {
+            return null;
+        }
+        limit = limit <= 0 ? DefaultListPage : Math.Min(limit, MaxListPage);
+        string q = MemoryNoteSet.Truncate((query ?? "").Trim(), MaxListQueryChars);
+        List<MemoryNote> matched = [.. MemoryRecall.StableOrder(set.Notes).Where(n =>
+            (kind.Length == 0
+                || (kind == "pinned" ? n.Pinned : kind == "profile" ? n.Slot.Length > 0 : kind == "dislike" ? n.Slot.Length == 0 && n.Negative : n.Slot.Length == 0 && !n.Negative && n.Kind == kind))
+            && (q.Length == 0 || n.Text.Contains(q, StringComparison.OrdinalIgnoreCase)))];
+        List<MemoryNote> page = [.. matched.Skip(start).Take(limit)];
+        int next = start + page.Count;
+        return new JObject
+        {
+            ["notes"] = new JArray(page.Select(NoteView)),
+            ["total"] = set.Notes.Count,
+            ["matched"] = matched.Count,
+            ["nextCursor"] = next < matched.Count ? next.ToString(System.Globalization.CultureInfo.InvariantCulture) : ""
+        };
+    }
+
     /// <summary>The notes of <paramref name="set"/> that match <paramref name="query"/> by keywords, best first (at most <see cref="MemoryRecall.MaxRanked"/> × 2).</summary>
     public static List<MemoryNote> RankNotes(MemoryNoteSet set, string query)
     {
