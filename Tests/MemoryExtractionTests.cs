@@ -1213,4 +1213,21 @@ public class MemoryExtractionTests : IDisposable
         }
         Assert.Equal("nothing", (await Run(store, Turn("I also keep bees and I love honey.", "ok"), new Fake(), user: "u-rel")).Status);
     }
+
+    [Fact]
+    public async Task With_the_socket_already_closed_nothing_is_reserved_and_nothing_runs()
+    {
+        Assert.Null(MemoryExtractionRegistry.ReserveIfOpen(false, "u-closed", "t1"));
+        Assert.False(MemoryExtractionRegistry.Cancel("u-closed", "t1"), "no slot was registered for a closed socket");
+        MemoryExtractionSlot open = MemoryExtractionRegistry.ReserveIfOpen(true, "u-closed", "t1");
+        Assert.NotNull(open);
+        open.Dispose();
+        // Without a slot the extractor does not reserve one for itself and makes no model call.
+        Fake fake = new();
+        await MemoryExtractionService.RunAfterTurnAsync(null, "t1", "m", _ => Task.CompletedTask, null, fake.Generate);
+        Assert.Empty(fake.Calls);
+        MemoryExtractionSlot after = MemoryExtractionRegistry.Reserve("u-closed", "t1");
+        Assert.NotNull(after);
+        after.Dispose();
+    }
 }

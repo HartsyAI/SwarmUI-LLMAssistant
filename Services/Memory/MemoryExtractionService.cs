@@ -38,6 +38,9 @@ public static class MemoryExtractionRegistry
         return cts is null ? null : new MemoryExtractionSlot(userId, threadId, cts);
     }
 
+    /// <summary>Reserves a turn's extraction only when the chat socket is still open (otherwise nobody is left to show the notice to, and null is returned).</summary>
+    public static MemoryExtractionSlot ReserveIfOpen(bool socketOpen, string userId, string threadId) => socketOpen ? Reserve(userId, threadId) : null;
+
     /// <summary>Unregisters and disposes the extraction (only if it is still the one registered).</summary>
     public static void End(string userId, string threadId, CancellationTokenSource cts)
     {
@@ -254,8 +257,12 @@ public static class MemoryExtractionService
     /// permission, a session chat, the chat's and the assistant's own opt-outs.</summary>
     public static async Task RunAfterTurnAsync(Session session, string threadId, string chatModel, Func<JObject, Task> notify, MemoryExtractionSlot slot = null, Generator generate = null)
     {
-        // A slot reserved by the caller (before the title was made) is used and disposed here; without one it is reserved now.
-        slot ??= session?.User is null ? null : MemoryExtractionRegistry.Reserve(session.User.UserID, threadId);
+        // The slot reserved by the caller (before the title was made) is used and disposed here. Without one (the socket was already closed, or one is already running) nothing runs: it is never
+        // reserved here, so an extraction cannot start for a chat nobody is left to show a notice to.
+        if (slot is null)
+        {
+            return;
+        }
         try
         {
             User user = session?.User;

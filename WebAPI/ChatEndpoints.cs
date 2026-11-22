@@ -937,12 +937,15 @@ public static class ChatEndpoints
             // start more model work the instant the user asked for it to stop.
             // The automatic memory extractor (off unless the user turned it on) is reserved now, before the title is made, so a Stop, a closed socket or a new reply during the title already reaches it;
             // with the socket already closed there is nobody to show a notice to, so it does not run at all. See MemoryExtractionService.
-            memorySlot = socket.State == WebSocketState.Open ? MemoryExtractionRegistry.Reserve(session.User.UserID, threadId) : null;
+            memorySlot = MemoryExtractionRegistry.ReserveIfOpen(socket.State == WebSocketState.Open, session.User.UserID, threadId);
             try
             {
                 await MaybeGenerateTitleAsync(socket, session, threadId, model);
                 // The reply is already delivered. The extractor runs after the title, on the reserved slot; the socket is awaited only so it stays open to carry the notice.
-                await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame), memorySlot);
+                if (memorySlot is not null)
+                {
+                    await MemoryExtractionService.RunAfterTurnAsync(session, threadId, model, frame => SendWsFrame(socket, frame), memorySlot);
+                }
             }
             finally
             {
