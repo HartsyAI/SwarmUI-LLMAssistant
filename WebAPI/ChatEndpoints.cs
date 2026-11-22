@@ -9,6 +9,7 @@ using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
+using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using HartsyInference.Engine.Requests;
@@ -1139,6 +1140,8 @@ public static class ChatEndpoints
                 // fast bail for this lane rather than starting the model anyway.
                 LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(L.Model, session);
                 string systemPrompt = await ResolveInstructionForTurnAsync(instructionId, assistantId, settings, session, thread, false, cts.Token, modelInfo);
+                // Each lane gets the chat-model style of its own model (the same call as a single-model turn makes in TurnSetupService).
+                systemPrompt = (await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, L.Model, modelInfo, enabledTools.Count > 0)).Prompt;
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
                 ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);

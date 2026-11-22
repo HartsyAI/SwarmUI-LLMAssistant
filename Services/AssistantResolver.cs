@@ -37,6 +37,10 @@ public class ResolvedAssistant
     /// like <see cref="EnabledToolIds"/>, since this is a single on/off switch, not a set to grow.</summary>
     public bool ToolsEnabled = true;
 
+    /// <summary>Whether the chat-model addendum of a matching <c>llm</c> prompt style (see <c>LlmAddendumService</c>) is added to this assistant's system prompt. On unless the assistant says
+    /// <c>promptAddendum: false</c>; child wins when explicitly set, like <see cref="ToolsEnabled"/>.</summary>
+    public bool PromptAddendum = true;
+
     /// <summary>Per-tool config blobs, deep-merged across the chain. Read by tools at execution
     /// time via <see cref="ToolConfigService"/>.</summary>
     public Dictionary<string, JObject> ToolConfig = [];
@@ -49,6 +53,22 @@ public class ResolvedAssistant
     /// <summary>Walked-through-this-order list of assistant ids for debugging
     /// (eg <c>["yuki", "anime-base", "default"]</c>).</summary>
     public List<string> Lineage = [];
+
+    /// <summary>How specific the model-specific variant of <paramref name="instructionId"/> that wins for <paramref name="model"/> is (its matcher's <see cref="LLMModelMatcher.Specificity"/>), or -1 when
+    /// the assistant has no such variant, so its default text is used. Lets a caller tell an instruction the user wrote for this very model from one written for every model.</summary>
+    public int MatchedVariantSpecificity(string instructionId, LLMModelInfo model)
+    {
+        if (!Instructions.TryGetValue(instructionId, out List<InstructionVariant> variants))
+        {
+            return -1;
+        }
+        int best = -1;
+        foreach (InstructionVariant variant in variants.Where(v => v.Matcher.Kind != ModelMatchKind.Default && !string.IsNullOrEmpty(v.Text) && v.Matcher.Matches(model)))
+        {
+            best = Math.Max(best, variant.Matcher.Specificity);
+        }
+        return best;
+    }
 
     /// <summary>Returns the best instruction text for a given id and model. Empty string if
     /// no candidate matches and no default exists.</summary>
@@ -198,6 +218,11 @@ public static class AssistantResolver
         if (layer["toolsEnabled"]?.Type == JTokenType.Boolean)
         {
             target.ToolsEnabled = layer["toolsEnabled"].Value<bool>();
+        }
+        // PromptAddendum — child wins iff explicitly present, like ToolsEnabled.
+        if (layer["promptAddendum"]?.Type == JTokenType.Boolean)
+        {
+            target.PromptAddendum = layer["promptAddendum"].Value<bool>();
         }
         // EnabledToolIds — replace-if-present (explicit list, even empty, IS the set; absent inherits).
         if (layer["enabledToolIds"] is JArray ids)

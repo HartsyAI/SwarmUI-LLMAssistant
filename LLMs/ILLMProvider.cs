@@ -28,6 +28,10 @@ public interface ILLMProvider
     /// cached list must be kept per user.</summary>
     bool ModelsVaryByUser => false;
 
+    /// <summary>The model this provider answers with when a request names none (for example the default model set on its backend), or null when it does not say. Lets a caller that needs to know which
+    /// model will answer (to choose model-specific prompting) do so without guessing.</summary>
+    string DefaultModelId => null;
+
     /// <summary>Lists the models <paramref name="session"/>'s user can reach. The default ignores the session.</summary>
     Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModels(ct);
 

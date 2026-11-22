@@ -101,6 +101,11 @@ public static class PromptStyleResolver
 
     /// <summary>The style for a chat model, for <paramref name="task"/> (null or empty for any task).</summary>
     public static StyleResolution ResolveLlm(IEnumerable<PromptStyle> styles, IEnumerable<StyleOverride> overrides, LLMModelInfo model, string task = null)
+        => ResolveLlm(styles, overrides, model, string.IsNullOrEmpty(task) ? null : [task]);
+
+    /// <summary>The style for a chat model doing any of <paramref name="tasks"/> at once (a chat turn that offers tools is both <c>chat</c> and <c>tools</c>); null or empty for any task. A style that names tasks applies
+    /// when at least one of them is in <paramref name="tasks"/>.</summary>
+    public static StyleResolution ResolveLlm(IEnumerable<PromptStyle> styles, IEnumerable<StyleOverride> overrides, LLMModelInfo model, IReadOnlyCollection<string> tasks)
     {
         List<PromptStyle> chatStyles = [.. styles.Where(s => s.Kind == PromptStyle.KindLlm)];
         string note = "";
@@ -114,7 +119,7 @@ public static class PromptStyleResolver
             }
         }
         List<(PromptStyle Style, string Matched, int Rank)> hits = [];
-        foreach (PromptStyle style in chatStyles.Where(s => string.IsNullOrEmpty(task) || s.Tasks.Count == 0 || s.Tasks.Contains(task)))
+        foreach (PromptStyle style in chatStyles.Where(s => tasks is null || tasks.Count == 0 || s.Tasks.Count == 0 || s.Tasks.Any(t => tasks.Contains(t))))
         {
             if (style.Matches.Count == 0)
             {

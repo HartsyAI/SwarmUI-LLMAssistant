@@ -69,6 +69,9 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
     public override bool ModelsVaryByUser => true;
 
     /// <inheritdoc/>
+    public override string DefaultModelId => string.IsNullOrWhiteSpace(Settings.DefaultModel) ? null : Settings.DefaultModel.Trim();
+
+    /// <inheritdoc/>
     public override Task<List<LLMModelInfo>> ListModelsFor(Session session, CancellationToken ct = default) => ListModelsAs(new ExtendedLLMInput { RequestSession = session }, ct);
 
     /// <summary>The <c>anthropic-version</c> Anthropic's own (non-OpenAI-shaped) routes require, here the Models API.</summary>

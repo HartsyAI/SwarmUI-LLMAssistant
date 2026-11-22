@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -203,7 +204,7 @@ public static class HeadlessTurnService
         {
             warnings.Add("The chat is long enough that the start of it would be summarized first (a model call).");
         }
-        if (prepared.ContextWindow > 0 && characters / 4 > prepared.ContextWindow)
+        if (prepared.ContextWindow > 0 && LlmAddendumService.EstimateTokens(characters) > prepared.ContextWindow)
         {
             warnings.Add("The request is larger than the model's window.");
         }
@@ -223,7 +224,9 @@ public static class HeadlessTurnService
             ["tools"] = new JArray(prepared.EnabledTools.Select(t => t["id"]?.ToString())),
             ["historyMessages"] = conversation.Count,
             ["systemPromptChars"] = input.SystemPrompt?.Length ?? 0,
-            ["estimatedPromptTokens"] = (int)(characters / 4),
+            // What the chat-model prompt style added to the system prompt, and its cost (already counted in the two figures around it).
+            ["promptAddendum"] = (prepared.Addendum ?? LlmAddendum.Nothing("")).ToJson(),
+            ["estimatedPromptTokens"] = LlmAddendumService.EstimateTokens(characters),
             ["contextWindow"] = prepared.ContextWindow,
             ["wouldCompact"] = prepared.WouldCompact,
             ["warnings"] = warnings,

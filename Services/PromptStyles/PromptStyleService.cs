@@ -126,6 +126,10 @@ public static class PromptStyleService
         {
             return "The instructions are empty.";
         }
+        if (style.Kind == PromptStyle.KindLlm && LlmAddendumService.Normalize(style.Body).Length > LlmAddendumService.MaxChars)
+        {
+            return $"A chat-model style is added to every request on its model, so it can be up to {LlmAddendumService.MaxChars} characters.";
+        }
         if (Encoding.UTF8.GetByteCount(PromptStyleFile.Format(style)) > PromptAsset.MaxFileBytes)
         {
             return $"The style is too long (the limit is {PromptAsset.MaxFileBytes / 1024} KB).";
