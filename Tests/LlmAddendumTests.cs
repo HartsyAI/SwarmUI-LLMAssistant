@@ -280,7 +280,7 @@ public sealed class LlmAddendumTests
     public void TurnSetupAddsTheAddendumAfterTheInstructionAndTheFinalToolListAndBeforeAnythingElseIsAppended()
     {
         string source = Read("Services", "TurnSetupService.cs");
-        int instruction = At(source, "ResolveInstructionForRequest(");
+        int instruction = At(source, "ResolveInstructionForTurnAsync(");
         int narrowed = At(source, "NarrowTools(");
         int addendum = At(source, "LlmAddendumService.ApplyAsync(");
         Assert.True(instruction > 0 && narrowed > instruction && addendum > narrowed, "The addendum is added after the instruction is resolved and the tools the turn will really send are known.");
@@ -297,7 +297,7 @@ public sealed class LlmAddendumTests
     {
         string source = Read("WebAPI", "ChatEndpoints.cs");
         int lane = At(source, "async Task RunLane(int lane)");
-        int instruction = At(source, "ResolveInstructionForRequest(", lane);
+        int instruction = At(source, "ResolveInstructionForTurnAsync(", lane);
         int addendum = At(source, "LlmAddendumService.ApplyAsync(", instruction);
         int index = At(source, "PromptAssetService.AppendIndex(", instruction);
         Assert.True(lane > 0 && instruction > lane && addendum > instruction && index > addendum, "A lane adds its own model's addendum right after its instruction.");
