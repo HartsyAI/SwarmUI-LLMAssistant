@@ -255,7 +255,7 @@ test('the per-assistant and per-chat switches through the API', async ({ llm }) 
 
     let created = await api(llm, 'LLMAssistantCreateThread', { rememberChat: true });
     expect(created.success, JSON.stringify(created)).toBe(true);
-    let threadId = created.threadId;
+    let threadId = created.thread.id;
     expect((await api(llm, 'LLMAssistantSetThreadMemory', { threadId, enabled: false })).memoryExtraction).toBe(false);
     expect((await api(llm, 'LLMAssistantGetThread', { threadId })).thread.memoryExtraction).toBe(false);
     expect((await api(llm, 'LLMAssistantSetThreadMemory', { threadId })).memoryExtraction).toBeNull();
