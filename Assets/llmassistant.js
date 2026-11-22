@@ -164,6 +164,8 @@ async function llmaLoadSettings() {
     }
     // The top bar's "don't remember this chat" button shows only while the automatic extractor is on.
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
+    // The pause switches and the admin switch are the server's to say (they are not saved with the other settings).
+    if (typeof llmaRefreshMemoryControls === 'function') llmaRefreshMemoryControls();
 }
 
 async function llmaSaveSettings() {
@@ -1397,6 +1399,7 @@ function llmaSetupSettingsModal() {
     document.getElementById('llma-asst-extends')?.addEventListener('change', llmaRefreshPromptAddendumBox);
     document.getElementById('llma-asst-memory-extraction')?.addEventListener('change', () => { LLMAState._editingMemoryExtractionTouched = true; });
     document.getElementById('llma-memory-toggle-btn')?.addEventListener('click', llmaToggleThreadMemory);
+    document.getElementById('llma-memory-pause-btn')?.addEventListener('click', llmaToggleMemoryPause);
     document.getElementById('llma-asst-tools-enabled')?.addEventListener('change', (e) => {
         llmaUpdateAssistantToolsChecklistState(e.target.checked);
     });

@@ -1,7 +1,7 @@
 import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, clearMemory, embeddingRequests, clearEmbeddingRequests, failEmbeddings } from './fixtures';
 import type { Page } from '@playwright/test';
 
-// Memory notes: what the model saves with memory_write, how it reaches the next prompt (as marked data), memory_read, the old profile's shape, and the read-only Memory tab.
+// Memory notes: what the model saves with memory_write, how it reaches the next prompt (as marked data), memory_read, the old profile's shape, and the Memory tab.
 
 const test = base.extend<{ llm: Page }>({
     llm: async ({ llm }, use) => {
@@ -146,7 +146,7 @@ test('a set too big for the prompt budget keeps the pinned notes and the ones th
     expect(system.split('\n').filter(l => l.startsWith('- [fact] Filler')).length).toBeLessThan(40);
 });
 
-test('the Memory tab lists the notes read-only, and clearing memory empties it and the prompt', async ({ llm }) => {
+test('the Memory tab lists the notes, and clearing memory empties it and the prompt', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="memory"]').click();
     await expect(llm.locator('#llma-memory-list')).toContainText('Nothing is remembered yet');
@@ -159,7 +159,8 @@ test('the Memory tab lists the notes read-only, and clearing memory empties it a
     await expect(llm.locator('#llma-memory-list .llma-memory-note')).toContainText('Short, plain answers');
     await expect(llm.locator('#llma-memory-list .llma-memory-note')).toContainText('style');
     await expect(llm.locator('#llma-memory-totals')).toContainText('1 /');
-    await expect(llm.locator('#llma-memory-list button, #llma-memory-list input')).toHaveCount(0);
+    // The list is a manager now (edit, pin, delete, select); memory-controls.spec.ts covers those.
+    await expect(llm.locator('#llma-memory-list .llma-memory-note .llma-memory-edit')).toHaveCount(1);
     await llm.locator('#llma-settings-close').click();
 
     expect((await api(llm, 'LLMAssistantClearUserProfile')).success).toBe(true);
