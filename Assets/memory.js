@@ -144,7 +144,7 @@ class LLMAMemorySettings {
             + `<label class="d-block mb-1"><input type="checkbox" id="llma-mempause-saving" ${c.pause.saving ? 'checked' : ''}> ${translate('Pause saving')}</label>`
             + `<div class="small text-muted ms-4 mb-2">${translate('While on, nothing new is saved: not by the automatic extractor and not by the assistant\'s memory tool. Notes you edit here are not affected.')}</div>`
             + `<label class="d-block mb-1"><input type="checkbox" id="llma-mempause-recall" ${c.pause.recall ? 'checked' : ''}> ${translate('Pause recall')}</label>`
-            + `<div class="small text-muted ms-4 mb-2">${translate('While on, saved notes are not given to the assistant: not in its prompt and not through its memory tool. Nothing is deleted.')}</div>`
+            + `<div class="small text-muted ms-4 mb-2">${translate('While on, saved notes are not given to any model: not in the assistant\'s prompt, not through its memory tool, and not to the automatic extractor (which then sees none of them and can only add). Nothing is deleted.')}</div>`
             + `<div class="small mb-2" id="llma-memory-where"></div><hr>`;
         for (let [id, field] of [['llma-mempause-saving', 'savingPaused'], ['llma-mempause-recall', 'recallPaused']]) {
             document.getElementById(id).addEventListener('change', async (e) => {
@@ -153,7 +153,6 @@ class LLMAMemorySettings {
                     e.target.checked = !e.target.checked;
                 }
                 this.renderPause();
-                this.renderExtraction();
             });
         }
         this.renderWhere();
@@ -200,8 +199,7 @@ class LLMAMemorySettings {
         let locked = c.admin.extractionDisabled;
         let models = ((typeof LLMAState != 'undefined' && LLMAState.availableModels) || []).map(m => m.id).slice(0, 500);
         let options = models.map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
-        box.innerHTML = `<h6>${translate('Save memories automatically')}</h6>`
-            + (locked ? `<div class="alert alert-warning py-2 llma-memory-admin-lock">${translate('An administrator has switched off automatic saving for everyone, so this cannot be turned on. The assistant can still save a note when you ask it to remember something.')}</div>` : '')
+        box.innerHTML = `<h6>${translate('Save memories automatically')}</h6><div id="llma-memx-lock"></div>`
             + `<label class="d-block mb-1"><input type="checkbox" id="llma-memx-enabled" ${s.enabled ? 'checked' : ''} ${locked ? 'disabled' : ''}> ${translate('After a reply, look for things worth remembering about me')}</label>`
             + `<div class="small text-muted mb-2">${translate('Off by default. When on, a turn where you say something about yourself costs one extra model call after the reply (at most 20 an hour). It reads only what you and the assistant wrote, never tool results, web pages or attachments, and a turn where the assistant used a tool is read from your messages alone. Every change is shown in the chat with an Undo.')}</div>`
             + `<div class="mb-2"><label class="small" for="llma-memx-model">${translate('Model that does it')}</label>`
@@ -214,6 +212,7 @@ class LLMAMemorySettings {
             + (c.admin.canWrite ? `<div class="mt-3 llma-memory-admin"><label class="d-block"><input type="checkbox" id="llma-memadmin-off" ${locked ? 'checked' : ''}> ${translate('Admin: switch off automatic saving for all users')}</label>`
                 + `<div class="small text-muted ms-4">${translate('Users cannot turn it back on. It does not delete anything, and the memory tool and recall keep working.')}</div></div>` : '')
             + '<hr>';
+        this.applyAdminLock();
         document.getElementById('llma-memx-save').addEventListener('click', () => this.saveExtraction());
         document.getElementById('llma-memadmin-off')?.addEventListener('change', async (e) => {
             let reply = null;
@@ -234,8 +233,26 @@ class LLMAMemorySettings {
                 }
             }
             this.renderPause();
-            this.renderExtraction();
+            this.applyAdminLock();
         });
+    }
+
+    /** Shows or hides the admin lock on the extractor's form without redrawing it (so what was typed and not yet saved stays). */
+    applyAdminLock() {
+        let lock = document.getElementById('llma-memx-lock');
+        if (!lock) {
+            return;
+        }
+        let locked = this.controlsOrFallback().admin.extractionDisabled;
+        lock.innerHTML = locked ? `<div class="alert alert-warning py-2 llma-memory-admin-lock">${translate('An administrator has switched off automatic saving for everyone, so this cannot be turned on. The assistant can still save a note when you ask it to remember something.')}</div>` : '';
+        let enabled = document.getElementById('llma-memx-enabled');
+        if (enabled) {
+            enabled.disabled = locked;
+        }
+        let admin = document.getElementById('llma-memadmin-off');
+        if (admin) {
+            admin.checked = locked;
+        }
     }
 
     /** Saves the extractor's settings in the user's own settings. */
@@ -332,8 +349,12 @@ class LLMAMemorySettings {
         this.loadControls().then(ok => {
             if (ok) {
                 this.renderPause();
-                this.renderExtraction();
-                this.renderRetention();
+                this.applyAdminLock();
+                // The days box is redrawn only when nothing was typed in it meanwhile.
+                let days = document.getElementById('llma-memret-days');
+                if (days && document.activeElement !== days && days.value === (days.defaultValue || '')) {
+                    this.renderRetention();
+                }
             }
         });
         this.loadChanges();

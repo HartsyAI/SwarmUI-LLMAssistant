@@ -177,6 +177,18 @@ test('a user\'s notes are their own: the API takes no user address', async ({ ll
     let reply = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true, userId: 'someone-else', user: 'someone-else' });
     expect(reply.success).toBe(true);
     expect(reply.notes.map((n: any) => n.text)).toEqual(['Private fact']);
+
+    // The routes that change, export and import notes take no user address either: a smuggled one is ignored, and only the caller's own notes are ever in a reply.
+    let own = reply.notes[0].id;
+    let other = { userId: 'someone-else', user: 'someone-else' };
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: own, ...other })).note.text).toBe('Private fact');
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: 'not-a-note-of-mine', ...other })).code).toBe('notfound');
+    expect((await api(llm, 'LLMAssistantExportMemory', other)).export.notes.map((n: any) => n.text)).toEqual(['Private fact']);
+    expect((await api(llm, 'LLMAssistantGetMemoryControls', other)).success).toBe(true);
+    expect((await api(llm, 'LLMAssistantUpdateMemoryNote', { id: own, pinned: true, ...other })).note.pinned).toBe(true);
+    expect((await api(llm, 'LLMAssistantDeleteMemoryNotes', { ids: ['x', 'y'], ...other })).deleted).toBe(0);
+    expect((await api(llm, 'LLMAssistantDeleteMemoryNotes', { ids: [own], ...other })).deleted).toBe(1);
+    expect((await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true })).notes).toHaveLength(0);
 });
 
 /** Picks the harness's embedding backend and model, as the Knowledge tab does. */

@@ -482,6 +482,69 @@ public class MemoryControlTests
         Assert.All(keys, k => Assert.Contains(k, Hartsy.Extensions.LLMAssistant.WebAPI.SettingsEndpoints.OwnRouteKeys));
     }
 
+// ---- Pause recall and what else it covers ----
+
+    [Fact]
+    public void Resuming_recall_restarts_the_unused_clock_so_a_long_pause_forgets_nothing_and_a_sweep_never_runs_while_paused()
+    {
+        MemoryService.ResetRetentionForTests();
+        DateTime now = T0;
+        MemoryStore store = StoreOf(new Storage(), () => now);
+        MemoryNote note = Add(store, "fact", "Waiting through a long pause");
+        MemoryControls paused = new(false, true, 30, false);
+        MemoryControls running = new(false, false, 30, false);
+        now = T0.AddDays(200);
+
+        // Setting retention while recall is paused sweeps nothing.
+        Assert.Equal(0, MemoryService.ApplyControlsChange(store, "u1", paused, paused, true));
+        Assert.NotNull(store.Load().Find(note.Id));
+
+        // Resuming restarts every note's clock, so the next sweep (even a forced one) finds nothing old.
+        Assert.Equal(0, MemoryService.ApplyControlsChange(store, "u1", paused, running, false));
+        Assert.Equal(now.ToString("o"), store.Load().Find(note.Id).LastUsed);
+        Assert.Null(store.ApplyRetention(30));
+        Assert.NotNull(store.Load().Find(note.Id));
+
+        // Setting retention while running does sweep, at once.
+        now = now.AddDays(100);
+        Assert.Equal(1, MemoryService.ApplyControlsChange(store, "u1", running, running, true));
+        Assert.Empty(store.Load().Notes);
+        MemoryService.ResetRetentionForTests();
+    }
+
+    [Fact]
+    public async Task While_recall_is_paused_the_extractor_is_shown_none_of_the_notes_and_while_it_is_not_it_is()
+    {
+        MemoryExtractionService.ResetForTests();
+        MemoryStore store = StoreOf(new Storage());
+        Add(store, "fact", "Secretly keeps bees in the garden");
+        string Thread(string id) => new JObject
+        {
+            ["id"] = "t1",
+            ["activeLeafId"] = id + "b",
+            ["messages"] = new JArray(
+                new JObject { ["id"] = id + "a", ["role"] = "user", ["content"] = "I moved to Lyon last month and I work as a nurse.", ["parentId"] = null },
+                new JObject { ["id"] = id + "b", ["role"] = "assistant", ["content"] = "Lyon is lovely.", ["parentId"] = id + "a" })
+        }.ToString();
+        List<Hartsy.Extensions.LLMAssistant.LLMs.ExtendedLLMInput> calls = [];
+        Task<Hartsy.Extensions.LLMAssistant.LLMs.LLMGenerateResult> Generate(Hartsy.Extensions.LLMAssistant.LLMs.ExtendedLLMInput input, CancellationToken ct)
+        {
+            calls.Add(input);
+            return Task.FromResult(Hartsy.Extensions.LLMAssistant.LLMs.LLMGenerateResult.FromText("{\"ops\":[]}"));
+        }
+        MemoryExtractionSettings on = new(true, "", []);
+
+        await MemoryExtractionService.ExtractAsync(store, "u1", "t1", JObject.Parse(Thread("p")), on, "m", null, Generate, CancellationToken.None, null, showNotes: false);
+        Assert.Single(calls);
+        Assert.DoesNotContain("bees", calls[0].UserMessage);
+        Assert.Contains("Lyon", calls[0].UserMessage);
+
+        await MemoryExtractionService.ExtractAsync(store, "u1", "t1", JObject.Parse(Thread("q")), on, "m", null, Generate, CancellationToken.None);
+        Assert.Equal(2, calls.Count);
+        Assert.Contains("bees", calls[1].UserMessage);
+        MemoryExtractionService.ResetForTests();
+    }
+
     // ---- One user never touches another's ----
 
     [Fact]

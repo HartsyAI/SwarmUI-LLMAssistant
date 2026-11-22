@@ -304,6 +304,22 @@ public static class MemoryService
         }
     }
 
+    /// <summary>What a change of the user's own controls has to do to their notes. When recall is resumed, every note's unused time starts again (nothing was marked used while it was paused, so a
+    /// long pause would otherwise make the next sweep forget notes that were only waiting). When retention was just set and recall is not paused, a sweep runs at once so the user sees what it does
+    /// (never while recall is paused, for the same reason). Returns how many notes that sweep forgot.</summary>
+    public static int ApplyControlsChange(MemoryStore store, string userId, MemoryControls before, MemoryControls after, bool retentionChanged)
+    {
+        if (store is null)
+        {
+            return 0;
+        }
+        if (before.RecallPaused && !after.RecallPaused)
+        {
+            store.MarkUsed(store.Load().Notes.Select(n => n.Id));
+        }
+        return retentionChanged && !after.RecallPaused ? RunRetentionIfDue(store, userId, after.RetentionDays, true)?.Changes.Count ?? 0 : 0;
+    }
+
     /// <summary>Forgets every remembered sweep time (for tests).</summary>
     internal static void ResetRetentionForTests() => LastRetention.Clear();
 

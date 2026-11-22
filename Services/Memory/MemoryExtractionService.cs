@@ -244,7 +244,7 @@ public static class MemoryExtractionService
                 return;
             }
             ExtractionOutcome outcome = await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, cts.Token,
-                () => !MemoryControls.ForUser(user).ExtractionAllowed(MemoryExtractionSettings.ForUser(user).Enabled));
+                () => !MemoryControls.ForUser(user).ExtractionAllowed(MemoryExtractionSettings.ForUser(user).Enabled), !MemoryControls.ForUser(user).RecallPaused);
             Logs.Debug($"[LLMAssistant] Memory extraction for chat {threadId}: {outcome.Status} ({outcome.Detail}).");
             if (outcome.Changes is not null && notify is not null)
             {
@@ -269,8 +269,8 @@ public static class MemoryExtractionService
     }
 
     /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). <paramref name="blocked"/> says whether saving has been paused (or switched off by an admin) since
-    /// the extraction began, and is asked again just before anything is saved. Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
-    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, Func<bool> blocked = null)
+    /// the extraction began, and is asked again just before anything is saved. With <paramref name="showNotes"/> false (recall is paused) the model is shown none of the notes, so it can only add. Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
+    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, Func<bool> blocked = null, bool showNotes = true)
     {
         MemoryTranscript transcript = MemoryTranscriptBuilder.Build(thread);
         if (transcript is null)
@@ -318,7 +318,7 @@ public static class MemoryExtractionService
             ct.ThrowIfCancellationRequested();
             // Memory cleared while the model is working must not be written to afterwards: the epoch is read before the notes are, and checked again under the lock when saving.
             int epoch = store.Epoch();
-            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(store.Load(), transcript, never);
+            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(showNotes ? store.Load() : new MemoryNoteSet(), transcript, never);
             string userMessage = prompt.User;
             MemoryParseResult parsed = null;
             // The whole extraction, retry included, has one deadline.

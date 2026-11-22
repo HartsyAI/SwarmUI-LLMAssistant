@@ -6,7 +6,7 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Memory;
 /// <para>The pause switches and retention are the user's own layer only (never the shared one, like <see cref="MemoryExtractionSettings"/>). The admin switch is the shared layer only (never
 /// the user's, which a user could otherwise shadow it with). All of it is decided by <see cref="From"/> over two settings objects, so it is tested without a running server.</para></summary>
 /// <param name="SavingPaused">Nothing is saved by the model or by the automatic extractor while on (the user's own edits in Settings are never paused).</param>
-/// <param name="RecallPaused">No note reaches a model while on: not the prompt block, not the name, not <c>memory_read</c>.</param>
+/// <param name="RecallPaused">No note reaches a model while on: not the chat's prompt block, not the name, not <c>memory_read</c>, and not the automatic extractor (which then sees none of the notes and can only add).</param>
 /// <param name="RetentionDays">Notes not used for this many days are forgotten (pinned and slot notes never are); 0 means never.</param>
 /// <param name="AdminExtractionDisabled">An admin switched the automatic extractor off for every user, and a user cannot switch it back on.</param>
 public sealed record MemoryControls(bool SavingPaused, bool RecallPaused, int RetentionDays, bool AdminExtractionDisabled)

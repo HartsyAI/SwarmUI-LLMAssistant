@@ -269,7 +269,7 @@ public static class MemoryEndpoints
     }
 
     /// <summary>Changes the calling user's own pause switches and retention. Request: any of <c>savingPaused</c>, <c>recallPaused</c> (booleans) and <c>unusedDays</c> (0 for off, otherwise
-    /// 7 to 3650). Setting <c>unusedDays</c> applies it at once; the reply says what was forgotten in <c>forgotten</c> (it can be undone from the history). Replies with the new controls, like
+    /// 7 to 3650). Setting <c>unusedDays</c> applies it at once (not while recall is paused); the reply says what was forgotten in <c>forgotten</c> (it can be undone from the history). Replies with the new controls, like
     /// <see cref="LLMAssistantGetMemoryControls"/>.</summary>
     public static async Task<JObject> LLMAssistantSetMemoryControls(Session session, JObject rawInput)
     {
@@ -284,12 +284,13 @@ public static class MemoryEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "Nothing to change." };
             }
+            MemoryControls before = MemoryControls.ForUser(session.User);
             SettingsService.PatchUserSettings(session.User, patch);
+            int forgotten = MemoryService.ApplyControlsChange(MemoryService.StoreFor(session.User), session.User.UserID, before, MemoryControls.ForUser(session.User), patch[MemoryControls.RetentionKey] is not null);
             JObject reply = await LLMAssistantGetMemoryControls(session);
             if (patch[MemoryControls.RetentionKey] is not null)
             {
-                MemoryChangeSet forgotten = MemoryService.RunRetentionIfDue(MemoryService.StoreFor(session.User), session.User.UserID, MemoryControls.ForUser(session.User).RetentionDays, true);
-                reply["forgotten"] = forgotten?.Changes.Count ?? 0;
+                reply["forgotten"] = forgotten;
             }
             return reply;
         }
