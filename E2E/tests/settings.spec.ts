@@ -57,6 +57,8 @@ test('changed settings save, persist and show again when the dialog reopens', as
     expect(saved.settings.ui.markdownEnabled).toBe(false);
     await llm.reload();
     await llm.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
+    // The Settings button works once the tab has finished starting (its models are listed); a click before that does nothing, which made this test flaky.
+    await expect(llm.locator('#llma-model-select option[value="mock-model"]')).toHaveCount(1, { timeout: 30_000 });
     await openSettings(llm);
     await expect(llm.locator('#llma-s-max-tokens')).toHaveValue('2048');
     await expect(llm.locator('#llma-s-markdown')).not.toBeChecked();
