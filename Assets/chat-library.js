@@ -127,7 +127,7 @@ class LLMALibrary {
             }
             requestedMode = filter;
             reply = await llmaRequest('LLMAssistantSearchThreads', args);
-            failed = !reply || reply.success === false;
+            failed = !reply || reply.success == false;
         }
         catch (e) {
             failed = true;
@@ -292,7 +292,7 @@ class LLMALibrary {
         let error = null;
         try {
             let reply = await llmaRequest('LLMAssistantPinThread', { threadId, pinned });
-            if (reply?.success === false) {
+            if (reply?.success == false) {
                 error = reply.error || 'Could not pin the chat';
             }
         }
@@ -300,18 +300,24 @@ class LLMALibrary {
             error = llmaShortError(e) || 'Could not pin the chat';
         }
         queue.pending--;
-        if (queue.pending == 0 && this.pinQueue.get(threadId) === queue) {
+        if (queue.pending == 0 && this.pinQueue.get(threadId) == queue) {
             this.pinQueue.delete(threadId);
         }
-        if (error) {
-            llmaShowToast(error, 'error');
-            await llmaLoadThreads();
-            return;
+        // Whatever happens drawing the list, the queue carries on: a request waiting behind this one must still be sent.
+        try {
+            if (error) {
+                llmaShowToast(error, 'error');
+                await llmaLoadThreads();
+                return;
+            }
+            let thread = LLMAState.threads.find(t => t.id == threadId);
+            if (queue.pending == 0 && thread && !!thread.pinned != pinned) {
+                this.setPinned(thread, pinned);
+                llmaRenderThreadList(LLMAState.threads);
+            }
         }
-        let thread = LLMAState.threads.find(t => t.id == threadId);
-        if (queue.pending == 0 && thread && !!thread.pinned != pinned) {
-            this.setPinned(thread, pinned);
-            llmaRenderThreadList(LLMAState.threads);
+        catch (e) {
+            console.error('[LLMAssistant] Could not redraw the chat list after a pin:', e);
         }
     }
 

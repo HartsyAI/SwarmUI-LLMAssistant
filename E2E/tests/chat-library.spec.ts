@@ -456,6 +456,10 @@ test('a pin made while the title is being generated is kept, and so is a rename'
     expect((await api(llm, 'LLMAssistantRenameThread', { threadId: second, title: 'My own name' })).success).toBe(true);
     await llm.waitForTimeout(6000);
     expect((await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id === second).title).toBe('My own name');
+    // The page was not told of the title that was refused: only the first chat shows the generated one, in the list and in the header.
+    expect(await names(llm)).toEqual(expect.arrayContaining(['Generated title']));
+    expect((await names(llm)).filter(n => n === 'Generated title')).toHaveLength(1);
+    await expect(llm.locator('#llma-thread-title')).not.toHaveText('Generated title');
 });
 
 test('the search on screen follows new messages, deletes and renames without being retyped', async ({ llm }) => {

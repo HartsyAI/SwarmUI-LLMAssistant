@@ -68,27 +68,41 @@ public static class ThreadExport
     }
 
     /// <summary>Message text made safe to put under a speaker heading: outside code fences, a line that would be a heading or a rule (<c>#</c>, <c>===</c>, <c>---</c>) gets a backslash so it shows as
-    /// text and cannot pass for the next speaker or turn the line above it into a heading, and a code fence the text leaves open is closed so it cannot swallow what follows.</summary>
+    /// text and cannot pass for the next speaker or turn the line above it into a heading, and a code fence the text leaves open is closed so it cannot swallow what follows. Fences follow CommonMark:
+    /// an opener is three or more backticks or tildes (up to three spaces in; a backtick fence's info text may not hold a backtick), and a closer is the same character, at least as many, with only
+    /// spaces after it. Line breaks are <c>\n</c>, <c>\r\n</c> or a lone <c>\r</c>.</summary>
     public static string EscapeBody(string text)
     {
         List<string> lines = [];
         char fence = '\0';
-        foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+        int fenceLength = 0;
+        foreach (string line in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
         {
             string trimmed = line.TrimStart(' ');
             bool indented = line.Length - trimmed.Length <= 3;
-            if (indented && (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal)))
+            if (indented && (trimmed.StartsWith('`') || trimmed.StartsWith('~')))
             {
-                if (fence == '\0')
+                char mark = trimmed[0];
+                int run = 0;
+                while (run < trimmed.Length && trimmed[run] == mark)
                 {
-                    fence = trimmed[0];
+                    run++;
                 }
-                else if (trimmed[0] == fence)
+                string after = trimmed[run..];
+                if (fence == '\0' && run >= 3 && !(mark == '`' && after.Contains('`')))
+                {
+                    fence = mark;
+                    fenceLength = run;
+                    lines.Add(line);
+                    continue;
+                }
+                if (fence != '\0' && mark == fence && run >= fenceLength && after.Trim(' ', '\t').Length == 0)
                 {
                     fence = '\0';
+                    fenceLength = 0;
+                    lines.Add(line);
+                    continue;
                 }
-                lines.Add(line);
-                continue;
             }
             string rest = trimmed.TrimEnd();
             bool rule = rest.Length > 0 && (rest.All(c => c == '=') || (rest.Contains('-') && rest.All(c => c == '-' || c == ' ')));
@@ -97,7 +111,7 @@ public static class ThreadExport
         }
         if (fence != '\0')
         {
-            lines.Add(new string(fence, 3));
+            lines.Add(new string(fence, Math.Max(3, fenceLength)));
         }
         return string.Join('\n', lines);
     }

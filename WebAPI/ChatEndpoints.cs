@@ -987,6 +987,7 @@ public static class ChatEndpoints
                 return;
             }
             string title = await GenerateChatTitle(userText, replyText, model);
+            bool written = false;
             if (!string.IsNullOrWhiteSpace(title))
             {
                 // Only if nobody renamed the chat while the model was thinking.
@@ -997,10 +998,12 @@ public static class ChatEndpoints
                         return false;
                     }
                     t["title"] = title;
+                    written = true;
                     return true;
                 });
             }
-            if (!string.IsNullOrWhiteSpace(title) && socket.State == WebSocketState.Open)
+            // The page is told only of a title that was saved: after a rename in the meantime it keeps the user's.
+            if (written && socket.State == WebSocketState.Open)
             {
                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(new JObject { ["titleUpdated"] = title, ["threadId"] = threadId }.ToString(Newtonsoft.Json.Formatting.None));
                 await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);

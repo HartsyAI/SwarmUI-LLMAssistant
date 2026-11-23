@@ -352,7 +352,9 @@ function llmaBindThreadListEvents(list) {
     list.querySelectorAll('.llma-thread-item').forEach(item => {
         item.addEventListener('click', (e) => {
             // Swallow clicks on hover-only action buttons; they handle their own events.
-            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-pin, .llma-thread-rename-input, .llma-thread-branch-toggle, .llma-session-toggle')) return;
+            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-pin, .llma-thread-rename-input, .llma-thread-branch-toggle, .llma-session-toggle')) {
+                return;
+            }
             // In select mode, clicking the row toggles the checkbox instead of switching threads.
             if (llmaThreadSelectMode) {
                 if (!e.target.classList.contains('llma-thread-checkbox')) {
@@ -375,7 +377,9 @@ function llmaBindThreadListEvents(list) {
             }
             if (e.key === 'Enter' || e.key === ' ') {
                 // Ignore Enter when the user is typing in the inline rename input.
-                if (e.target.classList?.contains('llma-thread-rename-input') || e.target.closest?.('.llma-thread-pin')) return;
+                if (e.target.classList?.contains('llma-thread-rename-input') || e.target.closest?.('.llma-thread-pin')) {
+                    return;
+                }
                 e.preventDefault();
                 llmaSwitchThread(item.dataset.id);
             }

@@ -8,8 +8,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
 /// <para>Memory is bounded three ways: a user's index holds at most <see cref="MaxUserChars"/> characters of message text (chats after that, newest first, are searched by title only),
 /// each chat and message is capped (see <see cref="ThreadSearch"/>), and at most <see cref="MaxCachedUsers"/> users' indexes are kept: the one used longest ago is dropped and rebuilt on that
 /// user's next search.</para>
-/// <para>Reading chats from storage happens outside any lock, so reading <see cref="Count"/> or <see cref="Partial"/> never waits for a build; two searches at once may both build, and the
-/// second to finish simply writes the same result.</para></summary>
+/// <para>Reading chats from storage is not done under the lock that <see cref="Count"/> and <see cref="Partial"/> use, so they never wait for a build; searches by one user are one build at a time,
+/// so the second finds what the first read.</para></summary>
 public sealed class ThreadSearchIndex
 {
     /// <summary>Most characters of message text one user's index holds. About 40 MB in memory (UTF-16).</summary>
@@ -18,6 +18,8 @@ public sealed class ThreadSearchIndex
     public const int MaxCachedUsers = 8;
 
     private readonly object _lock = new();
+    /// <summary>Held for a whole <see cref="Refresh"/>, so searches made at once by one user share one build instead of each reading every chat (the others wait, then find it cached).</summary>
+    private readonly object _buildLock = new();
     private readonly Dictionary<string, (string Stamp, SearchDoc Doc)> _entries = [];
     /// <summary>When this index was last used (a tick count), for dropping the one used longest ago.</summary>
     internal long LastUsed;
@@ -69,6 +71,14 @@ public sealed class ThreadSearchIndex
     /// <paramref name="load"/> reads one chat blob (null if it cannot); it is called only for chats that are new or changed, and never under a lock.</summary>
     public List<SearchDoc> Refresh(JArray index, Func<string, JObject> load, Func<JObject, bool> include = null)
     {
+        lock (_buildLock)
+        {
+            return RefreshLocked(index, load, include);
+        }
+    }
+
+    private List<SearchDoc> RefreshLocked(JArray index, Func<string, JObject> load, Func<JObject, bool> include)
+    {
         Dictionary<string, (string Stamp, SearchDoc Doc)> known;
         lock (_lock)
         {
@@ -94,6 +104,12 @@ public sealed class ThreadSearchIndex
             {
                 JObject thread = budget > 0 ? load(id) : null;
                 entry = (stamp, ThreadSearch.BuildDoc(id, title, updatedAt, thread, budget));
+                rebuilt[id] = entry;
+            }
+            // The index never holds more than its cap: a chat that no longer fits (others grew) goes back to title only, and is read again when there is room.
+            if (used + entry.Doc.Chars > MaxUserChars)
+            {
+                entry = (stamp, ThreadSearch.BuildDoc(id, title, updatedAt, null, 0));
                 rebuilt[id] = entry;
             }
             used += entry.Doc.Chars;
