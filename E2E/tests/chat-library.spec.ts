@@ -422,3 +422,104 @@ test('importing works with no chats at all, from the empty list', async ({ llm }
     await expect(llm.locator('#llma-thread-title')).toHaveText('First ever');
     await expect(rows(llm)).toHaveCount(1);
 });
+
+// ---- Review follow-ups ----
+
+test('a pin made while the title is being generated is kept, and so is a rename', async ({ llm }) => {
+    // The title request (its last message starts with "User:") answers after a delay, long enough to pin and rename in the meantime.
+    await setScenarios([
+        { regex: '^User:', rounds: [{ text: 'Generated title', delayMs: 4000 }] },
+        { match: 'pinrace question', rounds: [{ text: 'pinrace answer' }] },
+        { match: 'renamerace question', rounds: [{ text: 'renamerace answer' }] }
+    ]);
+    await llm.locator('#llma-input').fill('pinrace question');
+    await llm.locator('#llma-input').press('Enter');
+    await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble').last()).toContainText('pinrace answer');
+    let id = (await api(llm, 'LLMAssistantGetThreads')).threads[0].id;
+    let pinned = await api(llm, 'LLMAssistantPinThread', { threadId: id, pinned: true });
+    expect(pinned.success).toBe(true);
+    // The generated title arrives afterwards and does not undo the pin.
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id === id)?.title, { timeout: 20_000 }).toBe('Generated title');
+    let after = (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id === id);
+    expect(after.pinned).toBe(true);
+    let thread = (await api(llm, 'LLMAssistantGetThread', { threadId: id })).thread;
+    thread = typeof thread === 'string' ? JSON.parse(thread) : thread;
+    expect(thread.pinned).toBe(true);
+    expect(thread.messages.map((m: any) => m.content)).toEqual(['pinrace question', 'pinrace answer']);
+
+    // A rename made while the title is being generated wins over the generated title.
+    await llm.locator('#llma-new-thread-btn').click();
+    await llm.locator('#llma-input').fill('renamerace question');
+    await llm.locator('#llma-input').press('Enter');
+    await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble').last()).toContainText('renamerace answer');
+    let second = (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id !== id).id;
+    expect((await api(llm, 'LLMAssistantRenameThread', { threadId: second, title: 'My own name' })).success).toBe(true);
+    await llm.waitForTimeout(6000);
+    expect((await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id === second).title).toBe('My own name');
+});
+
+test('the search on screen follows new messages, deletes and renames without being retyped', async ({ llm }) => {
+    let a = await chat(llm, 'Chat A', [['zebraword in a', 'reply a']]);
+    await chat(llm, 'Chat B', [['zebraword in b', 'reply b']]);
+    await reopen(llm);
+    await search(llm).fill('zebraword');
+    await expect(rows(llm)).toHaveCount(2);
+    await expect(llm.locator('.llma-search-status')).toHaveText('2 chats');
+
+    // A message sent in a chat is found at once by the search that is on.
+    await rows(llm).filter({ hasText: 'Chat A' }).click();
+    await expect(llm.locator('#llma-thread-title')).toHaveText('Chat A');
+    await search(llm).fill('quokkaword');
+    await expect(llm.locator('.llma-search-status')).toHaveText('No chats match.');
+    await setScenarios([{ match: 'quokkaword please', rounds: [{ text: 'quokka reply' }] }]);
+    await llm.locator('#llma-input').fill('quokkaword please');
+    await llm.locator('#llma-input').press('Enter');
+    await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble').last()).toContainText('quokka reply');
+    await expect(llm.locator('.llma-thread-snippet mark.llma-search-hit').first()).toHaveText('quokkaword');
+    expect(await names(llm)).toEqual(['Chat A']);
+
+    // A delete is gone from the results and the count follows.
+    await search(llm).fill('zebraword');
+    await expect(rows(llm)).toHaveCount(2);
+    llm.once('dialog', dialog => dialog.accept());
+    let doomed = rows(llm).filter({ hasText: 'Chat B' });
+    await doomed.hover();
+    await doomed.locator('.llma-thread-del').click();
+    await expect(rows(llm)).toHaveCount(1);
+    await expect(llm.locator('.llma-search-status')).toHaveText('1 chat');
+    // A rename shows in the results.
+    expect((await api(llm, 'LLMAssistantRenameThread', { threadId: a, title: 'Renamed zebraword' })).success).toBe(true);
+    await llm.evaluate(() => (0, eval)('llmaLoadThreads')());
+    await expect(rows(llm).locator('.llma-thread-name')).toHaveText(['Renamed zebraword']);
+});
+
+test('quick pin clicks reach the server in order and a refused pin shows what the server has', async ({ llm }) => {
+    let id = await chat(llm, 'Clicky', [['click question', 'click answer']]);
+    await chat(llm, 'Other', [['other question', 'other answer']]);
+    await reopen(llm);
+    let row = rows(llm).filter({ hasText: 'Clicky' });
+    await row.hover();
+    // Three clicks in a row end pinned (pin, unpin, pin), on the page and on the server.
+    let calls: boolean[] = [];
+    await llm.route('**/API/LLMAssistantPinThread', async route => {
+        calls.push(route.request().postDataJSON().pinned);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        await route.continue();
+    });
+    // The row moves between groups at each click, so the clicks are sent to the button directly.
+    for (let i = 0; i < 3; i++) {
+        await llm.locator('#llma-thread-list .llma-thread-pin[data-id="' + id + '"]').dispatchEvent('click');
+    }
+    await expect.poll(() => calls.length).toBe(3);
+    expect(calls).toEqual([true, false, true]);
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id === id).pinned).toBe(true);
+    await expect(llm.locator('.llma-thread-group-label').first()).toHaveText('Pinned');
+    await llm.unroute('**/API/LLMAssistantPinThread');
+
+    // A refusal puts the list back as the server has it: still pinned.
+    await llm.route('**/API/LLMAssistantPinThread', route => route.fulfill({ status: 200, contentType: 'application/json', body: '{"success":false,"error":"nope"}' }));
+    await llm.locator('#llma-thread-list .llma-thread-pin[data-id="' + id + '"]').dispatchEvent('click');
+    await expect(toast(llm)).toContainText('nope');
+    await expect(llm.locator('.llma-thread-group-label').first()).toHaveText('Pinned');
+    await llm.unroute('**/API/LLMAssistantPinThread');
+});

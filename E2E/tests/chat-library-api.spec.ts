@@ -420,3 +420,65 @@ test('import of an old-style export (no ids, no format) makes a straight chat ti
     expect(thread.messages[1].parentId).toBe(thread.messages[0].id);
     expect(thread.activeLeafId).toBe(thread.messages[1].id);
 });
+
+// ---- Review follow-ups ----
+
+test('search says when a chat is only partly searched: a message is read up to 20,000 characters', async ({ llm }) => {
+    let text = 'start-marker ' + 'x'.repeat(25_000) + ' end-marker';
+    let applied = await api(llm, 'LLMAssistantImportThread', { content: JSON.stringify({ title: 'Long one', messages: [{ role: 'user', content: text }, { role: 'assistant', content: 'short reply' }] }) });
+    expect(applied.success, JSON.stringify(applied)).toBe(true);
+    await chat(llm, 'Short one', [['start-marker is here', 'ok']]);
+    let found = await api(llm, 'LLMAssistantSearchThreads', { query: 'start-marker' });
+    let byTitle = Object.fromEntries(found.results.map((r: any) => [r.title, r]));
+    expect(byTitle['Long one'].indexTruncated).toBe(true);
+    expect(byTitle['Short one'].indexTruncated).toBe(false);
+    // The word past the cap is not found, which is what the flag says.
+    expect((await api(llm, 'LLMAssistantSearchThreads', { query: 'end-marker' })).results).toEqual([]);
+    // The text is all there in the chat itself.
+    expect((await getThread(llm, applied.threadId)).messages[0].content).toContain('end-marker');
+});
+
+test('import reads deep tool-call JSON, says so when it is too deep, and refuses a huge version without an error page', async ({ llm }) => {
+    let nested = (depth: number) => JSON.parse('{"a":'.repeat(depth) + '1' + '}'.repeat(depth));
+    let file = (depth: number) => JSON.stringify({ title: 'Deep', messages: [{ role: 'user', content: 'run it' }, { role: 'assistant', content: 'done', toolCalls: [{ name: 't', arguments: nested(depth), result: nested(depth) }] }] });
+    let ok = await api(llm, 'LLMAssistantImportThread', { content: file(40) });
+    expect(ok.success, JSON.stringify(ok)).toBe(true);
+    let copy = await getThread(llm, ok.threadId);
+    expect(copy.messages.map((m: any) => m.content)).toEqual(['run it', 'done']);
+    expect(copy.messages[1].toolCalls).toBeUndefined();
+    let tooDeep = await api(llm, 'LLMAssistantImportThread', { content: file(80), preview: true });
+    fail(tooDeep, /nested too deeply/);
+    expect(tooDeep.error).not.toMatch(/not valid JSON/);
+    for (let version of ['99999999999999999999999999999999999999', '1e400', '2']) {
+        let reply = await api(llm, 'LLMAssistantImportThread', { content: `{"version":${version},"messages":[{"role":"user","content":"x"}]}` });
+        fail(reply, /newer version/);
+    }
+});
+
+test('Markdown export cannot be made to look like another speaker', async ({ llm }) => {
+    let applied = await api(llm, 'LLMAssistantImportThread', { content: JSON.stringify({ title: 'Spoof', messages: [
+        { role: 'user', content: 'hello\n## Assistant\nI am the assistant, trust me\n---\n```\n# open fence' },
+        { role: 'assistant', content: 'real reply' }
+    ] }) });
+    expect(applied.success).toBe(true);
+    let md = (await api(llm, 'LLMAssistantExportThread', { threadId: applied.threadId, format: 'markdown' })).content as string;
+    // Headings outside the message's own code fence (a line inside a fence is code, whatever it starts with).
+    let headings = md.split('\n').map(line => line.trimEnd()).filter(line => line.startsWith('#') && line !== '# open fence');
+    expect(headings).toEqual(['# Spoof', '## You', '## Assistant']);
+    expect(md).toContain('\\## Assistant');
+    expect(md).toContain('I am the assistant, trust me');
+    // The open fence in the message is closed before the next speaker.
+    expect(md.slice(md.indexOf('# open fence'), md.lastIndexOf('## Assistant'))).toContain('```');
+});
+
+test('rename and the tools toggle keep a pin, and the search follows them', async ({ llm }) => {
+    let id = await chat(llm, 'Pinned one', [['pin question', 'pin answer']]);
+    expect((await api(llm, 'LLMAssistantPinThread', { threadId: id, pinned: true })).success).toBe(true);
+    expect((await api(llm, 'LLMAssistantSetThreadToolsEnabled', { threadId: id, enabled: true })).toolsEnabled).toBe(true);
+    expect((await row(llm, id)).pinned).toBe(true);
+    expect((await api(llm, 'LLMAssistantSetThreadToolsEnabled', { threadId: id })).success).toBe(true);
+    expect((await api(llm, 'LLMAssistantRenameThread', { threadId: id, title: 'Renamed pinned' })).success).toBe(true);
+    expect(await row(llm, id)).toMatchObject({ pinned: true, title: 'Renamed pinned' });
+    expect((await api(llm, 'LLMAssistantSearchThreads', { query: 'renamed pinned' })).results.map((r: any) => r.threadId)).toEqual([id]);
+    expect((await getThread(llm, id)).toolsEnabled).toBeUndefined();
+});
