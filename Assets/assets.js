@@ -229,16 +229,18 @@ function llmaExtractAssetsFromToolCalls(toolCalls, msgId) {
         const name = tc.name || '';
         const baseId = `${msgId}-tool-${tc.id || i}`;
         if (name === 'generate_image' && r.imageUrl) {
-            out.push(llmaBuildAsset({
-                id: baseId,
+            // A batch returns every image in imageUrls (the first is also imageUrl); the first keeps the plain id, the rest get a number.
+            const urls = Array.isArray(r.imageUrls) && r.imageUrls.length > 1 ? r.imageUrls : [r.imageUrl];
+            urls.forEach((url, k) => out.push(llmaBuildAsset({
+                id: k == 0 ? baseId : `${baseId}-${k + 1}`,
                 type: 'image',
-                content: r.imageUrl,
+                content: url,
                 msgId,
                 source: 'tool',
                 toolId: tc.id || null,
                 idx: i,
-                title: r.prompt ? (r.prompt.slice(0, 40).replace(/\s+/g, '_') + '.png') : null,
-            }));
+                title: r.prompt ? (r.prompt.slice(0, 40).replace(/\s+/g, '_') + (k == 0 ? '' : `_${k + 1}`) + '.png') : null,
+            })));
         } else if (name === 'file_write' && r.url) {
             const path = r.path || '';
             const filename = path ? path.split(/[\\/]/).pop() : null;

@@ -23,6 +23,10 @@ class LLMASettingsForms {
                 this.checkbox('llma-s-auto-compact', 'Shorten Long Chats', 'Summarize the start of a chat on its own when it nears the limit. You can also type /compact in a chat.', true),
                 this.slider('llma-s-compact-threshold', 'Shorten At', 'The share of the context window a chat may fill before it is shortened.', 0.8, 0.5, 0.95, 0.05)
             ]),
+            this.group('llma_general_images', 'Image generation', 'What the assistant\'s generate_image tool uses when a chat does not say. Saved with Save & Close.', [
+                this.text('llma-s-image-default-model', 'Default Image Model', 'The image model generate_image uses when no preset, model argument or params name one. Start typing to pick an installed model; leave empty for none (the assistant then lists your models and picks one).', ''),
+                this.number('llma-s-image-batch-max', 'Most Images Per Call', 'The most images one generate_image call may make (1 to 16). A server limit: only an admin (llm_shared_write) can change it.', 4, 1, 16, 1)
+            ]),
             this.group('llma_general_interface', 'Interface', 'Place LLM model files in Models/llm/. Configure an LLM backend under Server > Backends.', [
                 this.checkbox('llma-s-markdown', 'Markdown Rendering', 'Render replies as formatted text.', true),
                 this.checkbox('llma-s-enter-send', 'Enter to Send', 'Enter sends the message and Shift+Enter makes a new line. Off swaps them. Ctrl+Enter always sends.', true),

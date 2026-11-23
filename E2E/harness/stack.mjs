@@ -138,7 +138,7 @@ function seedData(runDir) {
     let dataDir = path.join(runDir, 'data');
     let outputDir = path.join(runDir, 'output');
     let modelsDir = path.join(runDir, 'models');
-    for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm'), path.join(modelsDir, 'Stable-Diffusion')]) {
+    for (let dir of [dataDir, outputDir, path.join(modelsDir, 'llm'), path.join(modelsDir, 'Stable-Diffusion'), path.join(modelsDir, 'LoRA')]) {
         fs.mkdirSync(dir, { recursive: true });
     }
     // Three image models with no weights: one whose keys make core classify it as Ideogram 4, and one core cannot place (for the prompt styles specs).
@@ -148,6 +148,11 @@ function seedData(runDir) {
     // An unplaceable model whose own header says it takes JSON prompts with boxes (the modelspec.prompt_* keys a tool that makes the file may write).
     writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-declared-json.safetensors'), ['some.unrelated.weight'],
         { 'modelspec.prompt_format': 'json', 'modelspec.prompt_negative': 'none', 'modelspec.prompt_supports': 'boxes, bogus', 'modelspec.prompt_boxes': 'yxyx-1000' });
+    // For the image catalog tools: an unplaceable model whose header gives a title, a trigger phrase and usage notes, and a LoRA with a trigger phrase and tags.
+    writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-hinted.safetensors'), ['some.unrelated.weight'],
+        { 'modelspec.title': 'E2E Hinted Model', 'modelspec.usage_hint': 'Write short comma separated tags.', 'modelspec.trigger_phrase': 'hinted_token' });
+    writeHeaderOnlySafetensors(path.join(modelsDir, 'LoRA', 'e2e-style-lora.safetensors'), ['some.unrelated.weight'],
+        { 'modelspec.title': 'E2E Style LoRA', 'modelspec.trigger_phrase': 'e2estyle token', 'modelspec.tags': 'style, e2e' });
     let slash = p => p.replace(/\\/g, '/');
     let settings = [
         'IsInstalled: true',

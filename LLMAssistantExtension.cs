@@ -37,6 +37,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/core-bridge.js");
         // Settings and parameter forms, built from core's make*Input helpers and input groups.
         ScriptFiles.Add("Assets/settings-forms.js");
+        // The image defaults (default image model, most images per call) in the General tab of the settings dialog.
+        ScriptFiles.Add("Assets/image-tools.js");
         // The Hooks tab of the settings dialog (list, editor and tester).
         ScriptFiles.Add("Assets/hooks.js");
         // Code mode: the Chat / Code switch, the workspace picker and panel, the plan card.
@@ -162,6 +164,10 @@ public class LLMAssistantExtension : Extension
         ToolRegistryService.RegisterHandler(new MemoryWriteTool());
         ToolRegistryService.RegisterHandler(new MemoryReadTool());
         ToolRegistryService.RegisterHandler(new SwarmDocsTool());
+        ToolRegistryService.RegisterHandler(new ListImageModelsTool());
+        ToolRegistryService.RegisterHandler(new ListLorasTool());
+        ToolRegistryService.RegisterHandler(new ListWildcardsTool());
+        ToolRegistryService.RegisterHandler(new ListPresetsTool());
         // The code tools: off by default, behind llm_code_mode, and working only inside a chat's workspace.
         ToolRegistryService.RegisterHandler(new CodeReadTool());
         ToolRegistryService.RegisterHandler(new CodeWriteTool());

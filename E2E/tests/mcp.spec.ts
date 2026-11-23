@@ -13,7 +13,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const serverScript = path.resolve(here, '..', 'MockMCP', 'server.mjs');
 const callLog = path.join(os.tmpdir(), `llma-mcp-calls-${process.pid}.log`);
 const HTTP_PORT = 17803;
-const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'set_led_profile', 'set_volume', 'mute_mic'];
+const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'list_image_models', 'list_loras', 'list_wildcards', 'list_presets', 'set_led_profile', 'set_volume', 'mute_mic'];
 
 let httpServer: ChildProcess | null = null;
 

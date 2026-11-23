@@ -72,7 +72,7 @@ export async function openTab(page: Page) {
 }
 
 export const CODE = ['code_read', 'code_write', 'code_edit', 'code_glob', 'code_grep', 'code_bash', 'code_todo'];
-export const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'set_led_profile', 'set_volume', 'mute_mic'];
+export const BUILTINS = ['generate_image', 'create_image_preset', 'caption_image', 'fuse_image_descriptions', 'batch_caption_folder', 'web_search', 'file_read', 'file_write', 'http_request', 'shell_exec', 'memory_write', 'memory_read', 'swarm_docs', 'list_image_models', 'list_loras', 'list_wildcards', 'list_presets', 'set_led_profile', 'set_volume', 'mute_mic'];
 
 /** One scripted turn: the model makes these calls in order, one per round, then answers. */
 export function turn(match: string, calls: { name: string; arguments: unknown }[], answer: string) {

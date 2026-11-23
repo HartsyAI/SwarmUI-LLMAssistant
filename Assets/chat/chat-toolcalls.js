@@ -363,19 +363,23 @@
         if (!msgId || !group || typeof llmaRenderAssetCardHtml != 'function') {
             return;
         }
-        const assetId = `${msgId}-tool-${toolResult.id}`;
-        const findAsset = () => (LLMAState.assets || []).find(a => a.id == assetId);
-        let asset = findAsset();
-        if (!asset && typeof llmaRebuildAssetsForThread == 'function') {
-            llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
-            asset = findAsset();
+        // A batch result has one card per image: the first asset keeps the plain id, the others a -2, -3 suffix (see llmaExtractAssetsFromToolCalls).
+        const count = Array.isArray(result?.imageUrls) && result.imageUrls.length > 1 ? result.imageUrls.length : 1;
+        for (let k = 0; k < count; k++) {
+            const assetId = k == 0 ? `${msgId}-tool-${toolResult.id}` : `${msgId}-tool-${toolResult.id}-${k + 1}`;
+            const findAsset = () => (LLMAState.assets || []).find(a => a.id == assetId);
+            let asset = findAsset();
+            if (!asset && typeof llmaRebuildAssetsForThread == 'function') {
+                llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
+                asset = findAsset();
+            }
+            if (!asset || bubble.querySelector(`.llma-tool-extra [data-asset-id="${CSS.escape(asset.id)}"]`)) {
+                continue;
+            }
+            const holder = document.createElement('div');
+            holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
+            llmaInsertToolExtra(group, holder);
         }
-        if (!asset || bubble.querySelector(`.llma-tool-extra [data-asset-id="${CSS.escape(asset.id)}"]`)) {
-            return;
-        }
-        const holder = document.createElement('div');
-        holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
-        llmaInsertToolExtra(group, holder);
     }
 
     /** Fill the result slot of a tool-call bubble with a tool-specific preview (or JSON fallback). */
