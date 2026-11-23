@@ -26,7 +26,7 @@ async function clean(page: Page) {
     await api(page, 'LLMAssistantSetImageDefaults', { defaultModel: '' });
     await api(page, 'LLMAssistantSetImageDefaults', { maxImages: 4, scope: 'shared' });
     await api(page, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptRewrite: { auto: false } }) });
-    for (let title of ['E2E Anime', 'E2E Plain']) {
+    for (let title of ['E2E-Anime', 'E2E-Plain']) {
         await api(page, 'DeletePreset', { preset: title });
     }
     for (let card of ['e2e-colors', 'e2e-private/poses']) {
@@ -111,17 +111,17 @@ test('the wildcard list returns names only unless samples are asked for', async 
 });
 
 test('the preset list returns the name and description of the user\'s presets', async ({ llm }) => {
-    for (let [title, description, model] of [['E2E Anime', 'Vibrant anime style', IDEOGRAM], ['E2E Plain', '', MYSTERY]]) {
-        let saved = await api(llm, 'AddNewPreset', { title, description, raw: { param_map: { model, steps: '20' } } });
-        expect(saved.success ?? !saved.preset_fail, JSON.stringify(saved)).toBeTruthy();
+    for (let [title, description, model] of [['E2E-Anime', 'Vibrant anime style', IDEOGRAM], ['E2E-Plain', '', MYSTERY]]) {
+        let saved = await api(llm, 'AddNewPreset', { title, description, param_map: { model, steps: '20' } });
+        expect(saved.success, JSON.stringify(saved)).toBe(true);
     }
     let reply = await api(llm, 'LLMAssistantListPresets');
     expect(reply.success, JSON.stringify(reply)).toBe(true);
-    let anime = reply.presets.find((p: any) => p.name == 'E2E Anime');
+    let anime = reply.presets.find((p: any) => p.name == 'E2E-Anime');
     expect(anime.description).toBe('Vibrant anime style');
     expect(anime.summary).toContain(IDEOGRAM.replace('.safetensors', ''));
-    expect(reply.presets.find((p: any) => p.name == 'E2E Plain').description).toBeUndefined();
-    expect(names((await api(llm, 'LLMAssistantListPresets', { query: 'vibrant' })).presets)).toEqual(['E2E Anime']);
+    expect(reply.presets.find((p: any) => p.name == 'E2E-Plain').description).toBeUndefined();
+    expect(names((await api(llm, 'LLMAssistantListPresets', { query: 'vibrant' })).presets)).toEqual(['E2E-Anime']);
     expect((await api(llm, 'LLMAssistantListPresets', { limit: 1 })).presets).toHaveLength(1);
 });
 
@@ -200,12 +200,12 @@ test('the model calls list_wildcards and gets names only', async ({ llm }) => {
 });
 
 test('the model calls list_presets and gets the user\'s presets', async ({ llm }) => {
-    await api(llm, 'AddNewPreset', { title: 'E2E Anime', description: 'Vibrant anime style', raw: { param_map: { model: IDEOGRAM } } });
+    await api(llm, 'AddNewPreset', { title: 'E2E-Anime', description: 'Vibrant anime style', param_map: { model: IDEOGRAM } });
     await setScenarios([turn('which presets', [{ name: 'list_presets', arguments: {} }], 'Listed.')]);
     await send(llm, 'which presets do I have');
     await expect(lastAssistant(llm)).toContainText('Listed.');
     let [result] = await toolResults();
-    expect(names(result.presets)).toContain('E2E Anime');
+    expect(names(result.presets)).toContain('E2E-Anime');
 });
 
 test('the list tools run without asking in Ask mode, because they only read', async ({ llm }) => {
@@ -326,7 +326,7 @@ test('a batch asks the chat model to rewrite the prompt once, not once per image
 
 // ---- the Settings control ----
 
-test('the Settings control shows the saved defaults, saves them with Save & Close, and a bad model name keeps the dialog open', async ({ llm }) => {
+test('the Settings control shows the installed models, saves the choice and the limit with Save & Close, and shows them again', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await expect(llm.locator('#llma-settings-overlay')).toBeVisible();
     let model = llm.locator('#llma-s-image-default-model');
@@ -334,14 +334,10 @@ test('the Settings control shows the saved defaults, saves them with Save & Clos
     await expect(model).toBeVisible();
     await expect(model).toHaveValue('');
     await expect(max).toHaveValue('4');
-    // The installed models are offered as suggestions.
-    await expect.poll(async () => llm.locator('#llma-image-model-list option').count()).toBeGreaterThanOrEqual(4);
-    await model.fill('e2e-mistery');
-    await llm.locator('#llma-settings-save').click();
-    // Refused with suggestions: the dialog stays open so the name can be fixed, and nothing was saved.
-    await expect(llm.locator('#llma-settings-overlay')).toBeVisible();
-    expect((await api(llm, 'LLMAssistantGetImageDefaults')).defaultModel).toBe('');
-    await model.fill('mystery');
+    // The installed models are the choices, after "none".
+    await expect.poll(async () => model.locator('option').count()).toBeGreaterThanOrEqual(5);
+    expect(await model.locator('option').allTextContents()).toEqual(expect.arrayContaining(['(none)', MYSTERY, IDEOGRAM, HINTED]));
+    await model.selectOption(MYSTERY);
     await max.fill('7');
     await llm.locator('#llma-settings-save').click();
     await expect(llm.locator('#llma-settings-overlay')).toBeHidden();

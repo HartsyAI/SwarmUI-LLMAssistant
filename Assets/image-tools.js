@@ -27,31 +27,32 @@ class LLMAImageTools {
             return;
         }
         this.loaded = defaults;
-        model.value = defaults.personalDefaultModel || '';
-        model.placeholder = defaults.sharedDefaultModel ? `${defaults.sharedDefaultModel} (${translate('shared default')})` : translate('none');
         max.value = defaults.maxImages;
         max.max = defaults.hardMaxImages;
         max.disabled = !defaults.canWriteShared;
         max.title = defaults.canWriteShared ? '' : translate('Only an admin can change this limit.');
-        this.fillSuggestions(model);
+        await this.fillModels(model, defaults);
     }
 
-    /** Offers the installed models as suggestions while typing. A failure just means no suggestions. */
-    async fillSuggestions(input) {
-        let list = document.getElementById('llma-image-model-list');
-        if (!list) {
-            list = document.createElement('datalist');
-            list.id = 'llma-image-model-list';
-            input.insertAdjacentElement('afterend', list);
-            input.setAttribute('list', list.id);
-            input.setAttribute('autocomplete', 'off');
-        }
+    /** Fills the dropdown with "none" and the installed models (the first 100 the server lists), keeping a saved model that is no longer installed so it is shown rather than silently dropped. A failed listing leaves just those. */
+    async fillModels(select, defaults) {
+        let names = [];
         try {
             let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100 });
-            list.innerHTML = (reply.models || []).map(m => `<option value="${escapeHtml(m.name)}">${escapeHtml(m.title || '')}</option>`).join('');
+            names = (reply.models || []).map(m => m.name);
         }
         catch (e) {
-            list.innerHTML = '';
+            names = [];
+        }
+        let saved = defaults.personalDefaultModel || '';
+        if (saved && !names.includes(saved)) {
+            names.push(saved);
+        }
+        let none = defaults.sharedDefaultModel ? `${translate('(shared default)')}: ${defaults.sharedDefaultModel}` : translate('(none)');
+        select.innerHTML = `<option value="">${escapeHtml(none)}</option>` + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        select.value = saved;
+        if (typeof autoSelectWidth == 'function') {
+            autoSelectWidth(select);
         }
     }
 
@@ -80,6 +81,9 @@ class LLMAImageTools {
         }
         this.loaded = reply;
         model.value = reply.personalDefaultModel || '';
+        if (typeof autoSelectWidth == 'function') {
+            autoSelectWidth(model);
+        }
         max.value = reply.maxImages;
         return true;
     }

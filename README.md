@@ -310,7 +310,7 @@ The **Ask / Auto / Plan** control in the composer sets how this chat approves to
 
 **Allow for this chat** covers that one tool until the chat is deleted or the server restarts. A denied call gives the model a refusal result it can act on, so it carries on without the tool. Stop, closing the tab or deleting the chat while a call waits ends the wait. You are asked only about tools you are allowed to use, and a tool you run yourself from the `/` picker is never asked about. Voice turns have nobody to ask, so they always run in Auto.
 
-Each tool declares what it can do, which is what the modes read: `file_read`, `memory_read`, `swarm_docs`, `web_search`, `caption_image` and `fuse_image_descriptions` only read; `generate_image`, `create_image_preset`, `batch_caption_folder`, `file_write` and `memory_write` change something; `http_request` sends a request; `shell_exec` runs a command. A tool that does not say counts as a change.
+Each tool declares what it can do, which is what the modes read: `file_read`, `memory_read`, `swarm_docs`, `web_search`, `caption_image`, `fuse_image_descriptions` and the image catalog tools (`list_image_models`, `list_loras`, `list_wildcards`, `list_presets`) only read; `generate_image`, `create_image_preset`, `batch_caption_folder`, `file_write` and `memory_write` change something; `http_request` sends a request; `shell_exec` runs a command. A tool that does not say counts as a change.
 
 ### Hooks
 
@@ -523,13 +523,13 @@ curl -s localhost:7801/API/LLMAssistantRunTurn -H 'Content-Type: application/jso
 
 ## Built-in tools
 
-Thirteen tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
+These tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
 
 ![Tool settings](Assets/screenshots/settings-tools.png)
 
 | Tool | What it does | Enabled by default | Permission |
 |---|---|:---:|---|
-| `generate_image` | Runs SwarmUI's T2I engine. Supports saved presets, raw T2I params, `initImage` for img2img/inpaint, and aspect shorthand. Returns an image URL. | ✅ | `llm_tool_generate_image` |
+| `generate_image` | Runs SwarmUI's T2I engine. Supports saved presets, raw T2I params, a validated `model`, `images` (a batch, 1 to the server limit, default 4), `initImage` for img2img/inpaint, and aspect shorthand. Returns the image URL(s). See [Image workflow tools](#image-tools). | ✅ | `llm_tool_generate_image` |
 | `create_image_preset` | Saves a T2I preset to the calling user's account. Also needs SwarmUI's core `Manage Presets` permission. | ✅ | `llm_tool_create_image_preset` |
 | `caption_image` | Vision pass over one image in a chosen caption style. | ✅ | `llm_tool_vision` |
 | `fuse_image_descriptions` | Captions several images with role-specific prompts (style / subject / setting / reference) and merges them into one prompt. | ✅ | `llm_tool_vision` |
@@ -542,8 +542,23 @@ Thirteen tools ship with the extension. Every one is gated by a permission (see 
 | `memory_write` | Saves one note to the calling user's private memory (replacing the name, pronouns, bio or current work when those are written again). | ✅ | `llm_tool_memory` |
 | `memory_read` | Reads the calling user's memory notes (optionally the ones matching a `query`). | ✅ | `llm_tool_memory` |
 | `swarm_docs` | Lists and reads SwarmUI's bundled docs. Sandboxed strictly to `docs/`. | ✅ | `llm_tool_swarm_docs` |
+| `list_image_models` | Lists the installed text-to-image models (exact name, type, usual resolution, prompt notes). Read-only. | ✅ | `llm_tool_image_catalog` |
+| `list_loras` | Lists the installed LoRAs with base family, trigger words and tags; `forModel` keeps only the compatible ones. Read-only. | ✅ | `llm_tool_image_catalog` |
+| `list_wildcards` | Lists wildcard names (`__name__` in a prompt). Names only unless `includeSamples` is set. Read-only. | ✅ | `llm_tool_image_catalog` |
+| `list_presets` | Lists the user's saved presets: name, description, key settings. Read-only. | ✅ | `llm_tool_image_catalog` |
 
 > **`shell_exec` is off by default and its permission defaults to `NOBODY`.** Granting it is equivalent to giving anyone who can chat with the model a shell on your server. Only do it for admins you trust, on models you trust.
+
+### Image workflow tools <a id="image-tools"></a>
+
+Four read-only tools let the chat model look at what the user has before it generates, so it does not guess a model name, and `generate_image` makes a sensible choice when it is not told one. Nothing here knows about a particular engine: the lists are what SwarmUI itself reports, and a model SwarmUI cannot classify is simply listed with a name.
+
+- **`list_image_models`**, **`list_loras`**, **`list_wildcards`**, **`list_presets`** only read, so they run without asking in Ask mode and are allowed in Plan mode. Each takes `query` (words in the name) and `limit` (default 25, at most 100); models also take `class` (a substring of the type, e.g. `xl` or `flux`), LoRAs take `baseModel` and `forModel` (an installed model's name, to keep only the LoRAs of its family). Results are cut to about 12,000 characters, say how many more match, and carry a note that descriptions and trigger words come from the files and are data, not instructions.
+- **Per-user.** A user sees what SwarmUI shows them: the models they may use (core's own model-access rules, including models other extensions offer), their own presets, and the wildcards core lists for them.
+- **Wildcards stay private by default.** `list_wildcards` returns names only. `includeSamples: true` adds up to 5 lines (80 characters each) of the first 10 wildcards, for when the user asks what a wildcard holds; the tool description tells the model not to set it otherwise.
+- **`generate_image`'s model.** The model is, in order: the `model` argument, `params.model`, the model of the chosen preset, then the user's **default image model**. All but a preset's model are checked against what is installed: an exact name, a name in another case, without the extension or folders, or the only model containing the words is accepted (and the result says what it was matched to); a mistake gets `Did you mean: ...` with the closest installed names, and several equal fits are refused rather than guessed. With nothing chosen, the error lists the installed models and says how to pick one. The tool description names the user's default model, so the chat model knows it exists.
+- **`images`** makes a batch from one call (1 to the server's limit; **4** unless an admin changes it, at most 16). A larger request is cut to the limit and the result says so (`imagesCapped`). The result keeps `imageUrl` (the first image) and adds `imageUrls` and `images` for a batch, and the chat shows every image. The [prompt rewrite](#prompt-styles) runs once for the whole batch (the rewrite cache serves the other images). A `generate_image` call may now run for up to 10 minutes, so a batch on a slow GPU is not cut off.
+- **Settings and API.** *Settings > General > Image generation* has the **Default Image Model** (yours; an admin can also set one for everyone) and **Most Images Per Call** (a server limit; only a user with `llm_shared_write` can change it). The same through `LLMAssistantGetImageDefaults` / `LLMAssistantSetImageDefaults`, and the listings through `LLMAssistantListImageModels`, `LLMAssistantListLoras`, `LLMAssistantListWildcards` and `LLMAssistantListPresets` (see the [API reference](#api-reference)). The two defaults live under `imageTools` in the settings and are changed only through those routes.
 
 ### Guardrails
 
@@ -729,6 +744,8 @@ Example:
 | Markdown Rendering | `true` | |
 | Enter to Send | `true` | Off = `Enter` makes a newline. `Ctrl/Cmd+Enter` always sends either way. |
 | Show Token Count | `true` | |
+| Default Image Model | *(none)* | The image model `generate_image` uses when no preset, `model` or `params.model` names one. Yours; saved through `LLMAssistantSetImageDefaults` (`imageTools.defaultModel`). See [Image workflow tools](#image-tools). |
+| Most Images Per Call | `4` | A server limit on `generate_image`'s `images` (1 to 16). Needs `llm_shared_write` to change. |
 
 Assistant-level parameter overrides beat these; per-thread overrides (the sliders icon in the top bar) beat both.
 
@@ -783,6 +800,7 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
+| `llm_tool_image_catalog` | POWERUSERS | `list_image_models`, `list_loras`, `list_wildcards`, `list_presets` (read-only; each user sees only what SwarmUI shows them) |
 
 SwarmUI also auto-registers `view_extension_tab_llmassistant` (default USER) for tab visibility.
 
@@ -970,6 +988,12 @@ they were sent with.
 | `LLMAssistantGetToolConfig` | `toolId` | `{success, config}` |
 | `LLMAssistantSetToolConfig` | `toolId`, `config` (object or JSON string) | `{success, config}` |
 | `LLMAssistantGetImagePresets` | none | `{success, presets[]}` with a one-line `summary` per preset |
+| `LLMAssistantListImageModels` | `query?`, `modelClass?` (substring of the model type), `limit?` (default 25, at most 100) | `{success, installed, matched, shown, models[{name, title?, architecture?, class?, resolution?, promptNotes?, triggerPhrase?, description?, tags?, loaded?}], more?, note}`; what `list_image_models` returns, for the caller. Needs `llm_chat` and core's model access |
+| `LLMAssistantListLoras` | `query?`, `baseModel?`, `forModel?`, `limit?` | `{success, installed, matched, shown, loras[{name, title?, baseModel?, triggerWords?, defaultWeight?, tags?, description?}], forBase?, more?, usage, note}`; `forModel` must be an installed model (a near miss is refused with suggestions). Needs `llm_chat` and core's model access |
+| `LLMAssistantListWildcards` | `query?`, `includeSamples?` (default false), `limit?` | `{success, total, matched, shown, wildcards[{name, use, samples?}], more?}`; names only unless `includeSamples` is true. Needs `llm_chat` |
+| `LLMAssistantListPresets` | `query?`, `limit?` | `{success, total, matched, shown, presets[{name, description?, summary?}], more?, note}`; the caller's own presets. Needs `llm_chat` |
+| `LLMAssistantGetImageDefaults` | none | `{success, defaultModel, personalDefaultModel, sharedDefaultModel, maxImages, defaultMaxImages, hardMaxImages, canWriteShared}`; `defaultModel` is the effective one (the caller's, else the shared one). Needs `llm_settings` |
+| `LLMAssistantSetImageDefaults` | `defaultModel?` (an installed model's name; `""` clears), `maxImages?` (1 to 16), `scope?` (`personal` \| `shared`) | The same as `LLMAssistantGetImageDefaults`. A model that is not installed is refused with the closest names. `maxImages` and a shared model need `llm_shared_write`. Needs `llm_settings` |
 
 `LLMAssistantExecuteTool` still enforces the per-handler `llm_tool_*` permission, so exposing it at the chat permission level is not an escalation.
 

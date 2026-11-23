@@ -24,7 +24,7 @@ class LLMASettingsForms {
                 this.slider('llma-s-compact-threshold', 'Shorten At', 'The share of the context window a chat may fill before it is shortened.', 0.8, 0.5, 0.95, 0.05)
             ]),
             this.group('llma_general_images', 'Image generation', 'What the assistant\'s generate_image tool uses when a chat does not say. Saved with Save & Close.', [
-                this.text('llma-s-image-default-model', 'Default Image Model', 'The image model generate_image uses when no preset, model argument or params name one. Start typing to pick an installed model; leave empty for none (the assistant then lists your models and picks one).', ''),
+                this.dropdown('llma-s-image-default-model', 'Default Image Model', 'The image model generate_image uses when no preset, model argument or params name one. Leave it on none and the assistant lists your models and picks one.', [''], '', ['(none)']),
                 this.number('llma-s-image-batch-max', 'Most Images Per Call', 'The most images one generate_image call may make (1 to 16). A server limit: only an admin (llm_shared_write) can change it.', 4, 1, 16, 1)
             ]),
             this.group('llma_general_interface', 'Interface', 'Place LLM model files in Models/llm/. Configure an LLM backend under Server > Backends.', [
