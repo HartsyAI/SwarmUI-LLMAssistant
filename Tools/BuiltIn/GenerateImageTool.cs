@@ -133,21 +133,16 @@ public class GenerateImageTool : ToolHandler
         foreach (string name in presetNames)
         {
             T2IPreset preset = UserPresetCache.GetPreset(session.User, name);
-            foreach (KeyValuePair<string, string> kv in preset.ParamMap)
-            {
-                // By what core takes the key to mean: a later layer replaces an earlier spelling of the same parameter ("Model" over "model") instead of sitting beside it.
-                ImageParamKeys.Set(rawInput, kv.Key, kv.Value);
-            }
+            // By what core takes the key to mean: a later layer replaces an earlier spelling of the same parameter ("Model" over "model") instead of sitting beside it.
+            ImageParamKeys.MergeLayer(rawInput, preset.ParamMap.Select(kv => new KeyValuePair<string, JToken>(kv.Key, kv.Value)));
             presetsApplied.Add(preset.Title);
         }
         string presetModel = ImageParamKeys.Get(rawInput, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
         string paramsModel = "";
         if (args["params"] is JObject paramsArg)
         {
-            foreach (JProperty prop in paramsArg.Properties())
-            {
-                ImageParamKeys.Set(rawInput, prop.Name, prop.Value);
-            }
+            // Not `presets` (core applies those after everything, over the cap and the chosen model), nor the session or metadata keys.
+            ImageParamKeys.MergeLayer(rawInput, paramsArg.Properties().Select(p => new KeyValuePair<string, JToken>(p.Name, p.Value)));
             paramsModel = ImageParamKeys.Get(paramsArg, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
         }
         // init_image enables image-edit / img2img workflows; needs a preset/model that supports image input.
@@ -197,7 +192,7 @@ public class GenerateImageTool : ToolHandler
         }
         int imageCount = imageSettings.ClampImages(requestedImages, out bool imagesCapped);
         // The cap holds for every spelling a preset or `params` may use (Images, "batch size", ...): they are removed, and images x batch size is kept within the limit.
-        int batchSize = ImageParamKeys.EnforceImageCap(rawInput, imageCount, imageSettings.MaxImages);
+        (int batchSize, int requestedBatch) = ImageParamKeys.EnforceImageCapDetailed(rawInput, imageCount, imageSettings.MaxImages);
         int totalImages = imageCount * batchSize;
         // With several images, one that fails must not throw away the ones that were made.
         if (totalImages > 1)
@@ -263,9 +258,18 @@ public class GenerateImageTool : ToolHandler
                     ret["partialError"] = outcome.Error;
                 }
             }
-            if (imagesCapped)
+            if (imagesCapped || requestedBatch > batchSize)
             {
-                ret["imagesCapped"] = $"{requestedImages} images were asked for; this server allows {imageSettings.MaxImages} per call, so {imageCount} were made. Call again for more.";
+                List<string> cut = [];
+                if (imagesCapped)
+                {
+                    cut.Add($"{requestedImages} images were asked for; this server allows {imageSettings.MaxImages} per call, so {imageCount} were requested");
+                }
+                if (requestedBatch > batchSize)
+                {
+                    cut.Add($"batch size {requestedBatch} was cut to {batchSize} to keep images times batch size within {imageSettings.MaxImages}");
+                }
+                ret["imagesCapped"] = string.Join("; ", cut) + ". Call again for more.";
             }
             if (batchSize > 1)
             {

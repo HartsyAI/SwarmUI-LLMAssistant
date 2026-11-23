@@ -44,7 +44,7 @@ class LLMAImageTools {
             for (let page = 0; page < 20; page++) {
                 let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100, offset: offset });
                 names.push(...(reply.models || []).map(m => m.name));
-                if (reply.nextOffset === undefined) {
+                if (reply.nextOffset == null) {
                     break;
                 }
                 offset = reply.nextOffset;

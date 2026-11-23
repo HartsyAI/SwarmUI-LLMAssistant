@@ -11,6 +11,22 @@ public static class ImageParamKeys
     /// <summary>The canonical ids (core's <c>T2IParamType.ID</c>) of the parameters the cap on images is about.</summary>
     public const string Images = "images", BatchSize = "batchsize", Model = "model";
 
+    /// <summary>The keys of a raw generation request that are not parameters: core applies <c>presets</c> after every other key (so a preset named there would override the forced image count and the chosen
+    /// model), and the other two carry the session and the metadata. A caller's <c>params</c> or a preset's own map may not set them.</summary>
+    public static bool IsReserved(string key) => key is not null && (key.Equals("presets", StringComparison.OrdinalIgnoreCase) || key.Equals("session_id", StringComparison.OrdinalIgnoreCase) || key.Equals("extra_metadata", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Lays one layer of parameters (a preset's map, a call's <c>params</c>) over <paramref name="raw"/>, each key replacing an earlier spelling of the same parameter, and never a <see cref="IsReserved"/> key.</summary>
+    public static void MergeLayer(JObject raw, IEnumerable<KeyValuePair<string, JToken>> layer, Func<string, string> idOf = null)
+    {
+        foreach (KeyValuePair<string, JToken> pair in layer)
+        {
+            if (!IsReserved(pair.Key))
+            {
+                Set(raw, pair.Key, pair.Value, idOf);
+            }
+        }
+    }
+
     /// <summary>What core calls this key: the id of the parameter it names, following core's aliases; the cleaned key itself when core does not know it (or cannot be asked).</summary>
     public static string CoreId(string key)
     {
@@ -76,7 +92,10 @@ public static class ImageParamKeys
 
     /// <summary>Holds a generation to <paramref name="cap"/> images: removes every spelling of <c>images</c> and <c>batchsize</c> that a preset or <c>params</c> brought, then sets <c>images</c> to
     /// <paramref name="imageCount"/> and the batch size to what they asked for, but no more than keeps <c>images x batch</c> within <paramref name="cap"/> (a batch of 1 is not written). Returns the batch size.</summary>
-    public static int EnforceImageCap(JObject raw, int imageCount, int cap, Func<string, string> idOf = null)
+    public static int EnforceImageCap(JObject raw, int imageCount, int cap, Func<string, string> idOf = null) => EnforceImageCapDetailed(raw, imageCount, cap, idOf).Batch;
+
+    /// <summary>As <see cref="EnforceImageCap"/>, and also says what batch size was asked for before it was held (1 when none was).</summary>
+    public static (int Batch, int Requested) EnforceImageCapDetailed(JObject raw, int imageCount, int cap, Func<string, string> idOf = null)
     {
         idOf ??= CoreId;
         int batch = 1;
@@ -87,12 +106,13 @@ public static class ImageParamKeys
         }
         Remove(raw, Images, idOf);
         Remove(raw, BatchSize, idOf);
+        int requested = batch;
         batch = Math.Clamp(batch, 1, Math.Max(1, cap / Math.Max(1, imageCount)));
         raw[Images] = imageCount;
         if (batch > 1)
         {
             raw[BatchSize] = batch;
         }
-        return batch;
+        return (batch, requested);
     }
 }

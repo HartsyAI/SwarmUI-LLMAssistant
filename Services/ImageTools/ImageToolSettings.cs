@@ -30,8 +30,21 @@ public sealed record ImageToolSettings(string DefaultModel, int MaxImages)
         JObject shared = SettingsService.GetSettings()[Key] as JObject;
         JObject personal = user is null ? null : SettingsService.GetUserSettings(user)[Key] as JObject;
         ImageToolSettings settings = From(shared, personal);
-        // A default model the user may not use is not theirs to see or be given: it is left out of tool descriptions and of what the routes return.
-        return user is not null && settings.DefaultModel.Length > 0 && !user.IsAllowedModel(settings.DefaultModel) ? settings with { DefaultModel = "" } : settings;
+        return user is null ? settings : settings with { DefaultModel = EffectiveModel(shared, personal, user.IsAllowedModel) };
+    }
+
+    /// <summary>The default model a user is given: their own if they may use it, else the shared one if they may, else none. A default model the user may not use is not theirs to see or be given, so it is left
+    /// out of tool descriptions and of what the routes return.</summary>
+    public static string EffectiveModel(JObject shared, JObject personal, Func<string, bool> allowed)
+    {
+        foreach (string name in new[] { ReadModel(personal), ReadModel(shared) })
+        {
+            if (!string.IsNullOrEmpty(name) && allowed(name))
+            {
+                return name;
+            }
+        }
+        return "";
     }
 
     /// <summary>The shared default model, or empty when there is none or <paramref name="user"/> may not use it.</summary>

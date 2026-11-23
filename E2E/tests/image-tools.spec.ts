@@ -416,3 +416,41 @@ test('list_wildcards with samples is asked about in Ask mode, and names alone ar
     // The lines never reached the model.
     expect(JSON.stringify(await mockRequests())).not.toContain('secret red');
 });
+
+test('a preset named in params cannot override the image cap or the model that was chosen', async ({ llm }) => {
+    let saved = await api(llm, 'AddNewPreset', { title: 'E2E-Plain', description: '', param_map: { model: IDEOGRAM, images: '40', batchsize: '30' } });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    await setScenarios([{ match: 'sneaky cat', rounds: [{ text: 'A sneaky cat.' }] }]);
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptRewrite: { auto: true } }) });
+    let before2 = requestsLogged(2), before40 = requestsLogged(40);
+    await run(llm, 'generate_image', { prompt: 'sneaky cat', model: MYSTERY, images: 2, params: { presets: ['E2E-Plain'], Presets: 'E2E-Plain' } });
+    await expect.poll(() => requestsLogged(2), { timeout: 15_000 }).toBe(before2 + 1);
+    expect(requestsLogged(40)).toBe(before40);
+    // The model that was asked for was used (the unplaceable one, not the preset's Ideogram).
+    let requests = await mockRequests();
+    expect(requests.length).toBeGreaterThanOrEqual(1);
+    expect(String(requests[0].messages[0].content)).not.toContain('You write prompts for Ideogram 4');
+});
+
+test('"Allow for this chat" on list_wildcards does not cover a call that asks for samples', async ({ llm }) => {
+    await api(llm, 'EditWildcard', { card: 'e2e-colors', options: 'secret red\nsecret blue' });
+    await llm.locator('label[for="llma-approval-ask"]').click();
+    await expect(llm.locator('#llma-approval-ask')).toBeChecked();
+    await setScenarios([
+        { match: 'names first', rounds: [{ toolCalls: [{ name: 'list_wildcards', arguments: { query: 'e2e-colors' } }] }, { text: 'Names done.' }] },
+        { match: 'samples once', rounds: [{ toolCalls: [{ name: 'list_wildcards', arguments: { query: 'e2e-colors', includeSamples: true } }] }, { text: 'Once done.' }] },
+        { match: 'samples again', rounds: [{ toolCalls: [{ name: 'list_wildcards', arguments: { query: 'e2e-colors', includeSamples: true } }] }, { text: 'Again done.' }] }
+    ]);
+    await send(llm, 'names first');
+    await expect(lastAssistant(llm)).toContainText('Names done.');
+    await expect(llm.locator('.llma-tool-approval')).toHaveCount(0);
+    await send(llm, 'samples once');
+    await expect(llm.locator('.llma-tool-approval')).toBeVisible();
+    await llm.locator('.llma-tool-approval button[data-decision="allow_chat"]').click();
+    await expect(lastAssistant(llm)).toContainText('Once done.');
+    // The grant is for the chat, but this call is asked about again.
+    await send(llm, 'samples again');
+    await expect(llm.locator('.llma-tool-approval')).toBeVisible();
+    await llm.locator('.llma-tool-approval button[data-decision="deny"]').click();
+    await expect(lastAssistant(llm)).toContainText('Again done.');
+});

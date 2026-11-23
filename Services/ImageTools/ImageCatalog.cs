@@ -13,6 +13,14 @@ public sealed record CatalogEntry(string Name, string Title, string Architecture
     /// <summary>The longest a name (a path), a class id, a title, a tag and a default weight kept from a model's data may be.</summary>
     public const int MaxNameChars = 300, MaxIdChars = 100, MaxTitleChars = 200, MaxTagChars = 40, MaxWeightChars = 20;
 
+    /// <summary>A model's name is what is passed back as its id, so it is kept exactly as it is (two spaces stay two spaces); a name that is too long or has a control character in it cannot be used safely and
+    /// gives an empty name, which drops the entry.</summary>
+    private static string ExactName(JToken token)
+    {
+        string name = token?.Type is JTokenType.String ? (string)token : "";
+        return name.Length > MaxNameChars || name.Any(char.IsControl) ? "" : name;
+    }
+
     /// <summary>Reads an entry from a core model object (the <c>files</c> of <c>ListModels</c>). Everything in it can come from the metadata of a file someone else made, so every text is cleaned of control
     /// characters and cut to a bound here, and only the first <see cref="ImageCatalog.MaxTags"/> tags are read.</summary>
     public static CatalogEntry FromNet(JObject o)
@@ -20,7 +28,7 @@ public sealed record CatalogEntry(string Name, string Title, string Architecture
         string text(string key, int max) => o[key]?.Type is JTokenType.String ? ImageCatalog.Clean((string)o[key], max) : "";
         int number(string key) => o[key]?.Type is JTokenType.Integer ? (int)Math.Clamp((long)o[key], 0, 100000) : 0;
         List<string> tags = o["tags"] is JArray array ? [.. array.Take(ImageCatalog.MaxTags * 4).Select(t => ImageCatalog.Clean(t.ToString(), MaxTagChars)).Where(t => t.Length > 0).Take(ImageCatalog.MaxTags)] : [];
-        return new CatalogEntry(text("name", MaxNameChars), text("title", MaxTitleChars), text("architecture", MaxIdChars), text("class", MaxIdChars), text("compat_class", MaxIdChars), number("standard_width"), number("standard_height"),
+        return new CatalogEntry(ExactName(o["name"]), text("title", MaxTitleChars), text("architecture", MaxIdChars), text("class", MaxIdChars), text("compat_class", MaxIdChars), number("standard_width"), number("standard_height"),
             text("description", ImageCatalog.MaxNoteChars), text("usage_hint", ImageCatalog.MaxNoteChars), text("trigger_phrase", ImageCatalog.MaxNoteChars), tags, o["loaded"]?.Type == JTokenType.Boolean && (bool)o["loaded"], text("lora_default_weight", MaxWeightChars));
     }
 }
@@ -270,6 +278,21 @@ public static class ImageCatalog
         }
     }
 
+    /// <summary>Compatibility-family and class ids of models that are not image generators (upscalers, restorers, segmenters) though core lists them with the checkpoints.</summary>
+    private static readonly string[] NonImageFamilies = ["pid", "seedvr2", "sam3"];
+
+    /// <summary>Whether a model is left out of the image model list: its family is one of <see cref="NonImageFamilies"/>, or core flags it as a video or audio family (<paramref name="flaggedVideo"/>) and its id does not say
+    /// it is a text-to-image model (<c>-t2i</c>: core flags NVIDIA Cosmos Predict2 text-to-image as video although it makes images).</summary>
+    public static bool IsNonImageFamily(string compatClass, string architecture, bool flaggedVideo)
+    {
+        string compat = (compatClass ?? "").ToLowerInvariant(), arch = (architecture ?? "").ToLowerInvariant();
+        if (NonImageFamilies.Any(f => compat == f || arch == f || arch.StartsWith(f + "/", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+        return flaggedVideo && !compat.Contains("-t2i") && !arch.Contains("-t2i");
+    }
+
     /// <summary>The text cut to <paramref name="max"/> characters, newlines flattened, with an ellipsis when cut.</summary>
     internal static string Cut(string text, int max)
     {
@@ -282,8 +305,16 @@ public static class ImageCatalog
     public static string Clean(string text, int max)
     {
         StringBuilder sb = new();
-        foreach (char c in text ?? "")
+        string source = text ?? "";
+        for (int i = 0; i < source.Length; i++)
         {
+            char c = source[i];
+            // The Unicode "tag" characters (U+E0000 to U+E007F, a high surrogate U+DB40 then a low one) are invisible and can spell out text no one sees.
+            if (c == '\uDB40' && i + 1 < source.Length && source[i + 1] >= '\uDC00' && source[i + 1] <= '\uDC7F')
+            {
+                i++;
+                continue;
+            }
             if (c == '\n' || c == '\r' || c == '\t' || c == ' ')
             {
                 if (sb.Length > 0 && sb[^1] != ' ')
@@ -291,7 +322,7 @@ public static class ImageCatalog
                     sb.Append(' ');
                 }
             }
-            else if (!char.IsControl(c) && c != '\u200E' && c != '\u200F' && !(c >= '\u202A' && c <= '\u202E') && !(c >= '\u2066' && c <= '\u2069'))
+            else if (!char.IsControl(c) && c != '\u200E' && c != '\u200F' && !(c >= '\u200B' && c <= '\u200D') && c != '\u2060' && c != '\uFEFF' && !(c >= '\u202A' && c <= '\u202E') && !(c >= '\u2066' && c <= '\u2069'))
             {
                 sb.Append(c);
             }

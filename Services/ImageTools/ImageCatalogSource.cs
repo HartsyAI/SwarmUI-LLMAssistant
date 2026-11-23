@@ -28,8 +28,8 @@ public static class ImageCatalogSource
     public static async Task<List<CatalogEntry>> ModelsAsync(Session session, bool includeVideo = false)
     {
         List<CatalogEntry> all = await ReadAsync(session, "Stable-Diffusion");
-        // Models of a video or audio family are marked by core's own flags on the compatibility class; they are left out unless asked for, since this is the list of text-to-image models.
-        List<CatalogEntry> marked = [.. all.Select(e => e with { Video = IsVideoFamily(e.CompatClass) })];
+        // Models of a video or audio family (core's own flags on the compatibility class), and upscalers and segmenters core lists with the checkpoints, are left out unless asked for: this is the list of text-to-image models.
+        List<CatalogEntry> marked = [.. all.Select(e => e with { Video = ImageCatalog.IsNonImageFamily(e.CompatClass, e.Architecture, IsVideoFamily(e.CompatClass)) })];
         return includeVideo ? marked : [.. marked.Where(e => !e.Video)];
     }
 

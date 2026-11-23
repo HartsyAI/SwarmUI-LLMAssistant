@@ -47,9 +47,10 @@ public static class ImageBatch
         return new BatchOutcome([.. images.Where(p => !discarded.Contains(p.Key)).Select(p => p.Value)], error, false);
     }
 
-    /// <summary>Starts the generation and waits for it, watching <paramref name="ct"/>: when it is cancelled, the generation this call started is interrupted (core's own claim for it, not the whole session's
-    /// generations: a Generate-tab run in the same session is left alone, with the one exception that a run the user starts in the same moments after this one is indistinguishable and is stopped with it), and the call
-    /// returns what had been saved. <paramref name="images"/> is how many to make; <paramref name="rawInput"/> is the parameter map.</summary>
+    /// <summary>Starts the generation and waits for it, watching <paramref name="ct"/>. When it is cancelled the claim core made for this call (the first one newer than the call's start, pinned as soon as it
+    /// appears, so a Generate-tab run started later is left alone) is interrupted, and the call returns what had been saved after a short grace. <b>Two limits:</b> interrupting a claim only stops images that have
+    /// not started yet; an image the backend is already making watches the session-wide interrupt instead, so it finishes and is saved (a one-image call is not shortened by Stop), and a run the user starts in the very
+    /// instant after this one can be taken for it. <paramref name="images"/> is how many to make; <paramref name="rawInput"/> is the parameter map.</summary>
     public static async Task<BatchOutcome> RunAsync(Session session, int images, JObject rawInput, CancellationToken ct)
     {
         if (ct.IsCancellationRequested)
@@ -61,13 +62,16 @@ public static class ImageBatch
         Task generation = Task.Run(() => T2IAPI.GenT2I_Internal(session, (images, rawInput, new T2IAPI.SharedGenT2IData(), 0), o => { if (o is not null) { outputs.Enqueue(o); } }, false));
         bool cancelled = false;
         string failure = null;
+        Session.GenClaim own = null;
         while (!generation.IsCompleted)
         {
-            await Task.WhenAny(generation, Task.Delay(200));
+            await Task.WhenAny(generation, Task.Delay(own is null ? 20 : 200));
+            // The claim is made as the generation starts; pinning the first one seen keeps a run started later from being taken for this one.
+            own ??= FirstClaimAfter(session, claimsBefore);
             if (ct.IsCancellationRequested && !generation.IsCompleted)
             {
                 cancelled = true;
-                InterruptClaimsAfter(session, claimsBefore);
+                Interrupt(own);
                 if (await Task.WhenAny(generation, Task.Delay(StopGrace)) != generation)
                 {
                     break;
@@ -94,19 +98,19 @@ public static class ImageBatch
         return outcome with { Error = outcome.Error ?? failure, Cancelled = cancelled };
     }
 
-    /// <summary>Interrupts the generations claimed after <paramref name="claimId"/> (ones this call started).</summary>
-    private static void InterruptClaimsAfter(Session session, long claimId)
+    /// <summary>The oldest claim of the session newer than <paramref name="claimId"/>, or null when there is none yet.</summary>
+    private static Session.GenClaim FirstClaimAfter(Session session, long claimId) => session.Claims.Values.Where(c => c.ID > claimId).OrderBy(c => c.ID).FirstOrDefault();
+
+    /// <summary>Interrupts one claim (a no-op for null: the generation had not made its claim yet, and the next pass pins it and tries again).</summary>
+    private static void Interrupt(Session.GenClaim claim)
     {
-        foreach (Session.GenClaim claim in session.Claims.Values.Where(c => c.ID > claimId).ToList())
+        try
         {
-            try
-            {
-                claim.LocalClaimInterrupt.Cancel();
-            }
-            catch (ObjectDisposedException)
-            {
-                // The generation finished while it was being stopped.
-            }
+            claim?.LocalClaimInterrupt.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // The generation finished while it was being stopped.
         }
     }
 }
