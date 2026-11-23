@@ -144,15 +144,18 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "title is required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        // Changed under the thread write lock, so a message or a pin saved at the same moment is not lost.
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            t["title"] = title.Trim();
+            // A manual rename claims the title permanently — the auto-title generator must never overwrite it.
+            ThreadStorageService.MarkTitleClaimed(t);
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        thread["title"] = title.Trim();
-        // A manual rename claims the title permanently — the auto-title generator must never overwrite it.
-        ThreadStorageService.MarkTitleClaimed(thread);
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject
         {
             ["success"] = true,
@@ -222,21 +225,23 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "threadId is required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        JToken enabledToken = rawInput["enabled"];
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            if (enabledToken?.Type == JTokenType.Boolean)
+            {
+                t["toolsEnabled"] = enabledToken.Value<bool>();
+            }
+            else
+            {
+                t.Remove("toolsEnabled");
+            }
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        JToken enabledToken = rawInput["enabled"];
-        if (enabledToken?.Type == JTokenType.Boolean)
-        {
-            thread["toolsEnabled"] = enabledToken.Value<bool>();
-        }
-        else
-        {
-            thread.Remove("toolsEnabled");
-        }
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject
         {
             ["success"] = true,
@@ -329,11 +334,11 @@ public static class ThreadEndpoints
 
     /// <summary>Searches this user's chats: titles and the text of user and assistant messages (every branch; never tool results or attachments). Request: <c>{ query, limit?, offset?, mode? }</c>,
     /// <c>mode</c> being <c>chat</c> or <c>code</c> to list only that kind. Every word of the query must be somewhere in the chat. Response: <c>{ success, results: [{ threadId, title, updatedAt, titleMatch,
-    /// matchedMessages, snippets: [{ messageId, role, text, ranges: [[start, length]] }] }], total, offset, limit, hasMore, partial }</c>, best match first. <c>partial</c> is true when the user has so much
-    /// text that some chats are searched by title only.</summary>
+    /// indexTruncated, matchedMessages, snippets: [{ messageId, role, text, ranges: [[start, length]] }] }], total, offset, limit, hasMore, partial }</c>, best match first. A chat's <c>indexTruncated</c> is true
+    /// when part of its text is not searched (a message over 20,000 characters, or a chat over 400,000, is cut; see <see cref="ThreadSearch"/>). <c>partial</c> is true when the user has so much text that some
+    /// chats are searched by title only.</summary>
     public static async Task<JObject> LLMAssistantSearchThreads(Session session, JObject rawInput)
     {
-        await Task.CompletedTask;
         string query = rawInput["query"]?.Type == JTokenType.String ? rawInput["query"].ToString() : null;
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -360,9 +365,10 @@ public static class ThreadEndpoints
         JArray threadIndex = ThreadStorageService.GetThreadIndex(session.User);
         ThreadSearchIndex cache = ThreadSearchIndex.For(session.User);
         // Sessions that were archived are not listed in the sidebar, so they are not found either.
-        List<SearchDoc> docs = cache.Refresh(threadIndex, id => ThreadStorageService.GetThread(session.User, id), row =>
+        // Reading the chats the first time (or after they changed) is storage work: off the request thread.
+        List<SearchDoc> docs = await Task.Run(() => cache.Refresh(threadIndex, id => ThreadStorageService.GetThread(session.User, id), row =>
             row["sessionStatus"]?.ToString() != SessionStatuses.Archived
-            && (string.IsNullOrEmpty(mode) || (row["mode"]?.ToString() ?? ThreadModes.Chat) == mode));
+            && (string.IsNullOrEmpty(mode) || (row["mode"]?.ToString() ?? ThreadModes.Chat) == mode)));
         SearchPage page = ThreadSearch.Search(docs, query, limit, offset);
         JArray results = [];
         foreach (SearchHit hit in page.Hits)
@@ -384,6 +390,7 @@ public static class ThreadEndpoints
                 ["title"] = hit.Title,
                 ["updatedAt"] = hit.UpdatedAt,
                 ["titleMatch"] = hit.TitleMatch,
+                ["indexTruncated"] = hit.IndexTruncated,
                 ["matchedMessages"] = hit.MatchedMessages,
                 ["snippets"] = snippets
             });

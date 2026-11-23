@@ -16,6 +16,12 @@ public sealed class SearchDoc
     public int Chars { get; init; }
     /// <summary>True when the text of the chat was left out (the index was full), so only its title can match.</summary>
     public bool TitleOnly { get; init; }
+    /// <summary>True when some of the chat's text is not in the index (a message or the chat was over its cap, or the user's index was full), so a word near the end may not be found.</summary>
+    public bool Truncated { get; init; }
+    /// <summary>True when <see cref="Truncated"/> is because the user's index had little room left (not because of the caps on one message and one chat), so the chat is read again once there is more room.</summary>
+    public bool BudgetLimited { get; init; }
+    /// <summary>The character budget this document was built with.</summary>
+    public int BuiltBudget { get; init; }
 }
 
 /// <summary>A piece of a message around a match. <see cref="Ranges"/> are (start, length) pairs into <see cref="Text"/>, sorted and not overlapping, for the page to highlight.</summary>
@@ -28,6 +34,8 @@ public sealed class SearchHit
     public string Title { get; init; }
     public string UpdatedAt { get; init; }
     public bool TitleMatch { get; init; }
+    /// <summary>True when part of this chat's text is not in the index (see <see cref="SearchDoc.Truncated"/>).</summary>
+    public bool IndexTruncated { get; init; }
     /// <summary>How many messages contain at least one of the words.</summary>
     public int MatchedMessages { get; init; }
     public List<SearchSnippet> Snippets { get; init; } = [];
@@ -102,6 +110,9 @@ public static class ThreadSearch
     {
         List<SearchMessage> messages = [];
         int chars = 0;
+        // With no room at all the chat is not read, so whether it has text is not known: it counts as cut.
+        bool cut = charBudget <= 0;
+        bool budgetCut = charBudget <= 0;
         if (thread?["messages"] is JArray array && charBudget > 0)
         {
             foreach (JToken token in array)
@@ -131,21 +142,26 @@ public static class ThreadSearch
                 if (text.Length > MaxMessageChars)
                 {
                     text = text[..MaxMessageChars];
+                    cut = true;
                 }
                 int room = Math.Min(charBudget, MaxChatChars) - chars;
                 if (room <= 0)
                 {
+                    cut = true;
+                    budgetCut |= charBudget < MaxChatChars;
                     break;
                 }
                 if (text.Length > room)
                 {
                     text = text[..room];
+                    cut = true;
+                    budgetCut |= charBudget < MaxChatChars;
                 }
                 messages.Add(new SearchMessage(message["id"]?.ToString() ?? "", role, text));
                 chars += text.Length;
             }
         }
-        return new SearchDoc { Id = id, Title = title ?? "", UpdatedAt = updatedAt ?? "", Messages = messages, Chars = chars, TitleOnly = charBudget <= 0 };
+        return new SearchDoc { Id = id, Title = title ?? "", UpdatedAt = updatedAt ?? "", Messages = messages, Chars = chars, TitleOnly = charBudget <= 0, Truncated = cut, BudgetLimited = budgetCut, BuiltBudget = charBudget };
     }
 
     /// <summary>Searches <paramref name="docs"/>. Ranking, best first: a title that holds the whole query, then title words, then messages that hold the whole query,
@@ -226,6 +242,7 @@ public static class ThreadSearch
             Title = title,
             UpdatedAt = doc.UpdatedAt,
             TitleMatch = titleTerms > 0,
+            IndexTruncated = doc.Truncated,
             MatchedMessages = matchedMessages,
             Snippets = snippets,
             Score = score

@@ -49,6 +49,11 @@ public static class ThreadExport
             {
                 continue;
             }
+            // Messages the extension makes itself (a session's report, an inbox note) carry a kind and are not part of the conversation.
+            if (message["kind"] is { Type: not JTokenType.Null } kind && !string.IsNullOrEmpty(kind.ToString()))
+            {
+                continue;
+            }
             string content = message["content"]?.Type == JTokenType.String ? message["content"].ToString() : "";
             if (string.IsNullOrWhiteSpace(content))
             {
@@ -56,10 +61,45 @@ public static class ThreadExport
             }
             sb.AppendLine(role == Roles.User ? "## You" : "## Assistant");
             sb.AppendLine();
-            sb.AppendLine(content.TrimEnd());
+            sb.AppendLine(EscapeBody(content.TrimEnd()));
             sb.AppendLine();
         }
         return sb.ToString();
+    }
+
+    /// <summary>Message text made safe to put under a speaker heading: outside code fences, a line that would be a heading or a rule (<c>#</c>, <c>===</c>, <c>---</c>) gets a backslash so it shows as
+    /// text and cannot pass for the next speaker or turn the line above it into a heading, and a code fence the text leaves open is closed so it cannot swallow what follows.</summary>
+    public static string EscapeBody(string text)
+    {
+        List<string> lines = [];
+        char fence = '\0';
+        foreach (string line in text.Replace("\r\n", "\n").Split('\n'))
+        {
+            string trimmed = line.TrimStart(' ');
+            bool indented = line.Length - trimmed.Length <= 3;
+            if (indented && (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal)))
+            {
+                if (fence == '\0')
+                {
+                    fence = trimmed[0];
+                }
+                else if (trimmed[0] == fence)
+                {
+                    fence = '\0';
+                }
+                lines.Add(line);
+                continue;
+            }
+            string rest = trimmed.TrimEnd();
+            bool rule = rest.Length > 0 && (rest.All(c => c == '=') || (rest.Contains('-') && rest.All(c => c == '-' || c == ' ')));
+            bool structural = fence == '\0' && indented && (trimmed.StartsWith('#') || rule);
+            lines.Add(structural ? line[..(line.Length - trimmed.Length)] + "\\" + trimmed : line);
+        }
+        if (fence != '\0')
+        {
+            lines.Add(new string(fence, 3));
+        }
+        return string.Join('\n', lines);
     }
 
     /// <summary>A file name for the chat: letters, digits, <c>_</c> and <c>-</c> from the title (spaces become <c>_</c>), at most 80 characters, <c>chat</c> when nothing is left.</summary>

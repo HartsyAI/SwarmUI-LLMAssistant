@@ -37,8 +37,8 @@ public static class ThreadImport
     public const int MaxMessages = 2000;
     public const int MaxMessageChars = 100_000;
     public const int MaxTitleChars = 200;
-    /// <summary>Deepest nesting of JSON read. A conversation is three levels deep; this leaves room for what exports add later.</summary>
-    public const int MaxJsonDepth = 16;
+    /// <summary>Deepest nesting of JSON read. A conversation is a few levels deep, but a message's tool calls and results (which an export carries, and an import ignores) can nest much deeper.</summary>
+    public const int MaxJsonDepth = 64;
     private const int MaxIdChars = 200;
     private const int SampleMessages = 3;
     private const int SampleChars = 200;
@@ -68,6 +68,10 @@ public static class ThreadImport
             }
             root = token as JObject;
         }
+        catch (JsonReaderException ex) when (ex.Message.Contains("MaxDepth", StringComparison.Ordinal))
+        {
+            return ThreadImportResult.Fail($"The file is nested too deeply (more than {MaxJsonDepth} levels).");
+        }
         catch (JsonException)
         {
             return ThreadImportResult.Fail("The file is not valid JSON.");
@@ -80,7 +84,13 @@ public static class ThreadImport
         {
             return ThreadImportResult.Fail("The file is not an exported chat from this extension.");
         }
-        if (root["version"] is JValue { Type: JTokenType.Integer } version && version.Value<long>() > FormatVersion)
+        // A version too big for a long is newer too; reading it must not throw.
+        if (root["version"] is JValue { Type: JTokenType.Integer or JTokenType.Float } version && version.Value switch
+            {
+                long number => number > FormatVersion,
+                double number => number > FormatVersion,
+                _ => true
+            })
         {
             return ThreadImportResult.Fail("The file was exported by a newer version than this one can read.");
         }

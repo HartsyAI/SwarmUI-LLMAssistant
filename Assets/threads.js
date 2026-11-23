@@ -144,6 +144,7 @@ async function llmaLoadThreads() {
     }
     llmaRenderThreadList(LLMAState.threads);
     llmaSessions.onThreadsLoaded(LLMAState.threads);
+    llmaLibrary.refresh();
 }
 
 // -- Branch picker (sidebar) --
@@ -248,17 +249,21 @@ function llmaRenderThreadList(threads) {
 
     // Searching: one flat list, best match first, each chat with the snippets that matched (chat-library.js). Otherwise: sessions the assistant started are listed under the chat
     // that started them (and archived ones not at all), so only the others are grouped, and pinned chats are a group of their own at the top.
-    const searching = llmaLibrary.searching;
-    const { roots, kids } = searching
+    let searching = llmaLibrary.searching;
+    let split = searching
         ? { roots: llmaLibrary.visibleThreads(threads), kids: new Map() }
         : llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
+    let roots = split.roots;
+    let kids = split.kids;
     let entries;
     if (searching) {
-        entries = [['', roots]]; // no group label: the note above says how many there are
-    } else {
-        const newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-        const pinned = newestFirst.filter(t => t.pinned && llmaLibrary.canPin(t));
-        const rest = pinned.length ? newestFirst.filter(t => !pinned.includes(t)) : newestFirst;
+        // No group label: the note above says how many there are.
+        entries = [['', roots]];
+    }
+    else {
+        let newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+        let pinned = newestFirst.filter(t => t.pinned && llmaLibrary.canPin(t));
+        let rest = pinned.length ? newestFirst.filter(t => !pinned.includes(t)) : newestFirst;
         entries = Object.entries(llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(rest) : llmaGroupByDate(rest));
         if (pinned.length) {
             entries.unshift(['Pinned', pinned]);
@@ -297,8 +302,8 @@ function llmaRenderThreadList(threads) {
                         title="${expanded ? llmaEscapeHtml(translate('Hide branches')) : llmaEscapeHtml(translate('Show branches'))}" aria-label="${llmaEscapeHtml(translate('Toggle branches'))}">&#9656;</button>`
                 : '';
             const displayTitle = thread.title || translate('Untitled');
-            const pinLabel = llmaEscapeHtml(thread.pinned ? translate('Unpin chat') : translate('Pin chat'));
-            const pinButton = llmaLibrary.canPin(thread)
+            let pinLabel = llmaEscapeHtml(thread.pinned ? translate('Unpin chat') : translate('Pin chat'));
+            let pinButton = llmaLibrary.canPin(thread)
                 ? `<button class="llma-thread-pin${thread.pinned ? ' pinned' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
                         title="${pinLabel}" aria-label="${pinLabel}" aria-pressed="${thread.pinned ? 'true' : 'false'}">${thread.pinned ? '&#9733;' : '&#9734;'}</button>`
                 : '';
@@ -389,12 +394,12 @@ function llmaBindThreadListEvents(list) {
             if (item) llmaBeginRenameThread(item);
         });
     });
-    list.querySelectorAll('.llma-thread-pin').forEach(btn => {
+    for (let btn of list.querySelectorAll('.llma-thread-pin')) {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             llmaLibrary.togglePin(btn.dataset.id);
         });
-    });
+    }
     llmaLibrary.bind(list);
     llmaSessions.bind(list);
     list.querySelectorAll('.llma-thread-branch-toggle:not(.llma-session-toggle)').forEach(btn => {
@@ -632,6 +637,7 @@ function llmaBeginRenameThread(itemEl) {
             restore(next);
             const titleEl = document.getElementById('llma-thread-title');
             if (LLMAState.activeThreadId === threadId && titleEl) titleEl.textContent = next;
+            llmaLibrary.refresh();
             llmaShowToast('Renamed', 'info');
         } catch (e) {
             llmaShowToast(llmaShortError(e) || 'Rename failed', 'error');
@@ -891,6 +897,7 @@ async function llmaDeleteThread(threadId) {
     }
 
     llmaRenderThreadList(LLMAState.threads);
+    llmaLibrary.refresh();
     llmaShowToast('Chat deleted', 'info');
 }
 
@@ -926,6 +933,8 @@ async function llmaSaveActiveThread() {
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = meta.title;
     llmaRenderThreadList(LLMAState.threads);
+    // What was just said may now be found by the search that is on.
+    llmaLibrary.refresh();
 }
 
 // -- Export Thread --
