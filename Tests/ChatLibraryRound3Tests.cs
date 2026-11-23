@@ -116,3 +116,54 @@ public class ChatLibraryRound3Tests
         Assert.All(searches, s => Assert.Equal(20, s.Result.Count));
     }
 }
+
+/// <summary>Chat library: the thread index is parsed from JSON, which turns ISO time strings into dates; the search must not read them back at whole-second resolution.</summary>
+public class ChatLibraryIndexTimeTests
+{
+    private static JObject Thread(string text)
+    {
+        return new JObject { ["id"] = "t", ["title"] = "T", ["messages"] = new JArray(new JObject { ["id"] = "m0", ["parentId"] = null, ["role"] = "user", ["content"] = text }) };
+    }
+
+    /// <summary>A thread index the way storage reads it: serialized, then parsed again, so the ISO strings are dates.</summary>
+    private static JArray ParsedIndex(params string[] updatedAt)
+    {
+        string json = new JArray(updatedAt.Select((u, i) => new JObject { ["id"] = "c" + i, ["title"] = "T" + i, ["updatedAt"] = u })).ToString();
+        return JArray.Parse(json);
+    }
+
+    [Fact]
+    public void Two_saves_in_one_second_are_two_stamps_so_the_second_is_read_again()
+    {
+        ThreadSearchIndex cache = new();
+        int reads = 0;
+        string text = "first text";
+        Func<string, JObject> load = _ => { reads++; return Thread(text); };
+        List<SearchDoc> first = cache.Refresh(ParsedIndex("2026-11-23T13:13:46.1000000Z"), load);
+        Assert.Contains("first", first[0].Messages[0].Text);
+        // The chat is saved again within the same second: different milliseconds, same second.
+        text = "second text";
+        List<SearchDoc> second = cache.Refresh(ParsedIndex("2026-11-23T13:13:46.9000000Z"), load);
+        Assert.Equal(2, reads);
+        Assert.Contains("second", second[0].Messages[0].Text);
+        // The same stamp again is served from the cache.
+        cache.Refresh(ParsedIndex("2026-11-23T13:13:46.9000000Z"), load);
+        Assert.Equal(2, reads);
+    }
+
+    [Fact]
+    public void Times_from_a_parsed_index_are_round_trip_text_that_sorts_by_time()
+    {
+        JArray index = ParsedIndex("2026-11-23T13:13:46.1234567Z");
+        string iso = ThreadSearchIndex.IsoTime(index[0]["updatedAt"]);
+        Assert.Equal("2026-11-23T13:13:46.1234567Z", iso);
+        Assert.Equal("", ThreadSearchIndex.IsoTime(null));
+        Assert.Equal("plain text", ThreadSearchIndex.IsoTime(new JValue("plain text")));
+        Assert.Equal("2026-01-05T00:00:00.0000000Z", ThreadSearchIndex.IsoTime(new JValue(new DateTimeOffset(2026, 1, 5, 2, 0, 0, TimeSpan.FromHours(2)))));
+        // The old reading ("11/23/2026 13:13:46") sorted December before November; the new one sorts by time across months.
+        JArray two = ParsedIndex("2026-12-01T00:00:00Z", "2026-11-23T13:13:46Z");
+        List<SearchDoc> docs = new ThreadSearchIndex().Refresh(two, _ => Thread("needle"));
+        Assert.Equal(["c0", "c1"], ThreadSearch.Search(docs, "needle").Hits.Select(h => h.Id));
+        Assert.StartsWith("2026-12-01", ThreadSearch.Search(docs, "needle").Hits[0].UpdatedAt);
+    }
+}

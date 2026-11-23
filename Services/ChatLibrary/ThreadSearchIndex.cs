@@ -95,7 +95,7 @@ public sealed class ThreadSearchIndex
                 continue;
             }
             string title = row["title"]?.ToString() ?? "";
-            string updatedAt = row["updatedAt"]?.ToString() ?? "";
+            string updatedAt = IsoTime(row["updatedAt"]);
             string stamp = updatedAt + "\u0001" + title;
             int budget = (int)Math.Max(0, Math.Min(ThreadSearch.MaxChatChars, MaxUserChars - used));
             // A chat left short of text for lack of room in the index is read again once there is more room.
@@ -130,6 +130,25 @@ public sealed class ThreadSearchIndex
             }
         }
         return docs;
+    }
+
+    /// <summary>A time from a thread index row as round-trip UTC text (<c>2026-03-01T12:00:00.1234567Z</c>). The index is parsed from JSON, which turns an ISO string into a date, and a date's
+    /// <c>ToString()</c> is the machine's own format with whole seconds: two saves in one second would then look like the same save, and the text would not sort by time. Empty when missing.</summary>
+    public static string IsoTime(JToken token)
+    {
+        if (token is null || token.Type == JTokenType.Null)
+        {
+            return "";
+        }
+        if (token is JValue { Value: DateTime time })
+        {
+            return time.ToUniversalTime().ToString("o");
+        }
+        if (token is JValue { Value: DateTimeOffset offset })
+        {
+            return offset.UtcDateTime.ToString("o");
+        }
+        return token.ToString();
     }
 
     /// <summary>True when any chat was indexed by title only because the index was full.</summary>
