@@ -162,6 +162,48 @@ public static class MemoryService
     public static JArray NotesView(MemoryNoteSet set)
         => [.. MemoryRecall.StableOrder(set.Notes).Select(n => NoteJson(n, MemoryNoteSet.Truncate(n.Text, MaxListChars), n.Text.Length > MaxListChars))];
 
+    /// <summary>The kinds <see cref="ListNotes"/> can filter by: the groups the Settings list shows, and <c>pinned</c>.</summary>
+    public static readonly string[] ListKinds = ["profile", MemoryKinds.Preference, "dislike", MemoryKinds.Fact, MemoryKinds.Project, MemoryKinds.Style, "pinned"];
+
+    /// <summary>The most notes one page of <see cref="ListNotes"/> holds, and how many it holds when no limit is given.</summary>
+    public const int MaxListPage = 200, DefaultListPage = 100;
+
+    /// <summary>The longest search text <see cref="ListNotes"/> uses.</summary>
+    public const int MaxListQueryChars = 200;
+
+    /// <summary>One page of the user's notes in the fixed order (see <see cref="MemoryRecall.StableOrder"/>): those whose text contains <paramref name="query"/> (any case; empty for all) and that are of
+    /// <paramref name="kind"/> (one of <see cref="ListKinds"/>; empty for all), starting at the opaque <paramref name="cursor"/> (empty for the first page), at most <paramref name="limit"/> of them (clamped to
+    /// 1..<see cref="MaxListPage"/>, <see cref="DefaultListPage"/> when 0). Each text is cut to <see cref="MaxListChars"/> (with <c>truncated</c>). Returns <c>{ notes, total, matched, nextCursor }</c>
+    /// (<c>nextCursor</c> is empty on the last page), or null when <paramref name="kind"/> or <paramref name="cursor"/> is not valid.</summary>
+    public static JObject ListNotes(MemoryNoteSet set, string query, string kind, int limit, string cursor)
+    {
+        kind = (kind ?? "").Trim().ToLowerInvariant();
+        if (kind.Length > 0 && !ListKinds.Contains(kind))
+        {
+            return null;
+        }
+        int start = 0;
+        if (!string.IsNullOrEmpty(cursor) && (!int.TryParse(cursor, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out start) || start < 0))
+        {
+            return null;
+        }
+        limit = limit <= 0 ? DefaultListPage : Math.Min(limit, MaxListPage);
+        string q = MemoryNoteSet.Truncate((query ?? "").Trim(), MaxListQueryChars);
+        List<MemoryNote> matched = [.. MemoryRecall.StableOrder(set.Notes).Where(n =>
+            (kind.Length == 0
+                || (kind == "pinned" ? n.Pinned : kind == "profile" ? n.Slot.Length > 0 : kind == "dislike" ? n.Slot.Length == 0 && n.Negative : n.Slot.Length == 0 && !n.Negative && n.Kind == kind))
+            && (q.Length == 0 || n.Text.Contains(q, StringComparison.OrdinalIgnoreCase)))];
+        List<MemoryNote> page = [.. matched.Skip(start).Take(limit)];
+        int next = start + page.Count;
+        return new JObject
+        {
+            ["notes"] = new JArray(page.Select(NoteView)),
+            ["total"] = set.Notes.Count,
+            ["matched"] = matched.Count,
+            ["nextCursor"] = next < matched.Count ? next.ToString(System.Globalization.CultureInfo.InvariantCulture) : ""
+        };
+    }
+
     /// <summary>The notes of <paramref name="set"/> that match <paramref name="query"/> by keywords, best first (at most <see cref="MemoryRecall.MaxRanked"/> × 2).</summary>
     public static List<MemoryNote> RankNotes(MemoryNoteSet set, string query)
     {
@@ -211,6 +253,37 @@ public static class MemoryService
         }
         return result;
     }
+
+    /// <summary>What <c>memory_read</c> returns: nothing while recall is paused (and it says so), otherwise <see cref="ReadForModel"/>. The notes it returns count as used, as the ones in the prompt do, so the
+    /// retention setting does not forget notes the model is reading. A null <paramref name="store"/> (no user) reads nothing.</summary>
+    public static JObject ReadForTool(MemoryStore store, MemoryControls controls, string query)
+    {
+        if (controls.RecallPaused)
+        {
+            return new JObject
+            {
+                ["success"] = true,
+                ["paused"] = true,
+                ["total"] = 0,
+                ["returned"] = 0,
+                ["notes"] = new JArray(),
+                ["data_notice"] = "The user has paused memory, so no notes are available right now. Do not mention or guess at saved notes."
+            };
+        }
+        JObject reply = ReadForModel(store?.Load() ?? new MemoryNoteSet(), query);
+        if (store is not null && reply["notes"] is JArray returned && returned.Count > 0)
+        {
+            store.MarkUsed(returned.Select(n => (string)n["id"]));
+        }
+        return reply;
+    }
+
+    /// <summary>The answer <c>memory_write</c> gives while saving is paused (the model is told not to try again), or null when saving is not paused.</summary>
+    public static JObject WriteRefusedWhilePaused(MemoryControls controls)
+        => controls.SavingPaused ? new JObject { ["success"] = false, ["paused"] = true, ["error"] = "The user has paused memory saving, so nothing was saved. Do not try again until they resume it." } : null;
+
+    /// <summary>One note as the Settings list shows it (text cut to <see cref="MaxListChars"/>).</summary>
+    public static JObject NoteView(MemoryNote note) => NoteJson(note, MemoryNoteSet.Truncate(note.Text, MaxListChars), note.Text.Length > MaxListChars);
 
     /// <summary>One note's fields for a client, with the text given (so a list can send it cut).</summary>
     private static JObject NoteJson(MemoryNote note, string text, bool truncated) => new()
@@ -262,8 +335,99 @@ public static class MemoryService
             // An extraction waiting on its model must not write into the memory that was just forgotten (the store's epoch, bumped by Clear, also refuses it).
             MemoryExtractionRegistry.CancelUser(user.UserID);
             StoreFor(user).Clear();
+            ClearRetentionNotice(user.UserID);
         }
     }
+
+    // ---- Retention ----
+
+    /// <summary>How long after a retention sweep the next one may run for the same user (it is applied lazily, from a turn's recall, not on a timer).</summary>
+    internal static TimeSpan RetentionInterval = TimeSpan.FromHours(24);
+
+    /// <summary>When a user's last retention sweep ran, by user id.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> LastRetention = new();
+
+    /// <summary>Forgets what retention says to forget, at most once per <see cref="RetentionInterval"/> per user unless <paramref name="force"/> (saving the setting forces one, so the user sees what it
+    /// does). Returns the change set, or null when nothing went or it was not due. Never throws.</summary>
+    public static MemoryChangeSet RunRetentionIfDue(MemoryStore store, string userId, int days, bool force)
+    {
+        MemoryChangeSet forgotten = SweepRetention(store, userId, days, force);
+        if (forgotten is not null && !force)
+        {
+            // The user did not ask for this sweep, so the next reply tells them about it (see TakeRetentionNotice).
+            PendingRetentionNotice[userId ?? ""] = forgotten;
+        }
+        return forgotten;
+    }
+
+    /// <summary>The sweep forgot notes for this user without them asking and they have not been told yet, by user id.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, MemoryChangeSet> PendingRetentionNotice = new();
+
+    /// <summary>The change set of a lazy sweep that forgot notes, once (null when there is none): the chat shows it as a notice with Undo.</summary>
+    public static MemoryChangeSet TakeRetentionNotice(MemoryStore store, string userId)
+    {
+        if (!PendingRetentionNotice.TryRemove(userId ?? "", out MemoryChangeSet pending) || store is null)
+        {
+            return null;
+        }
+        // What the notice shows is what the history still holds: a set that was undone, cleared, or whose notes were deleted since is not announced (with a dead Undo, or text of notes that are gone).
+        return store.Changes().FirstOrDefault(s => s.Id == pending.Id);
+    }
+
+    /// <summary>Forgets a pending notice (when memory is cleared, or the set it is about is undone).</summary>
+    public static void ClearRetentionNotice(string userId, string changeId = null)
+    {
+        if (changeId is null || (PendingRetentionNotice.TryGetValue(userId ?? "", out MemoryChangeSet pending) && pending.Id == changeId))
+        {
+            PendingRetentionNotice.TryRemove(userId ?? "", out _);
+        }
+    }
+
+    private static MemoryChangeSet SweepRetention(MemoryStore store, string userId, int days, bool force)
+    {
+        if (days <= 0 || store is null)
+        {
+            return null;
+        }
+        DateTime now = DateTime.UtcNow;
+        if (!force)
+        {
+            if (LastRetention.TryGetValue(userId ?? "", out DateTime last) && now - last < RetentionInterval)
+            {
+                return null;
+            }
+        }
+        LastRetention[userId ?? ""] = now;
+        try
+        {
+            // Always lazy: the user's own save of the setting skips the once-a-day throttle (force), but not the away-longer-than-the-setting guard, so saving it never wipes notes after a long absence.
+            return store.ApplyRetention(days, lazy: true);
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] {userId}: the memory retention sweep failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>What a change of the user's own controls has to do to their notes. When recall is resumed, every note's unused time starts again (nothing was marked used while it was paused, so a
+    /// long pause would otherwise make the next sweep forget notes that were only waiting). When retention was just set and recall is not paused, a sweep runs at once so the user sees what it does
+    /// (never while recall is paused, for the same reason). Returns how many notes that sweep forgot.</summary>
+    public static int ApplyControlsChange(MemoryStore store, string userId, MemoryControls before, MemoryControls after, bool retentionChanged)
+    {
+        if (store is null)
+        {
+            return 0;
+        }
+        if (before.RecallPaused && !after.RecallPaused)
+        {
+            store.MarkUsed(store.Load().Notes.Select(n => n.Id));
+        }
+        return retentionChanged && !after.RecallPaused ? RunRetentionIfDue(store, userId, after.RetentionDays, true)?.Changes.Count ?? 0 : 0;
+    }
+
+    /// <summary>Forgets every remembered sweep time (for tests).</summary>
+    internal static void ResetRetentionForTests() => LastRetention.Clear();
 
     // ---- Embeddings (optional) ----
 
@@ -350,6 +514,19 @@ public static class MemoryService
         {
             // A turn that was stopped renders no notes as used.
             return new MemoryRecallRequest(query, null, null, false);
+        }
+        if (session?.User is not null)
+        {
+            MemoryControls controls = MemoryControls.ForUser(session.User);
+            if (controls.RecallPaused)
+            {
+                // Paused: no embedding call, no note marked used (and none rendered: see BuildPromptVariables).
+                return new MemoryRecallRequest(query, null, null, false);
+            }
+            if (!dryRun)
+            {
+                RunRetentionIfDue(StoreFor(session.User), session.User.UserID, controls.RetentionDays, false);
+            }
         }
         if (dryRun || session?.User is null || query.Length == 0)
         {
@@ -475,7 +652,8 @@ public static class MemoryService
     /// prompts that use it). Called when assembling a system prompt; <paramref name="recall"/> is null when the instruction does not use the notes or no turn is being answered.</summary>
     public static Dictionary<string, string> BuildPromptVariables(User user, JObject assistant, MemoryRecallRequest recall = null)
     {
-        MemoryStore store = user is null ? null : StoreFor(user);
+        // While recall is paused no note reaches the model: not the block, not even the name.
+        MemoryStore store = user is null || MemoryControls.ForUser(user).RecallPaused ? null : StoreFor(user);
         MemoryNoteSet set = store?.Load() ?? new MemoryNoteSet();
         return new Dictionary<string, string>
         {

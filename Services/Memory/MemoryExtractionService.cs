@@ -252,6 +252,21 @@ public static class MemoryExtractionService
         }
     }
 
+    /// <summary>Why the automatic extractor may not run for a user (null when it may): their own switch is off, an administrator switched it off for everyone, or saving is paused. Distinct reasons, so
+    /// the <c>LLMAssistantExtractMemory</c> reply and the log say which one it is.</summary>
+    public static string GateReason(MemoryExtractionSettings config, MemoryControls controls)
+    {
+        if (!config.Enabled)
+        {
+            return "automatic memory is switched off (Settings > Memory)";
+        }
+        if (controls.AdminExtractionDisabled)
+        {
+            return "an administrator has switched off automatic memory for everyone";
+        }
+        return controls.SavingPaused ? "memory saving is paused" : null;
+    }
+
     /// <summary>The one entry point for an extraction on an existing chat, used by the chat socket (after a reply) and by the <c>LLMAssistantExtractMemory</c> route: everything cheap that can say no
     /// is checked first, in order (the master switch, the user's memory permission, a session chat, the chat's and the assistant's own opt-outs), and then the extraction runs on the caller's
     /// reserved <paramref name="slot"/> (so Stop, a new reply, a closed socket and Clear reach it). <paramref name="userMessageId"/> names a user message on the active branch (the latest one when
@@ -267,9 +282,9 @@ public static class MemoryExtractionService
             }
             // The cheapest check first: with the master switch off (the default) a reply costs nothing more than this.
             MemoryExtractionSettings config = MemoryExtractionSettings.ForUser(user);
-            if (!config.Enabled)
+            if (GateReason(config, MemoryControls.ForUser(user)) is string off)
             {
-                return Skipped("automatic memory is switched off (Settings > Memory)");
+                return Skipped(off);
             }
             if (!user.HasPermission(LLMAssistantAPI.PermToolMemory))
             {
@@ -302,7 +317,8 @@ public static class MemoryExtractionService
             {
                 return new ExtractionOutcome("cancelled", null, "stopped before it started");
             }
-            return await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, slot.Cts.Token, userMessageId);
+            return await ExtractAsync(MemoryService.StoreFor(user), user.UserID, threadId, thread, config, chatModel, session, generate ?? LLMDispatcher.GenerateDetailed, slot.Cts.Token, userMessageId,
+                () => !MemoryControls.ForUser(user).ExtractionAllowed(MemoryExtractionSettings.ForUser(user).Enabled), !MemoryControls.ForUser(user).RecallPaused);
         }
         catch (OperationCanceledException)
         {
@@ -326,6 +342,12 @@ public static class MemoryExtractionService
         }
         try
         {
+            // Notes a sweep forgot while this reply was being prepared: said first, with the same Undo (the sweep is not the extractor's, and runs whether or not it is on).
+            MemoryChangeSet forgotten = session?.User is null ? null : MemoryService.TakeRetentionNotice(MemoryService.StoreFor(session.User), session.User.UserID);
+            if (forgotten is not null && notify is not null)
+            {
+                await notify(new JObject { ["memoryChanges"] = forgotten.ToClientJson() });
+            }
             ExtractionOutcome outcome = await ExtractForThreadAsync(session, threadId, chatModel, slot, null, generate);
             if (outcome.Status != "skipped")
             {
@@ -346,8 +368,9 @@ public static class MemoryExtractionService
         }
     }
 
-    /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
-    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, string userMessageId = null)
+    /// <summary>The extraction itself, for a store and chat that are known (the part tests drive). <paramref name="blocked"/> says whether saving has been paused (or switched off by an admin) since
+    /// the extraction began, and is asked again just before anything is saved. With <paramref name="showNotes"/> false (recall is paused) the model is shown none of the notes, so it can only add. Never throws except <see cref="OperationCanceledException"/> before the model is called.</summary>
+    internal static async Task<ExtractionOutcome> ExtractAsync(MemoryStore store, string userId, string threadId, JObject thread, MemoryExtractionSettings config, string chatModel, Session session, Generator generate, CancellationToken ct, string userMessageId = null, Func<bool> blocked = null, bool showNotes = true)
     {
         MemoryTranscript transcript = MemoryTranscriptBuilder.Build(thread, userMessageId);
         if (transcript is null)
@@ -409,7 +432,7 @@ public static class MemoryExtractionService
             }
             // Memory cleared while the model is working must not be written to afterwards: the epoch is read before the notes are, and checked again under the lock when saving.
             int epoch = store.Epoch();
-            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(store.Load(), transcript, never);
+            MemoryExtractionPrompt prompt = MemoryExtractionPrompt.Build(showNotes ? store.Load() : new MemoryNoteSet(), transcript, never);
             if (never.Exhausted)
             {
                 return Skipped("checking the never-save list took too long, so the turn was not used");
@@ -453,7 +476,9 @@ public static class MemoryExtractionService
             {
                 return new ExtractionOutcome("nothing", null, parsed.Rejected > 0 ? $"{parsed.Rejected} operations were refused" : "nothing worth saving");
             }
-            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => ct.IsCancellationRequested, epoch);
+            // Asked once, here, not for every operation while the user's lock is held (it reads settings).
+            bool stopped = blocked?.Invoke() == true;
+            MemoryApplyResult applied = store.ApplyExtraction(parsed.Ops, threadId, () => stopped || ct.IsCancellationRequested, epoch);
             if (applied.Refused is "cancelled" or "cleared")
             {
                 return Cancelled(applied.Refused == "cleared" ? "memory was cleared meanwhile" : "stopped before saving");

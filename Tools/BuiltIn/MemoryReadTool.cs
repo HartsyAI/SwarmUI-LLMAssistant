@@ -22,7 +22,7 @@ public class MemoryReadTool : ToolHandler
 
     public override Task<JObject> Execute(ToolExecutionContext ctx)
     {
-        MemoryNoteSet set = MemoryService.Load(ctx.Session?.User);
-        return Task.FromResult(MemoryService.ReadForModel(set, ctx.Args["query"]?.ToString() ?? ""));
+        User user = ctx.Session?.User;
+        return Task.FromResult(MemoryService.ReadForTool(user is null ? null : MemoryService.StoreFor(user), MemoryControls.ForUser(user), ctx.Args["query"]?.ToString() ?? ""));
     }
 }

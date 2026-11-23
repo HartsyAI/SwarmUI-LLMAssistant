@@ -15,6 +15,13 @@ public static class MemoryChangeTypes
     public const string Evicted = "evicted";
 }
 
+/// <summary>What made a change set, when it was not the automatic extractor.</summary>
+public static class MemoryChangeReasons
+{
+    /// <summary>Notes were forgotten because they had not been used for the number of days the user set.</summary>
+    public const string Retention = "retention";
+}
+
 /// <summary>One note's change, with the note as it was and as it became (both whole, so undoing needs nothing else).</summary>
 /// <param name="Type">See <see cref="MemoryChangeTypes"/>.</param>
 /// <param name="NoteId">The note.</param>
@@ -47,10 +54,11 @@ public sealed record MemoryChange(string Type, string NoteId, JObject Before, JO
 /// <param name="At">When (UTC, ISO 8601).</param>
 /// <param name="ThreadId">The chat the notes came from.</param>
 /// <param name="Changes">The changes, in the order they were made.</param>
-public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IReadOnlyList<MemoryChange> Changes)
+/// <param name="Reason">What made the change: empty for the automatic extractor, <see cref="MemoryChangeReasons.Retention"/> for notes forgotten because they were unused. Absent in a set stored before it existed.</param>
+public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IReadOnlyList<MemoryChange> Changes, string Reason = "")
 {
     /// <summary>The set as stored.</summary>
-    public JObject ToJson() => new() { ["id"] = Id, ["at"] = At, ["threadId"] = ThreadId, ["changes"] = new JArray(Changes.Select(c => c.ToJson())) };
+    public JObject ToJson() => new() { ["id"] = Id, ["at"] = At, ["threadId"] = ThreadId, ["reason"] = Reason, ["changes"] = new JArray(Changes.Select(c => c.ToJson())) };
 
     /// <summary>A set from its stored form, or null when it does not read.</summary>
     public static MemoryChangeSet FromJson(JToken token)
@@ -60,7 +68,7 @@ public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IRea
             return null;
         }
         List<MemoryChange> changes = [.. array.Select(MemoryChange.FromJson).Where(c => c is not null)];
-        return changes.Count == 0 ? null : new MemoryChangeSet(o["id"].ToString(), o["at"]?.ToString() ?? "", o["threadId"]?.ToString() ?? "", changes);
+        return changes.Count == 0 ? null : new MemoryChangeSet(o["id"].ToString(), o["at"]?.ToString() ?? "", o["threadId"]?.ToString() ?? "", changes, o["reason"]?.ToString() ?? "");
     }
 
     /// <summary>The set for a client: what was added, updated (with what it said before), removed and dropped to make room, each note's text cleaned the way the prompt block cleans it and
@@ -75,6 +83,7 @@ public sealed record MemoryChangeSet(string Id, string At, string ThreadId, IRea
             ["id"] = Id,
             ["at"] = At,
             ["threadId"] = ThreadId,
+            ["reason"] = Reason,
             ["added"] = Pick(MemoryChangeTypes.Added, false),
             ["updated"] = updated,
             ["removed"] = Pick(MemoryChangeTypes.Removed, true),
@@ -115,13 +124,19 @@ public sealed partial class MemoryStore
     /// <summary>How many change sets the journal keeps (the newest).</summary>
     public const int MaxChangeSets = 10;
 
+    /// <summary>The key of the journal of notes the retention sweep forgot. It is kept apart from <see cref="ChangesKey"/> so that later extractions cannot push a sweep out of it.</summary>
+    public const string RetentionJournalKey = "memory_retention_changes";
+
+    /// <summary>How many retention change sets are kept (the newest). A sweep forgets at most <see cref="MaxRetentionPerSweep"/> notes and runs at most daily, so this is about a month of sweeps.</summary>
+    public const int MaxRetentionSets = 30;
+
     /// <summary>The note as a copy.</summary>
     private static JObject NoteJson(MemoryNote note) => JObject.FromObject(note);
 
     /// <summary>The journal's change sets, oldest first (an entry that does not read is left out).</summary>
-    private List<MemoryChangeSet> LoadJournal()
+    private List<MemoryChangeSet> LoadJournal(string key = ChangesKey)
     {
-        string raw = Storage.Get(ChangesKey);
+        string raw = Storage.Get(key);
         if (string.IsNullOrWhiteSpace(raw))
         {
             return [];
@@ -137,14 +152,14 @@ public sealed partial class MemoryStore
     }
 
     /// <summary>Saves the journal, newest <see cref="MaxChangeSets"/> only (deleting it when it is empty).</summary>
-    private void SaveJournal(List<MemoryChangeSet> sets)
+    private void SaveJournal(List<MemoryChangeSet> sets, string key = ChangesKey, int cap = MaxChangeSets)
     {
         if (sets.Count == 0)
         {
-            DeleteTracked([ChangesKey]);
+            DeleteTracked([key]);
             return;
         }
-        SaveTracked(ChangesKey, new JArray(sets.TakeLast(MaxChangeSets).Select(s => s.ToJson())).ToString(Newtonsoft.Json.Formatting.None));
+        SaveTracked(key, new JArray(sets.TakeLast(cap).Select(s => s.ToJson())).ToString(Newtonsoft.Json.Formatting.None));
     }
 
     /// <summary>The journal of automatic changes, newest first.</summary>
@@ -152,7 +167,8 @@ public sealed partial class MemoryStore
     {
         lock (Gate)
         {
-            return [.. LoadJournal().AsEnumerable().Reverse()];
+            // The extractor's sets and the retention sets, newest first (the times are ISO 8601 in UTC, so they order as text).
+            return [.. LoadJournal().Concat(LoadJournal(RetentionJournalKey)).OrderByDescending(s => s.At, StringComparer.Ordinal)];
         }
     }
 
@@ -299,8 +315,15 @@ public sealed partial class MemoryStore
     {
         lock (Gate)
         {
+            string journalKey = ChangesKey;
             List<MemoryChangeSet> journal = LoadJournal();
             MemoryChangeSet target = journal.FirstOrDefault(s => s.Id == changeSetId);
+            if (target is null)
+            {
+                journalKey = RetentionJournalKey;
+                journal = LoadJournal(journalKey);
+                target = journal.FirstOrDefault(s => s.Id == changeSetId);
+            }
             if (target is null)
             {
                 return new MemoryUndoResult(0, 0, false, "");
@@ -338,6 +361,7 @@ public sealed partial class MemoryStore
                         now.Origin = old.Origin;
                         now.ThreadId = old.ThreadId ?? "";
                         now.Negative = old.Negative;
+                        now.LastUsed = Clock().ToUniversalTime().ToString("o");
                         touched.Add(now.Id);
                         undone++;
                     }
@@ -347,6 +371,7 @@ public sealed partial class MemoryStore
                     }
                 }
             }
+            List<MemoryChange> notBackYet = [];
             foreach (MemoryChange change in target.Changes.Reverse().Where(c => c.Type is MemoryChangeTypes.Removed or MemoryChangeTypes.Evicted))
             {
                 MemoryNote back = change.Before?.ToObject<MemoryNote>();
@@ -354,10 +379,13 @@ public sealed partial class MemoryStore
                     || set.Notes.Any(n => n.Slot.Length == 0 && back.Slot.Length == 0 && n.Kind == back.Kind && n.Negative == back.Negative && MemoryNoteSet.Squash(n.Text).Equals(MemoryNoteSet.Squash(back.Text), StringComparison.OrdinalIgnoreCase)))
                 {
                     skipped++;
+                    notBackYet.Add(change);
                     continue;
                 }
                 back.Slot ??= "";
                 back.ThreadId ??= "";
+                // Brought back by the user: its unused time starts again, or the next sweep could forget it at once.
+                back.LastUsed = Clock().ToUniversalTime().ToString("o");
                 set.Notes.Add(back);
                 undone++;
             }
@@ -368,8 +396,17 @@ public sealed partial class MemoryStore
                 {
                     DeleteVector(id);
                 }
-                journal.Remove(target);
-                SaveJournal(journal);
+                // A set of forgotten notes keeps the ones that could not come back (memory was full, or the same words were saved again), so they are not lost with it and a later Undo can bring them back.
+                int at = journal.IndexOf(target);
+                if (target.Reason == MemoryChangeReasons.Retention && notBackYet.Count > 0)
+                {
+                    journal[at] = target with { Changes = [.. notBackYet.AsEnumerable().Reverse()] };
+                }
+                else
+                {
+                    journal.RemoveAt(at);
+                }
+                SaveJournal(journal, journalKey, journalKey == ChangesKey ? MaxChangeSets : MaxRetentionSets);
             }
             return new MemoryUndoResult(undone, skipped, true, "");
         }

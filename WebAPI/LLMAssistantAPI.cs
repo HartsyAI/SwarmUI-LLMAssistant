@@ -340,6 +340,20 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantClearUserProfile, true, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemoryChanges, false, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantUndoMemoryChange, true, PermChat);
+        // Review and control (M3): every one works on the calling user's own notes and settings; only the admin switch is shared-layer, and it takes llm_shared_write.
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantListMemoryNotes, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemoryNote, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantAddMemoryNote, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantPinMemoryNote, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetAssistantMemory, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantUpdateMemoryNote, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantDeleteMemoryNotes, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantExportMemory, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantPreviewMemoryImport, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantImportMemory, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemoryControls, false, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetMemoryControls, true, PermChat);
+        API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetMemoryAdmin, true, PermSharedWrite);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantGetMemorySettings, false, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantSetMemorySettings, true, PermChat);
         API.RegisterAPICall(MemoryEndpoints.LLMAssistantExtractMemory, true, PermChat);

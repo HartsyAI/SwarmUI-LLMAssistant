@@ -1,7 +1,7 @@
 import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, clearMemory, embeddingRequests, clearEmbeddingRequests, failEmbeddings } from './fixtures';
 import type { Page } from '@playwright/test';
 
-// Memory notes: what the model saves with memory_write, how it reaches the next prompt (as marked data), memory_read, the old profile's shape, and the read-only Memory tab.
+// Memory notes: what the model saves with memory_write, how it reaches the next prompt (as marked data), memory_read, the old profile's shape, and the Memory tab.
 
 const test = base.extend<{ llm: Page }>({
     llm: async ({ llm }, use) => {
@@ -146,7 +146,7 @@ test('a set too big for the prompt budget keeps the pinned notes and the ones th
     expect(system.split('\n').filter(l => l.startsWith('- [fact] Filler')).length).toBeLessThan(40);
 });
 
-test('the Memory tab lists the notes read-only, and clearing memory empties it and the prompt', async ({ llm }) => {
+test('the Memory tab lists the notes, and clearing memory empties it and the prompt', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="memory"]').click();
     await expect(llm.locator('#llma-memory-list')).toContainText('Nothing is remembered yet');
@@ -159,7 +159,8 @@ test('the Memory tab lists the notes read-only, and clearing memory empties it a
     await expect(llm.locator('#llma-memory-list .llma-memory-note')).toContainText('Short, plain answers');
     await expect(llm.locator('#llma-memory-list .llma-memory-note')).toContainText('style');
     await expect(llm.locator('#llma-memory-totals')).toContainText('1 /');
-    await expect(llm.locator('#llma-memory-list button, #llma-memory-list input')).toHaveCount(0);
+    // The list is a manager now (edit, pin, delete, select); memory-controls.spec.ts covers those.
+    await expect(llm.locator('#llma-memory-list .llma-memory-note .llma-memory-edit')).toHaveCount(1);
     await llm.locator('#llma-settings-close').click();
 
     expect((await api(llm, 'LLMAssistantClearUserProfile')).success).toBe(true);
@@ -176,6 +177,18 @@ test('a user\'s notes are their own: the API takes no user address', async ({ ll
     let reply = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true, userId: 'someone-else', user: 'someone-else' });
     expect(reply.success).toBe(true);
     expect(reply.notes.map((n: any) => n.text)).toEqual(['Private fact']);
+
+    // The routes that change, export and import notes take no user address either: a smuggled one is ignored, and only the caller's own notes are ever in a reply.
+    let own = reply.notes[0].id;
+    let other = { userId: 'someone-else', user: 'someone-else' };
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: own, ...other })).note.text).toBe('Private fact');
+    expect((await api(llm, 'LLMAssistantGetMemoryNote', { id: 'not-a-note-of-mine', ...other })).code).toBe('notfound');
+    expect((await api(llm, 'LLMAssistantExportMemory', other)).export.notes.map((n: any) => n.text)).toEqual(['Private fact']);
+    expect((await api(llm, 'LLMAssistantGetMemoryControls', other)).success).toBe(true);
+    expect((await api(llm, 'LLMAssistantUpdateMemoryNote', { id: own, pinned: true, ...other })).note.pinned).toBe(true);
+    expect((await api(llm, 'LLMAssistantDeleteMemoryNotes', { ids: ['x', 'y'], ...other })).deleted).toBe(0);
+    expect((await api(llm, 'LLMAssistantDeleteMemoryNotes', { ids: [own], ...other })).deleted).toBe(1);
+    expect((await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true })).notes).toHaveLength(0);
 });
 
 /** Picks the harness's embedding backend and model, as the Knowledge tab does. */

@@ -386,3 +386,5 @@
 
 /* The "don't remember this chat" button: dimmed while this chat is not remembered. */
 #llma-memory-toggle-btn.off { opacity: 0.6; }
+/* The pause button: highlighted while memory is paused. */
+#llma-memory-pause-btn.on { color: var(--emphasis); opacity: 1; }
