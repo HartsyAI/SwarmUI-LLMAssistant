@@ -255,7 +255,7 @@ class LLMALibrary {
         catch (e) {
             this.setPinned(thread, previous);
             llmaRenderThreadList(LLMAState.threads);
-            llmaShowToast('Could not pin the chat', 'error');
+            llmaShowToast(llmaShortError(e) || 'Could not pin the chat', 'error');
         }
     }
 
@@ -287,7 +287,7 @@ class LLMALibrary {
             reply = await llmaRequest('LLMAssistantExportThread', { threadId, format });
         }
         catch (e) {
-            llmaShowToast('Export failed', 'error');
+            llmaShowToast(llmaShortError(e) || 'Export failed', 'error');
             return;
         }
         if (!reply?.success) {
@@ -331,7 +331,8 @@ class LLMALibrary {
             reply = await llmaRequest('LLMAssistantImportThread', { content: text, preview: true });
         }
         catch (e) {
-            llmaShowToast('Could not read the file', 'error');
+            // A refusal comes back as an error: its text says what is wrong with the file.
+            llmaShowToast(llmaShortError(e) || 'Could not read the file', 'error');
             return;
         }
         if (!reply?.success) {
@@ -392,7 +393,7 @@ class LLMALibrary {
             reply = await llmaRequest('LLMAssistantImportThread', { content: this.importText });
         }
         catch (e) {
-            reply = { success: false, error: 'Could not import the file' };
+            reply = { success: false, error: llmaShortError(e) || 'Could not import the file' };
         }
         if (!reply?.success) {
             status.textContent = reply?.error || translate('Could not import the file');
@@ -416,8 +417,9 @@ class LLMALibrary {
     setup() {
         let wire = (id, event, handler) => {
             let el = document.getElementById(id);
-            if (el && !el.dataset.llmaBound) {
-                el.dataset.llmaBound = '1';
+            // One flag per element and event: the search box has two listeners.
+            if (el && !el.dataset['llmaBound' + event]) {
+                el.dataset['llmaBound' + event] = '1';
                 el.addEventListener(event, handler);
             }
         };

@@ -254,7 +254,7 @@ function llmaRenderThreadList(threads) {
         : llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
     let entries;
     if (searching) {
-        entries = [['Results', roots]];
+        entries = [['', roots]]; // no group label: the note above says how many there are
     } else {
         const newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
         const pinned = newestFirst.filter(t => t.pinned && llmaLibrary.canPin(t));
@@ -268,7 +268,7 @@ function llmaRenderThreadList(threads) {
 
     for (const [label, group] of entries) {
         if (group.length === 0) continue;
-        html += `<div class="llma-thread-group-label${llmaThreadSelectMode ? ' selectable' : ''}" data-ids="${llmaEscapeHtml(group.map(t => t.id).join(','))}"${llmaThreadSelectMode ? ` title="${llmaEscapeHtml(translate('Select this group'))}"` : ''}>${llmaEscapeHtml(translate(label))}</div>`;
+        html += !label ? '' : `<div class="llma-thread-group-label${llmaThreadSelectMode ? ' selectable' : ''}" data-ids="${llmaEscapeHtml(group.map(t => t.id).join(','))}"${llmaThreadSelectMode ? ` title="${llmaEscapeHtml(translate('Select this group'))}"` : ''}>${llmaEscapeHtml(translate(label))}</div>`;
         const rows = [];
         const addRows = (thread, depth) => {
             rows.push([thread, depth]);
