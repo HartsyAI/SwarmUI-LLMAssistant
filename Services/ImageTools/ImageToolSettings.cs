@@ -29,7 +29,16 @@ public sealed record ImageToolSettings(string DefaultModel, int MaxImages)
     {
         JObject shared = SettingsService.GetSettings()[Key] as JObject;
         JObject personal = user is null ? null : SettingsService.GetUserSettings(user)[Key] as JObject;
-        return From(shared, personal);
+        ImageToolSettings settings = From(shared, personal);
+        // A default model the user may not use is not theirs to see or be given: it is left out of tool descriptions and of what the routes return.
+        return user is not null && settings.DefaultModel.Length > 0 && !user.IsAllowedModel(settings.DefaultModel) ? settings with { DefaultModel = "" } : settings;
+    }
+
+    /// <summary>The shared default model, or empty when there is none or <paramref name="user"/> may not use it.</summary>
+    public static string SharedModelFor(User user)
+    {
+        string name = ReadModel(SettingsService.GetSettings()[Key] as JObject) ?? "";
+        return name.Length > 0 && (user is null || user.IsAllowedModel(name)) ? name : "";
     }
 
     /// <summary>The default model the user saved in their own layer (empty when none).</summary>

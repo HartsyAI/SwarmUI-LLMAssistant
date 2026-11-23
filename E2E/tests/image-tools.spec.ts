@@ -1,5 +1,8 @@
 import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, turn, toolResults } from './fixtures';
 import type { Page } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // The image workflow tools: list_image_models, list_loras, list_wildcards and list_presets (each called by the scripted chat model, and the same listings through their API routes), generate_image's model
 // choice (an error that lists candidates, a validated `model` with "did you mean", the user's default image model) and its batch (`images`, held to a server limit, one rewrite for the whole batch), and the
@@ -346,4 +349,70 @@ test('the Settings control shows the installed models, saves the choice and the 
     await llm.locator('#llma-settings-btn').click();
     await expect(llm.locator('#llma-s-image-default-model')).toHaveValue(MYSTERY);
     await expect(llm.locator('#llma-s-image-batch-max')).toHaveValue('7');
+});
+
+// ---- review fixes ----
+
+const SWARM_LOG = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.run', 'swarm.log');
+
+/** How many generation requests the throwaway SwarmUI has logged with this exact image count (core logs "requested N images" once it has parsed a request). */
+function requestsLogged(images: number) {
+    let text = fs.existsSync(SWARM_LOG) ? fs.readFileSync(SWARM_LOG, 'utf8') : '';
+    return text.split('\n').filter(l => l.includes(`requested ${images} image${images == 1 ? '' : 's'} with model`)).length;
+}
+
+test('a preset or params cannot raise the number of images past what the call asked for, whatever the key is spelled like', async ({ llm }) => {
+    let before2 = requestsLogged(2);
+    let beforeBig = requestsLogged(5000) + requestsLogged(777) + requestsLogged(100);
+    await run(llm, 'generate_image', { prompt: 'cap cat', model: MYSTERY, images: 2, params: { Images: 5000, IMAGES: 777, 'batch size': 100, BatchSize: 100 } });
+    await expect.poll(() => requestsLogged(2), { timeout: 15_000 }).toBe(before2 + 1);
+    expect(requestsLogged(5000) + requestsLogged(777) + requestsLogged(100)).toBe(beforeBig);
+});
+
+test('a preset that asks for a lot of images is held to the same limit', async ({ llm }) => {
+    let saved = await api(llm, 'AddNewPreset', { title: 'E2E-Plain', description: '', param_map: { model: MYSTERY, images: '40' } });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    await api(llm, 'LLMAssistantSetImageDefaults', { maxImages: 3, scope: 'shared' });
+    let before = requestsLogged(3);
+    await run(llm, 'generate_image', { prompt: 'preset cap cat', preset: 'E2E-Plain', images: 99 });
+    await expect.poll(() => requestsLogged(3), { timeout: 15_000 }).toBe(before + 1);
+    expect(requestsLogged(40)).toBe(0);
+});
+
+test('params.Model in another case does not lose to the default image model', async ({ llm }) => {
+    await setScenarios([{ match: 'case cat', rounds: [{ text: 'A case cat.' }] }]);
+    await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptRewrite: { auto: true } }) });
+    await api(llm, 'LLMAssistantSetImageDefaults', { defaultModel: MYSTERY });
+    await run(llm, 'generate_image', { prompt: 'case cat', params: { Model: IDEOGRAM } });
+    let requests = await mockRequests();
+    expect(requests.length).toBeGreaterThanOrEqual(1);
+    expect(String(requests[0].messages[0].content)).toContain('You write prompts for Ideogram 4');
+});
+
+test('list_loras forModel needs a model whose family core knows, and the model list pages with offset', async ({ llm }) => {
+    let unplaced = await api(llm, 'LLMAssistantListLoras', { forModel: MYSTERY });
+    expect(unplaced.success).toBe(false);
+    expect(unplaced.error).toContain('family');
+    let first = await api(llm, 'LLMAssistantListImageModels', { limit: 2 });
+    expect(first.models).toHaveLength(2);
+    expect(first.nextOffset).toBe(2);
+    expect(first.more).toContain('offset: 2');
+    let second = await api(llm, 'LLMAssistantListImageModels', { limit: 2, offset: first.nextOffset });
+    expect(names(second.models).every((n: string) => !names(first.models).includes(n))).toBe(true);
+    let rest = await api(llm, 'LLMAssistantListImageModels', { limit: 100, offset: 3 });
+    expect(rest.nextOffset).toBeUndefined();
+    expect((await api(llm, 'LLMAssistantListImageModels', { includeVideo: true })).success).toBe(true);
+});
+
+test('list_wildcards with samples is asked about in Ask mode, and names alone are not', async ({ llm }) => {
+    await api(llm, 'EditWildcard', { card: 'e2e-colors', options: 'secret red\nsecret blue' });
+    await llm.locator('label[for="llma-approval-ask"]').click();
+    await expect(llm.locator('#llma-approval-ask')).toBeChecked();
+    await setScenarios([turn('samples please', [{ name: 'list_wildcards', arguments: { query: 'e2e-colors', includeSamples: true } }], 'Declined it.')]);
+    await send(llm, 'samples please');
+    await expect(llm.locator('.llma-tool-approval')).toBeVisible();
+    await llm.locator('.llma-tool-approval button[data-decision="deny"]').click();
+    await expect(lastAssistant(llm)).toContainText('Declined it.');
+    // The lines never reached the model.
+    expect(JSON.stringify(await mockRequests())).not.toContain('secret red');
 });

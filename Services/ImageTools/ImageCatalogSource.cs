@@ -7,6 +7,9 @@ using SwarmUI.WebAPI;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 
+/// <summary>A listing of models could not be read (as opposed to being empty).</summary>
+public sealed class CatalogUnavailableException(string message) : Exception(message);
+
 /// <summary>Reads what SwarmUI has for the calling user and hands it to <see cref="ImageCatalog"/>: the installed image models and LoRAs through core's own <c>ModelsAPI.ListModels</c> (so a user sees what the
 /// Generate tab shows them: their model restrictions, and models other extensions offer), the wildcard files, and the user's presets. The tools and the API routes both read through here.</summary>
 public static class ImageCatalogSource
@@ -22,7 +25,19 @@ public static class ImageCatalogSource
     }
 
     /// <summary>The installed text-to-image models the user may use.</summary>
-    public static Task<List<CatalogEntry>> ModelsAsync(Session session) => ReadAsync(session, "Stable-Diffusion");
+    public static async Task<List<CatalogEntry>> ModelsAsync(Session session, bool includeVideo = false)
+    {
+        List<CatalogEntry> all = await ReadAsync(session, "Stable-Diffusion");
+        // Models of a video or audio family are marked by core's own flags on the compatibility class; they are left out unless asked for, since this is the list of text-to-image models.
+        List<CatalogEntry> marked = [.. all.Select(e => e with { Video = IsVideoFamily(e.CompatClass) })];
+        return includeVideo ? marked : [.. marked.Where(e => !e.Video)];
+    }
+
+    /// <summary>Whether core marks the compatibility class as one that makes video or audio.</summary>
+    private static bool IsVideoFamily(string compatClass)
+    {
+        return !string.IsNullOrEmpty(compatClass) && T2IModelClassSorter.CompatClasses.TryGetValue(compatClass.ToLowerInvariant(), out T2IModelCompatClass family) && (family.IsText2Video || family.IsImage2Video || family.IsAudioModel);
+    }
 
     /// <summary>The installed LoRAs the user may use.</summary>
     public static Task<List<CatalogEntry>> LorasAsync(Session session) => ReadAsync(session, "LoRA");
@@ -63,7 +78,7 @@ public static class ImageCatalogSource
         return [.. (UserPresetCache.GetPresets(user) ?? []).Select(p => new PresetEntry(p.Title, p.Description, Tools.BuiltIn.GenerateImageTool.FormatPresetSummary(p)))];
     }
 
-    /// <summary>Lists one kind of model through core. A failure is logged and reads as an empty list, so a tool never fails on a listing problem.</summary>
+    /// <summary>Lists one kind of model through core. A failure is logged and thrown as <see cref="CatalogUnavailableException"/>, so a listing that failed is never mistaken for one that is empty.</summary>
     private static async Task<List<CatalogEntry>> ReadAsync(Session session, string subtype)
     {
         try
@@ -72,14 +87,18 @@ public static class ImageCatalogSource
             if (reply.ContainsKey("error"))
             {
                 Logs.Warning($"[LLMAssistant] Listing {subtype} models failed: {reply["error"]}");
-                return [];
+                throw new CatalogUnavailableException($"SwarmUI could not list the {subtype} models: {reply["error"]}");
             }
             return [.. (reply["files"] as JArray ?? []).OfType<JObject>().Select(CatalogEntry.FromNet).Where(e => e.Name.Length > 0)];
+        }
+        catch (CatalogUnavailableException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             Logs.Warning($"[LLMAssistant] Listing {subtype} models failed: {ex.Message}");
-            return [];
+            throw new CatalogUnavailableException($"SwarmUI could not list the {subtype} models: {ex.Message}");
         }
     }
 }

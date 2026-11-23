@@ -141,7 +141,7 @@ public static class ToolExecutorService
             // part of the tool's own timeout, which starts below.
             if (gate is not null)
             {
-                JObject refusal = await gate.CheckAsync(toolId, handler.RiskFor(tool), args, callId, ct, forceAsk);
+                JObject refusal = await gate.CheckAsync(toolId, handler.RiskForCall(tool, args), args, callId, ct, forceAsk);
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);

@@ -37,19 +37,29 @@ class LLMAImageTools {
     /** Fills the dropdown with "none" and the installed models (the first 100 the server lists), keeping a saved model that is no longer installed so it is shown rather than silently dropped. A failed listing leaves just those. */
     async fillModels(select, defaults) {
         let names = [];
+        let failed = false;
         try {
-            let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100 });
-            names = (reply.models || []).map(m => m.name);
+            // The server lists at most 100 at a time and says where the next page starts; up to 2,000 models are read.
+            let offset = 0;
+            for (let page = 0; page < 20; page++) {
+                let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100, offset: offset });
+                names.push(...(reply.models || []).map(m => m.name));
+                if (reply.nextOffset === undefined) {
+                    break;
+                }
+                offset = reply.nextOffset;
+            }
         }
         catch (e) {
-            names = [];
+            failed = true;
         }
         let saved = defaults.personalDefaultModel || '';
         if (saved && !names.includes(saved)) {
             names.push(saved);
         }
         let none = defaults.sharedDefaultModel ? `${translate('(shared default)')}: ${defaults.sharedDefaultModel}` : translate('(none)');
-        select.innerHTML = `<option value="">${escapeHtml(none)}</option>` + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+        let note = failed ? `<option value="" disabled>${escapeHtml(translate('(the model list could not be loaded)'))}</option>` : '';
+        select.innerHTML = `<option value="">${escapeHtml(none)}</option>` + note + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
         select.value = saved;
         if (typeof autoSelectWidth == 'function') {
             autoSelectWidth(select);

@@ -8,16 +8,20 @@ namespace Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 /// <param name="CompatClass">The family of classes that can share LoRAs and the like, or empty.</param>
 /// <param name="TriggerPhrase">The words a LoRA (or a model) wants in the prompt, from its metadata.</param>
 public sealed record CatalogEntry(string Name, string Title, string Architecture, string ClassName, string CompatClass, int Width, int Height, string Description, string UsageHint, string TriggerPhrase,
-    IReadOnlyList<string> Tags, bool Loaded, string DefaultWeight)
+    IReadOnlyList<string> Tags, bool Loaded, string DefaultWeight, bool Video = false)
 {
-    /// <summary>Reads an entry from a core model object (the <c>files</c> of <c>ListModels</c>).</summary>
+    /// <summary>The longest a name (a path), a class id, a title, a tag and a default weight kept from a model's data may be.</summary>
+    public const int MaxNameChars = 300, MaxIdChars = 100, MaxTitleChars = 200, MaxTagChars = 40, MaxWeightChars = 20;
+
+    /// <summary>Reads an entry from a core model object (the <c>files</c> of <c>ListModels</c>). Everything in it can come from the metadata of a file someone else made, so every text is cleaned of control
+    /// characters and cut to a bound here, and only the first <see cref="ImageCatalog.MaxTags"/> tags are read.</summary>
     public static CatalogEntry FromNet(JObject o)
     {
-        string text(string key) => o[key]?.Type is JTokenType.String ? ((string)o[key]).Trim() : "";
+        string text(string key, int max) => o[key]?.Type is JTokenType.String ? ImageCatalog.Clean((string)o[key], max) : "";
         int number(string key) => o[key]?.Type is JTokenType.Integer ? (int)Math.Clamp((long)o[key], 0, 100000) : 0;
-        List<string> tags = o["tags"] is JArray array ? [.. array.Select(t => t.ToString().Trim()).Where(t => t.Length > 0)] : [];
-        return new CatalogEntry(text("name"), text("title"), text("architecture"), text("class"), text("compat_class"), number("standard_width"), number("standard_height"), text("description"), text("usage_hint"),
-            text("trigger_phrase"), tags, o["loaded"]?.Type == JTokenType.Boolean && (bool)o["loaded"], text("lora_default_weight"));
+        List<string> tags = o["tags"] is JArray array ? [.. array.Take(ImageCatalog.MaxTags * 4).Select(t => ImageCatalog.Clean(t.ToString(), MaxTagChars)).Where(t => t.Length > 0).Take(ImageCatalog.MaxTags)] : [];
+        return new CatalogEntry(text("name", MaxNameChars), text("title", MaxTitleChars), text("architecture", MaxIdChars), text("class", MaxIdChars), text("compat_class", MaxIdChars), number("standard_width"), number("standard_height"),
+            text("description", ImageCatalog.MaxNoteChars), text("usage_hint", ImageCatalog.MaxNoteChars), text("trigger_phrase", ImageCatalog.MaxNoteChars), tags, o["loaded"]?.Type == JTokenType.Boolean && (bool)o["loaded"], text("lora_default_weight", MaxWeightChars));
     }
 }
 
@@ -84,20 +88,24 @@ public static class ImageCatalog
     }
 
     /// <summary>The result of <c>list_image_models</c>: the installed text-to-image models matching the filters.</summary>
-    public static JObject ModelsResult(IEnumerable<CatalogEntry> all, string query, string cls, int limit, Func<string, bool> allowed = null)
+    public static JObject ModelsResult(IEnumerable<CatalogEntry> all, string query, string cls, int limit, Func<string, bool> allowed = null, bool includeVideo = false, int offset = 0)
     {
-        List<CatalogEntry> visible = Filter(all, "", "", allowed);
+        List<CatalogEntry> visible = [.. Filter(all, "", "", allowed).Where(e => includeVideo || !e.Video)];
         List<CatalogEntry> matches = Filter(visible, query, cls);
-        return Page("models", visible.Count, matches, limit, ModelJson);
+        return Page("models", visible.Count, matches, limit, offset, ModelJson);
     }
 
     /// <summary>The result of <c>list_loras</c>: the installed LoRAs whose name, title or tags hold the words of <paramref name="query"/> and that fit the base class <paramref name="baseClass"/> (a class
-    /// id, a class name or a family, by substring; empty for any).</summary>
-    public static JObject LorasResult(IEnumerable<CatalogEntry> all, string query, string baseClass, int limit, Func<string, bool> allowed = null)
+    /// id, a class name or a family, by substring; empty for any). With <paramref name="exactBase"/> the LoRA's family must equal <paramref name="baseClass"/> (an id): the match for one particular model.</summary>
+    public static JObject LorasResult(IEnumerable<CatalogEntry> all, string query, string baseClass, int limit, Func<string, bool> allowed = null, bool exactBase = false, int offset = 0)
     {
         List<CatalogEntry> visible = Filter(all, "", "", allowed);
-        List<CatalogEntry> matches = [.. Filter(visible, "", baseClass).Where(e => MatchesWords(query, e.Name, e.Title, string.Join(' ', e.Tags)))];
-        return Page("loras", visible.Count, matches, limit, LoraJson);
+        // A user-typed class is a substring (xl finds the XL family); the family of a particular model is exact, or v3 would take v3.5's LoRAs, and a base model its refiner's.
+        List<CatalogEntry> byBase = exactBase
+            ? [.. visible.Where(e => e.CompatClass.Length > 0 && string.Equals(e.CompatClass, baseClass, StringComparison.OrdinalIgnoreCase))]
+            : Filter(visible, "", baseClass);
+        List<CatalogEntry> matches = [.. byBase.Where(e => MatchesWords(query, e.Name, e.Title, string.Join(' ', e.Tags)))];
+        return Page("loras", visible.Count, matches, limit, offset, LoraJson);
     }
 
     /// <summary>The result of <c>list_wildcards</c>: wildcard names matching <paramref name="query"/>. A name that <paramref name="allowed"/> refuses is never shown. With
@@ -180,17 +188,18 @@ public static class ImageCatalog
     /// <summary>The names of the entries, for the resolver and the hint.</summary>
     public static List<string> Names(IEnumerable<CatalogEntry> entries) => [.. entries.Select(e => e.Name).Where(n => n.Length > 0)];
 
-    /// <summary>The shared shape of a models or LoRAs result: counts, the entries up to the limit and the character budget, a note on what is left out.</summary>
-    private static JObject Page(string key, int installed, List<CatalogEntry> matches, int limit, Func<CatalogEntry, JObject> shape)
+    /// <summary>The shared shape of a models or LoRAs result: counts, the entries from <paramref name="offset"/> up to the limit and the character budget, a note (and the next offset) on what is left out.</summary>
+    private static JObject Page(string key, int installed, List<CatalogEntry> matches, int limit, int offset, Func<CatalogEntry, JObject> shape)
     {
         JObject result = new() { ["success"] = true, ["installed"] = installed, ["matched"] = matches.Count };
         JArray list = [];
         int chars = 0;
-        foreach (CatalogEntry entry in matches.Take(Math.Clamp(limit, 1, MaxLimit)))
+        int start = Math.Clamp(offset, 0, matches.Count);
+        foreach (CatalogEntry entry in matches.Skip(start).Take(Math.Clamp(limit, 1, MaxLimit)))
         {
             JObject json = shape(entry);
             chars += json.ToString(Newtonsoft.Json.Formatting.None).Length;
-            if (chars > MaxResultChars && list.Count > 0)
+            if (chars > MaxResultChars)
             {
                 break;
             }
@@ -198,9 +207,10 @@ public static class ImageCatalog
         }
         result[key] = list;
         result["shown"] = list.Count;
-        if (matches.Count > list.Count)
+        if (start + list.Count < matches.Count)
         {
-            result["more"] = $"{matches.Count - list.Count} more match. Narrow the search with `query` or `class`, or raise `limit` (at most {MaxLimit}).";
+            result["more"] = $"{matches.Count - start - list.Count} more match after these. Narrow the search with `query` or `class`, or ask for the next ones with `offset: {start + list.Count}`.";
+            result["nextOffset"] = start + list.Count;
         }
         else if (installed == 0)
         {
@@ -263,8 +273,35 @@ public static class ImageCatalog
     /// <summary>The text cut to <paramref name="max"/> characters, newlines flattened, with an ellipsis when cut.</summary>
     internal static string Cut(string text, int max)
     {
-        string flat = (text ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+        string flat = Clean(text, int.MaxValue);
         return flat.Length <= max ? flat : flat[..max].TrimEnd() + "...";
+    }
+
+    /// <summary>Text from a file's metadata made safe to hand on: line breaks become spaces, other control characters and the ones that reorder text are dropped, and it is trimmed and cut to
+    /// <paramref name="max"/> characters.</summary>
+    public static string Clean(string text, int max)
+    {
+        StringBuilder sb = new();
+        foreach (char c in text ?? "")
+        {
+            if (c == '\n' || c == '\r' || c == '\t' || c == ' ')
+            {
+                if (sb.Length > 0 && sb[^1] != ' ')
+                {
+                    sb.Append(' ');
+                }
+            }
+            else if (!char.IsControl(c) && c != '\u200E' && c != '\u200F' && !(c >= '\u202A' && c <= '\u202E') && !(c >= '\u2066' && c <= '\u2069'))
+            {
+                sb.Append(c);
+            }
+            if (max != int.MaxValue && sb.Length > max + 8)
+            {
+                break;
+            }
+        }
+        string clean = sb.ToString().Trim();
+        return clean.Length <= max ? clean : clean[..max].TrimEnd();
     }
 
     /// <summary>Whether <paramref name="text"/> contains <paramref name="part"/>, ignoring case and punctuation.</summary>

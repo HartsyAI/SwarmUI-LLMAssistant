@@ -35,6 +35,10 @@ public sealed class ListWildcardsTool : ToolHandler
     /// <inheritdoc/>
     public override ToolRisk Risk => ToolRisk.Read;
 
+    /// <summary>Names only read nothing private; with <c>includeSamples</c> the lines of the user's own files go into the result, and from there to the chat model (maybe a hosted one), so that form is a call to
+    /// ask about (Ask mode) and not one Plan mode allows.</summary>
+    public override ToolRisk RiskForCall(JObject toolDef, JObject args) => args?["includeSamples"]?.Type == JTokenType.Boolean && (bool)args["includeSamples"] ? ToolRisk.Write : ToolRisk.Read;
+
     public override Task<JObject> Execute(ToolExecutionContext ctx) => Task.FromResult(ImageCatalogService.ListWildcards(ctx.Session, ctx.Args));
 }
 

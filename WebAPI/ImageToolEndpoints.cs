@@ -9,18 +9,18 @@ namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 /// <c>llm_chat</c> and, like core's own model list, see only what the calling user may; the defaults need <c>llm_settings</c>.</summary>
 public static class ImageToolEndpoints
 {
-    /// <summary>Lists installed image models. Request: <c>{ query?, modelClass?, limit? }</c> (<c>modelClass</c> is a substring of the model type, e.g. <c>sdxl</c>; <c>limit</c> defaults to 25, at most 100).
+    /// <summary>Lists installed image models. Request: <c>{ query?, modelClass?, limit?, includeVideo?, offset? }</c> (<c>offset</c> skips that many matches, for paging; the result gives <c>nextOffset</c> when more match) (<c>modelClass</c> is a substring of the model type's id, name or family, e.g. <c>xl</c> or <c>flux</c>; <c>limit</c> defaults to 25, at most 100; video and audio families are left out unless <c>includeVideo</c>).
     /// Returns <c>{success, installed, matched, shown, models: [{name, title?, architecture?, class?, resolution?, promptNotes?, triggerPhrase?, description?, tags?, loaded?}], more?, note}</c>.</summary>
-    public static async Task<JObject> LLMAssistantListImageModels(Session session, string query = "", string modelClass = "", int limit = 0)
+    public static async Task<JObject> LLMAssistantListImageModels(Session session, string query = "", string modelClass = "", int limit = 0, bool includeVideo = false, int offset = 0)
     {
-        return await ImageCatalogService.ListModelsAsync(session, new JObject { ["query"] = query, ["class"] = modelClass, ["limit"] = limit > 0 ? limit : null });
+        return await ImageCatalogService.ListModelsAsync(session, new JObject { ["query"] = query, ["class"] = modelClass, ["limit"] = limit > 0 ? limit : null, ["includeVideo"] = includeVideo, ["offset"] = offset });
     }
 
     /// <summary>Lists installed LoRAs. Request: <c>{ query?, baseModel?, forModel?, limit? }</c>; <c>forModel</c> is an installed model's name (only LoRAs of its family are returned).
     /// Returns <c>{success, installed, matched, shown, loras: [{name, title?, baseModel?, triggerWords?, defaultWeight?, tags?, description?}], forBase?, more?, usage, note}</c>.</summary>
-    public static async Task<JObject> LLMAssistantListLoras(Session session, string query = "", string baseModel = "", string forModel = "", int limit = 0)
+    public static async Task<JObject> LLMAssistantListLoras(Session session, string query = "", string baseModel = "", string forModel = "", int limit = 0, int offset = 0)
     {
-        return await ImageCatalogService.ListLorasAsync(session, new JObject { ["query"] = query, ["baseModel"] = baseModel, ["forModel"] = forModel, ["limit"] = limit > 0 ? limit : null });
+        return await ImageCatalogService.ListLorasAsync(session, new JObject { ["query"] = query, ["baseModel"] = baseModel, ["forModel"] = forModel, ["limit"] = limit > 0 ? limit : null, ["offset"] = offset });
     }
 
     /// <summary>Lists wildcard names. Request: <c>{ query?, includeSamples?, limit? }</c>. Names only unless <c>includeSamples</c> is true (default false), which adds a few lines of the first wildcards.
@@ -68,11 +68,20 @@ public static class ImageToolEndpoints
         }
         if (!string.IsNullOrEmpty(model) && ImageCatalogSource.Denied(session) is null)
         {
-            List<string> installed = ImageCatalog.Names(await ImageCatalogSource.ModelsAsync(session));
+            List<CatalogEntry> everything;
+            try
+            {
+                everything = await ImageCatalogSource.ModelsAsync(session, includeVideo: true);
+            }
+            catch (CatalogUnavailableException ex)
+            {
+                return ImageCatalogService.Failed(ex.Message);
+            }
+            List<string> installed = ImageCatalog.Names(everything);
             ModelResolution resolution = ModelNameResolver.Resolve(model, installed);
             if (!resolution.Found)
             {
-                return ImageCatalogService.Failed(ImageCatalogService.NotFound(model, resolution, installed));
+                return ImageCatalogService.Failed(ImageCatalogService.NotFound(model, resolution, ImageCatalog.Names(everything.Where(e => !e.Video))));
             }
             model = resolution.Name;
         }
@@ -84,13 +93,12 @@ public static class ImageToolEndpoints
     private static JObject Describe(User user)
     {
         ImageToolSettings effective = ImageToolSettings.ForUser(user);
-        ImageToolSettings sharedOnly = ImageToolSettings.ForUser(null);
         return new JObject
         {
             ["success"] = true,
             ["defaultModel"] = effective.DefaultModel,
             ["personalDefaultModel"] = ImageToolSettings.PersonalModel(user),
-            ["sharedDefaultModel"] = sharedOnly.DefaultModel,
+            ["sharedDefaultModel"] = ImageToolSettings.SharedModelFor(user),
             ["maxImages"] = effective.MaxImages,
             ["defaultMaxImages"] = ImageToolSettings.DefaultMaxImages,
             ["hardMaxImages"] = ImageToolSettings.HardMaxImages,

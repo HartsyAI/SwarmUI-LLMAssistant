@@ -7,15 +7,24 @@ namespace Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 /// so the two cannot drift. Everything is for the calling user only. All of them return <c>success</c> and, when something is wrong, an <c>error</c> the model can act on.</summary>
 public static class ImageCatalogService
 {
-    /// <summary>Lists installed image models. Arguments: <c>query</c> (words in the name), <c>class</c> (a model class, id or family, by substring), <c>limit</c>.</summary>
+    /// <summary>Lists installed image models. Arguments: <c>query</c> (words in the name), <c>class</c> (a model class, id or family, by substring), <c>limit</c>, <c>offset</c> (how many matches to skip), <c>includeVideo</c>.</summary>
     public static async Task<JObject> ListModelsAsync(Session session, JObject args)
     {
         if (ImageCatalogSource.Denied(session) is string denied)
         {
             return Failed(denied);
         }
-        List<CatalogEntry> models = await ImageCatalogSource.ModelsAsync(session);
-        return ImageCatalog.ModelsResult(models, Text(args, "query"), Text(args, "class"), ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel);
+        bool includeVideo = args?["includeVideo"]?.Type == JTokenType.Boolean && (bool)args["includeVideo"];
+        List<CatalogEntry> models;
+        try
+        {
+            models = await ImageCatalogSource.ModelsAsync(session, includeVideo);
+        }
+        catch (CatalogUnavailableException ex)
+        {
+            return Failed(ex.Message);
+        }
+        return ImageCatalog.ModelsResult(models, Text(args, "query"), Text(args, "class"), ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel, includeVideo, Offset(args));
     }
 
     /// <summary>Lists installed LoRAs. Arguments: <c>query</c> (words in the name, title or tags), <c>baseModel</c> (a model class, id or family, by substring), <c>forModel</c> (an installed model's name: only
@@ -30,21 +39,37 @@ public static class ImageCatalogService
         string forModel = Text(args, "forModel");
         if (forModel.Length > 0)
         {
-            List<CatalogEntry> models = await ImageCatalogSource.ModelsAsync(session);
+            List<CatalogEntry> models;
+            try
+            {
+                models = await ImageCatalogSource.ModelsAsync(session, includeVideo: true);
+            }
+            catch (CatalogUnavailableException ex)
+            {
+                return Failed(ex.Message);
+            }
             ModelResolution resolution = ModelNameResolver.Resolve(forModel, ImageCatalog.Names(models));
             if (!resolution.Found)
             {
                 return Failed(NotFound(forModel, resolution, ImageCatalog.Names(models)));
             }
             CatalogEntry model = models.First(m => m.Name == resolution.Name);
-            baseClass = model.CompatClass.Length > 0 ? model.CompatClass : model.Architecture;
+            baseClass = model.CompatClass;
             if (baseClass.Length == 0)
             {
-                return Failed($"SwarmUI could not tell what kind of model '{model.Name}' is, so LoRAs cannot be matched to it. List them without `forModel`.");
+                return Failed($"SwarmUI could not tell what family of models '{model.Name}' belongs to, so LoRAs cannot be matched to it. List them without `forModel`.");
             }
         }
-        List<CatalogEntry> loras = await ImageCatalogSource.LorasAsync(session);
-        JObject result = ImageCatalog.LorasResult(loras, Text(args, "query"), baseClass, ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel);
+        List<CatalogEntry> loras;
+        try
+        {
+            loras = await ImageCatalogSource.LorasAsync(session);
+        }
+        catch (CatalogUnavailableException ex)
+        {
+            return Failed(ex.Message);
+        }
+        JObject result = ImageCatalog.LorasResult(loras, Text(args, "query"), baseClass, ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel, exactBase: forModel.Length > 0, offset: Offset(args));
         if (forModel.Length > 0)
         {
             result["forBase"] = baseClass;
@@ -56,9 +81,10 @@ public static class ImageCatalogService
     /// <summary>Lists wildcard names. Arguments: <c>query</c>, <c>limit</c>, <c>includeSamples</c> (default false: the contents of the user's files stay out of the result unless asked for).</summary>
     public static JObject ListWildcards(Session session, JObject args)
     {
-        if (session?.User is null)
+        // Core hides wildcards by the same model-access rule as models.
+        if (ImageCatalogSource.Denied(session) is string denied)
         {
-            return Failed("Listing wildcards needs a signed-in user.");
+            return Failed(denied);
         }
         bool samples = args?["includeSamples"]?.Type == JTokenType.Boolean && (bool)args["includeSamples"];
         return ImageCatalog.WildcardsResult(ImageCatalogSource.WildcardNames(session), Text(args, "query"), ImageCatalog.ClampLimit(args?["limit"]), samples, ImageCatalogSource.WildcardLines, session.User.IsAllowedModel);
@@ -89,6 +115,9 @@ public static class ImageCatalogService
             ? $"Image model '{requested}' is not installed. Did you mean: {string.Join(", ", resolution.Suggestions)}? Use the exact name. {ImageCatalog.ModelHint(installed)}"
             : $"Image model '{requested}' is not installed. {ImageCatalog.ModelHint(installed)}";
     }
+
+    /// <summary>The <c>offset</c> argument: how many matches to skip (0 when missing or not a number).</summary>
+    private static int Offset(JObject args) => args?["offset"] is { Type: not JTokenType.Null } token && int.TryParse(token.ToString(), out int offset) ? Math.Max(0, offset) : 0;
 
     /// <summary>A failed result.</summary>
     public static JObject Failed(string error) => new() { ["success"] = false, ["error"] = error };
