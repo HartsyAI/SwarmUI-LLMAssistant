@@ -246,13 +246,27 @@ function llmaRenderThreadList(threads) {
         return;
     }
 
-    // Sessions the assistant started are listed under the chat that started them (and archived ones not at all), so only the others are grouped.
-    const { roots, kids } = llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
-    const newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
-    const groups = llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(newestFirst) : llmaGroupByDate(newestFirst);
-    let html = '';
+    // Searching: one flat list, best match first, each chat with the snippets that matched (chat-library.js). Otherwise: sessions the assistant started are listed under the chat
+    // that started them (and archived ones not at all), so only the others are grouped, and pinned chats are a group of their own at the top.
+    const searching = llmaLibrary.searching;
+    const { roots, kids } = searching
+        ? { roots: llmaLibrary.visibleThreads(threads), kids: new Map() }
+        : llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
+    let entries;
+    if (searching) {
+        entries = [['Results', roots]];
+    } else {
+        const newestFirst = roots.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+        const pinned = newestFirst.filter(t => t.pinned && llmaLibrary.canPin(t));
+        const rest = pinned.length ? newestFirst.filter(t => !pinned.includes(t)) : newestFirst;
+        entries = Object.entries(llmaThreadGroupMode() == 'assistant' ? llmaGroupByAssistant(rest) : llmaGroupByDate(rest));
+        if (pinned.length) {
+            entries.unshift(['Pinned', pinned]);
+        }
+    }
+    let html = searching ? llmaLibrary.statusHtml(roots.length) : '';
 
-    for (const [label, group] of Object.entries(groups)) {
+    for (const [label, group] of entries) {
         if (group.length === 0) continue;
         html += `<div class="llma-thread-group-label${llmaThreadSelectMode ? ' selectable' : ''}" data-ids="${llmaEscapeHtml(group.map(t => t.id).join(','))}"${llmaThreadSelectMode ? ` title="${llmaEscapeHtml(translate('Select this group'))}"` : ''}>${llmaEscapeHtml(translate(label))}</div>`;
         const rows = [];
@@ -283,8 +297,13 @@ function llmaRenderThreadList(threads) {
                         title="${expanded ? llmaEscapeHtml(translate('Hide branches')) : llmaEscapeHtml(translate('Show branches'))}" aria-label="${llmaEscapeHtml(translate('Toggle branches'))}">&#9656;</button>`
                 : '';
             const displayTitle = thread.title || translate('Untitled');
+            const pinLabel = llmaEscapeHtml(thread.pinned ? translate('Unpin chat') : translate('Pin chat'));
+            const pinButton = llmaLibrary.canPin(thread)
+                ? `<button class="llma-thread-pin${thread.pinned ? ' pinned' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
+                        title="${pinLabel}" aria-label="${pinLabel}" aria-pressed="${thread.pinned ? 'true' : 'false'}">${thread.pinned ? '&#9733;' : '&#9734;'}</button>`
+                : '';
             html += `
-                <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}${depth > 0 ? ' llma-thread-child' : ''}"
+                <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}${depth > 0 ? ' llma-thread-child' : ''}${thread.pinned ? ' pinned' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
                      data-depth="${depth}"
                      title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}"
@@ -296,13 +315,18 @@ function llmaRenderThreadList(threads) {
                     ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
                     ${thread.scheduleId ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('schedule')}</span>` : ''}
                     ${branchToggle}
+                    ${pinButton}
                     <button class="llma-thread-rename" data-id="${llmaEscapeHtml(thread.id)}"
                             title="${llmaEscapeHtml(translate('Rename chat'))}" aria-label="${llmaEscapeHtml(translate('Rename chat'))}">&#9998;</button>
                     <button class="llma-thread-del" data-id="${llmaEscapeHtml(thread.id)}"
                             title="${llmaEscapeHtml(translate('Delete chat'))}" aria-label="${llmaEscapeHtml(translate('Delete chat'))}">&times;</button>
                 </div>
-                ${llmaRenderThreadBranchesHtml(thread)}`;
+                ${llmaRenderThreadBranchesHtml(thread)}
+                ${searching ? llmaLibrary.snippetsHtml(thread) : ''}`;
         }
+    }
+    if (searching) {
+        html += llmaLibrary.moreHtml();
     }
 
     list.innerHTML = html;
@@ -323,7 +347,7 @@ function llmaBindThreadListEvents(list) {
     list.querySelectorAll('.llma-thread-item').forEach(item => {
         item.addEventListener('click', (e) => {
             // Swallow clicks on hover-only action buttons; they handle their own events.
-            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-rename-input, .llma-thread-branch-toggle, .llma-session-toggle')) return;
+            if (e.target.closest('.llma-thread-del, .llma-thread-rename, .llma-thread-pin, .llma-thread-rename-input, .llma-thread-branch-toggle, .llma-session-toggle')) return;
             // In select mode, clicking the row toggles the checkbox instead of switching threads.
             if (llmaThreadSelectMode) {
                 if (!e.target.classList.contains('llma-thread-checkbox')) {
@@ -346,7 +370,7 @@ function llmaBindThreadListEvents(list) {
             }
             if (e.key === 'Enter' || e.key === ' ') {
                 // Ignore Enter when the user is typing in the inline rename input.
-                if (e.target.classList?.contains('llma-thread-rename-input')) return;
+                if (e.target.classList?.contains('llma-thread-rename-input') || e.target.closest?.('.llma-thread-pin')) return;
                 e.preventDefault();
                 llmaSwitchThread(item.dataset.id);
             }
@@ -365,6 +389,13 @@ function llmaBindThreadListEvents(list) {
             if (item) llmaBeginRenameThread(item);
         });
     });
+    list.querySelectorAll('.llma-thread-pin').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            llmaLibrary.togglePin(btn.dataset.id);
+        });
+    });
+    llmaLibrary.bind(list);
     llmaSessions.bind(list);
     list.querySelectorAll('.llma-thread-branch-toggle:not(.llma-session-toggle)').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -898,86 +929,39 @@ async function llmaSaveActiveThread() {
 }
 
 // -- Export Thread --
-// Tool calls are included by default in json/md exports (caller can opt out via opts.includeToolCalls=false).
-// txt deliberately stays clean — text export is for sharing with non-technical readers.
-function llmaExportThread(format, opts = {}) {
+// JSON (every branch, can be imported again) and Markdown (the conversation on screen) come from the server's export route (chat-library.js); plain text is made here, since
+// it is only for sharing with non-technical readers and has no route.
+function llmaExportThread(format) {
     if (!LLMAState.messages.length) {
         llmaShowToast('No messages to export', 'info');
         return;
     }
+    if (format === 'json' || format === 'md') {
+        llmaLibrary.exportActive(format === 'md' ? 'markdown' : 'json');
+        return;
+    }
 
-    const includeToolCalls = opts.includeToolCalls !== false;
     const meta      = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);
     const title     = meta?.title || 'chat';
     const assistant = LLMAState.assistants.find(a => a.id === LLMAState.activeAssistantId);
     const safeName  = title.replace(/[^a-z0-9]+/gi, '_').toLowerCase();
     const timestamp = new Date().toISOString().slice(0, 10);
 
-    if (format === 'json') {
-        const data = {
-            title,
-            assistant: assistant ? { name: assistant.name, category: assistant.category } : null,
-            exported:  new Date().toISOString(),
-            messages:  LLMAState.messages.map(m => {
-                const out = { role: m.role, content: m.content, timestamp: m.timestamp };
-                if (includeToolCalls && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
-                    out.toolCalls = m.toolCalls;
-                }
-                if (m.meta) out.meta = m.meta;
-                return out;
-            }),
-        };
-        llmaDownloadFile(`${safeName}_${timestamp}.json`, JSON.stringify(data, null, 2), 'application/json');
-    } else if (format === 'md') {
-        const lines = [`# ${title}`, '', `*Exported: ${new Date().toLocaleDateString()}*`, ''];
-        if (assistant) lines.push(`*Assistant: ${assistant.name}*`, '');
-        for (const msg of LLMAState.messages) {
-            const role = msg.role === 'user' ? '**You**' : `**${assistant?.name || 'Assistant'}**`;
-            lines.push(`${role}`, '', msg.content, '');
-            if (includeToolCalls && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
-                lines.push('> **Tool calls:**');
-                for (const tc of msg.toolCalls) {
-                    const argsStr   = llmaTruncateForExport(tc.arguments);
-                    const resultStr = llmaTruncateForExport(tc.result);
-                    lines.push(`> - \`${tc.name || '?'}\` — \`${argsStr}\` → \`${resultStr}\``);
-                }
-                lines.push('');
-            }
-            lines.push('---', '');
-        }
-        llmaDownloadFile(`${safeName}_${timestamp}.md`, lines.join('\n'), 'text/markdown');
-    } else if (format === 'txt') {
+    if (format === 'txt') {
         const lines = [title, '='.repeat(title.length), ''];
         for (const msg of LLMAState.messages) {
             const role = msg.role === 'user' ? 'You' : (assistant?.name || 'Assistant');
             lines.push(`[${role}]`, msg.content, '');
         }
         llmaDownloadFile(`${safeName}_${timestamp}.txt`, lines.join('\n'), 'text/plain');
+        llmaShowToast(`${translate('Exported as')} ${format.toUpperCase()}`, 'success');
     }
-
-    llmaShowToast(`${translate('Exported as')} ${format.toUpperCase()}`, 'success');
-}
-
-// Compact tool-call JSON to a single line and cap at 200 chars so the Markdown bullet stays readable.
-// JSON export keeps full content; this helper is only for the human-facing MD summary.
-function llmaTruncateForExport(value) {
-    let str;
-    try { str = typeof value === 'string' ? value : JSON.stringify(value); }
-    catch { str = String(value); }
-    str = (str || '').replace(/\s+/g, ' ').replace(/`/g, 'ˋ');
-    if (str.length > 200) str = str.slice(0, 197) + '…';
-    return str;
 }
 
 // -- Search --
+// The box's text goes to chat-library.js: titles filter at once, messages are searched on the server after a pause.
 function llmaFilterThreads(query) {
-    if (!query.trim()) {
-        llmaRenderThreadList(LLMAState.threads);
-        return;
-    }
-    const lower    = query.toLowerCase();
-    const filtered = LLMAState.threads.filter(t => t.title?.toLowerCase().includes(lower));
-    llmaRenderThreadList(filtered);
+    llmaLibrary.onInput(query);
 }
 
 // -- UI State Helpers --
