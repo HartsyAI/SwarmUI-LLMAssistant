@@ -175,7 +175,8 @@ public class MemoryRecallTests
         }
         List<MemoryNote> chosen = MemoryRecall.Select(notes, new MemoryRecallRequest("anything"));
         Assert.Contains(chosen, n => n.Id == "name");
-        Assert.Equal(MemoryNoteSet.MaxPinned, chosen.Count(n => n.Pinned));
+        // The limit is on the notes a user pins; the name, pronouns, bio and work notes are always pinned and are on top of it.
+        Assert.Equal(MemoryNoteSet.MaxPinned + 1, chosen.Count(n => n.Pinned));
     }
 
     [Fact]

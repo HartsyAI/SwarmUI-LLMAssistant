@@ -321,6 +321,46 @@ public static class AssistantService
         return (id, null);
     }
 
+    /// <summary>Sets only the <c>memoryExtraction</c> flag of an assistant, in the layer that owns it, and copies nothing else: saving the whole merged assistant would freeze a shared assistant into the
+    /// user's own settings, and later edits to it by an admin would stop reaching them. A personal assistant is changed in the user's layer. A shared one is changed in the shared layer with
+    /// <paramref name="scope"/> shared (needs <c>llm_shared_write</c>, audited); with the personal scope it is refused rather than copied.</summary>
+    public static (bool Ok, string Error) SetMemoryExtraction(string assistantId, bool enabled, User user, string scope)
+    {
+        scope = NormalizeScope(scope);
+        lock (SettingsService.SettingsLock)
+        {
+            JObject sharedLayer = SettingsService.GetSettings();
+            JObject sharedEntry = (sharedLayer["assistants"] as JObject)?[assistantId] as JObject;
+            if (scope == SettingsService.ScopeShared)
+            {
+                if (!CanWriteShared(user))
+                {
+                    return (false, "Shared writes require the llm_shared_write permission.");
+                }
+                if (sharedEntry is null)
+                {
+                    return (false, "There is no shared assistant with that id.");
+                }
+                sharedEntry["memoryExtraction"] = enabled;
+                SettingsService.ReplaceSharedSettings(sharedLayer);
+                AssistantResolver.InvalidateAll();
+                AuditLogService.RecordSharedWrite("update", $"assistant:{assistantId}", user, new JObject { ["memoryExtraction"] = enabled });
+                return (true, null);
+            }
+            JObject personal = SettingsService.GetUserSettings(user);
+            if ((personal["assistants"] as JObject)?[assistantId] is JObject own)
+            {
+                own["memoryExtraction"] = enabled;
+                SettingsService.ReplaceUserSettings(user, personal);
+                AssistantResolver.Invalidate(user);
+                return (true, null);
+            }
+            return sharedEntry is not null
+                ? (false, "That assistant is shared. Changing it for yourself would copy it into your own settings and stop later changes to it reaching you, so use this chat's own switch, or ask an administrator (scope shared).")
+                : (false, "Assistant not found.");
+        }
+    }
+
     /// <summary>Deletes an assistant. If <paramref name="scope"/> is null, auto-detects which
     /// layer owns the ID (preferring personal). Personal deletes are always allowed — removing a
     /// personal overlay of a shared id is the "revert to default" path. Shared deletes require

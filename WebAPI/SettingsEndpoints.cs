@@ -68,7 +68,7 @@ public static class SettingsEndpoints
     /// <c>llm_shared_write</c>. The
     /// client sends back the merged settings it was given, so without this an ordinary save would copy the shared layer's hooks into the user's
     /// own, resurrect a hook deleted since the page loaded, and let a shared write plant a command hook without the command permission.</summary>
-    internal static readonly string[] OwnRouteKeys = ["assistants", "tools", "hooks", "mcpServers", "workspaceRoots", "trustedWorkspaces", "styleOverrides"];
+    internal static readonly string[] OwnRouteKeys = ["assistants", "tools", "hooks", "mcpServers", "workspaceRoots", "trustedWorkspaces", "styleOverrides", "memoryPause", "memoryRetention", "memoryAdmin"];
 
     /// <summary>A copy of a saved settings payload without <see cref="OwnRouteKeys"/>.</summary>
     internal static JObject FilterIncoming(JObject incoming)

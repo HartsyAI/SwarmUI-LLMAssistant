@@ -209,6 +209,8 @@ public static class SettingsService
         lock (SettingsLock)
         {
             JObject defaults = DefaultSettings;
+            // An admin's switch that turned the automatic extractor off for everyone survives a reset to the defaults (which would switch it on again for everyone).
+            defaults.Merge(KeepKeys(GetSettings(), PrivacySharedKeys));
             GenericDataCache.Save(Program.Sessions.GenericSharedUser, DataName, ConfigKey, defaults.ToString(Formatting.None));
             return defaults;
         }
@@ -280,14 +282,44 @@ public static class SettingsService
         {
             if (user is not null)
             {
-                GenericDataCache.Delete(user, DataName, UserConfigKey);
+                // What the user chose about their own memory (the automatic switch, a pause, retention) is not a preference to be reset to the defaults: a reset must not quietly undo a pause or start saving again.
+                JObject kept = KeepKeys(GetUserSettings(user), PrivacyUserKeys);
+                if (kept.Count > 0)
+                {
+                    // Replaced in one write, so there is no moment with the pause gone.
+                    ReplaceUserSettings(user, kept);
+                }
+                else
+                {
+                    GenericDataCache.Delete(user, DataName, UserConfigKey);
+                }
             }
         }
     }
 
+    /// <summary>The user-layer settings about their own memory that a reset keeps.</summary>
+    public static readonly string[] PrivacyUserKeys = ["memoryExtraction", "memoryPause", "memoryRetention"];
+
+    /// <summary>The shared-layer settings about memory that a reset keeps: an admin's switch that turned the automatic extractor off for everyone.</summary>
+    public static readonly string[] PrivacySharedKeys = ["memoryAdmin"];
+
+    /// <summary>A copy of the named keys of <paramref name="layer"/> that are present (an empty object when none is).</summary>
+    public static JObject KeepKeys(JObject layer, IEnumerable<string> keys)
+    {
+        JObject kept = [];
+        foreach (string key in keys)
+        {
+            if (layer?[key] is JToken value)
+            {
+                kept[key] = value.DeepClone();
+            }
+        }
+        return kept;
+    }
+
     /// <summary>Settings keys that only a user's own layer may hold (what is saved about a person is theirs to switch on): the shared layer never carries them, is never written them, and
     /// never shows them in a user's merged view, so an admin's baseline cannot turn them on for anyone and a client that saves its merged view back cannot copy one into a user's layer.</summary>
-    public static readonly string[] UserOnlyKeys = ["memoryExtraction"];
+    public static readonly string[] UserOnlyKeys = ["memoryExtraction", "memoryPause", "memoryRetention"];
 
     /// <summary>A copy of <paramref name="shared"/> without <see cref="UserOnlyKeys"/>.</summary>
     public static JObject WithoutUserOnlyKeys(JObject shared)

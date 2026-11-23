@@ -528,7 +528,8 @@ public class MemoryExtractionTests : IDisposable
         Assert.Equal(0, undone.Skipped);
         Assert.Equal(applied.Changes.Changes.Count, undone.Undone);
         // The same notes, in the same fields (the order the notes are kept in is by time, which restoring keeps by the notes' own times).
-        string Canon(string json) => string.Join("\n", MemoryNoteSet.Parse(json).Notes.OrderBy(n => n.Id).Select(n => JObject.FromObject(n).ToString()));
+        // When a note was last used is not part of it: bringing a note back counts as using it (so a retention sweep does not forget it at once).
+        string Canon(string json) => string.Join("\n", MemoryNoteSet.Parse(json).Notes.OrderBy(n => n.Id).Select(n => { JObject o = JObject.FromObject(n); o.Remove("lastUsed"); return o.ToString(); }));
         Assert.Equal(Canon(original), Canon(storage.Values[MemoryStore.NotesKey]));
         Assert.Empty(store.Changes());
         Assert.False(store.Undo(applied.Changes.Id).Found, "a change is undone once");

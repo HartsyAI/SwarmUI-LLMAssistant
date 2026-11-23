@@ -94,8 +94,8 @@ public static class MemoryRecall
         {
             return ordered;
         }
-        // Pinned notes always come, but never more than MaxPinned (the first ones in the fixed order, so the slot notes are never the ones left out).
-        List<MemoryNote> chosen = [.. ordered.Where(n => n.Pinned).Take(MemoryNoteSet.MaxPinned)];
+        // Pinned notes always come: the slot notes (name, pronouns, bio, work), and the notes the user pinned, never more than MaxPinned of those (the first ones in the fixed order).
+        List<MemoryNote> chosen = [.. ordered.Where(n => n.Pinned && n.Slot.Length > 0).Concat(ordered.Where(n => n.Pinned && n.Slot.Length == 0).Take(MemoryNoteSet.MaxPinned))];
         int used = chosen.Sum(n => Line(n).Length + 1);
         List<MemoryNote> rest = [.. ordered.Where(n => !n.Pinned)];
         int hitsTaken = 0;

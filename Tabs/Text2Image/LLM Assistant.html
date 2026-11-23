@@ -99,6 +99,10 @@
                         </div>
                     </div>
                 </div>
+                <!-- Pause memory (saving and recall); shown while automatic saving is on or memory is paused; memory.js keeps it -->
+                <button class="llma-icon-btn" id="llma-memory-pause-btn" type="button" style="display:none;" title="Pause memory: nothing is saved or recalled until you resume." aria-label="Pause memory" aria-pressed="false">
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><rect x="3.5" y="2.5" width="2.4" height="9" rx="0.6" stroke="currentColor" stroke-width="1.2"/><rect x="8.1" y="2.5" width="2.4" height="9" rx="0.6" stroke="currentColor" stroke-width="1.2"/></svg>
+                </button>
                 <!-- "Don't remember this chat" (only shown while Settings > Memory > Save memories automatically is on; memory.js keeps it) -->
                 <button class="llma-icon-btn" id="llma-memory-toggle-btn" type="button" style="display:none;" title="Memory is saved from this chat. Click to stop." aria-label="Remember this chat" aria-pressed="true">
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M3 2.5h8a1 1 0 011 1v8l-2.2-1.6L7 11.9 4.2 9.9 2 11.5v-8a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><line class="llma-memory-toggle-slash" x1="1.5" y1="12.5" x2="12.5" y2="1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" style="display:none;"/></svg>
@@ -573,10 +577,14 @@
                     <div id="llma-knowledge-search"></div>
                 </div>
 
-                <!-- Memory: the automatic extractor's settings, the notes saved about the user (read-only for now), and the extractor's recent changes with Undo (memory.js) -->
+                <!-- Memory (memory.js): pause switches, the automatic extractor's settings, retention, the notes saved about the user (review, edit, delete, export, import) and the recent automatic changes with Undo -->
                 <div class="llma-modal-panel" id="llma-settings-memory" style="display:none;">
+                    <div id="llma-memory-pause"></div>
                     <div id="llma-memory-extraction"></div>
+                    <div id="llma-memory-retention"></div>
+                    <div id="llma-memory-toolbar"></div>
                     <div id="llma-memory-totals" class="text-muted small mb-2"></div>
+                    <div id="llma-memory-import-preview"></div>
                     <div id="llma-memory-list"></div>
                     <div id="llma-memory-changes"></div>
                 </div>
