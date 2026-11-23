@@ -297,6 +297,10 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantDeleteMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantEditMessage, true, PermThreads);
         API.RegisterAPICall(ThreadEndpoints.LLMAssistantExportThread, false, PermThreads);
+        // Chat library: full-text search, pins, import (export is above)
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantSearchThreads, false, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantPinThread, true, PermThreads);
+        API.RegisterAPICall(ThreadEndpoints.LLMAssistantImportThread, true, PermThreads);
         // Per-user session state (active thread / last model / etc.)
         API.RegisterAPICall(SessionEndpoints.LLMAssistantGetSessionState, false, PermThreads);
         API.RegisterAPICall(SessionEndpoints.LLMAssistantSetSessionState, true, PermThreads);

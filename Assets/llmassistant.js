@@ -672,10 +672,8 @@ function llmaSetupSidebar() {
         });
     }
 
-    const search = document.getElementById('llma-thread-search');
-    if (search) {
-        search.addEventListener('input', llmaDebounce(() => llmaFilterThreads(search.value), 200));
-    }
+    // The search box (titles at once, messages after a pause), the import button and its preview dialog.
+    llmaLibrary.setup();
 
     const newBtn = document.getElementById('llma-new-thread-btn');
     if (newBtn) {

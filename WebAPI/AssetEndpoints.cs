@@ -64,24 +64,34 @@ public static class AssetEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "threadId and assetId are required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        // Removed under the thread write lock, so a message or a pin saved at the same moment is not lost.
+        bool noAssets = false;
+        bool noAsset = false;
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            if (t["assets"] is not JArray assets)
+            {
+                noAssets = true;
+                return false;
+            }
+            JObject target = assets.OfType<JObject>().FirstOrDefault(a => a["id"]?.ToString() == assetId);
+            if (target is null)
+            {
+                noAsset = true;
+                return false;
+            }
+            assets.Remove(target);
+            t["assets"] = assets;
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        JArray assets = thread["assets"] as JArray;
-        if (assets is null)
+        if (noAssets || noAsset)
         {
             return new JObject { ["success"] = false, ["error"] = $"Asset '{assetId}' not found in thread." };
         }
-        JObject target = assets.OfType<JObject>().FirstOrDefault(a => a["id"]?.ToString() == assetId);
-        if (target is null)
-        {
-            return new JObject { ["success"] = false, ["error"] = $"Asset '{assetId}' not found in thread." };
-        }
-        assets.Remove(target);
-        thread["assets"] = assets;
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject { ["success"] = true };
     }
 }

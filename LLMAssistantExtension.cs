@@ -69,6 +69,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/chat/chat-compare.js");
         // Sessions the assistant started: nested rows in the chat list, the banner on an open session, the cards in the chat that started them.
         ScriptFiles.Add("Assets/sessions.js");
+        // Chat library: search across what was said, pins, import and export (needs sessions.js and code-mode.js; threads.js and llmassistant.js call it).
+        ScriptFiles.Add("Assets/chat-library.js");
         ScriptFiles.Add("Assets/threads.js");
         ScriptFiles.Add("Assets/tools.js");
         ScriptFiles.Add("Assets/tool-picker.js");

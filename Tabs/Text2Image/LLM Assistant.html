@@ -16,7 +16,12 @@
             <label class="btn btn-outline-primary translate" for="llma-mode-filter-code">Code</label>
         </div>
         <div class="llma-search-wrap">
-            <input class="llma-search translate" id="llma-thread-search" type="text" placeholder="Search chats..." aria-label="Search chats" autocomplete="off">
+            <input class="llma-search translate" id="llma-thread-search" type="text" placeholder="Search chats and messages..." aria-label="Search chats and messages" autocomplete="off">
+            <!-- Import a chat from the JSON an export makes (always shown: it is also how a first chat can be made). The preview dialog is below the main area. -->
+            <button class="llma-icon-btn llma-new-chat-btn translate" id="llma-thread-import-btn" type="button" title="Import a chat from a file" aria-label="Import a chat">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 9.5v-8M3.5 5L7 1.5 10.5 5M2 11.5h10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <input type="file" id="llma-import-file" accept=".json,application/json" style="display:none;" aria-hidden="true" tabindex="-1">
             <!-- Compact new-chat affordance (the empty state carries the primary CTA when there are no chats). -->
             <button class="llma-icon-btn llma-new-chat-btn translate" id="llma-new-thread-btn" type="button" title="New chat" aria-label="New chat">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 2.5v9M2.5 7h9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
@@ -278,6 +283,22 @@
                 </div>
             </div>
             <div class="llma-modal-body" id="llma-asset-modal-body"></div>
+        </div>
+    </div>
+
+    <!-- ── Import preview (chat-library.js) ──────────────────── -->
+    <div class="llma-overlay" id="llma-import-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Import a chat">
+        <div class="llma-modal llma-import-modal">
+            <div class="llma-modal-header">
+                <h3 class="translate">Import a chat</h3>
+                <button class="llma-modal-close" id="llma-import-close" type="button" aria-label="Close import">&times;</button>
+            </div>
+            <div class="llma-modal-body" id="llma-import-body"></div>
+            <div class="llma-modal-footer">
+                <span class="llma-import-status" id="llma-import-status" role="status"></span>
+                <button class="basic-button translate" id="llma-import-cancel" type="button">Cancel</button>
+                <button class="basic-button translate" id="llma-import-confirm" type="button">Import chat</button>
+            </div>
         </div>
     </div>
 
