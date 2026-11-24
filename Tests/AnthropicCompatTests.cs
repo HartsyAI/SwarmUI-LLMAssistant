@@ -1,3 +1,4 @@
+using System.Net;
 using FreneticUtilities.FreneticDataSyntax;
 using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
@@ -16,6 +17,30 @@ public class AnthropicCompatTests
     {
         SettingsRaw = new RemoteSettings { Address = address, DefaultModel = "claude-opus-4-8", AuthorizationHeader = authorization, OtherHeaders = otherHeaders }
     };
+
+    [Fact]
+    public void ARefusedModelList_SaysWhatTheEndpointAnswered()
+    {
+        string anthropic = """{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_1"}""";
+        Assert.Equal("HTTP 401 Unauthorized: invalid x-api-key", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Unauthorized, anthropic));
+        Assert.Equal("HTTP 403 Forbidden: Incorrect API key", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Forbidden, """{"error":{"message":"Incorrect API key"}}"""));
+        Assert.Equal("HTTP 401 Unauthorized: bad token", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Unauthorized, """{"error":"bad token"}"""));
+        Assert.Equal("HTTP 401 Unauthorized: plain words", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Unauthorized, "plain words"));
+        // Nothing to say, or a page that is not an answer: the status alone.
+        Assert.Equal("HTTP 401 Unauthorized", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Unauthorized, ""));
+        Assert.Equal("HTTP 502 BadGateway", RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.BadGateway, "<html>Bad gateway</html>"));
+        string cut = RemoteOpenAILLMProvider.DescribeListFailure(HttpStatusCode.Forbidden, "{\"error\":{\"message\":\"" + new string('x', 500) + "\"}}");
+        Assert.Equal("HTTP 403 Forbidden: ".Length + 203, cut.Length);
+        Assert.EndsWith("...", cut);
+    }
+
+    [Fact]
+    public void ARefusedKey_ReachesTheUserAsAReadableErrorNamingWhoRefusedIt()
+    {
+        Assert.Equal("Anthropic rejected the API key (HTTP 401 Unauthorized: invalid x-api-key). Check the key saved in the User tab (and the workspace it belongs to).",
+            RemoteOpenAILLMProvider.RejectedKeyMessage(true, "HTTP 401 Unauthorized: invalid x-api-key"));
+        Assert.StartsWith("The server rejected the API key (HTTP 403 Forbidden)", RemoteOpenAILLMProvider.RejectedKeyMessage(false, "HTTP 403 Forbidden"));
+    }
 
     [Theory]
     [InlineData("https://api.anthropic.com", true)]
