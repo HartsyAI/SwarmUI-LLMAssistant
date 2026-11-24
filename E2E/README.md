@@ -5,7 +5,7 @@ Playwright specs that drive the real LLM Assistant tab in a real browser, agains
 ```
 E2E/
   MockLLM/        scripted OpenAI-compatible server (C#, net8): chat, tool calls, usage, embeddings
-  MockMCP/        a small stdio MCP server (server.mjs) the MCP specs connect to
+  MockMCP/        a scripted MCP server (server.mjs; stdio, or Streamable HTTP with `--http`) the MCP specs connect to
   hooks/          a sample command hook (block-secrets.mjs) the hook specs run
   harness/        stack.mjs starts/stops MockLLM + the throwaway SwarmUI; Playwright global setup/teardown
   tests/          fixtures.ts + the specs (one spec file per feature area)

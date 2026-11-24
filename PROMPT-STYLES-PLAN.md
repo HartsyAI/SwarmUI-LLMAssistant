@@ -191,7 +191,7 @@ Process: read-only research, one agent per family group (families that share a g
 
 ## 4. Bundled styles
 
-*Status: only `generic` and `ideogram-4` are built in (with golden unit tests). Everything after them is not built.*
+*Status: only `generic` and `ideogram-4` are built in (`ideogram-4` has golden unit cases for its formatter). Everything after them is not built.*
 
 - v1 ships `ideogram-4` (JSON with layout) and `generic` (natural language, the current `prompt` behaviour). Both come with golden unit tests.
 - Next, in order of evidence: `flux-3`, `fibo-2` (core already defines their bbox formats; I have not read their prompting docs), `moss-image`, `ming-image`, then natural-language families and a video style (the existing `video-prompt` instruction).
@@ -225,4 +225,4 @@ The test plan was written before the code. What exists is listed in the status a
 
 ## 8. Open questions
 
-The round 3 and earlier questions were all answered in conversation and are reflected in the decisions at the top and in the built behaviour (for example: the auto-enhance control is a core-style parameter and not a chip; wildcard policy became "hide wildcards from the writing model"; finetunes attach to a model by exact name or pattern through a rule). The record of the questions was removed because the answers live in the README. What is still open is only P4: which model families to write styles for next, and how to judge them on real models.
+The round 3 and earlier questions are superseded by what was built (the decisions at the top and the README describe the result) (for example: the auto-enhance control is a core-style parameter and not a chip; wildcard policy became "hide wildcards from the writing model"; finetunes attach to a model by exact name or pattern through a rule). The record of the questions was removed because the answers live in the README. What is still open is only P4: which model families to write styles for next, and how to judge them on real models.

@@ -108,7 +108,7 @@ Each step shipped on its own and is useful without the next.
 
 ## 5. Risks that were to be settled before step 5 (status as of 2026-11-24)
 
-- **Local small models are unreliable tool callers.** Code mode should show a warning when the selected model has no native tool-call support in its template, and refuse plan/auto there. *Not built: no such warning or refusal exists. The README lists tool calling on small models under Known limitations.*
+- **Local small models are unreliable tool callers.** Code mode should show a warning when the selected model has no native tool-call support in its template, and refuse plan/auto there. *Not built, as far as a search of code mode's front end and the setup check found on 2026-11-24: nothing warns about or refuses a model that cannot call tools. The README lists tool calling on small models under Known limitations.*
 - **Windows shell quoting.** `ShellExecTool` builds `cmd.exe /c` and `sh -c` strings by hand. A code-grade `bash` tool needs real argument handling and process-tree kill on cancel. *Addressed: the code tools and `shell_exec` both run through `ProcessRunner`, which kills the whole process tree on a timeout or Stop (README, "Code tools and workspaces").*
 - **Multi-user.** A shared server with a workspace root means one user's agent can touch another's files unless roots are per-user. Default to a per-user directory under `Output/` and make arbitrary roots an admin-only setting. *Done: each user's workspaces live under their own `Output/<user>/llm_assistant/workspaces/`, and extra folders need `llm_workspace_roots` (ADMINS).*
 

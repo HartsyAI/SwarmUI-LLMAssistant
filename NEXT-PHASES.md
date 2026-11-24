@@ -115,7 +115,7 @@ Tests: extractor fixtures (small real PDF/docx files committed under `Tests/Fixt
 
 ## Phase 15: Streaming headless turn
 
-`LLMAssistantRunTurnWS` over the same WebSocket helpers the chat uses (core's API has no SSE). Same inputs as `LLMAssistantRunTurn`. Frames: the chat socket's existing set (`delta`, `tool_call`, `tool_result`, `usage`, `done`/`error`), documented in the README so scripts can consume them. Reuses `TurnScope` and `HeadlessTurnService` setup (do not fork the logic).
+`LLMAssistantRunTurnWS` over the same WebSocket helpers the chat uses (core's API has no SSE). Same inputs as `LLMAssistantRunTurn`. Frames: the chat socket's existing set (`chunk`, `tool_call`, `tool_result`, `done` with its `usage`, `error`), documented in the README so scripts can consume them. Reuses `TurnScope` and `HeadlessTurnService` setup (do not fork the logic).
 - Socket close cancels the turn: fixes the disconnect gap for this path properly.
 - Approvals: with `interactive: true` the socket can approve through the existing Phase 1 resolve route, so scripts with a human attached can approve; without it, the same refuse-writes behaviour as today.
 - Depends on 12a.
