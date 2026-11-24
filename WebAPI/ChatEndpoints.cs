@@ -962,29 +962,48 @@ public static class ChatEndpoints
     {
         try
         {
-            JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (!ThreadStorageService.NeedsGeneratedTitle(thread))
-            {
-                return;
-            }
             // Claim immediately (before the LLM call) so a slow/failed generation can't be retried forever
             // by the next message in the same exchange, and so it can never race a manual rename backwards.
-            ThreadStorageService.MarkTitleClaimed(thread);
-            List<JObject> active = ThreadStorageService.GetActivePath(thread);
-            string userText = active[0]?["content"]?.ToString();
-            string replyText = active[1]?["content"]?.ToString();
-            if (string.IsNullOrWhiteSpace(userText))
+            // The check and the claim are one change under the thread write lock, as is the title written afterwards: the LLM call
+            // takes seconds, and a whole-thread save after it would overwrite what changed meanwhile (a pin, a message, a rename).
+            string userText = null;
+            string replyText = null;
+            string titleBefore = null;
+            JObject claimed = ThreadStorageService.Mutate(session.User, threadId, t =>
             {
-                ThreadStorageService.SaveThread(session.User, thread);
+                if (!ThreadStorageService.NeedsGeneratedTitle(t))
+                {
+                    return false;
+                }
+                ThreadStorageService.MarkTitleClaimed(t);
+                List<JObject> active = ThreadStorageService.GetActivePath(t);
+                userText = active[0]?["content"]?.ToString();
+                replyText = active[1]?["content"]?.ToString();
+                titleBefore = t["title"]?.ToString();
+                return true;
+            });
+            if (claimed is null || string.IsNullOrWhiteSpace(userText))
+            {
                 return;
             }
             string title = await GenerateChatTitle(userText, replyText, model);
+            bool written = false;
             if (!string.IsNullOrWhiteSpace(title))
             {
-                thread["title"] = title;
+                // Only if nobody renamed the chat while the model was thinking.
+                ThreadStorageService.Mutate(session.User, threadId, t =>
+                {
+                    if (t["title"]?.ToString() != titleBefore)
+                    {
+                        return false;
+                    }
+                    t["title"] = title;
+                    written = true;
+                    return true;
+                });
             }
-            ThreadStorageService.SaveThread(session.User, thread);
-            if (!string.IsNullOrWhiteSpace(title) && socket.State == WebSocketState.Open)
+            // The page is told only of a title that was saved: after a rename in the meantime it keeps the user's.
+            if (written && socket.State == WebSocketState.Open)
             {
                 byte[] bytes = System.Text.Encoding.UTF8.GetBytes(new JObject { ["titleUpdated"] = title, ["threadId"] = threadId }.ToString(Newtonsoft.Json.Formatting.None));
                 await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);

@@ -136,8 +136,9 @@ public static class ThreadStorageService
         return pid is null || pid.Type == JTokenType.Null ? null : pid.ToString();
     }
 
-    /// <summary>Saves a thread and updates the index.</summary>
-    public static void SaveThread(User user, JObject thread)
+    /// <summary>Saves a thread and updates the index. <paramref name="touch"/> false is for a change that is not activity in the chat (a pin): <c>updatedAt</c> and the
+    /// chat's place in the index stay as they were, so the chat is not moved up the list, and the search index does not read it again.</summary>
+    public static void SaveThread(User user, JObject thread, bool touch = true)
     {
         lock (ThreadWriteLock)
         {
@@ -147,7 +148,10 @@ public static class ThreadStorageService
                 threadId = GenerateThreadId();
                 thread["id"] = threadId;
             }
-            thread["updatedAt"] = DateTime.UtcNow.ToString("o");
+            if (touch || thread["updatedAt"] is null)
+            {
+                thread["updatedAt"] = DateTime.UtcNow.ToString("o");
+            }
             if (thread["createdAt"] is null)
             {
                 thread["createdAt"] = DateTime.UtcNow.ToString("o");
@@ -169,7 +173,7 @@ public static class ThreadStorageService
             // Save thread data
             user.SaveGenericData(DataName, ThreadPrefix + threadId, thread.ToString(Formatting.None));
             // Update index
-            UpdateIndex(user, thread);
+            UpdateIndex(user, thread, touch);
         }
     }
 
@@ -380,7 +384,7 @@ public static class ThreadStorageService
     /// <summary>Changes a thread under the write lock: <paramref name="change"/> edits the loaded thread and returns whether to save it. Returns the thread as
     /// it now is (saved or not), or null if it was not found. The one place a feature that adds fields to a thread (sessions) goes through, so none of
     /// them does its own get-edit-save.</summary>
-    public static JObject Mutate(User user, string threadId, Func<JObject, bool> change)
+    public static JObject Mutate(User user, string threadId, Func<JObject, bool> change, bool touch = true)
     {
         lock (ThreadWriteLock)
         {
@@ -391,10 +395,49 @@ public static class ThreadStorageService
             }
             if (change(thread))
             {
-                SaveThread(user, thread);
+                SaveThread(user, thread, touch);
             }
             return thread;
         }
+    }
+
+    /// <summary>Pins or unpins a chat (<c>pinned</c> on the thread and its index row). Not activity in the chat: it keeps its date and place in the index. Returns the thread,
+    /// or null if not found. A session cannot be pinned (it is listed under the chat that started it): that is <paramref name="refused"/> set, and the thread is returned unchanged.</summary>
+    public static JObject SetPinned(User user, string threadId, bool pinned, out bool refused)
+    {
+        bool isSession = false;
+        JObject thread = Mutate(user, threadId, t =>
+        {
+            if (t[Sessions.SessionFields.Parent] is { Type: not JTokenType.Null } parent && !string.IsNullOrEmpty(parent.ToString()))
+            {
+                isSession = true;
+                return false;
+            }
+            if (pinned)
+            {
+                t["pinned"] = true;
+            }
+            else
+            {
+                t.Remove("pinned");
+            }
+            return true;
+        }, touch: false);
+        refused = isSession;
+        return thread;
+    }
+
+    /// <summary>Saves a chat made by an import as a new chat of this user: it gets a new id and the current time as <c>createdAt</c>, whatever the blob carried, and its title is claimed
+    /// so the automatic title never replaces it. Returns the saved chat.</summary>
+    public static JObject SaveImported(User user, JObject blob)
+    {
+        JObject thread = (JObject)blob.DeepClone();
+        thread["id"] = GenerateThreadId();
+        thread["createdAt"] = DateTime.UtcNow.ToString("o");
+        thread.Remove("updatedAt");
+        MarkTitleClaimed(thread);
+        SaveThread(user, thread);
+        return thread;
     }
 
     /// <summary>Saves whether the chat is an ordinary chat or a coding session (<see cref="ThreadModes"/>). Returns the updated thread, or null if not found or the mode is unknown.</summary>
@@ -650,14 +693,16 @@ public static class ThreadStorageService
         return Guid.NewGuid().ToString("N");
     }
 
-    private static void UpdateIndex(User user, JObject thread)
+    private static void UpdateIndex(User user, JObject thread, bool touch = true)
     {
         JArray index = GetThreadIndex(user);
         string threadId = thread["id"].ToString();
-        // Remove existing entry if present
+        // Remove existing entry if present (a change that is not activity puts the row back where it was).
         JToken existing = index.FirstOrDefault(t => t["id"]?.ToString() == threadId);
+        int position = 0;
         if (existing is not null)
         {
+            position = touch ? 0 : index.IndexOf(existing);
             index.Remove(existing);
         }
         // Build summary from the active branch — the conversation the user actually sees.
@@ -702,6 +747,10 @@ public static class ThreadStorageService
         {
             summary["workspace"] = thread["workspace"];
         }
+        if (ChatLibrary.ThreadOrdering.IsPinned(thread))
+        {
+            summary["pinned"] = true;
+        }
         // A chat the assistant started: where it hangs in the list and how it is doing, so the sidebar needs no thread loads.
         foreach (string field in new[] { Sessions.SessionFields.Parent, Sessions.SessionFields.Status, Sessions.SessionFields.Depth, Schedules.ScheduleFields.HostMarker })
         {
@@ -711,7 +760,7 @@ public static class ThreadStorageService
             }
         }
         // Insert at beginning (most recent first)
-        index.Insert(0, summary);
+        index.Insert(Math.Min(position, index.Count), summary);
         GenericDataCache.Save(user, DataName, IndexKey, index.ToString(Formatting.None));
     }
 

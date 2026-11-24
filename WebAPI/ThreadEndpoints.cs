@@ -3,6 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 
@@ -16,7 +17,8 @@ public static class ThreadEndpoints
         // A session that says it is working while nothing is (the server restarted) is marked interrupted before the list goes out.
         string userId = session.User.UserID;
         SessionManager.Reconcile(session.User, id => BackgroundTurnService.IsLive(userId, id) || GenerationCancellationRegistry.IsActive(id));
-        JArray threads = ThreadStorageService.GetThreadIndex(session.User);
+        // Pinned chats come first, the rest in the order they were saved (newest first).
+        JArray threads = ThreadOrdering.PinnedFirst(ThreadStorageService.GetThreadIndex(session.User));
         return new JObject
         {
             ["success"] = true,
@@ -142,15 +144,18 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "title is required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        // Changed under the thread write lock, so a message or a pin saved at the same moment is not lost.
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            t["title"] = title.Trim();
+            // A manual rename claims the title permanently — the auto-title generator must never overwrite it.
+            ThreadStorageService.MarkTitleClaimed(t);
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        thread["title"] = title.Trim();
-        // A manual rename claims the title permanently — the auto-title generator must never overwrite it.
-        ThreadStorageService.MarkTitleClaimed(thread);
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject
         {
             ["success"] = true,
@@ -220,21 +225,23 @@ public static class ThreadEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "threadId is required." };
         }
-        JObject thread = ThreadStorageService.GetThread(session.User, threadId);
+        JToken enabledToken = rawInput["enabled"];
+        JObject thread = ThreadStorageService.Mutate(session.User, threadId, t =>
+        {
+            if (enabledToken?.Type == JTokenType.Boolean)
+            {
+                t["toolsEnabled"] = enabledToken.Value<bool>();
+            }
+            else
+            {
+                t.Remove("toolsEnabled");
+            }
+            return true;
+        });
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        JToken enabledToken = rawInput["enabled"];
-        if (enabledToken?.Type == JTokenType.Boolean)
-        {
-            thread["toolsEnabled"] = enabledToken.Value<bool>();
-        }
-        else
-        {
-            thread.Remove("toolsEnabled");
-        }
-        ThreadStorageService.SaveThread(session.User, thread);
         return new JObject
         {
             ["success"] = true,
@@ -298,54 +305,213 @@ public static class ThreadEndpoints
         return new JObject { ["success"] = true, ["thread"] = thread };
     }
 
-    /// <summary>Exports a thread in JSON or Markdown format.</summary>
+    /// <summary>Exports a thread as <c>json</c> (every message on every branch, and which branch was showing; <see cref="LLMAssistantImportThread"/> reads it) or <c>markdown</c> (the conversation
+    /// on screen, for reading; <c>md</c> also works). Request: <c>{ threadId, format? }</c>. Response: <c>{ success, content, filename }</c>.</summary>
     public static async Task<JObject> LLMAssistantExportThread(Session session, string threadId, string format = "json")
     {
+        await Task.CompletedTask;
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (ThreadExport.NormalizeFormat(format) is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = "format must be json or markdown." };
+        }
         JObject thread = ThreadStorageService.GetThread(session.User, threadId);
         if (thread is null)
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        string title = thread["title"]?.ToString() ?? "thread";
-        string safeTitle = new string(title.Where(c => char.IsLetterOrDigit(c) || c == '_' || c == '-' || c == ' ').ToArray()).Replace(' ', '_');
-        string content;
-        string filename;
-        if (format == "markdown")
-        {
-            StringBuilder sb = new();
-            sb.AppendLine($"# {title}");
-            sb.AppendLine();
-            JArray messages = thread["messages"] as JArray ?? [];
-            foreach (JToken msg in messages)
-            {
-                string role = msg["role"]?.ToString() == Roles.User ? "You" : "Assistant";
-                sb.AppendLine($"## {role}");
-                sb.AppendLine();
-                sb.AppendLine(msg["content"]?.ToString() ?? "");
-                sb.AppendLine();
-            }
-            content = sb.ToString();
-            filename = $"{safeTitle}.md";
-        }
-        else
-        {
-            JObject export = new()
-            {
-                ["id"] = thread["id"],
-                ["title"] = title,
-                ["assistantId"] = thread["assistantId"],
-                ["messages"] = thread["messages"],
-                ["parameters"] = thread["parameters"],
-                ["exportedAt"] = DateTime.UtcNow.ToString("o")
-            };
-            content = export.ToString(Formatting.Indented);
-            filename = $"{safeTitle}.json";
-        }
+        (string content, string filename) = ThreadExport.Build(thread, format, DateTime.UtcNow);
         return new JObject
         {
             ["success"] = true,
             ["content"] = content,
             ["filename"] = filename
         };
+    }
+
+    /// <summary>Searches this user's chats: titles and the text of user and assistant messages (every branch; never tool results or attachments). Request: <c>{ query, limit?, offset?, mode? }</c>,
+    /// <c>mode</c> being <c>chat</c> or <c>code</c> to list only that kind. Every word of the query must be somewhere in the chat. Response: <c>{ success, results: [{ threadId, title, updatedAt, titleMatch,
+    /// indexTruncated, matchedMessages, snippets: [{ messageId, role, text, ranges: [[start, length]] }] }], total, offset, limit, hasMore, partial }</c>, best match first. A chat's <c>indexTruncated</c> is true
+    /// when part of its text is not searched (a message over 20,000 characters, or a chat over 400,000, is cut; see <see cref="ThreadSearch"/>). <c>partial</c> is true when the user has so much text that some
+    /// chats are searched by title only.</summary>
+    public static async Task<JObject> LLMAssistantSearchThreads(Session session, JObject rawInput)
+    {
+        string query = rawInput["query"]?.Type == JTokenType.String ? rawInput["query"].ToString() : null;
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return new JObject { ["success"] = false, ["error"] = "query is required." };
+        }
+        if (ThreadSearch.ParseQuery(query) is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"query must be at least {ThreadSearch.MinQueryChars} characters." };
+        }
+        if (!TryReadInt(rawInput, "limit", ThreadSearch.DefaultLimit, 1, ThreadSearch.MaxLimit, out int limit, out string error)
+            || !TryReadInt(rawInput, "offset", 0, 0, ThreadSearch.MaxOffset, out int offset, out error))
+        {
+            return new JObject { ["success"] = false, ["error"] = error };
+        }
+        string mode = null;
+        if (rawInput["mode"] is { Type: not JTokenType.Null } modeToken)
+        {
+            mode = modeToken.ToString().Trim().ToLowerInvariant();
+            if (mode.Length > 0 && !ThreadModes.IsValid(mode))
+            {
+                return new JObject { ["success"] = false, ["error"] = "mode must be chat or code." };
+            }
+        }
+        JArray threadIndex = ThreadStorageService.GetThreadIndex(session.User);
+        ThreadSearchIndex cache = ThreadSearchIndex.For(session.User);
+        // Sessions that were archived are not listed in the sidebar, so they are not found either.
+        // Reading the chats the first time (or after they changed) is storage work: off the request thread.
+        List<SearchDoc> docs = await Task.Run(() => cache.Refresh(threadIndex, id => ThreadStorageService.GetThread(session.User, id), row =>
+            row["sessionStatus"]?.ToString() != SessionStatuses.Archived
+            && (string.IsNullOrEmpty(mode) || (row["mode"]?.ToString() ?? ThreadModes.Chat) == mode)));
+        SearchPage page = ThreadSearch.Search(docs, query, limit, offset);
+        JArray results = [];
+        foreach (SearchHit hit in page.Hits)
+        {
+            JArray snippets = [];
+            foreach (SearchSnippet snippet in hit.Snippets)
+            {
+                snippets.Add(new JObject
+                {
+                    ["messageId"] = snippet.MessageId,
+                    ["role"] = snippet.Role,
+                    ["text"] = snippet.Text,
+                    ["ranges"] = new JArray(snippet.Ranges.Select(r => new JArray(r.Start, r.Length)))
+                });
+            }
+            results.Add(new JObject
+            {
+                ["threadId"] = hit.Id,
+                ["title"] = hit.Title,
+                ["updatedAt"] = hit.UpdatedAt,
+                ["titleMatch"] = hit.TitleMatch,
+                ["indexTruncated"] = hit.IndexTruncated,
+                ["matchedMessages"] = hit.MatchedMessages,
+                ["snippets"] = snippets
+            });
+        }
+        return new JObject
+        {
+            ["success"] = true,
+            ["results"] = results,
+            ["total"] = page.Total,
+            ["offset"] = page.Offset,
+            ["limit"] = limit,
+            ["hasMore"] = page.HasMore,
+            ["partial"] = cache.Partial
+        };
+    }
+
+    /// <summary>Pins or unpins a chat; pinned chats are listed first (in <c>LLMAssistantGetThreads</c> and the sidebar). Request: <c>{ threadId, pinned }</c>, <c>pinned</c> a boolean. Pinning is not
+    /// activity: the chat keeps its date. A session cannot be pinned (it is listed under the chat that started it).</summary>
+    public static async Task<JObject> LLMAssistantPinThread(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        string threadId = rawInput["threadId"]?.Type == JTokenType.String ? rawInput["threadId"].ToString() : null;
+        if (string.IsNullOrWhiteSpace(threadId))
+        {
+            return new JObject { ["success"] = false, ["error"] = "threadId is required." };
+        }
+        if (rawInput["pinned"]?.Type != JTokenType.Boolean)
+        {
+            return new JObject { ["success"] = false, ["error"] = "pinned must be true or false." };
+        }
+        bool pinned = rawInput["pinned"].Value<bool>();
+        JObject thread = ThreadStorageService.SetPinned(session.User, threadId, pinned, out bool refused);
+        if (thread is null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+        }
+        if (refused)
+        {
+            return new JObject { ["success"] = false, ["error"] = "A session cannot be pinned: it is listed under the chat that started it." };
+        }
+        return new JObject { ["success"] = true, ["threadId"] = threadId, ["pinned"] = pinned };
+    }
+
+    /// <summary>Makes a new chat from the JSON <see cref="LLMAssistantExportThread"/> produces. Request: <c>{ content, preview?, assistantId? }</c>, <c>content</c> being the file's text. With
+    /// <c>preview</c> true nothing is saved and the response is <c>{ success, preview: true, summary }</c>; otherwise the chat is saved as a new one (new ids, whatever the file said) and the response is
+    /// <c>{ success, threadId, thread (the sidebar row), summary }</c>. The summary is <c>{ title, assistantId, messageCount, hasBranches, skipped, warnings, sample: [{ role, text }] }</c>.
+    /// Only the text of user and assistant messages is imported. Limits: <see cref="ThreadImport.MaxFileChars"/> characters, <see cref="ThreadImport.MaxMessages"/> messages,
+    /// <see cref="ThreadImport.MaxMessageChars"/> characters each.</summary>
+    public static async Task<JObject> LLMAssistantImportThread(Session session, JObject rawInput)
+    {
+        await Task.CompletedTask;
+        string content = rawInput["content"]?.Type == JTokenType.String ? rawInput["content"].ToString() : null;
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return new JObject { ["success"] = false, ["error"] = "content is required: the exported JSON of a chat, as text." };
+        }
+        if (rawInput["preview"] is { Type: not JTokenType.Null } previewToken && previewToken.Type != JTokenType.Boolean)
+        {
+            return new JObject { ["success"] = false, ["error"] = "preview must be true or false." };
+        }
+        bool preview = rawInput["preview"]?.Type == JTokenType.Boolean && rawInput["preview"].Value<bool>();
+        JObject settings = SettingsService.GetMergedSettings(session.User);
+        Func<string, bool> assistantExists = id => settings["assistants"] is JObject assistants && assistants[id] is JObject;
+        string fallback = AssistantService.GetActiveAssistantId(settings, session.User);
+        string chosen = rawInput["assistantId"]?.Type == JTokenType.String ? rawInput["assistantId"].ToString().Trim() : "";
+        if (chosen.Length > 0 && !assistantExists(chosen))
+        {
+            return new JObject { ["success"] = false, ["error"] = $"Assistant '{chosen}' not found." };
+        }
+        ThreadImportResult parsed = ThreadImport.Parse(content, assistantExists, chosen.Length > 0 ? chosen : fallback, DateTime.UtcNow);
+        if (!parsed.Ok)
+        {
+            return new JObject { ["success"] = false, ["error"] = parsed.Error };
+        }
+        if (chosen.Length > 0)
+        {
+            // The caller named the assistant: it wins over the one in the file.
+            parsed.Thread["assistantId"] = chosen;
+        }
+        JObject summary = new()
+        {
+            ["title"] = parsed.Thread["title"]?.ToString() ?? "",
+            ["assistantId"] = parsed.Thread["assistantId"],
+            ["messageCount"] = ((JArray)parsed.Thread["messages"]).Count,
+            ["hasBranches"] = parsed.HasBranches,
+            ["skipped"] = parsed.Skipped,
+            ["warnings"] = new JArray(parsed.Warnings),
+            ["sample"] = new JArray(parsed.Sample.Select(m => new JObject { ["role"] = m.Role, ["text"] = m.Text }))
+        };
+        if (preview)
+        {
+            return new JObject { ["success"] = true, ["preview"] = true, ["summary"] = summary };
+        }
+        JObject saved = ThreadStorageService.SaveImported(session.User, parsed.Thread);
+        string savedId = saved["id"]?.ToString();
+        summary["title"] = saved["title"];
+        return new JObject
+        {
+            ["success"] = true,
+            ["threadId"] = savedId,
+            ["thread"] = ThreadStorageService.GetThreadIndex(session.User).OfType<JObject>().FirstOrDefault(r => r["id"]?.ToString() == savedId),
+            ["summary"] = summary
+        };
+    }
+
+    /// <summary>Reads an optional whole number from a request: <paramref name="fallback"/> when absent or null, an error when it is not an integer or is outside the range.</summary>
+    private static bool TryReadInt(JObject input, string key, int fallback, int min, int max, out int value, out string error)
+    {
+        value = fallback;
+        error = null;
+        JToken token = input[key];
+        if (token is null || token.Type == JTokenType.Null)
+        {
+            return true;
+        }
+        if (token is JValue { Type: JTokenType.Integer, Value: long number } && number >= min && number <= max)
+        {
+            value = (int)number;
+            return true;
+        }
+        error = $"{key} must be a whole number from {min} to {max}.";
+        return false;
     }
 }
