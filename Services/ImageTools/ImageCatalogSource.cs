@@ -24,12 +24,28 @@ public static class ImageCatalogSource
         return session.User.HasPermission(Permissions.FundamentalModelAccess) ? null : "The user does not have permission to see models.";
     }
 
+    /// <summary>How long a user's model list is reused: a name check, a LoRA match and a listing in the same few seconds read core once.</summary>
+    private static readonly UserTtlCache<List<CatalogEntry>> ModelCache = new(TimeSpan.FromSeconds(12));
+
+    /// <summary>Whether the cache has been hooked to core's model refresh (done on first use, so nothing touches core until a call needs it).</summary>
+    private static bool _hooked;
+
     /// <summary>The installed text-to-image models the user may use.</summary>
     public static async Task<List<CatalogEntry>> ModelsAsync(Session session, bool includeVideo = false)
     {
-        List<CatalogEntry> all = await ReadAsync(session, "Stable-Diffusion");
-        // Models of a video or audio family (core's own flags on the compatibility class), and upscalers and segmenters core lists with the checkpoints, are left out unless asked for: this is the list of text-to-image models.
-        List<CatalogEntry> marked = [.. all.Select(e => e with { Video = ImageCatalog.IsNonImageFamily(e.CompatClass, e.Architecture, IsVideoFamily(e.CompatClass)) })];
+        if (!_hooked)
+        {
+            _hooked = true;
+            Program.ModelRefreshEvent += ModelCache.Clear;
+        }
+        string userId = session?.User?.UserID;
+        if (!ModelCache.TryGet(userId, out List<CatalogEntry> marked))
+        {
+            List<CatalogEntry> all = await ReadAsync(session, "Stable-Diffusion");
+            // Models of a video or audio family (core's own flags on the compatibility class), and upscalers and segmenters core lists with the checkpoints, are left out unless asked for: this is the list of text-to-image models.
+            marked = [.. all.Select(e => e with { Video = ImageCatalog.IsNonImageFamily(e.CompatClass, e.Architecture, IsVideoFamily(e.CompatClass)) })];
+            ModelCache.Set(userId, marked);
+        }
         return includeVideo ? marked : [.. marked.Where(e => !e.Video)];
     }
 

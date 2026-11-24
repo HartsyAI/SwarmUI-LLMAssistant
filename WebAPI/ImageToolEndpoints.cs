@@ -9,11 +9,11 @@ namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 /// <c>llm_chat</c> and, like core's own model list, see only what the calling user may; the defaults need <c>llm_settings</c>.</summary>
 public static class ImageToolEndpoints
 {
-    /// <summary>Lists installed image models. Request: <c>{ query?, modelClass?, limit?, includeVideo?, offset? }</c> (<c>offset</c> skips that many matches, for paging; the result gives <c>nextOffset</c> when more match) (<c>modelClass</c> is a substring of the model type's id, name or family, e.g. <c>xl</c> or <c>flux</c>; <c>limit</c> defaults to 25, at most 100; video and audio families are left out unless <c>includeVideo</c>).
+    /// <summary>Lists installed image models. Request: <c>{ query?, modelClass?, limit?, includeVideo?, offset?, namesOnly? }</c> (<c>namesOnly</c> returns just <c>{name}</c> for each model and is not cut by the size budget, only by <c>limit</c>: for filling a picker) (<c>offset</c> skips that many matches, for paging; the result gives <c>nextOffset</c> when more match) (<c>modelClass</c> is a substring of the model type's id, name or family, e.g. <c>xl</c> or <c>flux</c>; <c>limit</c> defaults to 25, at most 100; video and audio families are left out unless <c>includeVideo</c>).
     /// Returns <c>{success, installed, matched, shown, models: [{name, title?, architecture?, class?, resolution?, promptNotes?, triggerPhrase?, description?, tags?, loaded?}], more?, note}</c>.</summary>
-    public static async Task<JObject> LLMAssistantListImageModels(Session session, string query = "", string modelClass = "", int limit = 0, bool includeVideo = false, int offset = 0)
+    public static async Task<JObject> LLMAssistantListImageModels(Session session, string query = "", string modelClass = "", int limit = 0, bool includeVideo = false, int offset = 0, bool namesOnly = false)
     {
-        return await ImageCatalogService.ListModelsAsync(session, new JObject { ["query"] = query, ["class"] = modelClass, ["limit"] = limit > 0 ? limit : null, ["includeVideo"] = includeVideo, ["offset"] = offset });
+        return await ImageCatalogService.ListModelsAsync(session, new JObject { ["query"] = query, ["class"] = modelClass, ["limit"] = limit > 0 ? limit : null, ["includeVideo"] = includeVideo, ["offset"] = offset, ["namesOnly"] = namesOnly });
     }
 
     /// <summary>Lists installed LoRAs. Request: <c>{ query?, baseModel?, forModel?, limit? }</c>; <c>forModel</c> is an installed model's name (only LoRAs of its family are returned).
@@ -65,6 +65,11 @@ public static class ImageToolEndpoints
         if (model is null && maxImages is null)
         {
             return ImageCatalogService.Failed("Pass defaultModel and/or maxImages.");
+        }
+        // Checked whether or not the caller can list models: this text goes into a tool description on every turn.
+        if (model is not null && !ImageToolSettings.IsValidModelName(model))
+        {
+            return ImageCatalogService.Failed($"defaultModel must be at most {CatalogEntry.MaxNameChars} characters and have no line breaks or other control characters.");
         }
         if (!string.IsNullOrEmpty(model) && ImageCatalogSource.Denied(session) is null)
         {

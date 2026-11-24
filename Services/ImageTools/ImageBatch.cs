@@ -71,8 +71,9 @@ public static class ImageBatch
             if (ct.IsCancellationRequested && !generation.IsCompleted)
             {
                 cancelled = true;
-                Interrupt(own);
-                if (await Task.WhenAny(generation, Task.Delay(StopGrace)) != generation)
+                // The claim may not exist yet (Stop came as the generation was starting): keep looking for it during the grace and interrupt it the moment it appears.
+                own = await InterruptDuringGraceAsync(generation, () => own ?? FirstClaimAfter(session, claimsBefore), Interrupt, StopGrace);
+                if (!generation.IsCompleted)
                 {
                     break;
                 }
@@ -96,6 +97,30 @@ public static class ImageBatch
         }
         BatchOutcome outcome = Summarize(outputs.ToArray());
         return outcome with { Error = outcome.Error ?? failure, Cancelled = cancelled };
+    }
+
+    /// <summary>Waits up to <paramref name="grace"/> for <paramref name="generation"/> to finish, and from the first moment <paramref name="find"/> returns something, interrupts it (again on every pass: interrupting twice is
+    /// harmless). Returns what was found, or null. Pure apart from its delegates, so the timing can be tested without a session.</summary>
+    internal static async Task<T> InterruptDuringGraceAsync<T>(Task generation, Func<T> find, Action<T> interrupt, TimeSpan grace) where T : class
+    {
+        T found = null;
+        long until = Environment.TickCount64 + (long)grace.TotalMilliseconds;
+        while (!generation.IsCompleted && Environment.TickCount64 < until)
+        {
+            found ??= find();
+            if (found is not null)
+            {
+                interrupt(found);
+            }
+            await Task.WhenAny(generation, Task.Delay(20));
+        }
+        // One more look after the wait: a claim that appeared in the last moments is still stopped.
+        found ??= find();
+        if (found is not null && !generation.IsCompleted)
+        {
+            interrupt(found);
+        }
+        return found;
     }
 
     /// <summary>The oldest claim of the session newer than <paramref name="claimId"/>, or null when there is none yet.</summary>

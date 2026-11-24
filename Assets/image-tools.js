@@ -39,10 +39,10 @@ class LLMAImageTools {
         let names = [];
         let failed = false;
         try {
-            // The server lists at most 100 at a time and says where the next page starts; up to 2,000 models are read.
+            // Names only, 100 a page, with where the next page starts in each answer: up to 2,000 models are read.
             let offset = 0;
             for (let page = 0; page < 20; page++) {
-                let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100, offset: offset });
+                let reply = await llmaRequest('LLMAssistantListImageModels', { limit: 100, offset: offset, namesOnly: true });
                 names.push(...(reply.models || []).map(m => m.name));
                 if (reply.nextOffset == null) {
                     break;

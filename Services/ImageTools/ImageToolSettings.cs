@@ -67,11 +67,16 @@ public sealed record ImageToolSettings(string DefaultModel, int MaxImages)
         return new ImageToolSettings(model, max);
     }
 
+    /// <summary>Whether <paramref name="name"/> can be kept as a default model: empty (none), or no longer than <see cref="CatalogEntry.MaxNameChars"/> and without control characters. The name is written into the
+    /// <c>generate_image</c> description on every turn, so text that is long or has line breaks in it must never be stored, even by a caller who cannot list models to check it against.</summary>
+    public static bool IsValidModelName(string name) => name is not null && name.Length <= CatalogEntry.MaxNameChars && !name.Any(char.IsControl);
+
     /// <summary>The model name a layer holds: null when the layer has none (missing, not text or empty), so the next layer is read.</summary>
     private static string ReadModel(JObject layer)
     {
         string name = layer?["defaultModel"]?.Type == JTokenType.String ? ((string)layer["defaultModel"]).Trim() : "";
-        return name.Length == 0 ? null : name;
+        // A stored name that could not have been saved through the route (settings edited by hand) is not used.
+        return name.Length == 0 || !IsValidModelName(name) ? null : name;
     }
 
     /// <summary>Saves a change to the image tool settings. A model goes to the user's own layer, or the shared one when <paramref name="shared"/>; the limit is always shared (a server limit), so the caller must have
@@ -80,6 +85,10 @@ public sealed record ImageToolSettings(string DefaultModel, int MaxImages)
     {
         JObject sharedPatch = [];
         JObject personalPatch = [];
+        if (defaultModel is not null && !IsValidModelName(defaultModel.Trim()))
+        {
+            throw new ArgumentException("The default model name is too long or has control characters in it.", nameof(defaultModel));
+        }
         if (defaultModel is not null)
         {
             (shared ? sharedPatch : personalPatch)["defaultModel"] = defaultModel.Trim();

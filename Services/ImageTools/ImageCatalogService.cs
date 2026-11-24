@@ -24,7 +24,7 @@ public static class ImageCatalogService
         {
             return Failed(ex.Message);
         }
-        return ImageCatalog.ModelsResult(models, Text(args, "query"), Text(args, "class"), ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel, includeVideo, Offset(args));
+        return ImageCatalog.ModelsResult(models, Text(args, "query"), Text(args, "class"), ImageCatalog.ClampLimit(args?["limit"]), session.User.IsAllowedModel, includeVideo, Offset(args), args?["namesOnly"]?.Type == JTokenType.Boolean && (bool)args["namesOnly"]);
     }
 
     /// <summary>Lists installed LoRAs. Arguments: <c>query</c> (words in the name, title or tags), <c>baseModel</c> (a model class, id or family, by substring), <c>forModel</c> (an installed model's name: only

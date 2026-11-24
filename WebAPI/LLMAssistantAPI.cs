@@ -340,10 +340,10 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSetToolConfig, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetImagePresets, false, PermSettings);
         // Image catalog (what the list_* tools return) and the image defaults
-        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListImageModels, false, PermChat);
-        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListLoras, false, PermChat);
-        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListWildcards, false, PermChat);
-        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListPresets, false, PermChat);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListImageModels, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListLoras, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListWildcards, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListPresets, false, PermToolImageCatalog);
         API.RegisterAPICall(ImageToolEndpoints.LLMAssistantGetImageDefaults, false, PermSettings);
         API.RegisterAPICall(ImageToolEndpoints.LLMAssistantSetImageDefaults, true, PermSettings);
         // Companion overlay

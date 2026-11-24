@@ -96,11 +96,11 @@ public static class ImageCatalog
     }
 
     /// <summary>The result of <c>list_image_models</c>: the installed text-to-image models matching the filters.</summary>
-    public static JObject ModelsResult(IEnumerable<CatalogEntry> all, string query, string cls, int limit, Func<string, bool> allowed = null, bool includeVideo = false, int offset = 0)
+    public static JObject ModelsResult(IEnumerable<CatalogEntry> all, string query, string cls, int limit, Func<string, bool> allowed = null, bool includeVideo = false, int offset = 0, bool namesOnly = false)
     {
         List<CatalogEntry> visible = [.. Filter(all, "", "", allowed).Where(e => includeVideo || !e.Video)];
         List<CatalogEntry> matches = Filter(visible, query, cls);
-        return Page("models", visible.Count, matches, limit, offset, ModelJson);
+        return Page("models", visible.Count, matches, limit, offset, namesOnly ? NameJson : ModelJson, bounded: !namesOnly);
     }
 
     /// <summary>The result of <c>list_loras</c>: the installed LoRAs whose name, title or tags hold the words of <paramref name="query"/> and that fit the base class <paramref name="baseClass"/> (a class
@@ -197,7 +197,7 @@ public static class ImageCatalog
     public static List<string> Names(IEnumerable<CatalogEntry> entries) => [.. entries.Select(e => e.Name).Where(n => n.Length > 0)];
 
     /// <summary>The shared shape of a models or LoRAs result: counts, the entries from <paramref name="offset"/> up to the limit and the character budget, a note (and the next offset) on what is left out.</summary>
-    private static JObject Page(string key, int installed, List<CatalogEntry> matches, int limit, int offset, Func<CatalogEntry, JObject> shape)
+    private static JObject Page(string key, int installed, List<CatalogEntry> matches, int limit, int offset, Func<CatalogEntry, JObject> shape, bool bounded = true)
     {
         JObject result = new() { ["success"] = true, ["installed"] = installed, ["matched"] = matches.Count };
         JArray list = [];
@@ -207,7 +207,7 @@ public static class ImageCatalog
         {
             JObject json = shape(entry);
             chars += json.ToString(Newtonsoft.Json.Formatting.None).Length;
-            if (chars > MaxResultChars)
+            if (bounded && chars > MaxResultChars)
             {
                 break;
             }
@@ -227,6 +227,9 @@ public static class ImageCatalog
         result["note"] = DataNote;
         return result;
     }
+
+    /// <summary>One model as just its name (for filling a picker).</summary>
+    internal static JObject NameJson(CatalogEntry e) => new() { ["name"] = e.Name };
 
     /// <summary>One image model as the tools show it. Empty fields are left out.</summary>
     internal static JObject ModelJson(CatalogEntry e)
@@ -297,7 +300,7 @@ public static class ImageCatalog
     internal static string Cut(string text, int max)
     {
         string flat = Clean(text, int.MaxValue);
-        return flat.Length <= max ? flat : flat[..max].TrimEnd() + "...";
+        return flat.Length <= max ? flat : Clean(flat, max) + "...";
     }
 
     /// <summary>Text from a file's metadata made safe to hand on: line breaks become spaces, other control characters and the ones that reorder text are dropped, and it is trimmed and cut to
@@ -332,7 +335,13 @@ public static class ImageCatalog
             }
         }
         string clean = sb.ToString().Trim();
-        return clean.Length <= max ? clean : clean[..max].TrimEnd();
+        if (clean.Length <= max)
+        {
+            return clean;
+        }
+        string cut = clean[..max];
+        // A cut must not split a surrogate pair (an emoji): the lone first half is dropped.
+        return (cut.Length > 0 && char.IsHighSurrogate(cut[^1]) ? cut[..^1] : cut).TrimEnd();
     }
 
     /// <summary>Whether <paramref name="text"/> contains <paramref name="part"/>, ignoring case and punctuation.</summary>
