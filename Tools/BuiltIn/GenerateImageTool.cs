@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
 using Hartsy.Extensions.LLMAssistant.T2I;
 using SwarmUI.Text2Image;
@@ -22,18 +23,32 @@ public class GenerateImageTool : ToolHandler
 
     public const string ConfigDefaultPreset = "defaultPreset";
 
+    /// <summary>A batch runs its images one after another on the backend, so a call gets far longer than the default minute.</summary>
+    public override TimeSpan TimeoutFor(JObject toolDef) => TimeSpan.FromMinutes(10);
+
     public override JObject EnrichForUser(JObject toolDef, Session session, string assistantId = null)
     {
         if (toolDef is null || session?.User is null)
         {
             return toolDef;
         }
+        JObject enriched = (JObject)toolDef.DeepClone();
+        ImageToolSettings imageSettings = ImageToolSettings.ForUser(session.User);
+        // The limits this user's calls run under, so the model asks for what will be made: the cap on `images`, and the default model (named only when one is set).
+        if (enriched["parameters"]?["properties"]?["images"] is JObject imagesProp)
+        {
+            imagesProp["description"] = $"How many images to make from this prompt (default 1, at most {imageSettings.MaxImages}; larger requests are cut to {imageSettings.MaxImages}). Use it for several variations in one call instead of calling repeatedly.";
+            imagesProp["maximum"] = imageSettings.MaxImages;
+        }
+        if (imageSettings.DefaultModel.Length > 0)
+        {
+            enriched["description"] = $"{enriched["description"]} The user's default image model is `{imageSettings.DefaultModel}`: it is used when no preset, `params.model` or `model` names one.";
+        }
         List<T2IPreset> presets = UserPresetCache.GetPresets(session.User) ?? [];
         if (presets.Count == 0)
         {
-            return toolDef;
+            return enriched;
         }
-        JObject enriched = (JObject)toolDef.DeepClone();
         // Append a presets list to the description so the LLM can pick one by name.
         StringBuilder sb = new();
         sb.Append(enriched["description"]?.ToString() ?? "");
@@ -118,18 +133,17 @@ public class GenerateImageTool : ToolHandler
         foreach (string name in presetNames)
         {
             T2IPreset preset = UserPresetCache.GetPreset(session.User, name);
-            foreach (KeyValuePair<string, string> kv in preset.ParamMap)
-            {
-                rawInput[kv.Key] = kv.Value;
-            }
+            // By what core takes the key to mean: a later layer replaces an earlier spelling of the same parameter ("Model" over "model") instead of sitting beside it.
+            ImageParamKeys.MergeLayer(rawInput, preset.ParamMap.Select(kv => new KeyValuePair<string, JToken>(kv.Key, kv.Value)));
             presetsApplied.Add(preset.Title);
         }
+        string presetModel = ImageParamKeys.Get(rawInput, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
+        string paramsModel = "";
         if (args["params"] is JObject paramsArg)
         {
-            foreach (JProperty prop in paramsArg.Properties())
-            {
-                rawInput[prop.Name] = prop.Value;
-            }
+            // Not `presets` (core applies those after everything, over the cap and the chosen model), nor the session or metadata keys.
+            ImageParamKeys.MergeLayer(rawInput, paramsArg.Properties().Select(p => new KeyValuePair<string, JToken>(p.Name, p.Value)));
+            paramsModel = ImageParamKeys.Get(paramsArg, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
         }
         // init_image enables image-edit / img2img workflows; needs a preset/model that supports image input.
         string initImageInput = args["initImage"]?.ToString();
@@ -168,14 +182,29 @@ public class GenerateImageTool : ToolHandler
             rawInput["height"] = h;
         }
         rawInput["prompt"] = prompt;
-        // Surface a friendly error instead of letting the T2I engine fail unhelpfully with no model set.
-        if (!rawInput.ContainsKey("model") || string.IsNullOrWhiteSpace(rawInput["model"]?.ToString()))
+        // How many images: the call's `images`, held to the server's limit.
+        ImageToolSettings imageSettings = ImageToolSettings.ForUser(session.User);
+        int requestedImages = 1;
+        JToken imagesArg = args["images"];
+        if (imagesArg is not null && imagesArg.Type != JTokenType.Null && !int.TryParse(imagesArg.ToString(), out requestedImages))
         {
-            return new JObject
-            {
-                ["success"] = false,
-                ["error"] = "No model selected. Either pick a preset that includes a model, or pass `params: { model: \"<model-name>\" }` for a raw generation."
-            };
+            return new JObject { ["success"] = false, ["error"] = "images must be a whole number (1 or more)." };
+        }
+        int imageCount = imageSettings.ClampImages(requestedImages, out bool imagesCapped);
+        // The cap holds for every spelling a preset or `params` may use (Images, "batch size", ...): they are removed, and images x batch size is kept within the limit.
+        (int batchSize, int requestedBatch) = ImageParamKeys.EnforceImageCapDetailed(rawInput, imageCount, imageSettings.MaxImages);
+        int totalImages = imageCount * batchSize;
+        // With several images, one that fails must not throw away the ones that were made.
+        if (totalImages > 1)
+        {
+            ImageParamKeys.Set(rawInput, "continueaftererrors", true);
+        }
+        // Choose the model: the `model` argument, then `params.model`, then the preset's, then the user's default image model. Anything but a preset's is checked against what is installed, so a wrong or
+        // invented name gets the closest installed names back instead of a failure inside the engine, and no model at all gets a ready list to pick from.
+        (JObject modelError, string modelNote) = await ChooseModelAsync(session, rawInput, args["model"]?.ToString()?.Trim() ?? "", paramsModel, presetModel, imageSettings);
+        if (modelError is not null)
+        {
+            return modelError;
         }
         // `rewrite: off` stops the automatic prompt rewrite for this call; anything else follows the user's setting (and a generation's own parameter).
         if (string.Equals(args["rewrite"]?.ToString(), PromptAutoEnhance.ModeOff, StringComparison.OrdinalIgnoreCase) && PromptTagHandler.ParamAutoEnhance is not null)
@@ -192,43 +221,132 @@ public class GenerateImageTool : ToolHandler
         rawInput["extra_metadata"] = extraMetadata;
         try
         {
-            JObject result = await T2IAPI.GenerateText2Image(session, 1, rawInput);
-            if (result.TryGetValue("error", out JToken err))
+            BatchOutcome outcome = await ImageBatch.RunAsync(session, imageCount, rawInput, ctx.Ct);
+            RewriteResult rewrite = RewriteReports.Take(reportId);
+            if (outcome.Images.Count == 0)
             {
-                return new JObject { ["success"] = false, ["error"] = err.ToString() };
-            }
-            if (result.TryGetValue("images", out JToken imagesToken) && imagesToken is JArray images && images.Count > 0)
-            {
-                RewriteResult rewrite = RewriteReports.Take(reportId);
-                JObject ret = new()
+                if (outcome.Cancelled)
                 {
-                    ["success"] = true,
-                    ["imageUrl"] = images[0].ToString(),
-                    ["prompt"] = rewrite is { StyleId: not null } ? rewrite.Text : prompt,
-                    ["width"] = rawInput["width"]?.ToObject<int>() ?? 0,
-                    ["height"] = rawInput["height"]?.ToObject<int>() ?? 0
-                };
-                if (presetsApplied.Count > 0) ret["presets"] = new JArray(presetsApplied);
-                if (rewrite is { StyleId: not null })
-                {
-                    // The prompt above is what was generated from; the model also gets what it asked for, which style adapted it and anything that went wrong.
-                    ret["originalPrompt"] = prompt;
-                    ret["promptStyle"] = rewrite.StyleId;
-                    ret["rewriteStatus"] = rewrite.Rewritten ? "rewritten" : rewrite.FellBack ? "fallback" : "unchanged";
-                    if (rewrite.Warnings.Count > 0)
-                    {
-                        ret["rewriteWarnings"] = new JArray(rewrite.Warnings);
-                    }
+                    return new JObject { ["success"] = false, ["error"] = "The image generation was stopped before an image was made.", ["cancelled"] = true };
                 }
-                return ret;
+                // With one image the error core gave is returned as it is; with several, core keeps going after an error and only logs it, so the reason is in the SwarmUI log.
+                return new JObject { ["success"] = false, ["error"] = outcome.Error ?? (totalImages > 1 ? "No image was generated (see the SwarmUI log for why)." : "No image was generated.") };
             }
-            return new JObject { ["success"] = false, ["error"] = "No image was generated." };
+            List<string> images = outcome.Images;
+            JObject ret = new()
+            {
+                ["success"] = true,
+                ["imageUrl"] = images[0],
+                ["prompt"] = rewrite is { StyleId: not null } ? rewrite.Text : prompt,
+                ["width"] = rawInput["width"]?.ToObject<int>() ?? 0,
+                ["height"] = rawInput["height"]?.ToObject<int>() ?? 0,
+                ["model"] = ImageParamKeys.Get(rawInput, ImageParamKeys.Model)?.ToString() ?? ""
+            };
+            if (images.Count > 1)
+            {
+                // The chat shows every image of a batch; imageUrl stays the first for anything that reads one.
+                ret["imageUrls"] = new JArray(images.Take(ImageToolSettings.HardMaxImages));
+                ret["images"] = images.Count;
+            }
+            if (images.Count < totalImages)
+            {
+                ret["note"] = outcome.Cancelled
+                    ? $"The generation was stopped: {totalImages} images were asked for and {images.Count} were made."
+                    : $"{totalImages} images were asked for and {images.Count} came back (the rest failed or were discarded).";
+                if (outcome.Error is not null)
+                {
+                    ret["partialError"] = outcome.Error;
+                }
+            }
+            if (imagesCapped || requestedBatch > batchSize)
+            {
+                List<string> cut = [];
+                if (imagesCapped)
+                {
+                    cut.Add($"{requestedImages} images were asked for; this server allows {imageSettings.MaxImages} per call, so {imageCount} were requested");
+                }
+                if (requestedBatch > batchSize)
+                {
+                    cut.Add($"batch size {requestedBatch} was cut to {batchSize} to keep images times batch size within {imageSettings.MaxImages}");
+                }
+                ret["imagesCapped"] = string.Join("; ", cut) + ". Call again for more.";
+            }
+            if (batchSize > 1)
+            {
+                ret["batchSize"] = batchSize;
+            }
+            if (modelNote is not null)
+            {
+                ret["modelNote"] = modelNote;
+            }
+            if (presetsApplied.Count > 0) ret["presets"] = new JArray(presetsApplied);
+            if (rewrite is { StyleId: not null })
+            {
+                // The prompt above is what was generated from; the model also gets what it asked for, which style adapted it and anything that went wrong.
+                ret["originalPrompt"] = prompt;
+                ret["promptStyle"] = rewrite.StyleId;
+                ret["rewriteStatus"] = rewrite.Rewritten ? "rewritten" : rewrite.FellBack ? "fallback" : "unchanged";
+                if (rewrite.Warnings.Count > 0)
+                {
+                    ret["rewriteWarnings"] = new JArray(rewrite.Warnings);
+                }
+            }
+            return ret;
         }
         catch (Exception ex)
         {
             Logs.Error($"[LLMAssistant] GenerateImageTool failed: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
         }
+    }
+
+    /// <summary>Settles which model the generation uses and puts it in <paramref name="rawInput"/>. Returns the error to hand back (null when a model was chosen) and, when the name asked for
+    /// was not the installed name (a different case, no extension), a note saying which one was used.</summary>
+    private static async Task<(JObject Error, string Note)> ChooseModelAsync(Session session, JObject rawInput, string argModel, string paramsModel, string presetModel, ImageToolSettings settings)
+    {
+        (string requested, string source) = ImageParamKeys.PickModel(argModel, paramsModel, presetModel, settings.DefaultModel);
+        // A preset's model is the user's own saved choice and goes to the engine as saved.
+        if (source == "preset")
+        {
+            ImageParamKeys.Set(rawInput, ImageParamKeys.Model, requested);
+            return (null, null);
+        }
+        bool canList = ImageCatalogSource.Denied(session) is null;
+        List<CatalogEntry> everything = [];
+        string listingError = null;
+        if (canList)
+        {
+            try
+            {
+                // A name is checked against every model core lists (a video family's too: someone may mean it); the list shown in an error is the image models.
+                everything = await ImageCatalogSource.ModelsAsync(session, includeVideo: true);
+            }
+            catch (CatalogUnavailableException ex)
+            {
+                listingError = ex.Message;
+            }
+        }
+        List<string> installed = ImageCatalog.Names(everything);
+        List<string> imageModels = ImageCatalog.Names(everything.Where(e => !e.Video));
+        if (requested.Length == 0)
+        {
+            string hint = listingError is not null ? $"{listingError}." : ImageCatalog.ModelHint(imageModels);
+            return (ImageCatalogService.Failed($"No image model selected. {hint} Pass one as `model`, or use a preset (list_presets). The user can also set a default image model in Settings."), null);
+        }
+        if (!canList || listingError is not null)
+        {
+            // Without the right to list models, or with the listing down, there is nothing to check against: the engine judges the name.
+            ImageParamKeys.Set(rawInput, ImageParamKeys.Model, requested);
+            return (null, null);
+        }
+        ModelResolution resolution = ModelNameResolver.Resolve(requested, installed);
+        if (!resolution.Found)
+        {
+            string where = source == "default" ? " (this is the user's default image model: it may have been removed, so set another in Settings or pass `model`)" : "";
+            return (ImageCatalogService.Failed(ImageCatalogService.NotFound(requested, resolution, imageModels) + where), null);
+        }
+        ImageParamKeys.Set(rawInput, ImageParamKeys.Model, resolution.Name);
+        return (null, resolution.Name == requested ? null : $"'{requested}' was matched to the installed model '{resolution.Name}'.");
     }
 
     /// <summary>Parses the <c>preset</c> arg in either string or array form into a list of names.

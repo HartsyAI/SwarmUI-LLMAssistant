@@ -30,6 +30,10 @@ public static class ToolExecutorService
         [ToolConstants.MemoryWrite] = LLMAssistantAPI.PermToolMemory,
         [ToolConstants.MemoryRead] = LLMAssistantAPI.PermToolMemory,
         [ToolConstants.SwarmDocs] = LLMAssistantAPI.PermToolSwarmDocs,
+        [ToolConstants.ListImageModels] = LLMAssistantAPI.PermToolImageCatalog,
+        [ToolConstants.ListLoras] = LLMAssistantAPI.PermToolImageCatalog,
+        [ToolConstants.ListWildcards] = LLMAssistantAPI.PermToolImageCatalog,
+        [ToolConstants.ListPresets] = LLMAssistantAPI.PermToolImageCatalog,
         [ToolConstants.SetLedProfile] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.SetVolume] = LLMAssistantAPI.PermToolDeviceAction,
         [ToolConstants.MuteMic] = LLMAssistantAPI.PermToolDeviceAction,
@@ -137,7 +141,9 @@ public static class ToolExecutorService
             // part of the tool's own timeout, which starts below.
             if (gate is not null)
             {
-                JObject refusal = await gate.CheckAsync(toolId, handler.RiskFor(tool), args, callId, ct, forceAsk);
+                // A call that is riskier than its tool usually is (wildcard samples) is always asked about: "allow for this chat" was given for the usual calls.
+                ToolRisk callRisk = handler.RiskForCall(tool, args);
+                JObject refusal = await gate.CheckAsync(toolId, callRisk, args, callId, ct, forceAsk || callRisk != handler.RiskFor(tool));
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);

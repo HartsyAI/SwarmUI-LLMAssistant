@@ -127,6 +127,12 @@ public static class ToolConstants
     /// <summary>ID of the built-in SwarmUI docs lookup tool.</summary>
     public const string SwarmDocs = "swarm_docs";
 
+    /// <summary>IDs of the read-only image catalog tools: they list the installed image models and LoRAs, the wildcards and the user's presets, so a model can choose what to give <c>generate_image</c>.</summary>
+    public const string ListImageModels = "list_image_models", ListLoras = "list_loras", ListWildcards = "list_wildcards", ListPresets = "list_presets";
+
+    /// <summary>All the image catalog tool IDs (each is its own handler id).</summary>
+    public static readonly string[] ImageCatalogIds = [ListImageModels, ListLoras, ListWildcards, ListPresets];
+
     /// <summary>ID of the voice-satellite LED-show tool. Executed by the device, not the server.</summary>
     public const string SetLedProfile = "set_led_profile";
     /// <summary>ID of the voice-satellite volume tool. Executed by the device, not the server.</summary>
@@ -163,5 +169,5 @@ public static class ToolConstants
     public const string SearchKnowledge = "search_knowledge";
 
     /// <summary>All built-in tool IDs.
-    public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, SetLedProfile, SetVolume, MuteMic];
+    public static readonly string[] BuiltInIds = [GenerateImage, CreateImagePreset, CaptionImage, FuseImageDescriptions, BatchCaptionFolder, WebSearch, FileRead, FileWrite, HttpRequest, ShellExec, MemoryWrite, MemoryRead, SwarmDocs, ListImageModels, ListLoras, ListWildcards, ListPresets, SetLedProfile, SetVolume, MuteMic];
 }

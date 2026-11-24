@@ -1322,6 +1322,10 @@ function llmaSetupSettingsModal() {
             llmaReadSettingsFromModal();
             await llmaSaveSettings();
             llmaApplySettingsToState();
+            // The image defaults have their own route; a refusal (an unknown model) leaves the dialog open so the name can be fixed.
+            if (typeof llmaImageTools != 'undefined' && !(await llmaImageTools.save())) {
+                return;
+            }
             if (llmaCloseSettings()) {
                 llmaShowToast('Settings saved', 'success');
             }
@@ -1423,6 +1427,9 @@ function llmaOpenSettings() {
     if (!overlay) return;
     llmaWriteSettingsToModal();
     llmaRenderAssistantList();
+    if (typeof llmaImageTools != 'undefined') {
+        llmaImageTools.load();
+    }
     overlay.style.display = '';
     llmaInstallFocusTrap(overlay);
     setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);

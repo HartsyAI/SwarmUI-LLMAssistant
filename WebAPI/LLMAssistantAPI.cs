@@ -139,6 +139,13 @@ public static class LLMAssistantAPI
         "Allows the LLM to call the built-in vision tools (caption_image, fuse_image_descriptions, batch_caption_folder). Each runs a vision-model pass on user-supplied images.",
         PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
 
+    /// <summary>Permission to use the image catalog tools (<c>list_image_models</c>, <c>list_loras</c>, <c>list_wildcards</c>, <c>list_presets</c>). They only read, and only what core already shows the
+    /// calling user (their model access, their presets); wildcard contents are not returned unless a call asks for samples.</summary>
+    public static readonly PermInfo PermToolImageCatalog = Permissions.Register(new(
+        "llm_tool_image_catalog", "[LLM Tool] Image Catalog",
+        "Allows the LLM to list the image models, LoRAs, wildcards and presets available to the calling user (list_image_models, list_loras, list_wildcards, list_presets), so it can choose what to generate with. Read-only; each user sees only what SwarmUI already shows them.",
+        PermissionDefault.POWERUSERS, LLMAssistantPermGroup));
+
     /// <summary>Permission to use the <c>web_search</c> built-in tool.</summary>
     public static readonly PermInfo PermToolWebSearch = Permissions.Register(new(
         "llm_tool_web_search", "[LLM Tool] Web Search",
@@ -332,6 +339,13 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetToolConfig, false, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantSetToolConfig, true, PermSettings);
         API.RegisterAPICall(ToolEndpoints.LLMAssistantGetImagePresets, false, PermSettings);
+        // Image catalog (what the list_* tools return) and the image defaults
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListImageModels, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListLoras, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListWildcards, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantListPresets, false, PermToolImageCatalog);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantGetImageDefaults, false, PermSettings);
+        API.RegisterAPICall(ImageToolEndpoints.LLMAssistantSetImageDefaults, true, PermSettings);
         // Companion overlay
         API.RegisterAPICall(CompanionEndpoints.LLMAssistantGetCompanionContext, false, PermCompanion);
         // User memory / profile (strictly per-user, gated behind PermChat since it's personal

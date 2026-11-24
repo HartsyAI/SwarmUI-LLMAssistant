@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 using Hartsy.Extensions.LLMAssistant.Services.Mcp;
 using Hartsy.Extensions.LLMAssistant.Tools;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -273,7 +274,7 @@ public static class ToolRegistryService
         {
             ["id"] = ToolConstants.GenerateImage,
             ["name"] = "Generate Image",
-            ["description"] = "Generate an image via SwarmUI's text-to-image engine. Returns a URL to the generated image. Supports four modes (mix freely): pick saved preset(s) by name (presets bundle a model + sampler + steps + dimensions etc.), pass raw T2I `params` for a one-off generation or to override a preset, supply an `initImage` (URL or data URI) for image-edit / img2img / inpainting workflows (combine with a preset whose model supports image input — Flux Kontext, OmniGen, SDXL inpaint, etc.), or use `aspect` shorthand for dimensions when no preset/params provide them. Resolution order: presets stack first (later overrides earlier), then `params` override the preset stack, then `aspect` only applies if neither set width/height.",
+            ["description"] = "Generate one or more images via SwarmUI's text-to-image engine. Returns the image URL(s). Needs a model: from a preset, the `model` argument, `params.model`, or the user's default image model. " + ImageToolDefinitions.ModelGuidance + " Use `images` for several variations in one call instead of calling repeatedly. Supports four modes (mix freely): pick saved preset(s) by name (presets bundle a model + sampler + steps + dimensions etc.), pass raw T2I `params` for a one-off generation or to override a preset, supply an `initImage` (URL or data URI) for image-edit / img2img / inpainting workflows (combine with a preset whose model supports image input — Flux Kontext, OmniGen, SDXL inpaint, etc.), or use `aspect` shorthand for dimensions when no preset/params provide them. Resolution order: presets stack first (later overrides earlier), then `params` override the preset stack, then `aspect` only applies if neither set width/height.",
             ["parameters"] = new JObject
             {
                 ["type"] = "object",
@@ -283,6 +284,17 @@ public static class ToolRegistryService
                     {
                         ["type"] = "string",
                         ["description"] = "Text prompt describing the image to generate. For image edits (when `initImage` is set), describe the change — eg 'remove the person on the left' or 'recolor the sky to sunset'."
+                    },
+                    ["model"] = new JObject
+                    {
+                        ["type"] = "string",
+                        ["description"] = "Exact name of an installed image model (from list_image_models). Overrides the model of a preset or of `params`. Optional when a preset or the user's default image model supplies one. An unknown name is rejected with suggestions."
+                    },
+                    ["images"] = new JObject
+                    {
+                        ["type"] = "integer",
+                        ["description"] = $"How many images to make from this prompt (default 1; the server allows at most {ImageToolSettings.DefaultMaxImages} unless its admin changed the limit, and larger requests are cut to it).",
+                        ["default"] = 1
                     },
                     ["aspect"] = new JObject
                     {
@@ -881,6 +893,10 @@ public static class ToolRegistryService
             ["updated"] = now
         };
 
+        foreach (KeyValuePair<string, JToken> catalog in ImageToolDefinitions.Build(now))
+        {
+            tools[catalog.Key] = catalog.Value;
+        }
         foreach (KeyValuePair<string, JToken> code in CodeToolDefinitions.Build(now))
         {
             tools[code.Key] = code.Value;

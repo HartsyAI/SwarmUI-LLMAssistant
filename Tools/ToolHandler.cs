@@ -71,6 +71,10 @@ public abstract class ToolHandler
     /// with different effects (an MCP server's) overrides it.</summary>
     public virtual ToolRisk RiskFor(JObject toolDef) => Risk;
 
+    /// <summary>What this particular call can do, from its arguments. Defaults to <see cref="RiskFor"/>; a handler whose effect depends on what is asked for (a listing that can also return the contents of the user's
+    /// files) overrides it, so only the riskier form is asked about.</summary>
+    public virtual ToolRisk RiskForCall(JObject toolDef, JObject args) => RiskFor(toolDef);
+
     /// <summary>How long a call to the tool described by <paramref name="toolDef"/> may run before it is cancelled.</summary>
     public virtual TimeSpan TimeoutFor(JObject toolDef) => TimeSpan.FromSeconds(60);
 
