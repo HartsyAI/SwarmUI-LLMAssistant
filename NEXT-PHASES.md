@@ -1,114 +1,75 @@
-# LLMAssistant: next phases (12 onward) - DRAFT FOR REVIEW
+# LLMAssistant: what is built and what is next
 
-Status: plan only, nothing built. Phases 0-11 are merged (#58-#73). This file is the hand-off for a fresh session.
+Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the whole "Memory and prompts" slice and the work that followed it.** The README describes how each feature works today. This file keeps the decisions that still matter, records what shipped (with PR numbers), says what is **not** built or not verified, and holds the parked later work. `HARNESS-ROADMAP.md` is the record of Phases 0 to 11; `PROMPT-STYLES-PLAN.md` is the record of the prompt-styles work.
 
-**Direction change (user, 2026-11-19):** the long-term goal is a full LLM agent harness and chat UI with all the tools, able to do everything Hermes can do (not yet researched: confirm which Hermes, see the questions below). It will roll out slowly, and the user wants to talk through each feature before it is planned in detail. So:
-- **Priority 1 is the "Memory and prompts" slice (next section).** Design questions first, no building until they are answered.
-- Everything under "Later work" is parked, not approved, and its order is not agreed. Do not build any of it.
-- **Architecture principle (user, 2026-11-19, overrides my earlier wording):** the extension is a generic, modular wrapper around whatever LLM backend the user has set up in Swarm. It calls Swarm's generic backend/API endpoints and must not care what runs behind them. No LLM inference-engine logic gets built in the extension, and nothing in the plan may depend on one specific engine. HartsyInference is the user's personal choice of backend, nothing more; Ollama, llama.cpp, hosted APIs and anything else Swarm can drive are all equal citizens. New features go through the existing provider seam (`LLMDispatcher`, capability interfaces such as `IEmbeddingProvider`) and degrade gracefully when a backend lacks a capability. (Pre-existing provider adapters in `Backends/` are left as they are; this is about new work.)
-- Keep a Hermes gap analysis as its own item (see the last section) before planning later slices.
+## What shipped since Phase 11
 
----
+| Slice | What it delivered | PR | README section |
+|---|---|---|---|
+| CI | The browser e2e suite runs as 3 shards (120-minute limit each) behind one `e2e` check | commit 72df465, merged in #82 | [E2E/README.md](E2E/README.md) |
+| P0 | Prompting guides for every image and video model family (`docs/prompting/`) | #74 | Prompt styles |
+| P1 | Prompt-style registry, model matching, Settings > Prompt styles | #75 | Prompt styles |
+| P3a | Prompt rewrite engine: tag masking, formatters, retry and fallback, cache | #76 | Prompt styles |
+| P3b | Automatic rewrite of every generation, the generation parameters, metadata, `generate_image` result | #77 | Prompt styles |
+| P2 | Chat-model addendum in the system prompt (mechanism only; no addendum is built in) | #79 | Prompt styles |
+| M1 | Atomic per-user note store, migration of the old profile, recall into the prompt | #78 | Per-user memory |
+| M2 | After-turn note extractor (off by default), undo, never-save list, opt-outs | #80 | Per-user memory |
+| M3 | Memory manager: review, edit, pin, export and import, pause, retention, admin switch | #82 | Per-user memory |
+| Chat library | Full-text search across chats, pins, JSON import and export | #83 | Chat library |
+| Image tools | `list_image_models`, `list_loras`, `list_wildcards`, `list_presets`; `generate_image` batch and model choice; default image model | #84 | Image workflow tools |
+| Remote backend | A refused model list reports what the endpoint answered | #81 | Adding an LLM backend |
 
-# PRIORITY 1: Memory and prompts slice (design stage)
+## Decisions that still stand
 
-> **Status (2026-11-22):** M1 (the note store, #78) is merged. **M2 (the after-turn extractor) is built** on branch `hartsy/m2-note-extractor-7e4142`: it answers questions 2, 5 (master switch off by default, per-chat and per-assistant opt-out, a never-save list, a notice with Undo), 6 (add/update/delete against the most related notes, a cap with oldest-unused eviction) and 7 (only user messages and assistant replies, never tool results or server-set `kind` messages) as recommended; see the README's "Per-user memory". **M3 (the privacy and control UI) is built** on branch `hartsy/m3-memory-controls-1a4066`, stacked on M2: the Memory tab is a manager (grouped notes with search and filter, inline edit, pin, delete one or several, clear all, export and import with a preview that only adds), the history of automatic changes with Undo (including notes retention forgot), pause switches for saving and for recall (and a top bar pause button), optional retention ("forget notes unused for N days", off by default, undoable) and an admin switch that turns the automatic extractor off for every user. Every action of that screen is a documented route (list with filters and a cursor, add, update, pin, delete, export, import preview and apply, history and undo, pause and retention, the admin switch, the per-assistant and per-chat switches; see the README's API table), so it is all scriptable. Still open: anything that reads `style` notes (the image rewrite, S1-c). The extractor runs after each qualifying turn rather than every N turns or on idle (a cheap check and an hourly cap bound the cost); there is no central budget limit yet (suggested addition 1), so it carries its own.
+- **Direction (user, 2026-11-19).** The long-term goal is a full LLM agent harness and chat UI with all the tools. It rolls out slowly and each feature is talked through before it is planned in detail. Everything under "Later work" is parked, not approved, and its order is not agreed. Do not build any of it without that conversation.
+- **Architecture principle (user, 2026-11-19).** The extension is a generic, modular wrapper around whatever LLM backend the user has set up in Swarm. It calls Swarm's generic backend and API endpoints and must not care what runs behind them. No LLM inference-engine logic goes into the extension, and nothing may depend on one specific engine. HartsyInference is one backend among equals (Ollama, llama.cpp, hosted APIs and anything else Swarm can drive). New features go through the provider seam (`LLMDispatcher`, capability interfaces such as `IEmbeddingProvider`) and degrade gracefully when a backend lacks a capability. The provider adapters already in `Backends/` are left as they are.
+- **Memory is an injection channel, so it is guarded.** The extractor reads only the user's own messages and the assistant's replies (never tool results, fetched pages, attachments or server-marked messages), each note records its origin, notes render in the prompt as data and not instructions, and automatic saving is off by default.
+- **Structured output must not rely on a backend feature.** The rewrite engine validates and repairs text in the extension (retry once, then fall back to the user's own wording, wrapped in the smallest valid form for a JSON-only model); it never relies on a backend's JSON mode.
+- **No core hacking.** Model family detection uses core's own model metadata; anything core cannot give is proposed upstream (`docs/UPSTREAM-PROPOSALS.md`).
+- **Semantic recall is optional.** Embeddings go through `IEmbeddingProvider`; a backend with none leaves search keyword-only, and every feature must work fully that way.
 
-## Goals (from the user)
+## What is not built / not verified on real hardware
 
-1. **Memory:** the assistant saves memories by itself, continuously, without being asked.
-2. **System prompts by type of task and by model family.** Image generation matters most (this is Swarm): when a tool call generates an image with a given model, the prompt is rewritten for that model automatically. Example: "a photo of a cat" with Ideogram 4 becomes a detailed prompt in the JSON format Ideogram uses.
-3. Prompts are organised by model family, with optional per-model overrides.
-4. The user can turn rewriting off or change its instructions. Everything modular and fully customizable in Settings. Default: it follows whatever model they are using.
+Not built:
 
-## What exists today (checked in the code)
+- Anything that reads `style` memory notes (the image rewrite does not use them yet).
+- The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
+- A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).
+- Per-chat and per-assistant overrides for the automatic prompt rewrite, and a composer toggle for it; video styles for image-to-video workflows.
+- Documents in chats and the library (PDF, Word), a streaming headless route, and the rest of the later work below.
+- A gap analysis against Hermes (as was done for OpenHarness in `HARNESS-ROADMAP.md`) to choose later slices from evidence. Which Hermes is meant was never confirmed (Nous Research's Hermes Agent is an unverified guess), so confirm it before researching.
 
-- **Memory** is one per-user profile blob (`Services/UserProfileService.cs`, now replaced by the note store in `Services/Memory/`, phase M1): fixed scalar fields (preferredName, pronouns, bio, currentWork) plus capped lists (preferences, dislikes, facts with a created date). The model writes with the `memory_write` tool (`category`, `content`) and reads with `memory_read`; the whole profile is rendered into the system prompt through `{{userProfile}}`; Settings can view and clear it. Strictly per user. Two consequences for goal 1: the model only saves when it decides to during a turn, and `memory_write` is `ToolRisk.Write`, so in Ask approval mode every save would prompt for approval.
-- **Prompts:** an assistant holds instruction texts per instruction id (`chat`, `vision`, `caption`, `prompt`, `randomprompt`, `video-prompt`, `instructiongen`, `companion`), each with variants chosen by `LLMModelMatcher.PickBest` against the **LLM** being used (`Services/AssistantResolver.cs`). The `<llmprompt>` tag (`T2I/PromptProcessor.cs`) runs one LLM call with the `prompt` instruction, also keyed on the LLM. Nothing is keyed on the **image model** being targeted, which is what goal 2 needs.
-- **`generate_image` tool** (`Tools/BuiltIn/GenerateImageTool.cs`, `ToolRisk.Write`): takes `prompt` verbatim, merges presets and `params`, requires a model (from a preset or `params.model`), calls core. No rewrite step. The target model is known right after the preset/params merge and before the core call: that is the natural hook.
+Not verified on real hardware or real services:
 
-> **Update:** S1-b (prompt styles, now covering both the chat-LLM axis and the image-model axis) and S1-c (image rewrite) now have their own detailed plan, split into four PRs: see `PROMPT-STYLES-PLAN.md` (it supersedes the prompt-related questions 8-19 below where they differ). The memory questions 1-7 below still stand.
-
-## Proposed shape (for discussion, not decided)
-
-Three PRs, in order. Each is only planned in detail once its questions are answered.
-
-- **S1-a Memory:** a memory store of small individual notes, an after-turn extractor that saves them automatically, recall into the prompt, and a review/edit/undo UI in Settings.
-- **S1-b Prompt styles:** a registry of prompt styles by task type, model family and optional per-model override, plus family detection for LLMs and for image/video models, with Settings UI. Bundled defaults, shared (admin) and personal layers, built on the existing `PromptAssets` loader (frontmatter markdown, as skills use) so they are files that can be edited, exported and shared.
-- **S1-c Image prompt rewrite:** one `PromptRewriteService` called from `generate_image` (after preset/params merge), re-pointed from the `<llmprompt>` tag, with validation, fallback, transparency and off switches. The approval card in Ask mode shows the rewritten prompt.
-
-## Design questions
-
-Each has my recommendation, to argue with.
-
-### Memory
-
-1. **What is a memory?** Keep the fixed profile, or atomic notes? *Recommend:* atomic notes (text, kind such as preference/fact/project, source thread, created, last used, pinned flag), with the old profile migrated in as the first notes and `{{userProfile}}` kept working.
-2. **Who writes, and when?** (a) the chat model calls `memory_write` mid-turn (today); (b) a separate extractor pass after each turn; (c) both. "Continuously without being asked" points to (b): mid-turn saving depends on the model remembering to do it, and Ask mode would gate it. *Recommend:* (b), with the extractor model user-selectable in its own setting (default: follows the chat model; the user may pick any model their backends offer, for example a small local one), run every N turns or when the chat goes idle rather than every turn, and `memory_write` kept for explicit "remember this". Cost: one extra model call per run; say so in Settings.
-3. **Scope.** Per user only, or also per assistant, per workspace/project, per chat mode (chat vs code)? Should image-style preferences ("user likes film grain, hates oversaturation") feed the image prompt rewrite? *Recommend:* per user with an optional assistant/workspace tag; the rewrite may read memories of kind `style`.
-4. **Recall.** Inject everything (capped, as today) or retrieve the top matches per turn? *Recommend:* a small always-on core (pinned notes) plus top-k retrieval reusing the Phase 9 knowledge index (BM25 now, vectors when an embedding model is set). Semantic recall needs embeddings; keyword recall works without.
-5. **User control and privacy.** Visible, editable, deletable; a toast on save with Undo; a per-user pause switch; a per-chat "don't remember this chat"; an editable list of things never to save (credentials, health, etc.); an admin switch to disable memory entirely; retention limits. Which of these are must-haves?
-6. **Keeping it tidy.** Duplicates, updates ("I moved to X"), contradictions, decay. *Recommend:* the extractor sees the most related existing notes and emits add/update/delete operations, never blind appends; a note cap per user with oldest-unused dropped first.
-7. **Injection safety.** Memory is persistent, so anything that writes it is an attack path (a web page or document telling the assistant to "remember" something). *Recommend:* the extractor reads only the user's own messages (and the assistant's replies), never tool results, fetched pages or attachments; each note records its source; notes render in the prompt as data, not instructions. Agree?
-
-### Image prompt rewriting
-
-8. **Where does it hook in?** (a) inside `generate_image` after presets/params are merged; (b) the existing `<llmprompt>` tag; (c) a button on the Generate tab. *Recommend:* one shared service used by all three, with (a) first and (b) re-pointed. What does "model selected" mean for you: the model the tool will actually use (preset or `params`), or the model currently chosen on the Generate tab?
-9. **Family detection.** How do we know a model is "Ideogram 4" or "Flux"? Options: core's model class/architecture id (reliable, needs checking against core), filename patterns (fragile), a user-set family on the model (override). *Recommend:* core class id first, then patterns, then user override. Is Ideogram 4 a local model in your Swarm, or an API-backed model? Which families should ship first (for example Flux, SDXL-style tag models, Qwen-Image, Ideogram, a video family)?
-10. **Output formats and validation.** Families differ: natural language, tag lists, token-limited prompts, structured JSON. The rewrite must be checked: JSON parses and matches the family's schema, length within the model's limit. On failure: fall back to the original prompt with a warning in the tool result, or fail the call? *Recommend:* retry once, then fall back with a warning.
-11. **Which LLM rewrites?** *Recommend:* its own setting; default follows the chat model; any model the user's configured backends list, routed by capability. Note that a local LLM and image generation can compete for the same GPU memory, so the setup check should warn when the rewrite model is local.
-12. **Transparency.** The tool result shows original and rewritten prompt; the image metadata keeps both; the chat model sees the rewritten one so "make it darker" edits it. In Ask mode the approval card shows the rewrite and lets the user edit it before generating. Want an always-preview option?
-13. **Scope of the rewrite.** Prompt only, or also negative prompt and suggested parameters (steps, CFG, size) per family? Skip when the prompt is already in the target format (a pasted JSON prompt), and never rewrite twice. *Recommend:* prompt (and negative prompt where the family uses one) in v1; parameters later.
-14. **Default and off switches.** *Recommend:* on by default for tool-initiated generations only; never when the user types straight into the Generate tab unless they use `<llmprompt>`. Switches at: global, per assistant, per chat, per call (tool arg), per family. "Use my exact prompt" phrasing in the request skips it. Right?
-
-### Prompt library
-
-15. **Structure.** Axes: task type (the existing instruction ids plus image/video rewrite) by model family, with per-model override. Resolution order: per-model override, then family, then task default; personal over shared over bundled. *Recommend:* one family registry covering LLM families and image/video families (two kinds), edited in one Settings screen, stored as frontmatter-markdown files. The existing assistant instruction variants (keyed on the LLM) become the LLM-family half of it, migrated without losing user edits. Agree, or keep them separate?
-16. **Persona versus style.** An assistant's persona (a character) and a model-family style both want to shape the prompt. Compose (persona first, style after) or does the style win for rewrites? *Recommend:* for rewrites the family style wins, persona only adds tone hints; chat keeps persona first.
-17. **Chat-model family prompts.** Should slice 1 also cover system prompts by LLM family for the chat itself (some models need different tool-use nudges), or only image/video rewriting plus the existing variants? *Recommend:* include, since the registry is the same.
-18. **Who writes the bundled prompts?** Per-family prompts need real format specs and real tuning. For Ideogram 4 I need its JSON format spec or sample prompts from you. Quality can only be judged with real image models and a GPU, not the mock. How should we evaluate (a fixed prompt set, side-by-side images)?
-
-### Customisation UI
-
-19. **Settings.** A "Prompts" tab: list by family with a model-family detector preview ("this model resolves to: family X, override Y"), edit text, test against a sample prompt using the real rewriter, reset to bundled, import/export, enable/disable per family. Anything else you want here?
-
-## Dependencies and risks
-
-- Semantic memory recall needs an embedding model from whatever backend the user has, through the existing `IEmbeddingProvider` capability. If the backend offers none, recall is keyword-only (BM25); the feature must work fully that way. Nothing engine-specific is built here.
-- Features that need structured output (the JSON rewrite) must not rely on a backend's JSON mode or any one provider's feature: the extension validates the text itself and retries, so any backend works.
-- Rewrite quality can only be proven with real models; the e2e mock proves wiring, validation and fallback only.
-- The extractor makes an unattended model call: it must respect the Phase 8/10 spend limits (budget limits become more relevant; see suggested additions).
-- Memory must not become an injection channel (question 7).
-- No core hacking: model family detection must use official core model metadata; if core lacks what we need, propose it upstream.
-
-## Also needed before later slices
-
-- **Hermes gap analysis.** My understanding is this means Nous Research's Hermes Agent, but I have not verified it. Confirm which Hermes (link or feature list welcome), then research it and add a gap table to `HARNESS-ROADMAP.md`, as was done for OpenHarness, so later slices are chosen from evidence.
-
----
+- **Real GPU.** The e2e suite never loads the local GGUF engine (it needs a GPU); CUDA has not been run for MOSS-VL.
+- **Real embeddings.** Knowledge search and memory recall by meaning were exercised against a scripted embedding endpoint in the mock, not a real embedding model.
+- **Real prompt-style quality.** No built-in or user style, Ideogram 4 included, has been tried with a real image model and a real chat model. The mock proves wiring, validation and fallback only. The open real-model checks are in `docs/prompting/README.md` (Ideogram empty-`elements` fallback, Flux.3 inline `<bbox>` against BFL's form, Fibo 2 numeric boxes, escaping Swarm tags inside JSON strings).
+- **Real providers.** Tool-call round trips, usage fields and compaction were run against the mock LLM; a live provider matrix is Phase 13 below, not done.
 
 # LATER WORK (parked, not approved, order not agreed)
 
-The phases below came from the first draft. Numbers will change when the order is re-agreed after the first slice.
+The phases below came from the first draft, written before the memory and prompt-style slices shipped. Numbers will change when the order is re-agreed. Status notes in square brackets were checked against the code on 2026-11-24.
 
 ## Start-up for a fresh session
 
-1. Read this file, then `HARNESS-ROADMAP.md`, then the "Rules every phase follows" section of `C:\Users\AI Overlord\.claude\plans\federated-pondering-dawn.md` (they all still apply).
-2. Memory index (`MEMORY.md`) holds the standing rules: no AI attribution lines, never force-push or rebase pushed branches, never stop the user's SwarmUI on 7801 (harness uses 17801 swarm / 17802 mock, kill by port owner), models must be user-selectable and capability-routed.
-3. Repo: `HartsyAI/SwarmUI-LLMAssistant`, base `main`, branch `harness/phase-N-<name>`. One PR per phase. Gate per PR: unit tests, Playwright suite, UI looked at in the browser (dark/light/phone), code review at high effort with fixes and `ReportFindings` outcomes, CI green, then `gh pr merge N --merge` (no `--delete-branch`).
-4. Known baseline: 1,034 unit tests pass, 1 known failure (`VoiceTurnWsDisconnectTests...TheOriginalBug`, same on `main`).
+1. Read this file, then `HARNESS-ROADMAP.md` and the README.
+2. Standing rules: no AI attribution lines in commits or PR bodies, never force-push or rebase pushed branches (merge `main` in instead), never stop the user's own SwarmUI on 7801 (the e2e harness uses 17801 for Swarm and 17802 for the mock; stop it by port owner), and models must be user-selectable and capability-routed.
+3. Repo: `HartsyAI/SwarmUI-LLMAssistant`, base `main`, branch `harness/phase-N-<name>`. One PR per phase. Gate per PR: unit tests, Playwright suite, UI looked at in the browser (dark/light/phone), code review at high effort with fixes, CI green, then `gh pr merge N --merge` (no `--delete-branch`).
+4. Test baseline: run the unit tests (`dotnet test Tests/LLMAssistant.Tests.csproj`) on a clean `main` and record the numbers before starting; this file no longer states a count. A known failing test was recorded earlier (`VoiceTurnWsDisconnectTests...TheOriginalBug`); whether it still fails was not re-checked.
 
 ## Order and why (first-draft order, superseded by the priority above)
 
 `12 Robustness -> 13 Real-model smoke (no GPU) -> 14 Documents -> 15 Streaming headless -> 16 GPU / local engine pass -> 17 Local embeddings (blocked upstream)`
 
-- 12 first: small, fixes real defects, and adds the restart and second-user test tooling that later phases reuse. It also fixes CI time before more specs land.
+- 12 first: small, fixes real defects, and adds the restart and second-user test tooling that later phases reuse. (CI time was fixed separately, see 12e.)
 - 13 early (not last): everything so far ran on a scripted mock. Real models can change designs in 14-15 (usage fields, tool-call quirks, embedding limits), so find that out before building more.
 - 14 before 15: documents are the larger user-visible gap; streaming is a transport variant.
 - 15 depends on 12 (atomic reply registration).
 - 16 needs GPU access (user decision). 17 is blocked on HartsyInference.
 
 ## Phase 12: Robustness (one PR, small pieces, each independent)
+
+Status as of 2026-11-24: **12e is done** (the CI sharding in #82). **12a, 12b and 12c are not built**: `GenerationCancellationRegistry` has no `TryBegin`, the headless route has no `timeoutSeconds`, and the e2e harness has no `restartSwarm()`. 12d and 12f were not checked.
 
 **12a. Atomic reply registration (the two-requests race).** `GenerationCancellationRegistry.Begin` is `AddOrUpdate`: it cancels any earlier reply for the thread. That is right for the chat socket (a newer message replaces the old reply) but the headless route checks `IsActive` and then calls `Begin`, so two simultaneous requests can both pass the check. Add `TryBegin(threadId)` (atomic `TryAdd`, returns null when taken); `TurnScope` gets a `TryBegin` that the headless path uses, the socket path keeps replace semantics. Tests: unit (N parallel `TryBegin`, exactly one wins; `End` still removes only its own entry), e2e (fire two headless requests together, exactly one succeeds, the other gets the "already being written" error).
 
@@ -119,7 +80,7 @@ Also fix the skipped Phase 10 finding here (a due run lost when models are not y
 
 **12d. Non-admin coverage.** The harness has one admin. Find how to seed a second, non-admin user in the throwaway instance (core user/role data in the temp data dir; verify, do not assume). Specs as that user: readiness report hides MCP error text and the data folder path; schedules, knowledge, MCP management, code mode, session tools are refused without their permission; a normal user cannot see another user's threads/sessions/schedules. If seeding proves impractical, fall back to unit tests that build a non-admin `Session` and call the services and endpoints directly, and say so in the PR.
 
-**12e. CI time.** E2E takes 35-45 min against a 60 min timeout and every later phase adds specs. Shard Playwright across matrix jobs (`--shard=i/n`), each job on its own ports and data dir, with the build cached. Include the harness port settings needed for parallel jobs.
+**12e. CI time. Done (#82).** The suite is split over 3 matrix jobs (`--shard=i/3`, each with its own throwaway SwarmUI), each with a 120-minute limit; the unit tests run once, in shard 1; one aggregate check named `e2e` passes only when every shard passed. See `.github/workflows/e2e.yml` and `E2E/README.md`.
 
 **12f. The one known failing unit test.** Fix `VoiceTurnWsDisconnectTests...TheOriginalBug` or quarantine it with a reason and an issue link, so a clean baseline means something.
 
@@ -184,7 +145,7 @@ OCR for scanned PDFs, legacy `.doc`/`.xls`/`.pptx`, native provider document blo
 
 ## Open questions for the user
 
-(These are for the parked work; the live questions are in the Priority 1 section above.)
+(These are for the parked work. The earlier memory and prompt-style questions were answered and built; see the status table at the top.)
 
 1. Live testing: which backends, whose keys, and a spend limit? (Only through Swarm's generic endpoints.)
 2. GPU for the local-backend pass: your own GPU server, or rent a pod (cost)?

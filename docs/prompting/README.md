@@ -1,6 +1,6 @@
 # Model prompting guides (P0)
 
-Reference docs for the prompt-styles work, one per model family, written 2026-11-19 from public sources (official where they exist, marked community otherwise). Nothing here is a bundled style yet: styles are derived from these guides in P1/P4 and only after a real-model test. Start with `_swarm-syntax.md`.
+Reference docs for the prompt-styles work, one per model family, written 2026-11-19 from public sources (official where they exist, marked community otherwise). Two styles are built in (`Assets/prompt-assets/styles/generic.md` and `ideogram-4.md`; the Ideogram one cites its guide here). No other guide has a style yet: a style is derived from a guide only after a real-model test (the P4 work in `PROMPT-STYLES-PLAN.md`, not built). Start with `_swarm-syntax.md`.
 
 These guides cover only what shapes the prompt text: the text encoder, prompt format and schema, length limits, negative prompts, text rendering, layout boxes, and motion or camera language. They deliberately do not list generation settings (steps, CFG, sampler, resolution, fps, frame counts): the engine and Swarm's model classes already hold the per-model defaults, and a style reads facts such as the model class and whether it is a video model from there, not from these documents.
 
