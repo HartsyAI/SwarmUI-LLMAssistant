@@ -47,6 +47,22 @@ test('Copy gives plain text and Copy as Markdown gives the source, without the r
     await expect.poll(() => llm.evaluate(() => navigator.clipboard.readText())).toBe('format me');
 });
 
+test('Copy loads nothing the reply names: styles in it are stripped, as the chat strips them', async ({ llm, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    let loaded: string[] = [];
+    llm.on('request', request => request.url().includes('llma-leak') && loaded.push(request.url()));
+    let hostile = 'Hello <style>#llma-container{background-image:url(/llma-leak-sheet)}</style><div style="background-image:url(/llma-leak-attribute);height:9px">there</div>';
+    await setScenarios([{ match: 'hostile', rounds: [{ text: hostile }] }]);
+    await exchange(llm, 'hostile', 'there');
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Copy').click();
+    await expect.poll(() => llm.evaluate(() => navigator.clipboard.readText())).toContain('there');
+    expect(await llm.evaluate(() => navigator.clipboard.readText())).not.toContain('llma-leak');
+    await llm.waitForTimeout(500);
+    expect(loaded).toEqual([]);
+});
+
 test('a request that failed with no reply can be retried, from the failed reply or after a reload', async ({ llm }) => {
     await setScenarios([{ match: 'flaky', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }]);
     await send(llm, 'flaky');

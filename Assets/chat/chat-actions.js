@@ -79,7 +79,8 @@ class LLMAMessageActions {
         });
         // Rendered off screen rather than detached, because only a laid-out element gives line breaks in innerText.
         let holder = createDiv(null, 'llma-copy-render');
-        holder.innerHTML = window.DOMPurify.sanitize(window.marked.parse(source));
+        // The same allowlist as the chat itself: this element is on the page for a moment, so a style in it would load what it names.
+        holder.innerHTML = window.DOMPurify.sanitize(window.marked.parse(source), LLMA_SANITIZE_CONFIG);
         for (let item of holder.querySelectorAll('li')) {
             let list = item.parentElement;
             let marker = list.tagName == 'OL' ? `${Array.from(list.children).indexOf(item) + (list.start || 1)}. ` : '- ';

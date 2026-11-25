@@ -97,7 +97,8 @@ class LLMAAccessibility {
 
     // ---- Messages ---------------------------------------------------------------
 
-    /** Makes the message list one Tab stop: arrows move between messages, Enter goes to a message's actions, Escape goes back. */
+    /** Keeps one message, with its action bar, in the Tab order: arrows move between messages, Enter goes to a message's actions, Escape goes back.
+     *  What is inside a message (links, code blocks, tool steps) stays in the Tab order. */
     setupMessages() {
         let container = document.getElementById('llma-messages');
         if (!container) {
@@ -178,6 +179,35 @@ class LLMAAccessibility {
         this.syncMessages();
         row.focus({ preventScroll: true });
         row.scrollIntoView({ block: 'nearest' });
+    }
+
+    /** Call before the message list is redrawn, and call what it returns afterwards. Keyboard focus that was in the list goes back to the same message and
+     *  control if they are still there, else to the message now in that place, so a redraw never drops it on the page body. */
+    rememberMessageFocus() {
+        let container = document.getElementById('llma-messages');
+        let active = document.activeElement;
+        if (!container || !container.contains(active)) {
+            return () => { };
+        }
+        let row = active.closest(LLMA_MESSAGE_SELECTOR);
+        let index = row ? this.messageRows().indexOf(row) : -1;
+        let id = row?.dataset.msgId;
+        let nameOf = el => el.getAttribute('aria-label') || el.className;
+        let name = row && active != row ? nameOf(active) : null;
+        return () => {
+            let rows = this.messageRows();
+            if (rows.length == 0) {
+                document.getElementById('llma-input')?.focus();
+                return;
+            }
+            // A control under the last message (Retry, Show later messages) belongs to no message: the last one takes the focus.
+            let next = rows.find(r => r.dataset.msgId == id) || rows[index < 0 ? rows.length - 1 : Math.min(index, rows.length - 1)];
+            this.focusMessage(next);
+            let control = name ? Array.from(next.querySelectorAll('button')).find(b => nameOf(b) == name) : null;
+            if (control && !control.disabled) {
+                control.focus({ preventScroll: true });
+            }
+        };
     }
 
     /** Focuses the message now at a position (after a delete), or the composer when no message is left. */

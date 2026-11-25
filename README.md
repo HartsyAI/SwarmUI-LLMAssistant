@@ -284,7 +284,7 @@ While a reply streams, the actions that change the chat are off. The side-by-sid
 
 | Keys | Where | Action |
 |---|---|---|
-| `Tab` / `Shift+Tab` | the chat | The message list is one stop: the newest message, or the one you were last on |
+| `Tab` / `Shift+Tab` | the chat | Of the messages, the newest (or the one you were last on) and its action bar are stops. Links, code blocks, reasoning and tool steps inside any message are stops of their own |
 | `↑` / `↓`, `Home` / `End` | a message has focus | Previous / next, first / last message |
 | `Enter` | a message has focus | Go to its actions; `←` / `→` move along them |
 | `Esc` | message actions, a message | Back to the message, then to the composer |

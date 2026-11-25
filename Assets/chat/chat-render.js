@@ -10,6 +10,7 @@
     function llmaRenderMessageHistory(messages) {
         const container = document.getElementById('llma-messages');
         if (!container) return;
+        const restoreFocus = llmaA11y.rememberMessageFocus();
         container.innerHTML = '';
         // Compare groups: a user turn with 2+ sibling replies (shared groupId) renders as side-by-side
         // columns instead of the single active reply. We render the columns once at the user message and
@@ -55,6 +56,7 @@
         LLMAState._autoFollow = true;
         llmaToggleScrollButton(false);
         llmaScrollToBottom(true);
+        restoreFocus();
     }
 
     /**
@@ -161,7 +163,12 @@
             row.append(num, text, time);
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
+                const hadFocus = menu.contains(document.activeElement);
                 menu.remove();
+                trigger.setAttribute('aria-expanded', 'false');
+                if (hadFocus) {
+                    trigger.focus();
+                }
                 if (sib.id !== activeId) llmaSwitchToBranch(sib.id);
             });
             menu.appendChild(row);

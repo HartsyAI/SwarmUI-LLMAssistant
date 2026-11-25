@@ -238,6 +238,67 @@ test('arrow keys move between messages, Enter reaches the actions, and Escape go
     await expect(llm.locator('#llma-input')).toBeFocused();
 });
 
+test('actions run from the keyboard never drop focus on the page', async ({ llm }) => {
+    await setScenarios([{ match: 'steady', rounds: [{ text: 'a steady reply' }] }]);
+    await send(llm, 'steady');
+    await expect(lastAssistant(llm)).toContainText('a steady reply');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    /** Presses Enter on a control, waits for the turn it may start to end, and says where focus is. */
+    let press = async (control: ReturnType<Page['locator']>) => {
+        await control.focus();
+        await llm.keyboard.press('Enter');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        await llm.waitForTimeout(500);
+        return llm.evaluate(() => {
+            let at = document.activeElement!;
+            return { inMessages: !!at.closest('#llma-messages'), label: at.getAttribute('aria-label') || at.className };
+        });
+    };
+    let replies = llm.locator('#llma-messages .llma-msg-row.assistant');
+    expect((await press(replies.last().getByRole('button', { name: 'Regenerate' }))).inMessages).toBe(true);
+    await expect(llm.locator('.llma-branch-label')).toBeVisible();
+    // The first of two branches has nothing before it, so the message keeps the focus; stepping forward keeps it on the pager or the message.
+    expect((await press(llm.getByRole('button', { name: 'Previous branch' }))).inMessages).toBe(true);
+    await expect(llm.locator('.llma-branch-label')).toContainText('1');
+    expect((await press(llm.getByRole('button', { name: 'Next branch' }))).inMessages).toBe(true);
+    await llm.locator('.llma-branch-label').focus();
+    await llm.keyboard.press('Enter');
+    await llm.keyboard.press('ArrowUp');
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('.llma-branch-label')).toContainText('1');
+    await expect(llm.locator('.llma-branch-label')).toBeFocused();
+    let user = llm.locator('#llma-messages .llma-msg-row.user').first();
+    await user.getByRole('button', { name: 'Edit' }).focus();
+    await llm.keyboard.press('Enter');
+    await user.locator('textarea').fill('steady again');
+    await user.locator('textarea').press('Control+Enter');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await llm.waitForTimeout(500);
+    expect(await llm.evaluate(() => !!document.activeElement!.closest('#llma-messages'))).toBe(true);
+    await replies.last().getByRole('button', { name: 'Delete' }).focus();
+    await llm.keyboard.press('Enter');
+    await expect(replies).toHaveCount(0);
+    expect((await press(llm.locator('.llma-msg-retry'))).inMessages).toBe(true);
+    await expect(replies).toHaveCount(1);
+});
+
+test('the companion expands from the keyboard and has no violations', async ({ llm }) => {
+    expect((await api(llm, 'LLMAssistantSaveSettings', { settings: { companion: { enabled: true, expanded: false } } })).success).toBe(true);
+    try {
+        await reopen(llm);
+        let portrait = llm.getByRole('button', { name: /expand or collapse/i });
+        await expect(portrait).toBeVisible({ timeout: 30_000 });
+        await portrait.focus();
+        await llm.keyboard.press('Enter');
+        await expect(llm.locator('#llma-companion-root')).toHaveClass(/llma-companion-expanded/);
+        await expect(llm.locator('#llma-companion-input')).toBeFocused();
+        await audit(llm, 'companion', '#llma-companion-root');
+    }
+    finally {
+        await api(llm, 'LLMAssistantSaveSettings', { settings: { companion: { enabled: false, expanded: false } } });
+    }
+});
+
 test('the chat list works from the keyboard and keeps focus through its redraws', async ({ llm }) => {
     for (let text of ['older chat', 'newer chat']) {
         await llm.locator('#llma-new-thread-btn, .llma-empty-new-btn').locator('visible=true').first().click();

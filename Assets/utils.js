@@ -292,6 +292,31 @@ function llmaMakeStreamRenderer(getBubble) {
 // -- Markdown Renderer --
 let llmaMermaidCounter = 0;
 
+// The hardened allowlist for HTML made from model output, wherever it is parsed. Deliberately excludes:
+//   - `style`  → blocks CSS-based UI redressing / clickjacking / data-exfil via url() in model output
+//   - `id`     → blocks DOM clobbering (attacker-chosen ids colliding with getElementById/globals)
+//   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
+// KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
+// so dropping these does not affect their (app-generated) markup.
+const LLMA_SANITIZE_CONFIG = {
+    ALLOWED_TAGS: [
+        'p','br','strong','em','del','code','pre','ul','ol','li',
+        'h1','h2','h3','h4','h5','h6','blockquote','hr',
+        'table','thead','tbody','tr','td','th','a','img',
+        'span','div','svg','path','g','rect','line','circle','text',
+        'polygon','polyline','ellipse','marker','defs','clipPath','use',
+        'tspan',
+    ],
+    ALLOWED_ATTR: [
+        'href','class','target','rel','src','alt','title',
+        'd','fill','stroke','stroke-width','transform',
+        'viewBox','xmlns','width','height','x','y','cx','cy','r',
+        'rx','ry','x1','y1','x2','y2','points','marker-end',
+        'text-anchor','dominant-baseline','font-size',
+        'clip-path','aria-label','role','tabindex',
+    ],
+};
+
 /**
  * Renders model markdown to sanitized HTML, with reasoning, LaTeX and Mermaid blocks pulled out first.
  * @param {string} text - The markdown to render.
@@ -338,31 +363,7 @@ function llmaRenderMarkdown(text, options) {
     });
 
     const rawHtml = window.marked.parse(processed);
-    // Hardened allowlist. Deliberately excludes:
-    //   - `style`  → blocks CSS-based UI redressing / clickjacking / data-exfil via url() in model output
-    //   - `id`     → blocks DOM clobbering (attacker-chosen ids colliding with getElementById/globals)
-    //   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
-    // KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
-    // so dropping these does not affect their (app-generated) markup.
-    const sanitizeConfig = {
-        ALLOWED_TAGS: [
-            'p','br','strong','em','del','code','pre','ul','ol','li',
-            'h1','h2','h3','h4','h5','h6','blockquote','hr',
-            'table','thead','tbody','tr','td','th','a','img',
-            'span','div','svg','path','g','rect','line','circle','text',
-            'polygon','polyline','ellipse','marker','defs','clipPath','use',
-            'tspan',
-        ],
-        ALLOWED_ATTR: [
-            'href','class','target','rel','src','alt','title',
-            'd','fill','stroke','stroke-width','transform',
-            'viewBox','xmlns','width','height','x','y','cx','cy','r',
-            'rx','ry','x1','y1','x2','y2','points','marker-end',
-            'text-anchor','dominant-baseline','font-size',
-            'clip-path','aria-label','role','tabindex',
-        ],
-    };
-    const clean   = window.DOMPurify.sanitize(rawHtml, sanitizeConfig);
+    const clean   = window.DOMPurify.sanitize(rawHtml, LLMA_SANITIZE_CONFIG);
 
     // Restore LaTeX placeholders
     let result = clean;
@@ -400,7 +401,7 @@ function llmaRenderMarkdown(text, options) {
     // sanitize pass, so the <details>/<summary> shell survives without widening the allowlist for model output.
     for (let i = 0; i < thinkBlocks.length; i++) {
         let think = thinkBlocks[i];
-        let innerHtml = window.DOMPurify.sanitize(window.marked.parse(think.text || ''), sanitizeConfig);
+        let innerHtml = window.DOMPurify.sanitize(window.marked.parse(think.text || ''), LLMA_SANITIZE_CONFIG);
         let label = think.live ? translate('Thinking...') : translate('Reasoning');
         let preview = llmaEscapeHtml(llmaThinkPreview(think.text, think.live));
         let block = `<details class="llma-think${think.live ? ' llma-think-live' : ''}"><summary class="llma-think-summary">`
