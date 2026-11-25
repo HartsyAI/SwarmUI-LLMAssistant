@@ -18,6 +18,7 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 | Chat library | Full-text search across chats, pins, JSON import and export | #83 | Chat library |
 | Image tools | `list_image_models`, `list_loras`, `list_wildcards`, `list_presets`; `generate_image` batch and model choice; default image model | #84 | Image workflow tools |
 | Remote backend | A refused model list reports what the endpoint answered | #81 | Adding an LLM backend |
+| Documents | PDF, Word, web page and text files attached to chats and added to the knowledge library | #90 | Documents in chats |
 
 ## Decisions that still stand
 

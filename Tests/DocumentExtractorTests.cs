@@ -274,6 +274,17 @@ public sealed class DocumentExtractorTests
     }
 
     [Fact]
+    public void A_file_as_large_as_the_upload_limit_is_cut_short_not_refused()
+    {
+        byte[] csv = Utf8(string.Concat(Enumerable.Repeat("id,name,value  \r\n1,widget,12\r\n\r\n\r\n\r\n", 340_000)));
+        Assert.True(csv.Length > 10 * 1024 * 1024);
+        ExtractedDocument doc = Read("big.csv", csv);
+        Assert.Equal(DocumentStatus.Ok, doc.Status);
+        Assert.True(doc.Truncated);
+        Assert.Equal(200_000, doc.Text.Length);
+    }
+
+    [Fact]
     public void Long_text_is_cut_at_the_cap_without_splitting_a_character()
     {
         ExtractedDocument doc = Read("l.txt", Utf8("abcd\U0001F600efgh"), new DocumentLimits(1, 5));

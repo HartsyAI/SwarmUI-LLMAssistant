@@ -315,6 +315,8 @@ test('the document caps are on the General settings tab and are saved', async ({
 });
 
 test('PDF and Word files are added to the knowledge library, found with their page, and survive embedding again', async ({ llm }) => {
+    // Several uploads, searches and an embedding pass: near a minute on a busy runner.
+    test.setTimeout(150_000);
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="knowledge"]').click();
     await llm.locator('#llma-knowledge-files').setInputFiles([
