@@ -48,19 +48,21 @@ public static class UsageEndpoints
     }
 
     /// <summary>The caller's totals for today and this week (from Monday) in <paramref name="timeZone"/> (an IANA name; empty is UTC), and since
-    /// <paramref name="since"/> (an ISO time, for "this session") when given. Reply: <c>{success, currency, timeZone, periods: {day, week, session?}, budget}</c>;
+    /// <c>since</c> (an ISO time, for "this session") when given. Reply: <c>{success, currency, timeZone, periods: {day, week, session?}, budget}</c>;
     /// each period is <c>{from, replies, promptTokens, completionTokens, cachedTokens, totalTokens, estimatedReplies, partialReplies, pricedReplies,
     /// unpricedReplies, unpricedTokens, cost, costEstimated}</c>, with <c>cost</c> null when nothing in it has a price.</summary>
-    public static async Task<JObject> LLMAssistantGetUsageTotals(Session session, string timeZone = "", string since = "")
+    public static async Task<JObject> LLMAssistantGetUsageTotals(Session session, JObject rawInput, string timeZone = "")
     {
         if (!ScheduleTrigger.TryZone(timeZone, out DateTimeZone zone, out string error))
         {
             return Fail(error);
         }
         DateTimeOffset? sessionStart = null;
-        if (!string.IsNullOrWhiteSpace(since))
+        // Read from the request itself: a time bound to a string loses its offset on the way (JSON reads it as a date).
+        JToken since = rawInput?["since"];
+        if (since is not null && since.Type != JTokenType.Null && !string.IsNullOrWhiteSpace(since.ToString()))
         {
-            sessionStart = UsageReader.ReadTime(new JValue(since));
+            sessionStart = UsageReader.ReadTime(since);
             if (sessionStart is null)
             {
                 return Fail("since must be an ISO time, such as 2026-01-31T09:00:00Z.");

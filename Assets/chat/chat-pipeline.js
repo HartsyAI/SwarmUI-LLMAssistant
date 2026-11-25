@@ -390,7 +390,7 @@
         // Compare mode persists each lane's partial text and finalizes its columns.
         if (typeof llmaCompareHandleStop === 'function' && llmaCompareHandleStop()) {
             llmaSetStreaming(false);
-            llmaUsage.scheduleRefresh(1500);
+            llmaUsage.refreshAfterStop();
             return;
         }
         if (LLMAState._streamingMsgId && LLMAState._streamingText) {
@@ -406,8 +406,7 @@
         LLMAState._streamingMsgId = null;
         LLMAState._streamingText = '';
         llmaSetStreaming(false);
-        // The server saves a stopped reply after the socket closes, so its tokens are asked for a little later.
-        llmaUsage.scheduleRefresh(1500);
+        llmaUsage.refreshAfterStop();
     }
 
     /** Toggle the generating UI state (send/stop buttons, input disabled). File-private. */

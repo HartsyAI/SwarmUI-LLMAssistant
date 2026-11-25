@@ -1,4 +1,4 @@
-import { test, expect, send, lastAssistant, setScenarios, api, reopen } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, api, reopen, enableSessionTools, resetSessionTools } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // Tokens and cost: the figure under a reply and the chat's in the context bar, the user's price table, estimates, totals and the soft budget.
@@ -45,6 +45,9 @@ const chatTotal = (page: Page) => page.locator('#llma-usage-thread');
 test.afterEach(async ({ llm }) => {
     let cleared = await api(llm, 'LLMAssistantSaveUsageSettings', { currency: 'USD', prices: {}, budget: { enabled: false, daily: 0, weekly: 0 } });
     expect(cleared.success, JSON.stringify(cleared)).toBe(true);
+    // Save & Close writes the shared layer for an admin, and some specs here switch a setting off: both layers are put back.
+    await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
+    await api(llm, 'LLMAssistantResetSettings');
 });
 
 test('a model with no price shows tokens only', async ({ llm }) => {
@@ -88,9 +91,6 @@ test('"Edit prices" on a reply opens the table with a row for its model', async 
     await llm.locator('#llma-settings-save').click();
     await expect(llm.locator('#llma-settings-overlay')).toBeHidden();
     await expect(chip(llm)).toHaveText('1,200 tok · 0.0040 USD');
-    // Save & Close wrote the shared settings for this admin; put them back.
-    await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
-    await api(llm, 'LLMAssistantResetSettings');
 });
 
 test('a half-filled price is refused and the dialog stays open', async ({ llm }) => {
@@ -103,8 +103,6 @@ test('a half-filled price is refused and the dialog stays open', async ({ llm })
     await expect(llm.locator('#llma-settings-overlay')).toBeVisible();
     expect((await api(llm, 'LLMAssistantGetUsageSettings')).usage.prices).toEqual({});
     await llm.locator('#llma-settings-close').click();
-    await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
-    await api(llm, 'LLMAssistantResetSettings');
 });
 
 test('an ordinary settings save leaves the price table alone', async ({ llm }) => {
@@ -142,6 +140,39 @@ test('totals add up across chats for the session, the day and the week', async (
     expect(totals.periods.session.cost).toBeNull();
     let refused = await api(llm, 'LLMAssistantGetUsageTotals', { timeZone: 'Mars/Olympus' });
     expect(refused.success).toBeFalsy();
+});
+
+test('a stopped reply shows an estimated figure without a reload', async ({ llm }) => {
+    await setScenarios([{ match: 'slow', rounds: [{ text: 'word '.repeat(200), chunkDelayMs: 150 }] }]);
+    await send(llm, 'slow');
+    await expect(lastAssistant(llm)).toContainText('word');
+    await llm.locator('#llma-stop-btn').click();
+    await expect(chip(llm)).toHaveText(/^~[\d,]+ tok · estimated$/);
+});
+
+test('headless tool turns and sub-sessions are in the totals', async ({ llm }) => {
+    await enableSessionTools(llm);
+    try {
+        await setScenarios([
+            {
+                match: 'delegate', rounds: [
+                    { toolCalls: [{ name: 'session_start', arguments: { title: 'Child', prompt: 'child-task', model: 'mock-model' } }], usage: { prompt_tokens: 1000, completion_tokens: 200 } },
+                    { text: 'Started.', usage: { prompt_tokens: 1000, completion_tokens: 200 } }
+                ]
+            },
+            exchange('child-task', 'Child done.')
+        ]);
+        let run = await api(llm, 'LLMAssistantRunTurn', { message: 'delegate', model: 'mock-model', approvalMode: 'auto' });
+        expect(run.success, JSON.stringify(run)).toBe(true);
+        // Two rounds of the headless turn and one reply in the sub-session.
+        await expect.poll(async () => (await api(llm, 'LLMAssistantGetUsageTotals')).periods.day.totalTokens, { timeout: 30_000 }).toBe(3600);
+        let usage = await api(llm, 'LLMAssistantGetThreadUsage', { threadId: run.threadId });
+        expect(usage.replies).toHaveLength(1);
+        expect(usage.replies[0]).toMatchObject({ promptTokens: 2000, completionTokens: 400, estimated: false, partial: false });
+    }
+    finally {
+        await resetSessionTools(llm);
+    }
 });
 
 test('a reached budget warns and blocks nothing', async ({ llm }) => {
@@ -186,8 +217,6 @@ test('turning the token count off hides the figures', async ({ llm }) => {
     await llm.locator('#llma-settings-save').click();
     await expect(llm.locator('.llma-usage-chip')).toHaveCount(0);
     await expect(chatTotal(llm)).toBeHidden();
-    await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
-    await api(llm, 'LLMAssistantResetSettings');
 });
 
 test('the popover and the price table fit a phone', async ({ llm }) => {

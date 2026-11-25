@@ -258,7 +258,7 @@ Under each reply is its token count, and its cost once you have given that model
 - **Counts come from the backend** when it reports them (`stream_options.include_usage` on OpenAI-compatible endpoints). A reply with no report (some servers, or a reply you stopped) is estimated at about four characters a token and marked `~` and **estimated**; the estimate leaves out the system prompt, tool definitions and attachments, so it is usually low. A turn stopped after some of its tool rounds reported is marked **incomplete**.
 - **Costs are worked out when shown**, from the saved token counts at today's prices: editing a price changes past figures too.
 - **Soft budget** (off by default): set a daily and/or weekly limit and a warning appears once the day's or week's cost reaches it. It never blocks or delays a request. It can only count priced replies.
-- **What is counted:** every saved reply, including code-mode chats, sub-sessions, scheduled runs and headless turns. **Not counted**, because their usage is not saved with a chat: chat titles, long-chat summaries, memory extraction, prompt rewriting and Generate-tab prompt tags, the voice routes, `LLMAssistantSendMessage`, instruction tests, image captioning tools, the companion, and turns that failed before producing anything. Deleting a chat or a message (including old scheduled runs the extension prunes) removes its usage from the totals, and imported chats bring none.
+- **What is counted:** every saved reply, including code-mode chats, sub-sessions, scheduled runs, headless turns and the companion's chat. **Not counted**, because their usage is not saved with a chat: chat titles, long-chat summaries, memory extraction, prompt rewriting and Generate-tab prompt tags, the voice routes, `LLMAssistantSendMessage`, instruction tests, the model calls inside the image captioning tools, and turns that failed before producing anything. Deleting a chat or a message (including old scheduled runs the extension prunes) removes its usage from the totals, and imported chats bring none.
 
 ### Branching
 
@@ -1168,7 +1168,7 @@ SwarmUI-LLMAssistant/
 ├── Services/                  Assistants, instructions, threads, tools, media, settings layers, rate limits, audit log, GC,
 │                              the one tool loop (ToolTurnRunner, ToolTurnSinks), and one folder per feature:
 │                              Memory/, ChatLibrary/, Compaction/, Hooks/, Mcp/, PromptAssets/, PromptStyles/, PromptRewrite/,
-│                              ImageTools/, Sessions/, Schedules/, Knowledge/, Readiness/
+│                              ImageTools/, Sessions/, Schedules/, Knowledge/, Readiness/, Usage/
 ├── Tools/BuiltIn/             The built-in tool handlers (one file per tool or tool family: files, web, memory, image, vision, device actions, code, sessions, schedules, skill, knowledge, MCP)
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
 ├── WebAPI/                    One static endpoint class per feature, and LLMAssistantAPI.cs, which holds the permission

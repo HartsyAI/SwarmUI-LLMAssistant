@@ -227,6 +227,18 @@ public class UsageCostTests
         Assert.Equal(0, periods["week"].Replies);
     }
 
+    [Theory]
+    [InlineData("2026-03-04T09:00:00Z")]
+    [InlineData("2026-03-04T11:00:00+02:00")]
+    [InlineData("2026-03-04T04:00:00-05:00")]
+    [InlineData("2026-03-04T09:00:00")]
+    public void ATimeInARequestIsTheSameMomentWhateverItsOffset(string text)
+    {
+        // As a route receives it: JSON turns the text into a date.
+        JToken token = JObject.Parse($$"""{"since":"{{text}}"}""")["since"];
+        Assert.Equal(DateTimeOffset.Parse("2026-03-04T09:00:00Z"), UsageReader.ReadTime(token));
+    }
+
     [Fact]
     public void OnlyChatsChangedSinceThePeriodBeganAreRead()
     {

@@ -16,6 +16,8 @@ class LLMAUsage {
         this.popoverSequence = 0;
         /** Budget warnings already shown as a toast on this page. */
         this.warned = new Set();
+        /** When this browser session began (see sessionStart). */
+        this.started = null;
         // The session begins when the page does, not when its total is first looked at.
         this.sessionStart();
     }
@@ -67,6 +69,11 @@ class LLMAUsage {
         this.timer = setTimeout(() => this.refresh(), delayMs);
     }
 
+    /** Asks again after a Stop: the server saves a stopped reply a moment after the socket closes. A timer of its own, so an ordinary redraw cannot cancel it. */
+    refreshAfterStop() {
+        setTimeout(() => this.scheduleRefresh(), 1500);
+    }
+
     /** Fetches the open chat's figures and draws them. A chat that cannot be read simply shows none. */
     async refresh() {
         let threadId = LLMAState.activeThreadId;
@@ -94,6 +101,8 @@ class LLMAUsage {
         let shown = data && LLMAState.showTokens;
         let drawn = new Set();
         let added = false;
+        let list = document.getElementById('llma-messages');
+        let atBottom = !!list && list.scrollHeight - list.scrollTop - list.clientHeight < 8;
         if (shown) {
             for (let reply of data.replies) {
                 let meta = document.querySelector(`#llma-messages [data-msg-id="${CSS.escape(reply.messageId)}"] .llma-msg-meta`);
@@ -121,8 +130,8 @@ class LLMAUsage {
         }
         this.renderThread(shown ? data : null);
         this.renderWarning(data);
-        // A new line under the last reply must not hide behind the composer (this does nothing while the user is reading further up).
-        if (added) {
+        // A new line under the last reply must not hide behind the composer. A view anywhere else (a search result, earlier text) stays where it is.
+        if (added && atBottom) {
             llmaScrollToBottom();
         }
     }
