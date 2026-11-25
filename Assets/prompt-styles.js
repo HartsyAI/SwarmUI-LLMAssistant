@@ -316,7 +316,7 @@ class LLMAPromptStyles {
             lines.push(`${translate('Negative')}: <code>${escapeHtml(reply.negative)}</code>`);
         }
         for (let warning of reply.warnings || []) {
-            lines.push(`<span class="llma-rewrite-warning text-warning-emphasis">${escapeHtml(warning)}</span>`);
+            lines.push(`<span class="llma-rewrite-warning">${escapeHtml(warning)}</span>`);
         }
         if (reply.usage) {
             lines.push(`<span class="text-muted">${translate('About')} ${reply.usage.inputTokens} ${translate('tokens in')}, ${reply.usage.outputTokens} ${translate('out')}</span>`);

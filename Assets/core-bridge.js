@@ -2,7 +2,8 @@
  * The one place the extension's front end touches SwarmUI core through something that is not a documented hook.
  * Core's JS offers callback lists for session-ready, backends-revised and parameter-build events (all used directly where needed),
  * but none for "an image was generated". Until it does (see docs/UPSTREAM-PROPOSALS.md), this wraps core's global once and fans
- * the call out to any number of listeners, each failure-isolated so a listener can never break the Generate tab.
+ * the call out to any number of listeners, each failure-isolated so a listener can never break the Generate tab. It also reads
+ * which image model the Generate tab has picked.
  */
 class LLMACoreBridge {
 
@@ -17,6 +18,11 @@ class LLMACoreBridge {
     onImageGenerated(listener) {
         this.imageListeners.push(listener);
         this.hookImageResult();
+    }
+
+    /** The image model picked on the Generate tab, or empty. Core offers no accessor for it, so its dropdown is read. */
+    selectedImageModel() {
+        return document.getElementById('current_model')?.value || '';
     }
 
     /** Wraps core's global gotImageResult once. Returns whether the hook is in place. */

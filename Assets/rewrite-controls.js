@@ -183,7 +183,7 @@ class LLMARewriteControls {
         this.closePopover();
         let overlay = document.getElementById('llma-rewrite-overlay');
         document.getElementById('llma-rewrite-preview-prompt').value = document.getElementById('llma-input')?.value || '';
-        document.getElementById('llma-rewrite-preview-model').value = this.policy?.imageModel || document.getElementById('current_model')?.value || '';
+        document.getElementById('llma-rewrite-preview-model').value = this.policy?.imageModel || llmaCoreBridge.selectedImageModel();
         document.getElementById('llma-rewrite-preview-result').innerHTML = '';
         document.getElementById('llma-rewrite-preview-policy').textContent = '';
         document.getElementById('llma-rewrite-preview-run').disabled = false;
