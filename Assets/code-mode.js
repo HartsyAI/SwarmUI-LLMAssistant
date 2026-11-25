@@ -280,6 +280,8 @@ class LLMACodeMode {
         }
         let open = n => (this.tab == n ? ' active' : '');
         let badge = n => (n > 0 ? ` <span class="badge text-bg-secondary">${n}</span>` : '');
+        // The panel is redrawn whole (also when a refresh lands later): a tab button that had focus keeps it.
+        let focused = inner.contains(document.activeElement) ? document.activeElement.dataset.codeTab : null;
         // A list of buttons rather than a tab list: the reload button sits in the same row, which a tab list may not hold.
         let current = n => (this.tab == n ? ' aria-current="true"' : '');
         inner.innerHTML = `<ul class="nav nav-tabs llma-code-tabs">`
@@ -293,8 +295,6 @@ class LLMACodeMode {
             button.addEventListener('click', () => {
                 this.tab = button.dataset.codeTab;
                 this.renderPanel();
-                // The redraw replaced the button that was pressed: focus goes to its successor.
-                inner.querySelector(`[data-code-tab="${this.tab}"]`)?.focus();
                 if (this.tab == 'changes') {
                     // Files change outside the chat too (the user's editor, a command): opening the tab looks again.
                     this.refreshChanges();
@@ -302,6 +302,9 @@ class LLMACodeMode {
             });
         }
         inner.querySelector('.llma-code-refresh').addEventListener('click', () => this.reload());
+        if (focused) {
+            inner.querySelector(`[data-code-tab="${focused}"]`)?.focus();
+        }
         if (this.tab == 'tasks') {
             this.renderTasks();
         }
@@ -669,8 +672,13 @@ class LLMACodeMode {
         if (!document.body.contains(tree)) {
             return;
         }
+        let focused = tree.contains(document.activeElement) ? document.activeElement.dataset.path : null;
         tree.innerHTML = html == '' ? `<div class="text-muted p-2">${translate('The workspace is empty. Ask the assistant to create something.')}</div>` : `<ul class="list-group list-group-flush" role="group" aria-label="${translate('Files')}">${html}</ul>`;
         for (let row of tree.querySelectorAll('.llma-code-entry')) {
+            // Opening a folder or a file redraws the tree: the keyboard stays on the row it was on.
+            if (focused && row.dataset.path == focused) {
+                row.focus();
+            }
             row.addEventListener('click', () => this.onEntry(row.dataset.path, row.dataset.type));
             row.addEventListener('keydown', event => {
                 if (event.key == 'Enter' || event.key == ' ') {

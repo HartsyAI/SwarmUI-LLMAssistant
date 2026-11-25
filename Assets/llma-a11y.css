@@ -113,6 +113,7 @@
 .llma-container .nav-pills .nav-link.active,
 .llma-container .basic-button.btn-primary { background-color: var(--llma-accent-fill) !important; color: var(--text-strong) !important; }
 .llma-container .nav-pills .nav-link { color: var(--text); }
+.llma-container .list-group-item.active { background-color: var(--llma-accent-fill) !important; color: var(--text-strong) !important; }
 .llma-container .llma-select-toggle[aria-pressed="true"] { color: var(--llma-accent-text); }
 .llma-container .text-muted { color: var(--text-soft) !important; }
 /* Error red as small text on its own red tint is under 4.5:1: the title leans on the strong text colour, the icon and border stay red. */
