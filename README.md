@@ -9,7 +9,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 | | |
 |---|---|
 | **Version** | `2.0.0-alpha.2` |
-| **Requires** | SwarmUI (tested against `0.9.8.2`) |
+| **Requires** | SwarmUI (developed against `0.9.8.2`; CI builds it against SwarmUI's current default branch) |
 | **Local engine** | [`HartsyInference`](https://www.nuget.org/packages/HartsyInference), the latest published version (NuGet, pulled automatically on each build) |
 | **License** | MIT |
 
@@ -25,7 +25,9 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [The interface](#the-interface)
 - [Assistants](#assistants)
 - [Long chats](#long-chats)
+- [Chat library](#chat-library)
 - [Tool calling](#tool-calling)
+- [Hooks](#hooks)
 - [MCP servers](#mcp-servers)
 - [Code tools and workspaces](#code-tools)
 - [Skills and commands](#skills-and-commands)
@@ -35,12 +37,14 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Knowledge library](#knowledge)
 - [Setup check and headless turns](#headless)
 - [Built-in tools](#built-in-tools)
+- [Image workflow tools](#image-tools)
 - [Vision](#vision)
 - [Assets](#assets)
 - [Companion overlay](#companion-overlay)
 - [Per-user memory](#per-user-memory)
 - [Generate-tab integration](#generate-tab-integration)
 - [Settings reference](#settings-reference)
+- [Network connections](#network-connections)
 - [Permissions](#permissions)
 - [Multi-user model](#multi-user-model)
 - [API reference](#api-reference)
@@ -56,7 +60,12 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - **Real chats, stored on the server.** Threads are grouped by date, searchable, renameable, exportable (JSON / Markdown / plain text), and auto-titled from the first exchange. Your message is saved *before* the model is called, so a disconnect never loses it.
 - **Message branching.** Edit a message or regenerate a reply and the old version survives as a switchable sibling branch, so no edit is destructive.
 - **Side-by-side comparison.** Run the same prompt through two models at once, in parallel, then keep the winner.
-- **Agentic tool calling.** 13 built-in tools, up to 8 tool rounds per turn, with per-tool permissions, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and OpenAI-compatible endpoints (Claude included) use their native tool-calling API.
+- **Agentic tool calling.** 20 built-in tools (plus the `skill`, code, session, schedule and knowledge tools and whatever MCP servers add), up to 8 tool rounds per turn, with per-tool permissions, Ask / Auto / Plan approval, hooks, sandboxing, SSRF protection, rate limits, and an optional audit log. Every provider runs tools through the same loop: the local engine reads the tool-call format from the model's own chat template, and OpenAI-compatible endpoints (Claude included) use their native tool-calling API.
+- **Agent harness.** [MCP servers](#mcp-servers), [hooks](#hooks), [code mode with workspaces](#code-tools), [skills and slash commands](#skills-and-commands), [sessions](#sessions) the assistant starts and directs, [schedules](#schedules), a [knowledge library](#knowledge) and a [setup check with headless turns](#headless).
+- **Chat library.** Full-text [search](#chat-library) across your chats, pins, and JSON import / export.
+- **Memory.** Private per-user [notes](#per-user-memory) the assistant can save by itself (off by default), with a manager screen, undo, pause switches and retention.
+- **Prompt styles and rewriting.** [Per-model prompt styles](#prompt-styles) for image and video models and for chat models, with an optional automatic prompt rewrite for every generation (off by default).
+- **Image workflow tools.** Four read-only [catalog tools](#image-tools) let the model see your installed models, LoRAs, wildcards and presets before it generates.
 - **Custom assistants.** Per-mode system prompts, inheritance, per-model prompt variants, parameter overrides, avatars, and a per-assistant tool allowlist.
 - **Rich rendering.** GitHub-flavored Markdown, syntax highlighting, tables, KaTeX math, and Mermaid diagrams, all sanitized through DOMPurify and all served locally. **No CDN, no outbound requests.**
 - **Floating companion.** An opt-in in-page helper that can critique your last render, suggest a preset, or explain a SwarmUI feature from the bundled docs.
@@ -265,7 +274,7 @@ Open `Settings > Assistants` to create one from scratch, or clone one of the bun
 Each assistant has:
 
 - **Identity**: name, category, description, color, and an uploaded avatar.
-- **Seven instruction modes**: `chat`, `vision`, `caption`, `prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
+- **Eight instruction modes**: `chat`, `vision`, `caption`, `prompt`, `video-prompt`, `randomprompt`, `instructiongen`, `companion`. Each mode is its own system prompt.
 - **Per-model variants**: any instruction can carry alternates keyed on the model's `Exact` id, `Family`, `Provider`, `Tag`, or a `Glob` pattern. Specificity order: `Exact > Family > Provider > Tag > Glob`.
 - **Inheritance (`extends`)**: inherit instructions, parameters, and enabled tools from another assistant, then override selectively. Cycle-safe.
 - **Parameter overrides**: temperature / max tokens / top-p, blank to fall back to your global defaults.
@@ -535,7 +544,7 @@ curl -s localhost:7801/API/LLMAssistantRunTurn -H 'Content-Type: application/jso
 
 ## Built-in tools
 
-These tools ship with the extension. Every one is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
+Twenty tools are built in (the table below). The tools that belong to a feature of their own are described in that feature's section: the `skill` tool ([Skills and commands](#skills-and-commands)), the `code_*` tools ([Code tools and workspaces](#code-tools)), the `session_*` tools ([Sessions](#sessions)), the `schedule_*` tools ([Schedules](#schedules)), `search_knowledge` ([Knowledge library](#knowledge)) and the tools MCP servers offer ([MCP servers](#mcp-servers)). Every tool is gated by a permission (see [Permissions](#permissions)) and, where relevant, sandboxed and rate-limited.
 
 ![Tool settings](Assets/screenshots/settings-tools.png)
 
@@ -558,6 +567,7 @@ These tools ship with the extension. Every one is gated by a permission (see [Pe
 | `list_loras` | Lists the installed LoRAs with base family, trigger words and tags; `forModel` keeps only the compatible ones. Read-only. | ✅ | `llm_tool_image_catalog` |
 | `list_wildcards` | Lists wildcard names (`__name__` in a prompt). Names only; `includeSamples` also returns lines of the files, and that form is asked about in Ask mode. Read-only otherwise. | ✅ | `llm_tool_image_catalog` |
 | `list_presets` | Lists the user's saved presets: name, description, key settings. Read-only. | ✅ | `llm_tool_image_catalog` |
+| `set_led_profile`, `set_volume`, `mute_mic` | Voice-satellite device actions (LED show, volume, microphone mute). On the server they are no-ops: the call is handed back to the voice device in the `toolCalls` of `LLMAssistantVoiceTurn` / `LLMAssistantVoiceTurnWS`. | ❌ | `llm_tool_device_action` |
 
 > **`shell_exec` is off by default and its permission defaults to `NOBODY`.** Granting it is equivalent to giving anyone who can chat with the model a shell on your server. Only do it for admins you trust, on models you trust.
 
@@ -575,13 +585,13 @@ Four read-only tools let the chat model look at what the user has before it gene
 ### Guardrails
 
 - **Permissions are keyed on the *handler*, not the tool id**, so defining a custom tool `{ id: "harmless", handlerId: "shell_exec" }` can't bypass the `shell_exec` gate.
-- **60-second execution timeout** per tool call, plus each tool's own limits.
+- **60-second execution timeout** per tool call by default, plus each tool's own limits. A few tools set their own: `generate_image` 10 minutes, `shell_exec` and `code_bash` their command limit plus 10 seconds, `search_knowledge` 90 seconds, `session_wait` its wait limit plus 30 seconds, and an MCP tool its server's time limit plus 5 seconds.
 - **Rate limits**: a per-user, per-tool sliding hour window. Defaults: `http_request` 60/h, `web_search` 30/h, `shell_exec` 20/h, `generate_image` 100/h, `batch_caption_folder` 5/h. Override per tool in its editor; `0` means unlimited.
-- **Audit log**: an opt-in append-only JSONL trail of `shell_exec`, `file_write`, and `http_request` calls plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
+- **Audit log**: an opt-in append-only JSONL trail of `shell_exec`, `file_write`, `http_request`, MCP tool calls and the code tools that change files or run commands (`code_write`, `code_edit`, `code_bash`), plus every shared-layer write, at `Data/LLMAssistant/audit.log`. Size-rotated at 10 MB × 5 generations. Toggle it with `LLMAssistantSetAuditLogEnabled` (admin only).
 
 ### Custom tools
 
-`Settings > Tools > + Create Tool` registers a new tool: id, name, description (this is what the model sees), a JSON Schema for the parameters, and a handler id that maps to a registered `ToolHandler`. There's a **Run Test** panel for development. Handler types today: `builtin`; `mcp_stdio` and `mcp_http` are reserved for planned MCP support.
+`Settings > Tools > + Create Tool` registers a new tool: id, name, description (this is what the model sees), a JSON Schema for the parameters, and a handler id that maps to a registered `ToolHandler`. There's a **Run Test** panel for development. The only handler type you can pick in the editor is `builtin` (a handler the extension ships). Tools from [MCP servers](#mcp-servers) are not created here: they appear automatically, as `mcp__<server>__<tool>`, once an admin adds the server.
 
 ---
 
@@ -812,6 +822,7 @@ These permissions are all under the **LLMAssistant** group in `Server > Users`. 
 | `llm_workspace_roots` | **ADMINS** *(powerful)* | Allowing folders on the host as workspaces |
 | `llm_tool_memory` | POWERUSERS | `memory_read`, `memory_write` |
 | `llm_tool_swarm_docs` | USER | `swarm_docs` |
+| `llm_tool_device_action` | POWERUSERS | `set_led_profile`, `set_volume`, `mute_mic` (voice-satellite device actions) |
 | `llm_tool_image_catalog` | POWERUSERS | `list_image_models`, `list_loras`, `list_wildcards`, `list_presets` (read-only; each user sees only what SwarmUI shows them) |
 
 SwarmUI also auto-registers `view_extension_tab_llmassistant` (default USER) for tab visibility.
@@ -845,21 +856,40 @@ curl -s -H "Content-Type: application/json" -d "{\"session_id\":\"$SID\"}" \
   -X POST http://localhost:7801/API/LLMAssistantGetModels
 ```
 
+### Route permissions
+
+Every route is registered with one base permission, which SwarmUI checks before the route runs (a few routes then check a stronger permission inside, as their rows say: `llm_mcp_manage`, `llm_hook_command`, `llm_code_mode`, `llm_workspace_roots`, `llm_shared_write`). The groups below are read from the registrations in `WebAPI/LLMAssistantAPI.cs` and `Backends/BackendCardAPI.cs`; the Chat, Threads, Assistants, Tools and Settings tables that follow give each route's request and reply.
+
+| Base permission | Routes |
+|---|---|
+| `llm_chat` | Chat and turns (`SendMessage`, `SendMessageWS`, `EditMessageWS`, `RegenerateWS`, `VoiceTurn`, `VoiceTurnWS`, `RunTurn`, `Readiness`, `StopGeneration`, `ResolveToolApproval`, `CompactThread`, `CreateThread`, `TestInstruction`, `UploadChatImage`, `UploadChatVideo`, `CountTokens`, `Decide`), `ExecuteTool`, the workspace routes that read or change the files of a chat (`ListWorkspaceFiles`, `ReadWorkspaceFile`, `ListWorkspaceChanges`, `GetWorkspaceChange`, `RevertWorkspaceChange`, `GetWorkspaces`, `CreateWorkspace`; the rows say which of them also need `llm_code_mode`), reading and expanding skills, commands and prompt styles (`GetPromptAssets`, `GetPromptAsset`, `ExpandPromptAsset`, `GetPromptStyles`, `GetPromptStyle`, `ResolvePromptStyle`), `RewritePrompt`, and all the memory routes except `SetMemoryAdmin` and `SetThreadMemory` |
+| `llm_settings` | Settings, assistants, instructions, tools and tool config, hooks, MCP servers, saving or deleting skills, commands and prompt styles, `SetStyleOverrides`, `SetWorkspaceTrust`, the workspace-root routes, `GetImagePresets`, `GetImageDefaults`, `SetImageDefaults` |
+| `llm_threads` | Chats and their messages (`GetThreads`, `GetThread`, `DeleteThread`, `RenameThread`, `EditMessage`, `DeleteMessage`, `SetActiveLeaf`, `SetThread*`, `ArchiveSession`, `ExportThread`, `SearchThreads`, `PinThread`, `ImportThread`), session state, and assets |
+| `llm_models` | `GetModels`, `UnloadModels` |
+| `llm_shared_write` | `GetAuditLog`, `SetAuditLogEnabled`, `DownloadModel`, `SetMemoryAdmin` |
+| `llm_knowledge` | The knowledge routes |
+| `llm_schedules` | The schedule routes |
+| `llm_tool_image_catalog` | `ListImageModels`, `ListLoras`, `ListWildcards`, `ListPresets` |
+| `llm_companion` | `GetCompanionContext` |
+| SwarmUI's `View Backends List` | `ListGpus`, `ListBackendModels` |
+
 ### Chat
 
 | Route | Method | Request | Returns |
 |---|---|---|---|
 | `LLMAssistantCreateThread` | POST | `assistantId?`, `title?`, `mode?` (`chat` \| `code`), `rememberChat?` (false marks the chat "don't remember" from the start) | `{success, thread}` |
-| `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
+| `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `device?`, `backendId?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `approvalMode?` | streaming frames (below); `approvalMode` (`auto`, `ask` or `plan`) comes from the composer's Ask / Auto / Plan control, defaults to the mode saved on the chat, and is saved there when it differs; `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
-| `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, … | streaming frames; new sibling reply |
-| `LLMAssistantReadiness` | `deep?` | `{success, overall, deep, checkedAt, checks[{id, title, status, detail, fix?}]}`; the setup check (see [Setup check and headless turns](#headless)). Reads only; counts and statuses, no error text an admin alone may see |
-| `LLMAssistantRunTurn` | `message`, `threadId?`, `assistantId?`, `model?`, `approvalMode?` (`ask` default), `dryRun?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `instructionId?`, `forceToolId?` | `{success, threadId, response, model, stopReason, toolCalls[], usage?, created?}`, or with `dryRun` the report on the request it would make. One request, one reply, kept in a chat; a call that needs approval is refused |
+| `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, `model?`, … | streaming frames; new sibling reply |
+| `LLMAssistantReadiness` | POST | `deep?` | `{success, overall, deep, checkedAt, checks[{id, title, status, detail, fix?}]}`; the setup check (see [Setup check and headless turns](#headless)). Reads only; counts and statuses, no error text an admin alone may see |
+| `LLMAssistantRunTurn` | POST | `message`, `threadId?`, `assistantId?`, `model?`, `approvalMode?` (`ask` default), `dryRun?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `instructionId?`, `forceToolId?` | `{success, threadId, response, model, stopReason, toolCalls[], usage?, created?}`, or with `dryRun` the report on the request it would make. One request, one reply, kept in a chat; a call that needs approval is refused |
+| `LLMAssistantVoiceTurn` | POST | `message` (required), `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `loops?` | `{success, response, toolCalls[{name, arguments}], truncated?}`; stateless, writes no thread and is never cached, so asking twice answers twice. With no `model` it uses the first model any backend offers. `toolCalls` is the device-action subset (`set_led_profile`, `set_volume`, `mute_mic`), for the voice device to carry out; other tools run on the server through the same loop as chat |
 | `LLMAssistantVoiceTurnWS` | **WS** | `message?` \| `messages?`, `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `enableThinking?`, `loops?`, `conversationId?` | streaming frames, **native** shape (below), stateless like `LLMAssistantVoiceTurn`, runs on any provider (the same tool loop as chat) |
 | `LLMAssistantUploadChatImage` | POST | `threadId`, `messageId`, `imageData` (data URI) | `{success, url, mediaType, width, height, bytesWritten}` |
 | `LLMAssistantUploadChatVideo` | POST | `threadId`, `messageId`, `videoData` (data URI; mp4, webm or mov, up to 64 MB) | `{success, url, mediaType, bytesWritten}` |
 | `LLMAssistantTestInstruction` | POST | `instructionText`, `sampleInput`, `model?`, `assistantName?` | `{success, response}`, persists nothing |
+| `LLMAssistantDecide` | POST | the typed-decision request body (state plus choice, score or true/false questions) | the answer body plus `success`; answered by the local HartsyInference backend's decision model (Cloudflare Clef), so it fails with `{success: false, error}` when that backend is not available. Needs `llm_chat` |
 | `LLMAssistantCountTokens` | POST | `text` **or** `messages[]` | `{success, count, exact, source}` |
 | `LLMAssistantCompactThread` | POST | `threadId`, `model?`, `instructions?` | `{success, compacted, compaction?}`; summarizes the start of the chat now (`/compact`). `compacted: false` means there was nothing worth compacting yet. `compaction` is `{id, upToMessageId, messageCount, tokensBefore, summary, createdAt}` |
 
@@ -966,7 +996,7 @@ they were sent with.
 | `LLMAssistantSavePromptStyle` | `id`, `kind` (`image` \| `video` \| `llm`), `body`, `name?`, `description?`, `matches?` (a `kind:pattern, ...` line), `format?`, `formatter?`, `negative?`, `supports?`, `tasks?`, `guide?`, `scope?` (`personal` \| `shared`) | `{success}`; a condition the kind cannot use is refused. Shared needs `llm_shared_write`. Needs `llm_settings` |
 | `LLMAssistantDeletePromptStyle` | `id`, `scope?` | `{success}`; deleting a personal or shared copy of a built-in style resets it. Needs `llm_settings` |
 | `LLMAssistantSetStyleOverrides` | `overrides` (`[{axis (image \| llm), match, style (an id, or off)}]`) | `{success}`; replaces the caller's rules (up to 200). Needs `llm_settings` |
-| `LLMAssistantResolvePromptStyle` | `axis` (`image` \| `llm`), `model`, `task?` | `{success, found, model, style, off, via (override \| match \| default \| none), reason, candidates[{id, scope, matched, rank}]}`; which style a model gets and why. `found` is false when core (or the chat backends) does not list the model. Needs `llm_chat` |
+| `LLMAssistantResolvePromptStyle` | `axis` (`image` \| `llm`), `model`, `task?`, and for `axis: "llm"` `assistantId?`, `threadId?`, `tools?` (see [Prompt styles](#prompt-styles)) | `{success, found, model, style, off, via (override \| match \| default \| none), reason, candidates[{id, scope, matched, rank}]}`; which style a model gets and why. `found` is false when core (or the chat backends) does not list the model. Needs `llm_chat` |
 | `LLMAssistantRewritePrompt` | `prompt`, `imageModel?`, `negative?`, `rewriteModel?`, `styleId?`, `width?`, `height?`, `fresh?` (default true) | `{success, original, text, negative, rewritten, skipped, retried, fellBack, style{id, scope}, via, reason, model, warnings[], usage{inputTokens, outputTokens}}`; rewrites a prompt for an image or video model. A failing model is not an error (`fellBack` is true and `text` is what to generate from). `fresh: false` uses the cache. Needs `llm_chat` |
 | `LLMAssistantSetWorkspaceTrust` | `workspaceId`, `trusted` | `{success}`; trusts a workspace's own skills and commands. Only a workspace the user can use; needs `llm_code_mode` and `llm_settings` |
 | `LLMAssistantSaveHook` | `hook` (object or JSON string), `scope?` | `{success, id}`; a shared hook needs `llm_shared_write`, a command hook needs `llm_hook_command` |
@@ -1119,13 +1149,20 @@ SwarmUI-LLMAssistant/
 │   ├── LocalDeviceChoices.cs  Device and GPU dropdowns for the local card, from the engine's device check
 │   ├── BackendCardAPI.cs      The two routes the backend cards fill their dropdowns from
 │   └── LLMBackendPack.cs      One Register() call
-├── Services/                  Assistants, instructions, threads, tools, media, memory,
-│                              settings layers, rate limits, audit log, GC, the one tool loop (ToolTurnRunner, ToolTurnSinks)
-├── Tools/BuiltIn/             The 13 built-in tool handlers
+├── Services/                  Assistants, instructions, threads, tools, media, settings layers, rate limits, audit log, GC,
+│                              the one tool loop (ToolTurnRunner, ToolTurnSinks), and one folder per feature:
+│                              Memory/, ChatLibrary/, Compaction/, Hooks/, Mcp/, PromptAssets/, PromptStyles/, PromptRewrite/,
+│                              ImageTools/, Sessions/, Schedules/, Knowledge/, Readiness/
+├── Tools/BuiltIn/             The built-in tool handlers (one file per tool or tool family: files, web, memory, image, vision, device actions, code, sessions, schedules, skill, knowledge, MCP)
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
-├── WebAPI/                    51 endpoints across 11 files + permission definitions
+├── WebAPI/                    One static endpoint class per feature, and LLMAssistantAPI.cs, which holds the permission
+│                              definitions and registers every route (`grep -c RegisterAPICall WebAPI/LLMAssistantAPI.cs`)
 ├── Tabs/Text2Image/           Tab markup (`LLM Assistant.html`; the filename is the tab label)
-└── Assets/                    Front-end JS/CSS (llm-backend-cards.js organizes the backend cards), starter templates, vendored libraries
+├── Assets/                    Front-end JS/CSS (llm-backend-cards.js organizes the backend cards), starter assistants,
+│                              built-in prompt styles (prompt-assets/styles/), screenshots, vendored libraries
+├── docs/                      Prompting guides per model family (docs/prompting/), the chat-model style example, upstream proposals
+├── Tests/                     xUnit unit tests (Tests/LLMAssistant.Tests.csproj)
+└── E2E/                       Playwright browser suite against a throwaway SwarmUI and a scripted mock LLM (see E2E/README.md)
 ```
 
 ### Design notes
@@ -1216,7 +1253,7 @@ The list appears once the backend is saved with an **Address** that answers; for
 - **Tool calls on small local models are model-dependent.** A small model may answer in prose or end its turn right after a tool-call marker. The engine's own real-weight matrix records which checkpoints call tools reliably on this machine.
 - **`ForceToolId`** on the local engine states the forced tool in the system prompt and restricts the parser to it; it is not a grammar, so a model can still answer in prose. OpenAI-compatible requests carry the forced choice as `tool_choice`, which the endpoint honours when it supports that field. Claude Opus 5.5, Sonnet 5.5 and Fable 5.1 do not support a forced tool and answer such a request with an error.
 - **Qwen3.5 and the other CUDA-only checkpoints** need a CUDA build; their dense weights have no CPU path yet.
-- **MCP tools** (`mcp_stdio` / `mcp_http`) are reserved handler types, not yet implemented.
+- **Not verified on real hardware or real services.** The automated browser suite runs against a scripted mock LLM, with no GPU, so the local GGUF engine, CUDA for MOSS-VL, and live providers are not covered by CI. The knowledge library and memory recall by meaning were tested against a scripted embedding endpoint, not a real embedding model. No prompt style (the built-in `ideogram-4` included) has been tried with a real image model driven by a real chat model: the style, rewrite and auto-enhance code is verified for wiring, validation and fallback only, so judge the output quality on your own models before relying on it.
 
 ---
 

@@ -1,5 +1,7 @@
 # LLM Assistant — code audit
 
+> **Historical record (2026-08-18).** All 16 findings were fixed the same day (see the resolution below). The file and line references describe the code as it was then and are not kept up to date: the extension has changed a great deal since (see `README.md` for the current behaviour, and `NEXT-PHASES.md` for what shipped).
+
 Audited 2026-08-18 against SwarmUI `0.9.8.2` and [`docs/Making Extensions.md`](https://github.com/mcmonkeyprojects/SwarmUI/blob/master/docs/Making%20Extensions.md).
 Every finding below was verified against source; the ones marked **verified live** were reproduced
 against the running instance.
