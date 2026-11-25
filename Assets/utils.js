@@ -15,6 +15,8 @@ const LLMAState = {
     activeThreadToolsEnabled: null,
     // Per-thread memory opt-out: false = "don't remember this chat"; null = follow the assistant and the master switch (see memory.js).
     activeThreadMemoryExtraction: null,
+    // Per-chat prompt rewrite switch: true/false, or null to follow the assistant and the settings (see rewrite-controls.js).
+    activeThreadAutoEnhance: null,
     activeAssistantId: null,
     messages:          [],
     threads:           [],

@@ -45,6 +45,10 @@ public class ResolvedAssistant
     /// ("this assistant never saves memories"); child wins when explicitly set, like <see cref="ToolsEnabled"/>. The master switch in Settings is a separate, off-by-default switch above it.</summary>
     public bool MemoryExtraction = true;
 
+    /// <summary>This assistant's switch for automatic prompt rewriting (see <c>RewritePolicy</c>): true, false, or null when it says nothing (<c>autoEnhance</c> absent or null all the way up the chain). Child wins
+    /// when explicitly set.</summary>
+    public bool? AutoEnhance;
+
     /// <summary>Per-tool config blobs, deep-merged across the chain. Read by tools at execution
     /// time via <see cref="ToolConfigService"/>.</summary>
     public Dictionary<string, JObject> ToolConfig = [];
@@ -232,6 +236,11 @@ public static class AssistantResolver
         if (layer["memoryExtraction"]?.Type == JTokenType.Boolean)
         {
             target.MemoryExtraction = layer["memoryExtraction"].Value<bool>();
+        }
+        // AutoEnhance — child wins iff explicitly present, like ToolsEnabled.
+        if (layer["autoEnhance"]?.Type == JTokenType.Boolean)
+        {
+            target.AutoEnhance = layer["autoEnhance"].Value<bool>();
         }
         // EnabledToolIds — replace-if-present (explicit list, even empty, IS the set; absent inherits).
         if (layer["enabledToolIds"] is JArray ids)

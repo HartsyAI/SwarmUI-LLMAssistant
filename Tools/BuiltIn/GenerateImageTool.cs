@@ -206,14 +206,18 @@ public class GenerateImageTool : ToolHandler
         {
             return modelError;
         }
-        // `rewrite: off` stops the automatic prompt rewrite for this call; anything else follows the user's setting (and a generation's own parameter).
+        // `rewrite: off` stops the automatic prompt rewrite for this call; anything else follows the switches (see RewritePolicy).
         if (string.Equals(args["rewrite"]?.ToString(), PromptAutoEnhance.ModeOff, StringComparison.OrdinalIgnoreCase) && PromptTagHandler.ParamAutoEnhance is not null)
         {
             rawInput[PromptTagHandler.ParamAutoEnhance.Type.ID] = PromptAutoEnhance.ModeOff;
         }
-        // Tag metadata so the resulting image's metadata sidecar records which presets were used, and carry an id the prompt rewrite reports its outcome under.
+        // Tag metadata so the resulting image's metadata sidecar records which presets were used, carry an id the prompt rewrite reports its outcome under, and say which chat and assistant switches apply.
         string reportId = Guid.NewGuid().ToString("N");
-        JObject extraMetadata = new() { [PromptAutoEnhance.MetaReportId] = reportId };
+        JObject extraMetadata = new()
+        {
+            [PromptAutoEnhance.MetaReportId] = reportId,
+            [PromptAutoEnhance.MetaScope] = RewritePolicy.ForChat(session.User, ctx.ThreadId, ctx.AssistantId).ToMeta()
+        };
         if (presetsApplied.Count > 0)
         {
             extraMetadata["presets_used"] = string.Join(", ", presetsApplied);

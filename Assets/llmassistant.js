@@ -126,6 +126,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     LLMAState.activeAssistantId = assistantId;
     LLMAState.activeThreadId    = null;
     LLMAState.activeThreadToolsEnabled = null;
+    LLMAState.activeThreadAutoEnhance = null;
     if (typeof llmaCloseLingeringSocket === 'function') llmaCloseLingeringSocket();
     LLMAState.activeThreadMemoryExtraction = null;
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
@@ -145,6 +146,7 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     llmaRenderThreadList(LLMAState.threads);
     llmaRenderAssistantPanel(assistantId);
     llmaRenderEmptyChatGreeting();
+    llmaRewriteControls.refresh();
 
     if (persist) {
         llmaRequest('LLMAssistantSetActiveAssistant', { assistantId }).catch(() => {});
@@ -349,6 +351,7 @@ function llmaSetupTopBar() {
     llmaSetupModelMenu();
     llmaSetupParamsPopover();
     llmaSetupExportMenu();
+    llmaRewriteControls.setup();
 
     const settingsBtn = document.getElementById('llma-settings-btn');
     if (settingsBtn) settingsBtn.addEventListener('click', llmaOpenSettings);
@@ -1402,6 +1405,7 @@ function llmaSetupSettingsModal() {
         llmaRefreshPromptAddendumBox();
     });
     document.getElementById('llma-asst-extends')?.addEventListener('change', llmaRefreshPromptAddendumBox);
+    document.getElementById('llma-asst-extends')?.addEventListener('change', llmaRefreshAutoEnhanceHint);
     document.getElementById('llma-asst-memory-extraction')?.addEventListener('change', () => { LLMAState._editingMemoryExtractionTouched = true; });
     document.getElementById('llma-memory-toggle-btn')?.addEventListener('click', llmaToggleThreadMemory);
     document.getElementById('llma-memory-pause-btn')?.addEventListener('click', llmaToggleMemoryPause);
@@ -1461,6 +1465,8 @@ function llmaCloseSettings() {
     llmaRemoveFocusTrap(overlay);
     document.getElementById('llma-asst-editor').style.display = 'none';
     document.getElementById('llma-tool-editor').style.display = 'none';
+    // The main switch, the entry point switches, a model rule or an assistant may have changed.
+    llmaRewriteControls.refresh();
     return true;
 }
 
@@ -1803,6 +1809,14 @@ function llmaShowAssistantEditor(assistant) {
     }
     llmaRefreshPromptAddendumBox();
 
+    // This assistant's switch for rewriting image prompts. "Default" stores nothing of its own, so a parent's value (or the settings) applies.
+    const autoEnhanceSelect = document.getElementById('llma-asst-auto-enhance');
+    if (autoEnhanceSelect) {
+        autoEnhanceSelect.value = typeof assistant?.autoEnhance === 'boolean' ? (assistant.autoEnhance ? 'on' : 'off') : 'default';
+        autoEnhanceSelect.onchange = llmaRefreshAutoEnhanceHint;
+    }
+    llmaRefreshAutoEnhanceHint();
+
     // Per-assistant opt-out of the automatic memory extractor. Defaults to on; written on save only when this assistant already had its own value or the box was changed.
     LLMAState._editingMemoryExtractionOwn = typeof assistant?.memoryExtraction === 'boolean';
     LLMAState._editingMemoryExtractionTouched = false;
@@ -1874,6 +1888,17 @@ function llmaRefreshPromptAddendumBox() {
     if (hint) hint.textContent = parent ? `${translate('Inherited from')} ${parent.name}: ${inherited ? translate('on') : translate('off')}` : '';
 }
 
+// Says what the parent assistant's auto-enhance switch is when this assistant is left on "Default".
+function llmaRefreshAutoEnhanceHint() {
+    const select = document.getElementById('llma-asst-auto-enhance');
+    const hint = document.getElementById('llma-asst-auto-enhance-hint');
+    if (!select || !hint) return;
+    const parent = LLMAState.assistants.find(a => a.id === (document.getElementById('llma-asst-extends')?.value || ''));
+    const inherited = parent?._effectiveAutoEnhance;
+    hint.textContent = select.value === 'default' && typeof inherited === 'boolean'
+        ? `${translate('Inherited from')} ${parent.name}: ${inherited ? translate('on') : translate('off')}` : '';
+}
+
 // Populates the "Extends" dropdown with every assistant except the one being edited
 // (preventing self-parenting). Cycles further down the chain are caught by the resolver.
 function llmaPopulateExtendsDropdown(assistant) {
@@ -1923,6 +1948,11 @@ async function llmaSaveAssistantFromEditor() {
     }
     if (LLMAState._editingMemoryExtractionOwn || LLMAState._editingMemoryExtractionTouched) {
         assistant.memoryExtraction = document.getElementById('llma-asst-memory-extraction')?.checked !== false;
+    }
+    // null clears this assistant's own switch (an omitted field would leave the saved one in place).
+    const autoEnhance = document.getElementById('llma-asst-auto-enhance')?.value;
+    if (autoEnhance) {
+        assistant.autoEnhance = autoEnhance === 'default' ? null : autoEnhance === 'on';
     }
     // Omitted list = inherit from parent; only send when explicit or touched.
     if (LLMAState._editingHadOwnToolList || LLMAState._editingToolsTouched) {
@@ -2269,6 +2299,10 @@ function llmaSetupKeyboardShortcuts() {
 
         if (e.key === 'Escape') {
             llmaCloseAllPopovers();
+            if (llmaRewriteControls.previewOpen()) {
+                llmaRewriteControls.closePreview();
+                return;
+            }
             const assetOverlay = document.getElementById('llma-asset-overlay');
             if (assetOverlay && assetOverlay.style.display !== 'none') {
                 if (typeof llmaCloseAssetViewer === 'function') llmaCloseAssetViewer();
@@ -2299,6 +2333,8 @@ function llmaCloseAllPopovers(except) {
         const el = document.getElementById(id);
         if (el && el !== except) el.style.display = 'none';
     }
+    const enhance = document.getElementById('llma-enhance-popover');
+    if (enhance && enhance !== except) llmaRewriteControls.closePopover();
     // The model menu is a class-toggled popover (not display:none), so close it separately.
     const modelAnchor = document.getElementById('llma-model-anchor');
     if (modelAnchor && modelAnchor !== except) modelAnchor.classList.remove('llma-model-open');

@@ -4,26 +4,9 @@ using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
-/// <summary>The parts of the generation hook that need no running core: when it runs, what it writes to the metadata, and the memory that stops a prompt being rewritten twice.</summary>
+/// <summary>The parts of the generation hook that need no running core: what it writes to the metadata, and the memory that stops a prompt being rewritten twice.</summary>
 public class PromptAutoEnhanceTests
 {
-    [Theory]
-    [InlineData("default", false, false)]
-    [InlineData("default", true, true)]
-    [InlineData("on", false, true)]
-    [InlineData("on", true, true)]
-    [InlineData("off", true, false)]
-    [InlineData("off", false, false)]
-    [InlineData("ON", false, true)]
-    [InlineData(" Off ", true, false)]
-    [InlineData(null, true, true)]
-    [InlineData("nonsense", true, true)]
-    [InlineData("nonsense", false, false)]
-    public void AGenerationsOwnChoiceWinsOverTheSetting(string mode, bool setting, bool expected)
-    {
-        Assert.Equal(expected, PromptAutoEnhance.ShouldRun(mode, setting));
-    }
-
     [Fact]
     public void TheAutomaticSettingIsOffUnlessTheUserTurnsItOn()
     {

@@ -183,8 +183,8 @@ public static class ChatEndpoints
     /// <summary>Creates a new empty chat thread for the given assistant. The frontend calls this
     /// before sending the first message in a fresh chat; subsequent messages reference the returned
     /// <c>threadId</c>. If <paramref name="assistantId"/> is empty, the user's active assistant is used. <paramref name="rememberChat"/> false marks the chat "don't remember" (the
-    /// automatic memory extractor never reads it) from the start.</summary>
-    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null, string mode = null, bool rememberChat = true)
+    /// automatic memory extractor never reads it) from the start. <paramref name="autoEnhance"/> <c>on</c> or <c>off</c> gives the chat its own prompt rewrite switch from the start.</summary>
+    public static async Task<JObject> LLMAssistantCreateThread(Session session, string assistantId = null, string title = null, string mode = null, bool rememberChat = true, string autoEnhance = null)
     {
         if (session?.User is null)
         {
@@ -214,6 +214,10 @@ public static class ChatEndpoints
                 t["memoryExtraction"] = false;
                 return true;
             }) ?? thread;
+        }
+        if (Services.PromptRewrite.RewritePolicy.ReadSwitch(autoEnhance) is bool rewrite)
+        {
+            thread = Services.PromptRewrite.RewritePolicy.SetChatSwitch(session.User, thread["id"]?.ToString(), rewrite) ?? thread;
         }
         return new JObject
         {

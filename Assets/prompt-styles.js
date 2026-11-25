@@ -15,6 +15,8 @@ class LLMAPromptStyles {
         this.imageModels = [];
         /** Whether the user may save shared styles. */
         this.canWriteShared = false;
+        /** The rewrite switches the server reports: { auto, chat, generate }, or null before they are read. */
+        this.switches = null;
         /** The style being edited as the server sent it, or null for a new one (or when the editor is closed). */
         this.editing = null;
     }
@@ -39,6 +41,8 @@ class LLMAPromptStyles {
         this.overrides = reply.overrides || [];
         this.imageModels = reply.imageModels || [];
         this.canWriteShared = !!reply.canWriteShared;
+        let policy = await llmaUserAction(() => llmaRequest('LLMAssistantGetRewritePolicy', { entryPoint: 'generate' }), translate('Could not load the rewrite switches'));
+        this.switches = policy ? policy.settings : null;
         this.render();
     }
 
@@ -159,10 +163,14 @@ class LLMAPromptStyles {
     /** The box that rewrites a prompt for a model and shows exactly what came back (the same engine generation will use). */
     rewriteBoxHtml(axis) {
         let saved = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptRewrite?.model) || '';
-        let auto = (typeof LLMAState != 'undefined' && LLMAState.settings?.promptRewrite?.auto) ? 'checked' : '';
+        let auto = this.switches?.auto ? 'checked' : '';
+        let entry = (name, label) => `<label class="small d-flex align-items-center gap-2 mb-0">${translate(label)}<select class="form-select form-select-sm w-auto llma-rewrite-entry" data-entry="${name}">`
+            + [['default', 'Follow the main switch'], ['on', 'On'], ['off', 'Off']].map(([value, text]) => `<option value="${value}" ${(this.switches?.[name] || 'default') == value ? 'selected' : ''}>${translate(text)}</option>`).join('')
+            + '</select></label>';
         return `<h6 class="mt-3">${translate('Automatic rewriting')}</h6>`
             + `<label class="small mb-2 d-block"><input type="checkbox" class="llma-rewrite-auto" ${auto}> ${translate('Rewrite the prompt for the selected model every time I generate')}</label>`
-            + `<div class="small text-muted mb-3">${translate('Off by default. A generation can override it with its own LLM Auto-Enhance Prompt setting, and the generate_image tool with rewrite: off. The original prompt is kept in the image metadata.')}</div>`
+            + `<div class="d-flex flex-wrap gap-3 mb-2">${entry('chat', 'Images made in chats')}${entry('generate', 'Generate tab and API')}</div>`
+            + `<div class="small text-muted mb-3">${translate('The main switch applies unless something above it says on or off. From the strongest: the generation\'s own LLM Auto-Enhance Prompt setting (or the generate_image tool\'s rewrite: off), the chat, the assistant, a rule of no style for the model, then the two switches here. The original prompt is kept in the image metadata.')}</div>`
             + `<h6 class="mt-3">${translate('Try a rewrite')}</h6>`
             + `<div class="small text-muted mb-2">${translate('Rewrites a prompt for the image model with the chat model you pick, using the style that model gets. Nothing is generated.')}</div>`
             + `<textarea class="auto-text-block llma-rewrite-prompt mb-2" rows="3" placeholder="${translate('A prompt, for example: a cat on a windowsill')}"></textarea>`
@@ -197,6 +205,9 @@ class LLMAPromptStyles {
         box.querySelector('.llma-rewrite-run')?.addEventListener('click', () => this.rewrite(box));
         box.querySelector('.llma-rewrite-save')?.addEventListener('click', () => this.saveRewriteModel(box));
         box.querySelector('.llma-rewrite-auto')?.addEventListener('change', event => this.saveRewriteAuto(event.target.checked));
+        for (let select of box.querySelectorAll('.llma-rewrite-entry')) {
+            select.addEventListener('change', () => this.saveRewriteEntry(select.dataset.entry, select.value));
+        }
         box.querySelector('.llma-resolve-model')?.addEventListener('keydown', event => {
             if (event.key == 'Enter') {
                 this.resolve(box, axis);
@@ -278,6 +289,14 @@ class LLMAPromptStyles {
             out.textContent = '';
             return;
         }
+        let lines = this.rewriteSummaryLines(reply);
+        lines.push(`<pre class="llma-rewrite-text">${escapeHtmlNoBr(reply.text)}</pre>`);
+        lines.push(...this.rewriteDetailLines(reply, box.querySelector('.llma-rewrite-negative').value.trim()));
+        out.innerHTML = lines.join('<br>');
+    }
+
+    /** The first lines of a rewrite result: the style and why it was chosen, and what happened. */
+    rewriteSummaryLines(reply) {
         let lines = [];
         if (reply.style) {
             lines.push(`${translate('Style')}: <b>${escapeHtml(reply.style.id)}</b> (${escapeHtml(reply.style.scope)}) ${reply.reason ? '- ' + escapeHtml(reply.reason) : ''}`);
@@ -287,8 +306,13 @@ class LLMAPromptStyles {
         }
         let state = reply.rewritten ? translate('Rewritten') : (reply.fellBack ? translate('Fell back to your wording') : translate('Left as written'));
         lines.push(`<b class="llma-rewrite-state">${state}</b>${reply.retried ? ' (' + translate('after one retry') + ')' : ''}${reply.skipped ? ' - ' + escapeHtml(reply.skipped) : ''}`);
-        lines.push(`<pre class="llma-rewrite-text">${escapeHtmlNoBr(reply.text)}</pre>`);
-        if (reply.negative && reply.negative != box.querySelector('.llma-rewrite-negative').value.trim()) {
+        return lines;
+    }
+
+    /** The lines under a rewrite result: a negative prompt that changed from the one sent, the warnings and the rough token count. */
+    rewriteDetailLines(reply, sentNegative) {
+        let lines = [];
+        if (reply.negative && reply.negative != sentNegative) {
             lines.push(`${translate('Negative')}: <code>${escapeHtml(reply.negative)}</code>`);
         }
         for (let warning of reply.warnings || []) {
@@ -297,7 +321,7 @@ class LLMAPromptStyles {
         if (reply.usage) {
             lines.push(`<span class="text-muted">${translate('About')} ${reply.usage.inputTokens} ${translate('tokens in')}, ${reply.usage.outputTokens} ${translate('out')}</span>`);
         }
-        out.innerHTML = lines.join('<br>');
+        return lines;
     }
 
     /** Turns automatic rewriting of every generation on or off in the user's own settings. */
@@ -306,7 +330,17 @@ class LLMAPromptStyles {
             return;
         }
         LLMAState.settings.promptRewrite = { ...(LLMAState.settings.promptRewrite || {}), auto: on };
+        if (this.switches) {
+            this.switches.auto = on;
+        }
         await llmaSaveSettings();
+    }
+
+    /** Sets the switch for one way of generating ('chat' or 'generate') to 'default', 'on' or 'off' in the user's own settings. */
+    async saveRewriteEntry(entryPoint, value) {
+        if (await llmaRewriteControls.saveEntryPoint(entryPoint, value) && this.switches) {
+            this.switches[entryPoint] = value;
+        }
     }
 
     /** Keeps the chat model typed in the box as the one that rewrites prompts, in the user's own settings. */

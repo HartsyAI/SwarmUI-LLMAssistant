@@ -6,7 +6,7 @@ using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
 
-/// <summary>The generation hook: when automatic enhancement is on, rewrites a generation's prompt for the model it is for, right before core parses prompt tags (so every way of generating, the Generate tab, the
+/// <summary>The generation hook: when <see cref="RewritePolicy"/> says so, rewrites a generation's prompt for the model it is for, right before core parses prompt tags (so every way of generating, the Generate tab, the
 /// <c>generate_image</c> tool and the API, gets the same treatment). Runs once per image task; the cache inside <see cref="PromptRewriteService"/> makes a batch cost one request.
 /// <para>It never blocks a generation on failure: any problem leaves the prompt as it was. It does nothing for a generation with no signed-in session or no model (core's own tag test route is one), for an empty prompt, or for
 /// a prompt this extension already produced.</para></summary>
@@ -27,15 +27,11 @@ public static class PromptAutoEnhance
     /// <summary>A report id the tool makes (a GUID without dashes); anything else is not stored, so a request cannot put an unbounded key into the report store.</summary>
     private static readonly Regex ReportId = new("^[0-9a-f]{32}$", RegexOptions.Compiled);
 
+    /// <summary>The extra-metadata key the image tool writes its <see cref="RewriteScope"/> to, so the chat's and the assistant's switches reach this hook.</summary>
+    public const string MetaScope = "llma_rewrite_scope";
+
     /// <summary>The longest warning, and the longest of all warnings together, written to the image's metadata.</summary>
     public const int MaxWarningChars = 300, MaxWarningsTotalChars = 1500;
-
-    /// <summary>Whether the rewrite runs for a generation whose per-generation mode is <paramref name="mode"/> when the master setting is <paramref name="settingOn"/>. A generation's own choice wins.</summary>
-    public static bool ShouldRun(string mode, bool settingOn)
-    {
-        string m = (mode ?? ModeDefault).Trim().ToLowerInvariant();
-        return m == ModeOn || (m != ModeOff && settingOn);
-    }
 
     /// <summary>The facts written to a generation's metadata for a rewrite result: the original prompt, the style, the writing model, what happened and any warnings.</summary>
     public static Dictionary<string, string> BuildMeta(RewriteResult result)
@@ -57,7 +53,7 @@ public static class PromptAutoEnhance
         return meta;
     }
 
-    /// <summary>The late handler: rewrites the prompt of <paramref name="input"/> when the setting or the generation's own mode says to.</summary>
+    /// <summary>The late handler: rewrites the prompt of <paramref name="input"/> when the switches say to (see <see cref="RewritePolicy"/>).</summary>
     public static void Apply(T2IParamInput input)
     {
         try
@@ -69,12 +65,7 @@ public static class PromptAutoEnhance
                 return;
             }
             string mode = input.TryGet(PromptTagHandler.ParamAutoEnhance, out string m) ? m : ModeDefault;
-            if (string.Equals(mode?.Trim(), ModeOff, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-            RewriteSettings settings = RewriteSettings.ForUser(session.User);
-            if (!ShouldRun(mode, settings.Auto) || !session.User.HasPermission(LLMAssistantAPI.PermChat))
+            if (RewritePolicy.ReadSwitch(mode) == false || !session.User.HasPermission(LLMAssistantAPI.PermChat))
             {
                 return;
             }
@@ -85,6 +76,12 @@ public static class PromptAutoEnhance
             }
             string negative = input.TryGet(T2IParamTypes.NegativePrompt, out string neg) ? neg : "";
             string styleId = input.TryGet(PromptTagHandler.ParamPromptStyle, out string s) && !string.Equals(s, StyleAuto, StringComparison.OrdinalIgnoreCase) ? s : "";
+            RewriteSettings settings = RewriteSettings.ForUser(session.User);
+            RewriteScope scope = RewriteScope.FromMeta(input.ExtraMeta.TryGetValue(MetaScope, out object from) ? from : null);
+            if (!RewritePolicy.ShouldRewrite(session.User, scope, mode, model.Name, styleId, settings))
+            {
+                return;
+            }
             int width = input.TryGet(T2IParamTypes.Width, out int w) ? w : 0, height = input.TryGet(T2IParamTypes.Height, out int h) ? h : 0;
             RewriteRequest request = new(prompt, negative, model.Name, width, height, "", styleId, Fresh: false);
             // Core's hook is synchronous, so this blocks the engine thread that prepares the image; the call is bounded by the settings' timeout for each of its requests and by the generation being interrupted.

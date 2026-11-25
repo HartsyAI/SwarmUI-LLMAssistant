@@ -664,7 +664,7 @@ async function llmaCreateThread(assistantId) {
 
     let thread;
     try {
-        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat, rememberChat: LLMAState.activeThreadMemoryExtraction !== false });
+        const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat, rememberChat: LLMAState.activeThreadMemoryExtraction !== false, ...(typeof LLMAState.activeThreadAutoEnhance === 'boolean' ? { autoEnhance: llmaRewriteControls.toSwitch(LLMAState.activeThreadAutoEnhance) } : {}) });
         if (!result?.success || !result.thread) {
             llmaShowToast(result?.error || 'Failed to create chat', 'error');
             return;
@@ -705,6 +705,8 @@ async function llmaCreateThread(assistantId) {
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
     // "Don't remember this chat", flipped before the chat existed, was sent with the creation itself (rememberChat), so there is no second call that could fail and leave the chat remembered.
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
+    // The rewrite switch chosen before the chat existed was sent with the creation too.
+    llmaRewriteControls.onThreadLoaded(thread);
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
@@ -754,6 +756,7 @@ async function llmaSwitchThread(threadId) {
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         llmaCodeMode.onThreadLoaded(thread);
         llmaSessions.onThreadLoaded(thread);
+        llmaRewriteControls.onThreadLoaded(thread);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
@@ -830,6 +833,7 @@ async function llmaReloadActiveThread() {
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaSessions.onThreadLoaded(thread);
+    llmaRewriteControls.onThreadLoaded(thread);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();

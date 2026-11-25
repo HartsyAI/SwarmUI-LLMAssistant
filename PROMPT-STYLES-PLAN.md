@@ -14,7 +14,7 @@ Status (2026-11-24): **P0, P1, P2, P3a and P3b are built and merged; P4 is not b
 **What differs from the plan below (as built):**
 - Only two styles are built in: `generic` and `ideogram-4`. `flux-3`, `fibo-2`, `moss-image`, `ming-image`, natural-language families and a video style (section 4) are not written; the researched guides exist (P0) but no style is derived from them yet.
 - **Automatic rewriting is off by default** (`promptRewrite.auto`), not on. The chat-model addendum master switch is on by default, but no addendum exists, so nothing changes until a user writes one.
-- Not built from the switch list (3.4): per-assistant and per-chat overrides for the rewrite, a composer chip, per-entry-point switches and a failure-policy setting (a failed rewrite always falls back to the user's wording, wrapped in valid JSON for a JSON-only model). What is built: the master setting, the per-generation parameters **LLM Auto-Enhance Prompt** and **LLM Prompt Style**, the `generate_image` `rewrite: "off"` argument, per-style on/off for chat-model styles, and per-model rules.
+- From the switch list (3.4), built later: per-chat and per-assistant overrides, a composer control with a preview, and a switch each for chats and for the Generate tab and API. Still not built: a failure-policy setting (a failed rewrite always falls back to the user's wording, wrapped in valid JSON for a JSON-only model). What the first version built: the master setting, the per-generation parameters **LLM Auto-Enhance Prompt** and **LLM Prompt Style**, the `generate_image` `rewrite: "off"` argument, per-style on/off for chat-model styles, and per-model rules.
 - Not built from 3.6: the writing model is not shown wildcard names or samples and does not choose wildcards; a `<wildcard:name>` is masked like any Swarm tag and expanded by core afterwards.
 - Edit-before-generate in the Ask-mode approval card was not built (decision 2: show-after only).
 - **Not verified on real hardware:** no style has been tried with a real image model and a real chat model; see section 7 and `docs/prompting/README.md` for the open real-model checks.
@@ -161,9 +161,9 @@ Entry points: see 3.2b. The first plan listed four (the tool, the Enhance button
 The original prompt is data inside the rewrite request, quoted and labelled; the rewriter has no tools; its output only ever becomes a prompt and is checked by the validator. Bundled styles cite their sources in the front matter.
 
 ### 3.4 Switches (as built; the plan listed more)
-- **Image axis:** `promptRewrite.auto` (Settings > Prompt styles, **off** by default); the per-generation parameters **LLM Auto-Enhance Prompt** (`default` / `on` / `off`) and **LLM Prompt Style**; `generate_image`'s `rewrite: "off"`; per-model rules, which can also say "no style".
+- **Image axis:** `promptRewrite.auto` (Settings > Prompt styles, **off** by default) and `promptRewrite.entryPoints`; each chat's and assistant's `autoEnhance`; the per-generation parameters **LLM Auto-Enhance Prompt** (`default` / `on` / `off`) and **LLM Prompt Style**; `generate_image`'s `rewrite: "off"`; per-model rules, which can also say "no style".
 - **LLM axis:** **Tune prompts for the chat model** (`promptStyles.llmAddenda`, on by default), an on/off switch per style (`promptStyles.disabled`), and each assistant's `promptAddendum: false`.
-- Precedence for a generation: the per-generation parameter beats the setting. The planned per-chat, per-assistant and per-entry-point layers were not built (see the status above).
+- Precedence for a generation (`RewritePolicy`): the per-generation parameter, then the chat, the assistant, a model rule of no style, the entry point's switch, the master setting. The chat and assistant switches apply to the image tool only.
 
 ### 3.5 Settings: a "Prompt styles" tab
 Two sections, "By chat model" (LLM axis) and "By image model" (image axis), each with its own list, overrides and resolve preview. Built from core components (Bootstrap list/segmented/switch, `.basic-button`, core form helpers, theme variables); new `llma-` CSS only where core has no equivalent, stated in the PR.
