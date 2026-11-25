@@ -8,13 +8,14 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 public class PromptAutoEnhanceTests
 {
     [Fact]
-    public void TheAutomaticSettingIsOffUnlessTheUserTurnsItOn()
+    public void TheAutomaticSettingTakesTheDefaultUnlessTheUserSetsIt()
     {
-        Assert.False(RewriteSettings.Default.Auto);
-        Assert.False(RewriteSettings.From(null).Auto);
-        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"model":"x"}}""")).Auto);
-        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":"yes"}}""")).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.Default.Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(null).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"model":"x"}}""")).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":"yes"}}""")).Auto);
         Assert.True(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":true}}""")).Auto);
+        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":false}}""")).Auto);
     }
 
     private static RewriteResult Result(bool rewritten = true, bool fellBack = false, string style = "ideogram-4", List<string> warnings = null)
