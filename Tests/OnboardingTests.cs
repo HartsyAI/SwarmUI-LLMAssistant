@@ -26,12 +26,14 @@ public class OnboardingTests
         /// <summary>The kinds this user may not make.</summary>
         public HashSet<string> Refused = [];
 
-        /// <summary>An id whose save fails, and one whose save throws.</summary>
-        public string Failing, Throwing;
+        /// <summary>An id whose save fails, one whose save throws, and one that something else saves between the look and the add.</summary>
+        public string Failing, Throwing, Racing;
 
         public string Refusal(string kind) => Refused.Contains(kind) ? "not allowed" : null;
 
         public bool Has(string kind, string id) => Items.ContainsKey((kind, id));
+
+        public bool HasAssistant(string assistantId) => Items.ContainsKey((StarterKinds.Assistant, assistantId));
 
         public string AddAssistant(StarterAssistant assistant) => Add(StarterKinds.Assistant, assistant.Id, assistant.ChatInstruction);
 
@@ -52,6 +54,10 @@ public class OnboardingTests
             if (id == Failing)
             {
                 return "full";
+            }
+            if (id == Racing)
+            {
+                return StarterSkips.AlreadyThere;
             }
             Saves++;
             // Add, not indexing: writing over an item is a failure of the test.
@@ -199,6 +205,57 @@ public class OnboardingTests
         Assert.Equal(StarterContent.Chats.Length, StarterContent.Chats.Select(c => c.IdFor("ada")).Distinct().Count());
     }
 
+    [Fact]
+    public void An_item_saved_by_something_else_meanwhile_is_reported_as_there_not_as_added_or_failed()
+    {
+        FakeTarget user = new() { Racing = "video-prompt" };
+        (JArray added, JArray skipped) = StarterInstaller.Install(user);
+        Assert.Equal(Total - 1, added.Count);
+        Assert.Equal(StarterSkips.Exists, Assert.Single(skipped)["code"].ToString());
+    }
+
+    [Fact]
+    public void An_assistant_is_there_by_its_id_or_by_its_name()
+    {
+        StarterAssistant researcher = StarterContent.Assistants.Single(a => a.Id == StarterContent.ResearcherId);
+        Assert.False(StarterMatching.HasAssistant([], researcher));
+        Assert.False(StarterMatching.HasAssistant(new JObject { ["x"] = new JObject { ["name"] = "Research notes" } }, researcher));
+        Assert.True(StarterMatching.HasAssistant(new JObject { [researcher.Id] = new JObject { ["name"] = "Renamed" } }, researcher));
+        Assert.True(StarterMatching.HasAssistant(new JObject { ["mine"] = new JObject { ["name"] = " researcher " } }, researcher));
+    }
+
+    [Fact]
+    public void A_snippet_name_is_in_use_by_a_command_or_a_skill_and_a_create_only_write_replaces_neither()
+    {
+        string root = Path.Combine(Path.GetTempPath(), $"llma-onboarding-{Guid.NewGuid():N}");
+        PromptAssetSet none = new();
+        PromptAsset skill = new(PromptAsset.KindSkill, "video-prompt", "", "", "", PromptAsset.ScopeShared, null, false);
+        try
+        {
+            Assert.False(StarterMatching.HasSnippet(none, root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, root, "video-prompt"));
+            Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindSkill, "video-prompt", "my skill", true, out _));
+            Assert.True(StarterMatching.HasSnippet(none, root, "video-prompt"));
+            Assert.False(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "video-prompt", "starter", true, out string shadow));
+            Assert.Equal(PromptAssetService.AlreadyExists, shadow);
+            string file = Path.Combine(root, "commands", "enhance-prompt.md");
+            Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "enhance-prompt", "mine", false, out _));
+            Assert.False(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "enhance-prompt", "starter", true, out string error));
+            Assert.Equal(PromptAssetService.AlreadyExists, error);
+            Assert.Equal("mine", File.ReadAllText(file));
+            // An ordinary save still replaces.
+            Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "enhance-prompt", "newer", false, out _));
+            Assert.Equal("newer", File.ReadAllText(file));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
     // ---- The state ----
 
     [Fact]
@@ -267,18 +324,71 @@ public class OnboardingTests
     }
 
     [Fact]
-    public void Installing_in_a_first_run_keeps_the_guide_open_and_otherwise_leaves_the_state_alone()
+    public void Installing_in_a_first_run_keeps_the_guide_open_only_when_something_was_added()
     {
         FakeStorage first = new();
-        OnboardingState.KeepOpenIfFirstRun(first, false);
+        OnboardingState.DuringInstall(first, false, () =>
+        {
+            // Already kept open while the chats are being made.
+            Assert.Equal(OnboardingState.Pending, OnboardingState.Observe(first, true));
+            return true;
+        });
         Assert.Equal(OnboardingState.Pending, OnboardingState.Load(first));
+        FakeStorage nothing = new();
+        OnboardingState.DuringInstall(nothing, false, () => false);
+        Assert.Equal(OnboardingState.New, OnboardingState.Load(nothing));
+        FakeStorage broken = new();
+        Assert.Throws<InvalidOperationException>(() => OnboardingState.DuringInstall(broken, false, () => throw new InvalidOperationException()));
+        Assert.Equal(OnboardingState.New, OnboardingState.Load(broken));
+        // Dismissed while it ran: that stays.
+        FakeStorage dismissed = new();
+        OnboardingState.DuringInstall(dismissed, false, () =>
+        {
+            OnboardingState.Apply(dismissed, OnboardingState.ActionSkip, out _, out _);
+            return false;
+        });
+        Assert.Equal(OnboardingState.Skipped, OnboardingState.Load(dismissed));
         FakeStorage used = new();
-        OnboardingState.KeepOpenIfFirstRun(used, true);
+        OnboardingState.DuringInstall(used, true, () => true);
         Assert.Equal(0, used.Writes);
         FakeStorage skipped = new();
         OnboardingState.Apply(skipped, OnboardingState.ActionSkip, out _, out _);
-        OnboardingState.KeepOpenIfFirstRun(skipped, false);
+        OnboardingState.DuringInstall(skipped, false, () => true);
         Assert.Equal(OnboardingState.Skipped, OnboardingState.Load(skipped));
+    }
+
+    [Fact]
+    public void A_new_user_seen_with_chats_is_saved_as_past_the_first_run()
+    {
+        FakeStorage fresh = new();
+        Assert.Equal(OnboardingState.New, OnboardingState.Observe(fresh, false));
+        Assert.Equal(0, fresh.Writes);
+        Assert.Equal(OnboardingState.Completed, OnboardingState.Observe(fresh, true));
+        // Deleting every chat afterwards does not start a first run.
+        Assert.False(OnboardingState.ShouldShow(OnboardingState.Observe(fresh, false), false));
+        Assert.Equal(1, fresh.Writes);
+        FakeStorage running = new();
+        OnboardingState.Apply(running, OnboardingState.ActionRun, out _, out _);
+        Assert.Equal(OnboardingState.Pending, OnboardingState.Observe(running, true));
+    }
+
+    [Theory]
+    [InlineData(null, OnboardingState.Completed)]
+    [InlineData(OnboardingState.ActionRun, OnboardingState.Completed)]
+    [InlineData(OnboardingState.ActionSkip, OnboardingState.Skipped)]
+    [InlineData(OnboardingState.ActionComplete, OnboardingState.Completed)]
+    public void A_message_ends_a_first_or_a_running_guide(string before, string after)
+    {
+        FakeStorage storage = new();
+        if (before is not null)
+        {
+            OnboardingState.Apply(storage, before, out _, out _);
+        }
+        OnboardingState.OnMessage(storage);
+        int writes = storage.Writes;
+        OnboardingState.OnMessage(storage);
+        Assert.Equal(after, OnboardingState.Load(storage));
+        Assert.Equal(writes, storage.Writes);
     }
 
     // ---- The checklist ----

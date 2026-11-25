@@ -17,12 +17,13 @@ public static class OnboardingService
     public static async Task<JObject> ReportAsync(Session session, bool checks, bool refresh, CancellationToken ct)
     {
         User user = session.User;
-        string status = OnboardingState.Load(new UserOnboardingStorage(user));
+        bool hasChats = HasChats(user);
+        string status = OnboardingState.Observe(new UserOnboardingStorage(user), hasChats);
         JObject report = new()
         {
             ["success"] = true,
             ["status"] = status,
-            ["show"] = OnboardingState.ShouldShow(status, HasChats(user)),
+            ["show"] = OnboardingState.ShouldShow(status, hasChats),
         };
         if (!checks)
         {
@@ -64,12 +65,20 @@ public static class OnboardingService
         return new JObject { ["success"] = true, ["status"] = status, ["show"] = OnboardingState.ShouldShow(status, HasChats(user)) };
     }
 
-    /// <summary>Installs what is missing of the starter set: <c>{success, added[], skipped[], starter{}}</c>.</summary>
+    /// <summary>Records that the user sent a message in a chat, which ends their first run.</summary>
+    public static void NoteMessage(User user) => OnboardingState.OnMessage(new UserOnboardingStorage(user));
+
+    /// <summary>Installs what is missing of the starter set: <c>{success, added[], skipped[], starter{}}</c>. A new user with no chats who gets something is left <c>pending</c>, so the example
+    /// chats do not end their first run.</summary>
     public static JObject InstallStarterSet(User user)
     {
         UserStarterTarget target = new(user);
-        OnboardingState.KeepOpenIfFirstRun(new UserOnboardingStorage(user), HasChats(user));
-        (JArray added, JArray skipped) = StarterInstaller.Install(target);
+        JArray added = [], skipped = [];
+        OnboardingState.DuringInstall(new UserOnboardingStorage(user), HasChats(user), () =>
+        {
+            (added, skipped) = StarterInstaller.Install(target);
+            return added.Count > 0;
+        });
         return new JObject { ["success"] = true, ["added"] = added, ["skipped"] = skipped, ["starter"] = StarterInstaller.Describe(target) };
     }
 

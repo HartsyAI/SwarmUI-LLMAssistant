@@ -29,7 +29,8 @@ public sealed class UserOnboardingStorage(User user) : IOnboardingStorage
 }
 
 /// <summary>Whether the first-run guide has been seen. A user starts as <see cref="New"/>; the guide shows to a new user who has no chats yet, and to one who asked to run it again
-/// (<see cref="Pending"/>), until they skip or finish it. A reset makes the user new again.</summary>
+/// (<see cref="Pending"/>), until they skip or finish it, or send a message. A new user who is seen with chats is recorded as <see cref="Completed"/>, so deleting every chat later does not
+/// start a first run. A reset makes the user new again.</summary>
 public static class OnboardingState
 {
     /// <summary>The statuses.</summary>
@@ -85,14 +86,62 @@ public static class OnboardingState
         return true;
     }
 
-    /// <summary>Called before something that makes chats for a user in their first run: a new user with no chats is kept in the guide, which the chats would otherwise close.</summary>
-    public static void KeepOpenIfFirstRun(IOnboardingStorage storage, bool hasChats)
+    /// <summary>The status now that it is known whether the user has chats: a new user who has some is past their first run, and is saved as <see cref="Completed"/>.</summary>
+    public static string Observe(IOnboardingStorage storage, bool hasChats)
     {
         lock (Lock)
         {
-            if (Load(storage) == New && !hasChats)
+            string status = Load(storage);
+            if (status == New && hasChats)
+            {
+                Save(storage, Completed);
+                return Completed;
+            }
+            return status;
+        }
+    }
+
+    /// <summary>The user sent a message: a guide that is new or running is finished. One they skipped stays skipped.</summary>
+    public static void OnMessage(IOnboardingStorage storage)
+    {
+        lock (Lock)
+        {
+            if (Load(storage) is New or Pending)
+            {
+                Save(storage, Completed);
+            }
+        }
+    }
+
+    /// <summary>Runs <paramref name="install"/> (true when it added something), which may make chats. A new user with no chats is kept in the guide, which the chats would otherwise close;
+    /// when nothing was added, they are left new, as they were.</summary>
+    public static void DuringInstall(IOnboardingStorage storage, bool hadChats, Func<bool> install)
+    {
+        bool opened = false;
+        lock (Lock)
+        {
+            if (Load(storage) == New && !hadChats)
             {
                 Save(storage, Pending);
+                opened = true;
+            }
+        }
+        bool added = false;
+        try
+        {
+            added = install();
+        }
+        finally
+        {
+            if (opened && !added)
+            {
+                lock (Lock)
+                {
+                    if (Load(storage) == Pending)
+                    {
+                        Save(storage, New);
+                    }
+                }
             }
         }
     }

@@ -1,12 +1,12 @@
 /**
  * The first-run guide: what is ready (a backend, a chat model, tools, embeddings), where to set up a backend when there is none, and the starter set to add in one click. It sits over an empty
- * chat or the assistant gallery and never blocks anything: the message box, the chat list and the settings stay usable, a chat with messages hides it, and it can be skipped. The server keeps
- * whether the user has seen it and says what to show; Settings > General can run it again. Built from Bootstrap's list-group, badge and alert.
+ * chat and never blocks anything: the message box, the chat list and the settings stay usable, the assistant gallery and chats with messages hide it, sending a message closes it, and it can be
+ * skipped. The server keeps whether the user has seen it and says what to show; Settings > General can run it again. Built from Bootstrap's list-group, badge and alert.
  */
 class LLMAOnboarding {
 
     constructor() {
-        /** Whether the guide is wanted now (it still only shows over an empty chat or the gallery). */
+        /** Whether the guide is wanted now (it still only shows over an empty chat). */
         this.open = false;
         /** The server's last report, or null before one arrived. */
         this.report = null;
@@ -65,7 +65,7 @@ class LLMAOnboarding {
         await this.load(false);
     }
 
-    /** Shows the guide when it is open and there is no conversation on screen. */
+    /** Shows the guide when it is open and an empty chat is on screen. */
     sync() {
         let box = this.box();
         let welcome = document.getElementById('llma-welcome');
@@ -73,7 +73,7 @@ class LLMAOnboarding {
         if (!box || !welcome || !messages) {
             return;
         }
-        let visible = this.open && (welcome.style.display != 'none' || messages.childElementCount == 0);
+        let visible = this.open && welcome.style.display == 'none' && messages.childElementCount == 0;
         box.style.display = visible ? '' : 'none';
         box.parentElement.classList.toggle('llma-onboarding-open', visible);
     }
@@ -99,6 +99,12 @@ class LLMAOnboarding {
             }
         }
         this.render();
+    }
+
+    /** The user sent a message: the guide is done with. The server records that itself when it saves the message. */
+    onSend() {
+        this.open = false;
+        this.sync();
     }
 
     /** The chat's model list has models: if the guide still says that nothing can answer, checks again. */
@@ -198,11 +204,15 @@ class LLMAOnboarding {
             return;
         }
         this.busy = true;
-        this.result = '';
-        document.getElementById('llma-onboarding-recheck').disabled = true;
-        await llmaLoadModels();
-        await this.load(true);
-        this.busy = false;
+        try {
+            this.result = '';
+            document.getElementById('llma-onboarding-recheck').disabled = true;
+            await llmaLoadModels();
+            await this.load(true);
+        }
+        finally {
+            this.busy = false;
+        }
     }
 
     /** Adds the starter set and redraws the lists it changed. */
@@ -211,32 +221,46 @@ class LLMAOnboarding {
             return;
         }
         this.busy = true;
-        document.getElementById('llma-onboarding-install').disabled = true;
-        let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantInstallStarterSet', {});
+            document.getElementById('llma-onboarding-install').disabled = true;
+            let reply = null;
+            try {
+                reply = await llmaRequest('LLMAssistantInstallStarterSet', {});
+            }
+            catch (err) {
+                reply = { error: llmaShortError(err) };
+            }
+            if (!reply?.success) {
+                this.result = `<div class="alert alert-danger py-2">${escapeHtml(reply?.error || translate('The starter set could not be added.'))}</div>`;
+            }
+            else {
+                await this.reloadLists();
+                let problems = reply.skipped.filter(s => s.code != 'exists');
+                this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
+                    + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
+                    + '</div>';
+                // The guide may have been run again meanwhile, and have no report yet.
+                if (this.report) {
+                    this.report.starter = reply.starter;
+                }
+                else {
+                    await this.load(false);
+                }
+            }
         }
-        catch (err) {
-            reply = { error: llmaShortError(err) };
+        finally {
+            this.busy = false;
+            this.render();
         }
-        if (!reply?.success) {
-            this.result = `<div class="alert alert-danger py-2">${escapeHtml(reply?.error || translate('The starter set could not be added.'))}</div>`;
-        }
-        else {
-            this.report.starter = reply.starter;
-            let problems = reply.skipped.filter(s => s.code != 'exists');
-            this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
-                + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
-                + '</div>';
-            await this.reloadLists();
-        }
-        this.busy = false;
-        this.render();
     }
 
-    /** Loads what an install changes: assistants, chats and slash commands. */
+    /** Loads what an install changes: assistants, chats and slash commands. The assistant on screen stays the one in use: loading the list gives back the saved one, which can differ. */
     async reloadLists() {
+        let active = LLMAState.activeAssistantId;
         await llmaLoadAssistants();
+        if (LLMAState.assistants.some(a => a.id == active)) {
+            LLMAState.activeAssistantId = active;
+        }
         await llmaLoadThreads();
         llmaPromptAssets.loadedFor = null;
         llmaRenderWelcomeAssistants();

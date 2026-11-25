@@ -33,8 +33,7 @@
     background: var(--background);
 }
 
-/* While the guide shows, it takes the place of the greeting or the gallery, and the message box stays below it. */
-.llma-content.llma-onboarding-open > .llma-welcome,
+/* While the guide shows, it takes the place of an empty chat's greeting, and the message box stays below it. */
 .llma-content.llma-onboarding-open .llma-empty-greeting {
     display: none;
 }

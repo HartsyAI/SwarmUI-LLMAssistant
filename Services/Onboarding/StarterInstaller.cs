@@ -1,3 +1,4 @@
+using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Utils;
 
@@ -15,6 +16,24 @@ public static class StarterSkips
 {
     /// <summary>The codes: the user already has one by that name, may not make that kind, or saving it failed.</summary>
     public const string Exists = "exists", Permission = "permission", Error = "error";
+
+    /// <summary>What a target's add answers when the item turned out to be there after all (saved by something else meanwhile).</summary>
+    public const string AlreadyThere = "You already have it.";
+}
+
+/// <summary>What counts as already having a starter item.</summary>
+public static class StarterMatching
+{
+    /// <summary>Whether <paramref name="assistants"/> (id to assistant) holds the starter assistant: one with its id, or one by its name.</summary>
+    public static bool HasAssistant(JObject assistants, StarterAssistant starter)
+        => assistants is not null && (assistants[starter.Id] is not null
+            || assistants.Properties().Any(p => p.Value is JObject own && string.Equals(own["name"]?.ToString().Trim(), starter.Name, StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Whether the name of a starter command is in use: by a command, or by a skill (which a command of the same name would hide behind <c>/name</c>), among those the user can see
+    /// (<paramref name="visible"/>) or as a file under their own folder, which the list leaves out when it is too large to read.</summary>
+    public static bool HasSnippet(PromptAssetSet visible, string personalRoot, string name)
+        => visible.Get(PromptAsset.KindCommand, name) is not null || visible.Get(PromptAsset.KindSkill, name) is not null
+            || (personalRoot is not null && PromptAssetService.NameTaken(personalRoot, name));
 }
 
 /// <summary>One user's own items, as the starter set sees them. There is no way to replace or remove anything through it.</summary>
@@ -26,13 +45,16 @@ public interface IStarterTarget
     /// <summary>Why this user may not be given items of <paramref name="kind"/>, or null when they may.</summary>
     string Refusal(string kind);
 
-    /// <summary>Whether the user can already see an item of this kind and id, their own or one shared with them.</summary>
+    /// <summary>Whether the user can already see this item, their own or one shared with them: an assistant by id or name, a snippet's name as a command or a skill, a chat by id.</summary>
     bool Has(string kind, string id);
 
-    /// <summary>Adds a personal assistant. Null, or why it could not be saved.</summary>
+    /// <summary>Whether the user can see an assistant with exactly this id.</summary>
+    bool HasAssistant(string assistantId);
+
+    /// <summary>Adds a personal assistant. Null, <see cref="StarterSkips.AlreadyThere"/>, or why it could not be saved. None of the adds writes over anything.</summary>
     string AddAssistant(StarterAssistant assistant);
 
-    /// <summary>Adds a personal slash command. Null, or why it could not be saved.</summary>
+    /// <summary>Adds a personal slash command. Null, <see cref="StarterSkips.AlreadyThere"/>, or why it could not be saved.</summary>
     string AddSnippet(StarterSnippet snippet);
 
     /// <summary>Adds a chat that uses <paramref name="assistantId"/>, under the id <see cref="StarterChat.IdFor"/> gives for this user. Null, or why it could not be saved.</summary>
@@ -60,7 +82,7 @@ public static class StarterInstaller
         foreach (StarterChat chat in StarterContent.Chats)
         {
             yield return (StarterKinds.Chat, chat.IdFor(userId), chat.Title,
-                target => target.AddChat(chat, target.Has(StarterKinds.Assistant, chat.AssistantId) ? chat.AssistantId : AssistantConstants.DefaultId));
+                target => target.AddChat(chat, target.HasAssistant(chat.AssistantId) ? chat.AssistantId : AssistantConstants.DefaultId));
         }
     }
 
@@ -91,7 +113,7 @@ public static class StarterInstaller
                 {
                     if (target.Has(kind, id))
                     {
-                        (code, reason) = (StarterSkips.Exists, "You already have it.");
+                        (code, reason) = (StarterSkips.Exists, StarterSkips.AlreadyThere);
                     }
                     else if (target.Refusal(kind) is { } refusal)
                     {
@@ -99,7 +121,7 @@ public static class StarterInstaller
                     }
                     else if (add(target) is { } error)
                     {
-                        (code, reason) = (StarterSkips.Error, error);
+                        (code, reason) = (error == StarterSkips.AlreadyThere ? StarterSkips.Exists : StarterSkips.Error, error);
                     }
                 }
                 catch (Exception ex)

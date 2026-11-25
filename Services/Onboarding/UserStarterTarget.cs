@@ -1,4 +1,3 @@
-using System.IO;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -28,18 +27,18 @@ public sealed class UserStarterTarget(User user) : IStarterTarget
     {
         if (kind == StarterKinds.Assistant)
         {
-            return (SettingsService.GetMergedSettings(user)["assistants"] as JObject)?[id] is not null;
+            return StarterContent.Assistants.FirstOrDefault(a => a.Id == id) is { } starter && StarterMatching.HasAssistant(Assistants(), starter);
         }
         if (kind == StarterKinds.Snippet)
         {
-            // The file is looked for as well as the loaded list, which leaves out a file too large to read: that one must not be written over either.
-            string root = PromptAssetService.RootFor(user, PromptAsset.ScopePersonal);
-            return PromptAssetService.For(user, null).Get(PromptAsset.KindCommand, id) is not null
-                || (root is not null && File.Exists(Path.Combine(root, "commands", $"{id}.md")));
+            return StarterMatching.HasSnippet(PromptAssetService.For(user, null), PromptAssetService.RootFor(user, PromptAsset.ScopePersonal), id);
         }
         // The stored text itself, so a chat that cannot be read is left alone too.
         return user.GetGenericData(ThreadStorageService.DataName, ThreadStorageService.ThreadPrefix + id) is not null;
     }
+
+    /// <inheritdoc/>
+    public bool HasAssistant(string assistantId) => Assistants()?[assistantId] is not null;
 
     /// <inheritdoc/>
     public string AddAssistant(StarterAssistant assistant)
@@ -47,13 +46,22 @@ public sealed class UserStarterTarget(User user) : IStarterTarget
         lock (SettingsService.SettingsLock)
         {
             // Asked again under the lock every assistant save takes: a save made since the first look is not written over.
-            return Has(StarterKinds.Assistant, assistant.Id) ? null : AssistantService.SaveAssistant(assistant.ToJson(), user, SettingsService.ScopePersonal).Error;
+            return Has(StarterKinds.Assistant, assistant.Id) ? StarterSkips.AlreadyThere : AssistantService.SaveAssistant(assistant.ToJson(), user, SettingsService.ScopePersonal).Error;
         }
     }
 
     /// <inheritdoc/>
     public string AddSnippet(StarterSnippet snippet)
-        => PromptAssetService.Save(user, PromptAsset.KindCommand, snippet.Name, snippet.Description, snippet.ArgumentHint, snippet.Body, false, PromptAsset.ScopePersonal, out string error) ? null : error;
+    {
+        if (PromptAssetService.Save(user, PromptAsset.KindCommand, snippet.Name, snippet.Description, snippet.ArgumentHint, snippet.Body, false, PromptAsset.ScopePersonal, out string error, createOnly: true))
+        {
+            return null;
+        }
+        return error == PromptAssetService.AlreadyExists ? StarterSkips.AlreadyThere : error;
+    }
+
+    /// <summary>The assistants the user can see, by id.</summary>
+    private JObject Assistants() => SettingsService.GetMergedSettings(user)["assistants"] as JObject;
 
     /// <inheritdoc/>
     public string AddChat(StarterChat chat, string assistantId)

@@ -120,6 +120,7 @@ public static class HeadlessTurnService
             {
                 return Fail($"Chat '{threadId}' not found.");
             }
+            Onboarding.OnboardingService.NoteMessage(user);
             thread = ThreadStorageService.GetThread(user, threadId);
             return await RunTurnAsync(session, thread, threadId, options, approvalMode, created, ct);
         }

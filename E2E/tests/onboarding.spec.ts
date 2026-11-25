@@ -52,11 +52,97 @@ test('a new user sees the guide over an empty chat, with the setup checked and t
     await expect(guide.locator('li[data-item]')).toHaveCount(TOTAL);
     await expect(llm.locator('#llma-empty-greeting')).toBeHidden();
     await expect(llm.locator('#llma-input')).toBeVisible();
-    // A message sent while it shows takes its place; a new empty chat brings it back until it is dismissed.
+    // The first message sent ends the first run: the guide does not come back over the next empty chat.
     await setScenarios([{ match: 'hello there', rounds: [{ text: 'Hello to you.' }] }]);
     await send(llm, 'hello there');
     await expect(lastAssistant(llm)).toContainText('Hello to you.');
     await expect(guide).toBeHidden();
+    await llm.locator('#llma-new-thread-btn').click();
+    await expect(llm.locator('#llma-empty-greeting')).toBeVisible();
+    await expect(guide).toBeHidden();
+    expect(await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).toMatchObject({ status: 'completed', show: false });
+});
+
+test('the assistant gallery is never covered, by switching or by deleting the open chat', async ({ llm }) => {
+    await asNewUser(llm);
+    let guide = llm.locator('#llma-onboarding');
+    await expect(guide).toBeVisible();
+    // The panel may be folded away at this width; its button is clicked directly.
+    await llm.locator('#llma-panel-inner [data-action="switch"]').evaluate((button: HTMLElement) => button.click());
+    await expect(llm.locator('#llma-welcome')).toBeVisible();
+    await expect(guide).toBeHidden();
+    // Picking one leads to an empty chat, where the guide still is.
+    await llm.locator('.llma-asst-card[data-assistant-id="default"]').click();
+    await expect(guide).toBeVisible();
+    await expect(llm.locator('#llma-input')).toBeVisible();
+});
+
+test('installing keeps the assistant on screen, and the next message goes to it', async ({ llm }) => {
+    let other = { id: 'e2e-onboarding-other', name: 'Other one', instructions: { chat: 'Be other.' }, enabledToolIds: [] };
+    expect((await api(llm, 'LLMAssistantSaveAssistant', { assistant: other, scope: 'personal' })).success).toBe(true);
+    await asNewUser(llm);
+    await expect(llm.locator('#llma-onboarding li[data-check]')).toHaveCount(4);
+    // A chat opened with an assistant that is not the saved active one.
+    await llm.evaluate(() => (0, eval)(`llmaStartChatWithAssistant('e2e-onboarding-other', { persist: false })`));
+    await llm.locator('#llma-onboarding-install').click();
+    await expect(llm.locator('#llma-onboarding-result')).toContainText(`Added: ${TOTAL}`);
+    await setScenarios([{ match: 'who are you', rounds: [{ text: 'The other one.' }] }]);
+    await send(llm, 'who are you');
+    await expect(lastAssistant(llm)).toContainText('The other one.');
+    let chat = (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => !t.title.startsWith('Example:'));
+    expect(chat.assistantId).toBe('e2e-onboarding-other');
+    await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: 'e2e-onboarding-other', scope: 'personal' });
+});
+
+test('a skill by a snippet\'s name and an assistant by a starter\'s name count as there', async ({ llm }) => {
+    await removeStarters(llm);
+    expect((await api(llm, 'LLMAssistantSavePromptAsset', { kind: 'skill', name: 'video-prompt', body: 'My own skill.' })).success).toBe(true);
+    let mine = { id: 'e2e-onboarding-mine', name: 'researcher', instructions: { chat: 'Mine.' }, enabledToolIds: [] };
+    expect((await api(llm, 'LLMAssistantSaveAssistant', { assistant: mine, scope: 'personal' })).success).toBe(true);
+    let result = await api(llm, 'LLMAssistantInstallStarterSet');
+    expect(result.skipped.map((s: any) => `${s.id}:${s.code}`).sort()).toEqual(['starter-researcher:exists', 'video-prompt:exists']);
+    let have = await owned(llm);
+    expect(have.commands).not.toContain('video-prompt');
+    expect(have.assistants).not.toContain('starter-researcher');
+    await api(llm, 'LLMAssistantDeletePromptAsset', { kind: 'skill', name: 'video-prompt', scope: 'personal' });
+    await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: 'e2e-onboarding-mine', scope: 'personal' });
+});
+
+test('running the guide again while an install is still going leaves its buttons working', async ({ llm }) => {
+    let errors: string[] = [];
+    llm.on('pageerror', error => errors.push(error.message));
+    await asNewUser(llm);
+    await expect(llm.locator('#llma-onboarding li[data-check]')).toHaveCount(4);
+    let release: () => void = () => {};
+    let held = new Promise<void>(resolve => release = resolve);
+    await llm.route('**/API/LLMAssistantInstallStarterSet', async route => {
+        let response = await route.fetch();
+        await held;
+        await route.fulfill({ response });
+    });
+    // The rerun's report waits too, so the guide has none when the install answers.
+    let answer: () => void = () => {};
+    let waiting = new Promise<void>(resolve => answer = resolve);
+    let first = true;
+    await llm.route('**/API/LLMAssistantGetOnboarding', async route => {
+        if (first) {
+            first = false;
+            await waiting;
+        }
+        await route.continue();
+    });
+    await llm.locator('#llma-onboarding-install').click();
+    await llm.locator('#llma-settings-btn').click();
+    await llm.locator('#llma-onboarding-rerun').click();
+    await expect(llm.locator('#llma-onboarding')).toContainText('Checking...');
+    release();
+    await expect(llm.locator('#llma-onboarding-result')).toContainText(`Added: ${TOTAL}`);
+    answer();
+    let checked = llm.waitForRequest(request => request.url().endsWith('LLMAssistantGetOnboarding') && request.postDataJSON().refresh === true);
+    await llm.locator('#llma-onboarding-recheck').click();
+    await checked;
+    await expect(llm.locator('#llma-onboarding-recheck')).toBeEnabled();
+    expect(errors).toEqual([]);
 });
 
 test('the API reports the checklist and the starter set, and refuses an unknown action', async ({ llm }) => {
@@ -72,7 +158,12 @@ test('the API reports the checklist and the starter set, and refuses an unknown 
     // Someone with chats is not new to the extension: a reset alone does not show it to them, running it does.
     await api(llm, 'LLMAssistantRunTurn', { message: 'make a chat' });
     expect(await api(llm, 'LLMAssistantSetOnboarding', { action: 'reset' })).toMatchObject({ status: 'new', show: false });
+    // The first look at a new user who has chats records them as past the first run, so deleting the chats later does not start one.
+    expect(await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).toMatchObject({ status: 'completed', show: false });
     expect(await api(llm, 'LLMAssistantSetOnboarding', { action: 'run' })).toMatchObject({ status: 'pending', show: true });
+    // A message ends a running guide too.
+    await api(llm, 'LLMAssistantRunTurn', { message: 'another one' });
+    expect(await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).toMatchObject({ status: 'completed', show: false });
 });
 
 test('with no backend it says how to set one up, links to the backend page, and can be skipped to look around', async ({ llm }) => {
