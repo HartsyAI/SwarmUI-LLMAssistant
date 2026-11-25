@@ -49,7 +49,7 @@ public class MemoryWriteTool : ToolHandler
         // A call with no model call id was run by the user themselves (the tool's Run button).
         string origin = MemoryService.OriginForCall(thread, ctx.CallId is null);
         // A document can say anything, including "remember this": with one in the chat the model may only save what the user asked for, in the user's own words.
-        if (ctx.CallId is not null && ChatDocuments.ThreadHasDocuments(thread) && !(origin == MemoryOrigins.Explicit && MemoryOpParser.SaidByUser(content, MemoryService.LatestUserAsk(thread))))
+        if (ctx.CallId is not null && ChatDocuments.ReachedByDocuments(ctx.Session?.User, thread) && !(origin == MemoryOrigins.Explicit && MemoryOpParser.SaidByUser(content, MemoryService.LatestUserAsk(thread))))
         {
             return new JObject { ["success"] = false, ["error"] = DocumentRefusal };
         }

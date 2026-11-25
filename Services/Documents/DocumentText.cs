@@ -64,7 +64,8 @@ public static class DocumentText
         for (int i = 0; i < sample; i++)
         {
             char c = text[i];
-            if (c is ' ' or '\t' or '\n' or '\r' or '\f')
+            // The escape code counts as ordinary: logs with coloured output are full of it.
+            if (c is ' ' or '\t' or '\n' or '\r' or '\f' or '\u001B')
             {
                 continue;
             }

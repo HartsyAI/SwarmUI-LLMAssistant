@@ -294,3 +294,16 @@ export const test = base.extend<{ llm: Page }>({
         await use(page);
     }
 });
+
+/** Saves the caps on attached documents (the user's own settings). */
+export async function useDocumentCaps(page: Page, caps: Record<string, number>) {
+    let saved = await api(page, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ parameters: caps }) });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+}
+
+/** Sets the knowledge library's embedding model to the mock's. */
+export async function useEmbeddingModel(page: Page, model = 'mock-embed') {
+    let providers = (await api(page, 'LLMAssistantGetKnowledge')).providers;
+    let saved = await api(page, 'LLMAssistantSetKnowledgeSettings', { providerId: providers[0].id, model });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+}

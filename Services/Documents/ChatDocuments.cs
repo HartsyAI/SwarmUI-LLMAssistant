@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 
@@ -158,6 +159,22 @@ public static class ChatDocuments
 
     /// <summary>Whether the branch of a chat that is showing holds a document.</summary>
     public static bool ThreadHasDocuments(JObject thread) => thread is not null && ThreadStorageService.GetActivePath(thread).Any(HasDocuments);
+
+    /// <summary>Whether a chat, or a chat it is a session of, holds a document: a session is told what to do by the model that started it, which may have read one.</summary>
+    public static bool ReachedByDocuments(User user, JObject thread)
+    {
+        // Bounded, so a damaged chain of parents cannot go round for ever.
+        for (int depth = 0; thread is not null && depth < 10; depth++)
+        {
+            if (ThreadHasDocuments(thread))
+            {
+                return true;
+            }
+            string parent = thread[SessionFields.Parent]?.ToString();
+            thread = string.IsNullOrEmpty(parent) ? null : ThreadStorageService.GetThread(user, parent);
+        }
+        return false;
+    }
 
     /// <summary>The characters of document text a message refers to.</summary>
     public static long ReferencedChars(JObject message)

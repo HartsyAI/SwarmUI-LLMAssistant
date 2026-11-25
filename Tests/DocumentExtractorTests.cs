@@ -236,6 +236,10 @@ public sealed class DocumentExtractorTests
     }
 
     [Fact]
+    public void A_log_with_colour_codes_is_still_text()
+        => Assert.Equal(DocumentStatus.Ok, Read("build.log", Utf8(string.Concat(Enumerable.Repeat("\u001B[31mfail\u001B[0m\n", 50)))).Status);
+
+    [Fact]
     public void Encodings_are_recognised()
     {
         Assert.Equal("café", Read("a.txt", [0xEF, 0xBB, 0xBF, .. Utf8("café")]).Text);
