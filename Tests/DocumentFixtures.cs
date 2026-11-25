@@ -95,7 +95,10 @@ public static class DocumentFixtures
 
     /// <summary>A one-page PDF from loose parts, for files built to misbehave: <paramref name="page"/> adds entries to the page (object 3), and the objects follow as 4, 5 and so on, each a
     /// stream with these dictionary entries, or (with no stream) the object written as it is.</summary>
-    public static byte[] Objects(string page, params (string Dictionary, byte[] Stream)[] objects)
+    public static byte[] Objects(string page, params (string Dictionary, byte[] Stream)[] objects) => Document(page, "", "", objects);
+
+    /// <summary><see cref="Objects"/> with entries added to the catalog (object 1) and to the page tree's node (object 2). A <c>/Parent</c> in <paramref name="page"/> replaces the true one.</summary>
+    public static byte[] Document(string page, string catalog, string pages, params (string Dictionary, byte[] Stream)[] objects)
     {
         MemoryStream file = new();
         List<long> offsets = [];
@@ -117,9 +120,9 @@ public static class DocumentFixtures
             Text("endobj\n");
         }
         Text("%PDF-1.4\n");
-        Object("<< /Type /Catalog /Pages 2 0 R >>", null);
-        Object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>", null);
-        Object($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] {page} >>", null);
+        Object($"<< /Type /Catalog /Pages 2 0 R {catalog} >>", null);
+        Object($"<< /Type /Pages /Kids [3 0 R] /Count 1 {pages} >>", null);
+        Object($"<< /Type /Page {(page.Contains("/Parent") ? "" : "/Parent 2 0 R")} /MediaBox [0 0 595 842] {page} >>", null);
         foreach ((string dictionary, byte[] stream) in objects)
         {
             Object(dictionary, stream);

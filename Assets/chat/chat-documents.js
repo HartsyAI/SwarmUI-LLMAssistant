@@ -56,6 +56,16 @@ class LLMAChatDocuments {
         return this.pending.filter(e => e.thread == thread);
     }
 
+    /** A chat was just made: files attached before there was one belong to it. */
+    adopt(thread) {
+        for (let entry of this.pending) {
+            if (entry.thread == null) {
+                entry.thread = thread;
+            }
+        }
+        this.renderPending();
+    }
+
     /** Attaches a file: shows its chip, has the server read it, and keeps the reference, or says why it cannot be attached. */
     async add(file) {
         if (this.waiting().length >= this.cap('documentMaxPerMessage')) {

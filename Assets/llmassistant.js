@@ -133,6 +133,8 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
     LLMAState.messages          = [];
     LLMAState.assets            = [];
+    // Files waiting in the chat just left stay with it.
+    llmaChatDocuments.renderPending();
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
 
     // Clear rendered messages so the empty-chat CSS state kicks in

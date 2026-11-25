@@ -322,6 +322,38 @@ test('a file attached in one chat stays with that chat until it is sent there', 
     expect((await sentUserMessages('BACK-AGAIN')).join()).toContain('ONLY-FOR-THE-FIRST');
 });
 
+test('New Chat leaves a waiting file behind, and a file attached before a chat exists goes with it', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
+    await send(llm, 'OLD-CHAT');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    let old = await threadId(llm);
+    await attach(llm, [txt('left.txt', 'STAYS-IN-THE-OLD-CHAT')]);
+    await llm.evaluate(() => (0, eval)('llmaStartChatWithAssistant(LLMAState.activeAssistantId)'));
+    await expect(llm.locator('#llma-document-chips')).toBeHidden();
+    await send(llm, 'FRESH-CHAT');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    expect(JSON.stringify(await sentUserMessages('FRESH-CHAT'))).not.toContain('STAYS-IN-THE-OLD-CHAT');
+    await llm.evaluate((id) => (0, eval)('llmaSwitchThread')(id), old);
+    await expect(chips(llm)).toHaveCount(1);
+
+    // Attached to a chat not made yet; something other than sending makes it (the tool picker does).
+    await llm.evaluate(() => (0, eval)('llmaStartChatWithAssistant(LLMAState.activeAssistantId)'));
+    await attach(llm, [txt('early.txt', 'ATTACHED-BEFORE-THE-CHAT')]);
+    await llm.evaluate(() => (0, eval)('llmaCreateThread(LLMAState.activeAssistantId)'));
+    await expect(chips(llm)).toHaveCount(1);
+    await expect(chips(llm)).toContainText('early.txt');
+    await send(llm, 'EARLY-QUESTION');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    expect((await sentUserMessages('EARLY-QUESTION')).join()).toContain('ATTACHED-BEFORE-THE-CHAT');
+
+    // And attached before a chat that sending makes.
+    await llm.evaluate(() => (0, eval)('llmaStartChatWithAssistant(LLMAState.activeAssistantId)'));
+    await attach(llm, [txt('sent.txt', 'SENT-WITH-THE-FIRST-MESSAGE')]);
+    await send(llm, 'MAKES-THE-CHAT');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    expect((await sentUserMessages('MAKES-THE-CHAT')).join()).toContain('SENT-WITH-THE-FIRST-MESSAGE');
+});
+
 test('an exported chat that had a file is still guarded after import', async ({ llm }) => {
     await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
     await attach(llm, [txt('kept.txt', 'words')]);

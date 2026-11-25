@@ -272,6 +272,123 @@ public sealed class DocumentExtractorTests
     public void Fonts_without_end_are_refused_even_when_they_share_a_map(int count, bool sharedMap)
         => AssertRefusedCheaply(ManyFonts(count, sharedMap));
 
+    // Ways round the limits: each copies how PdfPig itself follows the file.
+
+    /// <summary>Refused, quickly, and without the cost: for files that would otherwise loop or take gigabytes.</summary>
+    private static async Task AssertRefusedSoon(byte[] pdf)
+    {
+        Task<(ExtractedDocument Result, long Allocated)> reading = Task.Run(() => Cost(pdf));
+        Assert.True(await Task.WhenAny(reading, Task.Delay(TimeSpan.FromSeconds(20))) == reading, "still reading after 20 seconds");
+        (ExtractedDocument result, long allocated) = await reading;
+        Assert.True(result.Status == DocumentStatus.TooLarge, $"{result.Status}: {result.Error}");
+        Assert.True(allocated < 200 * 1024 * 1024, $"allocated {allocated / 1_000_000} MB");
+    }
+
+    [Fact]
+    public Task A_page_listing_a_stream_through_an_array_of_one_is_counted()
+    {
+        string contents = string.Join(' ', Enumerable.Repeat("4 0 R", 500));
+        return AssertRefusedSoon(DocumentFixtures.Objects($"{FontResource} /Contents [{contents}]", ("[6 0 R]", null), Helvetica, ("", Ascii(new string(' ', 1_000_000)))));
+    }
+
+    /// <summary>A composite font page: object 6 is its Unicode map and 7 its descendant; further objects are 9 onward.</summary>
+    private static byte[] Composite(string descendant, string map, params (string, byte[])[] more)
+        => DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", [("", Ascii("BT /F1 12 Tf 10 10 Td <0041> Tj ET")),
+            ("<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [7 0 R] /ToUnicode 6 0 R >>", null),
+            ("/Filter /FlateDecode", DocumentFixtures.Deflate(Ascii(map))),
+            ($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R {descendant} >>", null),
+            ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null), .. more]);
+
+    private static string Map(string body) => $"/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <00000000> <FFFFFFFF> endcodespacerange {body} endcmap end end";
+
+    [Theory]
+    // The ends of a range of different lengths: the parser compares only as many bytes as the first end has.
+    [InlineData("1 beginbfrange <00000000> <FF> <0041> endbfrange")]
+    [InlineData("1 beginbfrange <000000000000> <000000FFFFFF> <0041> endbfrange")]
+    // A comment that names the operator, ahead of the real one.
+    [InlineData("% beginbfrange <00>\n1 beginbfrange <00000000> <00FFFFFF> <0041> endbfrange")]
+    // A literal string that names it.
+    [InlineData("/Note (beginbfrange <00>) def 1 beginbfrange <00000000> <00FFFFFF> <0041> endbfrange")]
+    // No space between the count and the operator, which a character map may leave out.
+    [InlineData("1beginbfrange<00000000><00FFFFFF><0041>endbfrange")]
+    public Task A_character_map_written_to_be_miscounted_is_refused(string body) => AssertRefusedSoon(Composite("", Map(body.Replace("\\n", "\n"))));
+
+    [Theory]
+    // Codes at the end of the integers: the parser's loop never gets past the last one.
+    [InlineData("/W [2147483000 2147483647 500]")]
+    [InlineData("/W2 [2147483000 2147483647 500 250 800]")]
+    [InlineData("/W [-2147483648 -2147483000 500]")]
+    public Task Width_codes_outside_what_a_font_has_are_refused(string widths) => AssertRefusedSoon(Composite(widths, Map("")));
+
+    [Theory]
+    // The first code through an array of one; the last through one reference after another.
+    [InlineData("/W [9 0 R 90000000 500]", "[10 0 R]", "0")]
+    [InlineData("/W [0 9 0 R 500]", "10 0 R", "90000000")]
+    public Task Width_codes_reached_the_long_way_are_followed(string widths, string ninth, string tenth)
+        => AssertRefusedSoon(Composite(widths, Map(""), (ninth, null), (tenth, null)));
+
+    [Fact]
+    public Task A_width_list_used_over_and_over_is_counted_each_time()
+        => AssertRefusedSoon(Composite($"/W [{string.Join(' ', Enumerable.Range(0, 400).Select(i => $"{i * 10_000} 9 0 R"))}]", Map(""),
+            ($"[{string.Join(' ', Enumerable.Repeat("500", 10_000))}]", null)));
+
+    [Fact]
+    public Task Widths_behind_a_long_chain_of_references_are_followed()
+    {
+        // Objects 9 to 28 each point at the next; the last is the list.
+        (string, byte[])[] chain = [.. Enumerable.Range(10, 19).Select(next => ($"{next} 0 R", (byte[])null)), ("[0 90000000 500]", null)];
+        return AssertRefusedSoon(Composite("/W 9 0 R", Map(""), chain));
+    }
+
+    [Fact]
+    public Task Fonts_inherited_from_the_page_tree_are_checked_whatever_the_page_says_its_parent_is()
+    {
+        // The page's own Parent entry points elsewhere; the parser still takes resources from the node that lists the page.
+        byte[] pdf = DocumentFixtures.Document("/Parent 9 0 R /Contents 4 0 R", "", "/Resources << /Font << /F1 5 0 R >> >>", ("", Ascii("BT /F1 12 Tf 10 10 Td <0041> Tj ET")),
+            ("<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [6 0 R] >>", null),
+            ("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R /W [0 90000000 500] >>", null),
+            ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null), ("<< >>", null), ("<< /Type /Pages >>", null));
+        return AssertRefusedSoon(pdf);
+    }
+
+    [Fact]
+    public Task A_font_resource_with_an_unusual_name_is_still_checked()
+        => AssertRefusedSoon(DocumentFixtures.Objects("/Resources << /Font << /Parent 5 0 R >> >> /Contents 4 0 R", ("", Ascii("BT /Parent 12 Tf 10 10 Td <0041> Tj ET")),
+            ("<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [6 0 R] >>", null),
+            ("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 7 0 R /W [0 90000000 500] >>", null),
+            ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null)));
+
+    [Theory]
+    [InlineData("/DecodeParms << /Predictor 1 >> /DP << /Predictor 12 /Columns 2000000000 >>")]
+    [InlineData("/DecodeParms << /Predictor 12 /Columns 2000000000 /Colors 32 >>")]
+    public Task The_predictor_checked_is_the_one_the_decoder_uses(string parameters)
+        => AssertRefusedSoon(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ($"/Filter /FlateDecode {parameters}", DocumentFixtures.Deflate(Ascii("BT ET"))), Helvetica));
+
+    [Theory]
+    [InlineData("/DecodeParms null")]
+    [InlineData("/DecodeParms 6 0 R")]
+    [InlineData("/DP null")]
+    public void Decode_parameters_written_unusually_do_not_refuse_a_good_file(string parameters)
+    {
+        ExtractedDocument doc = Read("ok.pdf", DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R",
+            ($"/Filter /FlateDecode {parameters}", DocumentFixtures.Deflate(Ascii("BT /F1 12 Tf 10 700 Td (plain words) Tj ET"))), Helvetica, ("<< /Predictor 1 >>", null)));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("plain words", doc.Text);
+    }
+
+    [Fact]
+    public void A_file_with_a_great_many_objects_outside_its_pages_is_read()
+    {
+        // A large tagged PDF: its structure tree is hundreds of thousands of objects that no page's text needs.
+        const int Many = 320_000;
+        (string, byte[])[] objects = [("", Ascii("BT /F1 12 Tf 10 700 Td (tagged words) Tj ET")), Helvetica,
+            ($"<< /Type /StructTreeRoot /K [{string.Join(' ', Enumerable.Range(7, Many).Select(n => $"{n} 0 R"))}] >>", null),
+            .. Enumerable.Repeat(("<< /Type /StructElem /S /P >>", (byte[])null), Many)];
+        ExtractedDocument doc = Read("tagged.pdf", DocumentFixtures.Document($"{FontResource} /Contents 4 0 R", "/StructTreeRoot 6 0 R", "", objects));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("tagged words", doc.Text);
+    }
+
     [Fact]
     public void The_heaviest_page_that_is_accepted_costs_a_bounded_amount()
     {

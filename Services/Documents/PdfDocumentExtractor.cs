@@ -5,8 +5,8 @@ using UglyToad.PdfPig.Exceptions;
 namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 
 /// <summary>PDF files: the text layer, read with PdfPig page by page. There is no OCR, so a scanned or image-only PDF is reported as having no text layer, and so is text that cannot be
-/// decoded (a font with no text mapping gives characters that mean nothing), rather than handing that on. What the parser is given to work on is held to <see cref="PdfLimits"/>; a page over
-/// them is left out.</summary>
+/// decoded (a font with no text mapping gives characters that mean nothing), rather than handing that on. What the parser is given to work on is held to <see cref="PdfLimits"/> (best
+/// effort, not a guarantee); a page over them is left out.</summary>
 public sealed class PdfDocumentExtractor : IDocumentExtractor
 {
     /// <summary>The share of a page's characters that may be unreadable before the page's text is not used.</summary>
@@ -34,13 +34,6 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
             using PdfDocument pdf = PdfDocument.Open(data, new ParsingOptions { UseLenientParsing = true, SkipMissingFonts = true, FilterProvider = filters });
             pdf.AddPageFactory(new PdfLimits.EntryFactory());
             pdf.AddPageFactory<PdfLimits.PageMeasure, PdfLimits.MeasureFactory>();
-            filters.Metering = false;
-            bool fontsFit = PdfLimits.FontMapsFit(pdf.Structure.Catalog.CatalogDictionary, pdf.Structure.TokenScanner, pdf.Structure.FilterProvider, ct);
-            filters.Metering = true;
-            if (!fontsFit)
-            {
-                return Stopped(filters) ?? ExtractedDocument.Failed(DocumentStatus.TooLarge, Kind, "The fonts in that PDF describe more characters than can be read.");
-            }
             return Read(pdf, filters, limits, ct);
         }
         catch (PdfDocumentEncryptedException)
@@ -49,7 +42,9 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return Stopped(filters) ?? ExtractedDocument.Failed(DocumentStatus.Malformed, Kind, "That PDF is damaged or is not really a PDF.");
+            return Stopped(filters) ?? (ex is DocumentTooLargeException
+                ? ExtractedDocument.Failed(DocumentStatus.TooLarge, Kind, "That PDF is built in a way that would take too much to read.")
+                : ExtractedDocument.Failed(DocumentStatus.Malformed, Kind, "That PDF is damaged or is not really a PDF."));
         }
     }
 
@@ -59,22 +54,48 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         : filters.Refused is string refused ? ExtractedDocument.Failed(DocumentStatus.Unsupported, Kind, $"That PDF uses the {refused} compression, which is not read. Save it again with another program (printing it to a new PDF usually works).")
         : null;
 
-    /// <summary>Whether a page is within the limits, found out without building it.</summary>
-    private static bool Fits(PdfDocument pdf, PdfLimits.Filters filters, int number, CancellationToken ct)
+    /// <summary>Whether a page may be read, found out without building it: first the font maps it leads to (a refusal there ends the file), then its content.</summary>
+    private (bool Fits, ExtractedDocument Refusal) Check(PdfDocument pdf, PdfLimits.Filters filters, PdfLimits.FontMaps fonts, int number, CancellationToken ct)
     {
-        filters.Metering = false;
         try
         {
-            return PdfLimits.ContentBytes(pdf.GetPage<PdfLimits.PageEntry>(number).Dictionary, pdf.Structure.TokenScanner, pdf.Structure.FilterProvider, ct) <= PdfLimits.MaxPageContentBytes
-                && pdf.GetPage<PdfLimits.PageMeasure>(number).Within;
-        }
-        catch (DocumentTooLargeException)
-        {
-            return false;
+            filters.StartChecking();
+            PdfLimits.PageEntry page = pdf.GetPage<PdfLimits.PageEntry>(number);
+            PdfLimits.FontCheck maps;
+            try
+            {
+                maps = fonts.Check(page, ct);
+            }
+            catch (DocumentTooLargeException)
+            {
+                maps = PdfLimits.FontCheck.TooManyCharacters;
+            }
+            if (Stopped(filters) is ExtractedDocument stopped)
+            {
+                return (false, stopped);
+            }
+            if (maps != PdfLimits.FontCheck.Fit)
+            {
+                string reason = maps == PdfLimits.FontCheck.TooManyObjects ? "The pages of that PDF use too many objects to check."
+                    : "The fonts in that PDF describe more characters than can be read.";
+                return (false, ExtractedDocument.Failed(DocumentStatus.TooLarge, Kind, reason));
+            }
+            filters.StartPage();
+            bool fits;
+            try
+            {
+                fits = PdfLimits.ContentBytes(page.Dictionary, pdf.Structure.TokenScanner, pdf.Structure.FilterProvider, ct) <= PdfLimits.MaxPageContentBytes
+                    && pdf.GetPage<PdfLimits.PageMeasure>(number).Within && !filters.PageExceeded;
+            }
+            catch (DocumentTooLargeException)
+            {
+                fits = false;
+            }
+            return (fits, Stopped(filters));
         }
         finally
         {
-            filters.Metering = true;
+            filters.StartReading();
         }
     }
 
@@ -86,18 +107,20 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         List<string> pages = [];
         int chars = 0, blank = 0, failed = 0, unreadable = 0, large = 0;
         bool cut = false;
+        PdfLimits.FontMaps fonts = new(pdf.Structure.TokenScanner, pdf.Structure.FilterProvider);
         for (int number = 1; number <= wanted; number++)
         {
             ct.ThrowIfCancellationRequested();
             string text = "";
             try
             {
-                if (!Fits(pdf, filters, number, ct))
+                (bool fits, ExtractedDocument refusal) = Check(pdf, filters, fonts, number, ct);
+                if (refusal is not null)
                 {
-                    if (Stopped(filters) is ExtractedDocument stopped)
-                    {
-                        return stopped;
-                    }
+                    return refusal;
+                }
+                if (!fits)
+                {
                     large++;
                     pages.Add("");
                     continue;

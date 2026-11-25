@@ -693,8 +693,8 @@ async function llmaCreateThread(assistantId) {
     LLMAState.assets            = [];
     LLMAState.activeAssistantId = assistantId || LLMAState.activeAssistantId;
     llmaSetSessionState({ activeThreadId: thread.id });
-    // Files waiting in another chat's composer stay with that chat.
-    llmaChatDocuments.renderPending();
+    // Files attached before this chat existed come with it; those waiting in another chat's composer stay there.
+    llmaChatDocuments.adopt(thread.id);
 
     // A Tools toggle flipped before this thread existed (LLMAState.activeThreadToolsEnabled was set
     // against no thread id) needs to land on the thread now that it has one, BEFORE the caller's first
@@ -987,6 +987,7 @@ function llmaShowWelcome() {
     if (chat)    chat.style.display    = 'none';
     LLMAState.activeThreadId = null;
     LLMAState.messages = [];
+    llmaChatDocuments.renderPending();
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = 'LLM Assistant';
     llmaUpdateContextBar();

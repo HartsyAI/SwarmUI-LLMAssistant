@@ -17,14 +17,20 @@ using UglyToad.PdfPig.Tokens;
 namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 
 /// <summary>PdfPig builds every character of a page in memory before any text can be looked at, and a small file can be made to unpack, repeat or draw the same bytes millions of times. These
-/// keep what it is given to work on small: its decoders are bounded, and a page is measured, and its characters counted without being kept, before it is read.</summary>
+/// keep what it is given to work on small: its decoders are bounded, a page's font maps are looked over, and the page is measured, its characters counted without being kept, before it is
+/// read. Where they follow the file they do it as PdfPig 0.1.16 does (references, arrays of one, its own tokenizer for character maps), because anything read differently is a way round.
+/// <para>These are <b>best effort</b>, against the ways found to make a small file expensive. They are not a guarantee against a hostile PDF: that needs the reading done in a separate
+/// process whose memory and time the system limits.</para></summary>
 internal static class PdfLimits
 {
     /// <summary>The most bytes one packed stream may unpack to.</summary>
     public const long MaxStreamBytes = 16 * 1024 * 1024;
 
-    /// <summary>The most bytes the streams read from one file may unpack to in all.</summary>
+    /// <summary>The most bytes the streams unpacked to read one file's text may come to.</summary>
     public const long MaxUnpackedBytes = 128 * 1024 * 1024;
+
+    /// <summary>The most bytes the checks made before reading may unpack: for one page, and for a file (fonts loaded then are kept and used when the page is read).</summary>
+    public const long MaxPageMeasuredBytes = 64 * 1024 * 1024, MaxMeasuredBytes = 512 * 1024 * 1024;
 
     /// <summary>The most bytes of drawing instructions one page may have: its content streams, each as often as the page lists it, and each form it draws, as often as it draws it.</summary>
     public const long MaxPageContentBytes = 8 * 1024 * 1024;
@@ -39,28 +45,71 @@ internal static class PdfLimits
     /// entry for every character in a range, so a few bytes can ask for billions. Ordinary files give whole 16-bit ranges (65,536) font after font, so about thirty such lists or maps fit.</summary>
     public const long MaxFontMapEntries = 150_000, MaxFileFontMapEntries = 2_000_000;
 
-    /// <summary>The most objects looked at when checking a file's font maps.</summary>
-    private const int MaxObjects = 300_000;
+    /// <summary>The highest character code a font's width list may name. The parser counts from the first code to the last, and never gets past a last code at the end of the integers.</summary>
+    private const double MaxCharacterCode = 0xFFFFFF;
+
+    /// <summary>The most objects the resources of a file's pages may lead to.</summary>
+    private const int MaxResourceObjects = 300_000;
+
+    /// <summary>The most references (and arrays of one) followed to reach one thing.</summary>
+    private const int MaxReferenceSteps = 1000;
 
     /// <summary>The most bytes one row of a predicted (PNG or TIFF filtered) stream may be.</summary>
     private const long MaxPredictorRowBytes = 1024 * 1024;
 
+    /// <summary>What a token stands for, found as PdfPig finds it: references are followed however many there are, and where something other than an array is wanted an array of one
+    /// stands for what it holds (<paramref name="unwrap"/>). Null when it is not there; throws when the way there is too long to be honest.</summary>
+    private static T Find<T>(IToken token, IPdfTokenScanner scanner, bool unwrap = true) where T : class, IToken
+    {
+        for (int step = 0; step < MaxReferenceSteps; step++)
+        {
+            if (token is T found)
+            {
+                return found;
+            }
+            if (token is IndirectReferenceToken reference)
+            {
+                token = scanner.Get(reference.Data)?.Data;
+            }
+            else if (unwrap && token is ArrayToken { Length: 1 } single)
+            {
+                token = single.Data[0];
+            }
+            else
+            {
+                return null;
+            }
+        }
+        throw new DocumentTooLargeException();
+    }
+
     /// <summary>PdfPig's decoders, only the ones whose output can be bounded before they run: flate (measured first), ASCII85 and ASCII hex. LZW, run-length and the picture decoders are
-    /// refused when text reading needs one (pictures are never unpacked for text).</summary>
+    /// refused when text reading needs one (pictures are never unpacked for text). What they unpack is added up, apart for reading and for the checks before it.</summary>
     public sealed class Filters : IFilterProvider
     {
         private readonly IFilterProvider Inner = DefaultFilterProvider.Instance;
 
-        private long Total;
+        private long Read, Measured, PageMeasured;
 
-        /// <summary>Whether what is unpacked now counts toward <see cref="MaxUnpackedBytes"/>. Off while a page is only being measured, since reading it unpacks the same again.</summary>
-        public bool Metering = true;
+        private bool Measuring, MeasuringPage;
 
-        /// <summary>Whether a size limit was passed.</summary>
+        /// <summary>Whether a limit for the whole file was passed.</summary>
         public bool Exceeded;
+
+        /// <summary>Whether the page being measured passed its limit.</summary>
+        public bool PageExceeded;
 
         /// <summary>The compression that was needed and is not read, or null.</summary>
         public string Refused;
+
+        /// <summary>What is unpacked from now is for a check made before reading.</summary>
+        public void StartChecking() => (Measuring, MeasuringPage, PageExceeded) = (true, false, false);
+
+        /// <summary>What is unpacked from now is for measuring one page.</summary>
+        public void StartPage() => (Measuring, MeasuringPage, PageMeasured, PageExceeded) = (true, true, 0, false);
+
+        /// <summary>What is unpacked from now is for reading the text.</summary>
+        public void StartReading() => (Measuring, MeasuringPage, PageExceeded) = (false, false, false);
 
         /// <inheritdoc/>
         public IReadOnlyList<IFilter> GetFilters(DictionaryToken dictionary) => Wrap(Inner.GetFilters(dictionary));
@@ -73,11 +122,25 @@ internal static class PdfLimits
 
         private IReadOnlyList<IFilter> Wrap(IReadOnlyList<IFilter> filters) => [.. filters.Select(f => (IFilter)new Bounded(f, this))];
 
-        /// <summary>Records that a limit was passed and makes the error to throw.</summary>
+        /// <summary>Records that a limit for the file was passed and makes the error to throw.</summary>
         private DocumentTooLargeException Fail()
         {
             Exceeded = true;
             return new DocumentTooLargeException();
+        }
+
+        /// <summary>Adds what a decoder made to the sum it belongs to.</summary>
+        private void Count(long bytes)
+        {
+            if (MeasuringPage && (PageMeasured += bytes) > MaxPageMeasuredBytes)
+            {
+                PageExceeded = true;
+                throw new DocumentTooLargeException();
+            }
+            if (Measuring ? (Measured += bytes) > MaxMeasuredBytes : (Read += bytes) > MaxUnpackedBytes)
+            {
+                throw Fail();
+            }
         }
 
         private sealed class Bounded(IFilter inner, Filters owner) : IFilter
@@ -88,9 +151,9 @@ internal static class PdfLimits
             /// <inheritdoc/>
             public Memory<byte> Decode(Memory<byte> input, DictionaryToken streamDictionary, IFilterProvider filterProvider, int filterIndex)
             {
-                if (owner.Exceeded)
+                if (owner.Exceeded || owner.PageExceeded)
                 {
-                    throw owner.Fail();
+                    throw new DocumentTooLargeException();
                 }
                 switch (inner)
                 {
@@ -118,33 +181,18 @@ internal static class PdfLimits
                 {
                     throw owner.Fail();
                 }
-                if (owner.Metering && (owner.Total += result.Length) > MaxUnpackedBytes)
-                {
-                    throw owner.Fail();
-                }
+                owner.Count(result.Length);
                 return result;
             }
 
-            /// <summary>How long a row is for a stream filtered through a predictor (0 for none): the decoder makes buffers of that size from numbers in the file.</summary>
+            /// <summary>How long a row is for a stream filtered through a predictor (0 for none): the decoder makes buffers of that size from numbers in the file. The parameters are the
+            /// ones the decoder itself will take.</summary>
             private static double PredictorRowBytes(DictionaryToken dictionary, int filterIndex)
             {
-                foreach (NameToken key in new[] { NameToken.DecodeParms, NameToken.Dp })
-                {
-                    if (!dictionary.TryGet(key, out IToken token))
-                    {
-                        continue;
-                    }
-                    DictionaryToken parameters = token as DictionaryToken ?? (token is ArrayToken list && filterIndex < list.Length ? list.Data[filterIndex] as DictionaryToken : null);
-                    // Parameters that cannot be looked at here (a reference to them) are taken as too large rather than trusted.
-                    if (parameters is null)
-                    {
-                        return token is ArrayToken ? 0 : double.MaxValue;
-                    }
-                    double Number(string name, double fallback)
-                        => !parameters.Data.TryGetValue(name, out IToken value) ? fallback : value is NumericToken number ? Math.Abs(number.Double) : double.MaxValue;
-                    return Number("Predictor", 1) <= 1 ? 0 : Number("Columns", 1) * Number("Colors", 1) * Number("BitsPerComponent", 8) / 8;
-                }
-                return 0;
+                DictionaryToken parameters = DecodeParameterResolver.GetFilterParameters(dictionary, filterIndex);
+                double Number(NameToken name, double fallback) => parameters.TryGet(name, out IToken value) && value is NumericToken number ? Math.Abs(number.Double) : fallback;
+                return Number(NameToken.Predictor, 1) <= 1 ? 0
+                    : Math.Min(Number(NameToken.Colors, 1), 32) * Number(NameToken.BitsPerComponent, 8) * Number(NameToken.Columns, 1) / 8;
             }
 
             /// <summary>How many bytes a flate stream unpacks to, counting no further than just past the limit and keeping none of them. Damaged data counts as far as it reads.</summary>
@@ -174,237 +222,27 @@ internal static class PdfLimits
         }
     }
 
-    /// <summary>Whether the ranges in every font map the document can reach (the width lists of composite fonts, and the Unicode and character maps) stay within
-    /// <see cref="MaxFontMapEntries"/>. Looked at before any page is, since loading a page's fonts is what expands them.</summary>
-    public static bool FontMapsFit(DictionaryToken catalog, IPdfTokenScanner scanner, ILookupFilterProvider decoders, CancellationToken ct)
-    {
-        Stack<IToken> waiting = new();
-        HashSet<IndirectReference> seen = [];
-        // What each character map covers, so one that many fonts use is read once.
-        Dictionary<object, long> maps = [];
-        long entries = 0;
-        int looked = 0;
-        waiting.Push(catalog);
-        while (waiting.Count > 0)
-        {
-            if ((++looked & 1023) == 0)
-            {
-                ct.ThrowIfCancellationRequested();
-            }
-            if (looked > MaxObjects * 4)
-            {
-                return false;
-            }
-            IToken token = waiting.Pop();
-            switch (token)
-            {
-                case IndirectReferenceToken reference when seen.Add(reference.Data):
-                    if (seen.Count > MaxObjects)
-                    {
-                        return false;
-                    }
-                    try
-                    {
-                        if (scanner.Get(reference.Data)?.Data is IToken found)
-                        {
-                            waiting.Push(found);
-                        }
-                    }
-                    catch (Exception ex) when (ex is not (OperationCanceledException or DocumentTooLargeException))
-                    {
-                        // A broken object is the reader's to report, if a page needs it.
-                    }
-                    break;
-                case ArrayToken array:
-                    foreach (IToken item in array.Data)
-                    {
-                        waiting.Push(item);
-                    }
-                    break;
-                case StreamToken stream:
-                    waiting.Push(stream.StreamDictionary);
-                    break;
-                case DictionaryToken dictionary:
-                    foreach (KeyValuePair<string, IToken> entry in dictionary.Data)
-                    {
-                        long covered = 0;
-                        if (entry.Key is "W" or "W2" && Resolve(entry.Value, scanner) is ArrayToken widths)
-                        {
-                            covered = WidthEntries(widths, entry.Key == "W" ? 3 : 5, scanner);
-                        }
-                        else if (entry.Key is "ToUnicode" or "Encoding" && Resolve(entry.Value, scanner) is StreamToken map)
-                        {
-                            object key = entry.Value is IndirectReferenceToken named ? named.Data : map;
-                            if (!maps.TryGetValue(key, out covered))
-                            {
-                                maps[key] = covered = MapEntries(map.Decode(decoders, scanner).Span);
-                            }
-                        }
-                        if (covered > MaxFontMapEntries)
-                        {
-                            return false;
-                        }
-                        entries += covered;
-                        waiting.Push(entry.Value);
-                    }
-                    if (entries > MaxFileFontMapEntries)
-                    {
-                        return false;
-                    }
-                    break;
-            }
-        }
-        return true;
-    }
+    /// <summary>A page's dictionary and the resources the page tree hands down to it, taken without reading the page.</summary>
+    public sealed record PageEntry(DictionaryToken Dictionary, IReadOnlyList<DictionaryToken> Inherited);
 
-    /// <summary>The characters the ranges of a composite font's width list cover. The list holds "first [widths]", which is as long as what it describes, or "first last values..."
-    /// (<paramref name="rangeLength"/> items), which is not.</summary>
-    private static long WidthEntries(ArrayToken widths, int rangeLength, IPdfTokenScanner scanner)
-    {
-        long entries = 0;
-        for (int i = 0; i + 1 < widths.Length;)
-        {
-            IToken second = Resolve(widths.Data[i + 1], scanner);
-            if (second is ArrayToken)
-            {
-                i += 2;
-                continue;
-            }
-            if (Resolve(widths.Data[i], scanner) is NumericToken first && second is NumericToken last)
-            {
-                entries += (long)Math.Clamp(last.Double - first.Double + 1, 0, MaxFontMapEntries + 1);
-                i += rangeLength;
-            }
-            else
-            {
-                i++;
-            }
-            if (entries > MaxFontMapEntries)
-            {
-                break;
-            }
-        }
-        return entries;
-    }
-
-    /// <summary>The characters the ranges of a character map (<c>bfrange</c> and <c>cidrange</c> blocks) cover.</summary>
-    internal static long MapEntries(ReadOnlySpan<byte> map)
-    {
-        string text = System.Text.Encoding.Latin1.GetString(map);
-        long entries = 0;
-        foreach (string kind in new[] { "bfrange", "cidrange" })
-        {
-            int at = 0;
-            while ((at = text.IndexOf("begin" + kind, at, StringComparison.Ordinal)) >= 0)
-            {
-                at += 5 + kind.Length;
-                int end = text.IndexOf("end" + kind, at, StringComparison.Ordinal);
-                // The tokens of the block in threes: the first and last code of a range, and what they stand for.
-                int position = 0;
-                long first = -1;
-                foreach (string token in MapTokens(text, at, end < 0 ? text.Length : end))
-                {
-                    if (position == 0)
-                    {
-                        first = HexValue(token);
-                    }
-                    else if (position == 1 && first >= 0 && HexValue(token) is long last && last >= first)
-                    {
-                        entries += Math.Min(last - first + 1, MaxFontMapEntries + 1);
-                        if (entries > MaxFontMapEntries)
-                        {
-                            return entries;
-                        }
-                    }
-                    position = (position + 1) % 3;
-                }
-                at = end < 0 ? text.Length : end;
-            }
-        }
-        return entries;
-    }
-
-    /// <summary>The tokens of part of a character map: hex strings, whole arrays and words, without comments.</summary>
-    private static IEnumerable<string> MapTokens(string text, int start, int end)
-    {
-        int i = start;
-        while (i < end)
-        {
-            char c = text[i];
-            if (c == '%')
-            {
-                while (i < end && text[i] is not ('\n' or '\r'))
-                {
-                    i++;
-                }
-                continue;
-            }
-            if (char.IsWhiteSpace(c) || c == '\0')
-            {
-                i++;
-                continue;
-            }
-            int from = i;
-            if (c is '<' or '[')
-            {
-                int close = text.IndexOf(c == '<' ? '>' : ']', i + 1, end - i - 1);
-                i = close < 0 ? end : close + 1;
-            }
-            else
-            {
-                i++;
-                while (i < end && !char.IsWhiteSpace(text[i]) && text[i] is not ('<' or '[' or '%' or '\0'))
-                {
-                    i++;
-                }
-            }
-            yield return text[from..i];
-        }
-    }
-
-    /// <summary>The number a hex string stands for (-1 when it is not one; a very long one counts as very large).</summary>
-    private static long HexValue(string token)
-    {
-        if (token.Length < 2 || token[0] != '<' || token[^1] != '>')
-        {
-            return -1;
-        }
-        long value = 0;
-        foreach (char c in token.AsSpan(1, token.Length - 2))
-        {
-            if (char.IsWhiteSpace(c))
-            {
-                continue;
-            }
-            if (!char.IsAsciiHexDigit(c))
-            {
-                return -1;
-            }
-            value = Math.Min(value * 16 + (c <= '9' ? c - '0' : (c | 32) - 'a' + 10), long.MaxValue / 32);
-        }
-        return value;
-    }
-
-    /// <summary>A page's dictionary, taken without reading the page.</summary>
-    public sealed record PageEntry(DictionaryToken Dictionary);
-
-    /// <summary>Gives a page's dictionary without reading its content.</summary>
+    /// <summary>Gives a <see cref="PageEntry"/>.</summary>
     public sealed class EntryFactory : IPageFactory<PageEntry>
     {
         /// <inheritdoc/>
-        public PageEntry Create(int number, DictionaryToken dictionary, PageTreeMembers pageTreeMembers, NamedDestinations namedDestinations) => new(dictionary);
+        public PageEntry Create(int number, DictionaryToken dictionary, PageTreeMembers pageTreeMembers, NamedDestinations namedDestinations)
+            => new(dictionary, [.. pageTreeMembers.ParentResources]);
     }
 
-    /// <summary>The size of the content streams a page lists, each counted every time it is listed. Stops, returning more than the limit, as soon as the limit is passed or the list is
-    /// too long.</summary>
+    /// <summary>The size of the content streams a page lists, each counted every time it is listed. Returns more than the limit as soon as it is passed, when the list is too long, or when
+    /// it names something that is not a stream.</summary>
     public static long ContentBytes(DictionaryToken page, IPdfTokenScanner scanner, ILookupFilterProvider decoders, CancellationToken ct)
     {
         if (!page.TryGet(NameToken.Contents, out IToken contents))
         {
             return 0;
         }
-        contents = Resolve(contents, scanner);
-        IReadOnlyList<IToken> parts = contents is ArrayToken array ? array.Data : [contents];
+        ArrayToken array = Find<ArrayToken>(contents, scanner, false);
+        IReadOnlyList<IToken> parts = array?.Data ?? [contents];
         if (parts.Count > MaxPageContentStreams)
         {
             return long.MaxValue;
@@ -413,26 +251,245 @@ internal static class PdfLimits
         foreach (IToken part in parts)
         {
             ct.ThrowIfCancellationRequested();
-            if (Resolve(part, scanner) is StreamToken stream)
+            // In a list the parser takes references only, and passes over anything else.
+            if (array is not null && part is not IndirectReferenceToken)
             {
-                total += stream.Decode(decoders, scanner).Length + 1;
-                if (total > MaxPageContentBytes)
-                {
-                    break;
-                }
+                continue;
+            }
+            if (Find<StreamToken>(part, scanner) is not StreamToken stream)
+            {
+                return long.MaxValue;
+            }
+            total += stream.Decode(decoders, scanner).Length + 1;
+            if (total > MaxPageContentBytes)
+            {
+                break;
             }
         }
         return total;
     }
 
-    /// <summary>What a reference points at (followed a few steps), or the token itself.</summary>
-    private static IToken Resolve(IToken token, IPdfTokenScanner scanner)
+    /// <summary>What looking over a page's font maps found.</summary>
+    public enum FontCheck
     {
-        for (int depth = 0; token is IndirectReferenceToken reference && depth < 8; depth++)
+        /// <summary>Within the limits.</summary>
+        Fit,
+        /// <summary>The fonts describe too many characters.</summary>
+        TooManyCharacters,
+        /// <summary>The resources lead to too many objects to look at.</summary>
+        TooManyObjects,
+    }
+
+    /// <summary>Looks over the font maps a page's resources lead to (the width lists of composite fonts, and Unicode and character maps) before the page is loaded, since loading its fonts is
+    /// what expands them. It is kept for a whole file: what one page shares with another is counted once, as the parser loads it once. Anything but <see cref="FontCheck.Fit"/> ends the
+    /// file, because what was passed over then is not looked at again.</summary>
+    public sealed class FontMaps(IPdfTokenScanner scanner, ILookupFilterProvider decoders)
+    {
+        private readonly HashSet<IndirectReference> Seen = [];
+
+        /// <summary>What each character map covers, so one that many fonts use is read once.</summary>
+        private readonly Dictionary<object, long> Maps = [];
+
+        private long Entries;
+
+        /// <summary>Looks over what a page's own resources, and those handed down to it, lead to. The structure tree and whatever else no resource refers to are not walked.</summary>
+        public FontCheck Check(PageEntry page, CancellationToken ct)
         {
-            token = scanner.Get(reference.Data)?.Data;
+            Stack<IToken> waiting = new(page.Inherited);
+            if (page.Dictionary.TryGet(NameToken.Resources, out IToken own))
+            {
+                waiting.Push(own);
+            }
+            int looked = 0;
+            while (waiting.Count > 0)
+            {
+                if ((++looked & 1023) == 0)
+                {
+                    ct.ThrowIfCancellationRequested();
+                }
+                switch (waiting.Pop())
+                {
+                    case IndirectReferenceToken reference when Seen.Add(reference.Data):
+                        if (Seen.Count > MaxResourceObjects)
+                        {
+                            return FontCheck.TooManyObjects;
+                        }
+                        Try(() => Push(waiting, scanner.Get(reference.Data)?.Data));
+                        break;
+                    case ArrayToken array:
+                        foreach (IToken item in array.Data)
+                        {
+                            Push(waiting, item);
+                        }
+                        break;
+                    case StreamToken stream:
+                        waiting.Push(stream.StreamDictionary);
+                        break;
+                    case DictionaryToken dictionary:
+                        foreach (KeyValuePair<string, IToken> entry in dictionary.Data)
+                        {
+                            long covered = 0;
+                            // Every other entry is followed, whatever its name: a resource may be called anything.
+                            if (entry.Key is "W" or "W2")
+                            {
+                                Try(() => covered = Find<ArrayToken>(entry.Value, scanner, false) is ArrayToken widths ? WidthEntries(widths, entry.Key == "W2") : 0);
+                            }
+                            else if (entry.Key is "ToUnicode" or "Encoding")
+                            {
+                                Try(() => covered = MapEntries(entry.Value));
+                            }
+                            if (covered > MaxFontMapEntries || (Entries += covered) > MaxFileFontMapEntries)
+                            {
+                                return FontCheck.TooManyCharacters;
+                            }
+                            // A width list holds numbers (and lists of them), with no font further in.
+                            if (entry.Key is not ("W" or "W2"))
+                            {
+                                Push(waiting, entry.Value);
+                            }
+                        }
+                        break;
+                }
+            }
+            return FontCheck.Fit;
         }
-        return token;
+
+        /// <summary>Adds what may lead further to what is waiting to be looked at.</summary>
+        private static void Push(Stack<IToken> waiting, IToken token)
+        {
+            if (token is IndirectReferenceToken or ArrayToken or DictionaryToken or StreamToken)
+            {
+                waiting.Push(token);
+            }
+        }
+
+        /// <summary>Runs one look at one thing: a broken object is the reader's to report, if the page needs it, and must not stop the rest being looked at.</summary>
+        private static void Try(Action look)
+        {
+            try
+            {
+                look();
+            }
+            catch (Exception ex) when (ex is not (OperationCanceledException or DocumentTooLargeException))
+            {
+            }
+        }
+
+        /// <summary>The characters a composite font's width list covers: "first [widths]" as many as the list holds, "first last values" all from the first code to the last (three items for
+        /// <c>W</c>, five for <c>W2</c>). A code outside what a font can have counts as too many.</summary>
+        private long WidthEntries(ArrayToken widths, bool vertical)
+        {
+            long entries = 0;
+            for (int i = 0; i + 1 < widths.Length && entries <= MaxFontMapEntries;)
+            {
+                if (Find<NumericToken>(widths.Data[i], scanner) is not NumericToken first)
+                {
+                    break;
+                }
+                IToken second = widths.Data[i + 1];
+                if (Find<ArrayToken>(second, scanner, false) is ArrayToken list)
+                {
+                    if (!IsCode(first.Double))
+                    {
+                        return MaxFontMapEntries + 1;
+                    }
+                    entries += vertical ? list.Length / 3 + 1 : list.Length;
+                    i += 2;
+                    continue;
+                }
+                if (Find<NumericToken>(second, scanner) is not NumericToken last)
+                {
+                    break;
+                }
+                if (!IsCode(first.Double) || !IsCode(last.Double))
+                {
+                    return MaxFontMapEntries + 1;
+                }
+                entries += (long)Math.Max(0, last.Double - first.Double + 1);
+                i += vertical ? 5 : 3;
+            }
+            return entries;
+        }
+
+        private static bool IsCode(double value) => value is >= 0 and <= MaxCharacterCode;
+
+        /// <summary>The characters the character map a font entry names covers (0 when it names no stream, such as <c>Identity-H</c>).</summary>
+        private long MapEntries(IToken value)
+        {
+            if (Find<StreamToken>(value, scanner) is not StreamToken map)
+            {
+                return 0;
+            }
+            object key = value is IndirectReferenceToken named ? named.Data : map;
+            if (!Maps.TryGetValue(key, out long covered))
+            {
+                Maps[key] = covered = PdfLimits.MapEntries(map.Decode(decoders, scanner));
+            }
+            return covered;
+        }
+    }
+
+    /// <summary>The characters the <c>bfrange</c> blocks of a character map cover, read with the tokenizer and in the mode the parser reads it with. The parser steps from the first code of a
+    /// range until it reaches the last, comparing as many bytes as the first has, so ends of different lengths (or over four bytes) count as too many. Ranges in <c>cidrange</c> blocks are
+    /// kept as two numbers by the parser and cost nothing.</summary>
+    internal static long MapEntries(Memory<byte> map)
+    {
+        long entries = 0;
+        try
+        {
+            CoreTokenScanner tokens = new(new MemoryInputBytes(map), false, new StackDepthGuard(256),
+                namedDictionaryRequiredKeys: new Dictionary<NameToken, IReadOnlyList<NameToken>> { [NameToken.CidSystemInfo] = [NameToken.Registry, NameToken.Ordering, NameToken.Supplement] },
+                isCMapParser: true);
+            bool inRanges = false;
+            HexToken first = null, last = null;
+            while (tokens.MoveNext())
+            {
+                IToken token = tokens.CurrentToken;
+                if (token is OperatorToken word && word.Data is "beginbfrange" or "endbfrange")
+                {
+                    inRanges = word.Data == "beginbfrange";
+                    first = last = null;
+                }
+                else if (!inRanges || token is CommentToken)
+                {
+                    continue;
+                }
+                else if (first is null)
+                {
+                    first = token as HexToken;
+                }
+                else if (last is null)
+                {
+                    last = token as HexToken;
+                    first = last is null ? null : first;
+                }
+                else
+                {
+                    // The third item says what the range stands for; with it the range is complete.
+                    if (first.Bytes.Length != last.Bytes.Length || first.Bytes.Length is 0 or > 4)
+                    {
+                        return MaxFontMapEntries + 1;
+                    }
+                    long from = 0, to = 0;
+                    for (int i = 0; i < first.Bytes.Length; i++)
+                    {
+                        from = from * 256 + first.Bytes[i];
+                        to = to * 256 + last.Bytes[i];
+                    }
+                    entries += to >= from ? to - from + 1 : 1;
+                    if (entries > MaxFontMapEntries)
+                    {
+                        break;
+                    }
+                    first = last = null;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not (OperationCanceledException or DocumentTooLargeException))
+        {
+            // The parser reads it with the same tokenizer, so it gets no further than this either.
+        }
+        return entries;
     }
 
     /// <summary>Whether drawing a page stays within the limits.</summary>
