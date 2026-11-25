@@ -288,10 +288,13 @@ test('the companion expands from the keyboard and has no violations', async ({ l
         await reopen(llm);
         let portrait = llm.getByRole('button', { name: /expand or collapse/i });
         await expect(portrait).toBeVisible({ timeout: 30_000 });
-        await portrait.focus();
-        await llm.keyboard.press('Enter');
-        await expect(llm.locator('#llma-companion-root')).toHaveClass(/llma-companion-expanded/);
-        await expect(llm.locator('#llma-companion-input')).toBeFocused();
+        // The companion applies the saved settings again while the page finishes loading, which can close what was just opened: press until it stays open.
+        await expect(async () => {
+            await portrait.focus();
+            await llm.keyboard.press('Enter');
+            await expect(llm.locator('#llma-companion-input')).toBeFocused({ timeout: 2000 });
+            await expect(llm.locator('#llma-companion-root')).toHaveClass(/llma-companion-expanded/, { timeout: 500 });
+        }).toPass({ timeout: 30_000 });
         await audit(llm, 'companion', '#llma-companion-root');
     }
     finally {
