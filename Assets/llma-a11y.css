@@ -122,8 +122,16 @@
 
 /* A switched-off tool was faded as a whole, text and switch included. It is marked by its border instead. */
 .llma-container .llma-tool-list-item.disabled { opacity: 1; border-style: dashed; }
-/* Bootstrap's grey badges are white on grey in some themes. */
-.llma-container .badge:is(.text-bg-light, .text-bg-secondary) { background-color: var(--background) !important; color: var(--text) !important; border: 1px solid var(--light-border); }
+/* Bootstrap's coloured badges and text put fixed colours on theme backgrounds, several under 4.5:1. A badge keeps its colour as a border
+   (the round status dots, which are nothing but colour, are left alone), and coloured text leans on the theme's strongest text colour. */
+.llma-container .badge[class*="text-bg-"]:not(.rounded-pill) { background-color: var(--background) !important; color: var(--text) !important; border: 1px solid var(--light-border); }
+.llma-container .badge.text-bg-success:not(.rounded-pill) { border: 2px solid var(--bs-success); }
+.llma-container .badge.text-bg-warning:not(.rounded-pill) { border: 2px solid var(--bs-warning); }
+.llma-container .badge.text-bg-danger:not(.rounded-pill) { border: 2px solid var(--bs-danger); }
+.llma-container .badge:is(.text-bg-primary, .text-bg-info):not(.rounded-pill) { border: 2px solid var(--emphasis); }
+.llma-container .text-success { color: color-mix(in srgb, var(--bs-success) 35%, var(--text-strong)) !important; }
+.llma-container .text-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)) !important; }
+.llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }
 
 /* ── Small targets ─────────────────────────────────────────── */
 .llma-branch-nav, .llma-branch-label { min-width: 24px; min-height: 24px; }
