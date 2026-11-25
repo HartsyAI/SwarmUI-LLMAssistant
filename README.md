@@ -22,6 +22,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Installation](#installation)
 - [Adding an LLM backend](#adding-an-llm-backend)
 - [Quick start](#quick-start)
+- [First-run guide and starter set](#onboarding)
 - [The interface](#the-interface)
 - [Assistants](#assistants)
 - [Long chats](#long-chats)
@@ -204,6 +205,20 @@ Anthropic describes the compatibility endpoint as meant for testing and comparin
 2. Pick a model from the dropdown in the top bar.
 3. Type. `Enter` sends, `Shift+Enter` makes a newline, `/` opens the tool picker, and the paperclip (or a drag-and-drop) attaches an image.
 4. Everything else (parameters, export, settings, the assistant panel) hangs off the top bar and the right-hand panel.
+
+---
+
+## First-run guide and starter set <a id="onboarding"></a>
+
+**The guide** opens by itself over an empty chat for a new user: one who has never dismissed it, sent a message or been seen with chats. It says what is ready, with the same numbers as the [setup check](#headless): a running **LLM backend**, a **chat model** to pick, the **tools** you can use, and **embeddings** (optional). With no backend it says to add one under `Server > Backends` and has a button that opens that page (a user who may not add backends is told to ask an administrator). It recommends no engine or provider.
+- **It blocks nothing.** The message box, chat list and settings stay usable, and the assistant gallery and chats with messages hide it. **Skip for now** closes it, **Start chatting** (shown once a message can be sent) or the first message you send finishes it; **Check again** asks the backends for their models again after you changed something.
+- **Per user, and kept on the server** (`new`, `pending`, `skipped` or `completed`), apart from your settings, so a settings reset does not bring it back. A new user who already has chats is saved as `completed`, so deleting them all does not start a first run. `Settings > General` > **Show the guide again** runs it for anyone.
+
+**Starter set.** One click in the guide adds three assistants (**General Assistant**, **Image Prompt Helper**, **Researcher**), four prompt snippets as [slash commands](#skills-and-commands) (`/enhance-prompt`, `/video-prompt`, `/random-prompt`, `/write-instructions`) and two example chats. The general and prompt-helper instructions and the four snippets are the instruction texts the extension already ships; the researcher's instruction and the example chats were written for the set (no model produced them).
+- **Ordinary personal items.** Edit or delete them like anything you made.
+- **Nothing is overwritten.** An assistant whose id or name you can already see (yours, or a shared one), a command or skill by a snippet's name, or an example chat you have, is left as it is, edited or not. Running it again adds only what is missing, including anything you deleted. A renamed example chat is still recognized.
+- **No network, no model, no key.** Installing only writes your own items. Assistants and snippets need `llm_settings`, chats `llm_threads`; what you may not make is reported as skipped. A tool an assistant lists is offered only if it is switched on and you may use it (the Researcher lists `web_search`, which goes to the web when the model calls it; see [Network connections](#network-connections)).
+- **What the guide sends.** Its checks only read. The one request they can cause is a backend's own model list (cached for five minutes), which the chat's model picker makes anyway.
 
 ---
 
@@ -862,7 +877,7 @@ Every route is registered with one base permission, which SwarmUI checks before 
 
 | Base permission | Routes |
 |---|---|
-| `llm_chat` | Chat and turns (`SendMessage`, `SendMessageWS`, `EditMessageWS`, `RegenerateWS`, `VoiceTurn`, `VoiceTurnWS`, `RunTurn`, `Readiness`, `StopGeneration`, `ResolveToolApproval`, `CompactThread`, `CreateThread`, `TestInstruction`, `UploadChatImage`, `UploadChatVideo`, `CountTokens`, `Decide`), `ExecuteTool`, the workspace routes that read or change the files of a chat (`ListWorkspaceFiles`, `ReadWorkspaceFile`, `ListWorkspaceChanges`, `GetWorkspaceChange`, `RevertWorkspaceChange`, `GetWorkspaces`, `CreateWorkspace`; the rows say which of them also need `llm_code_mode`), reading and expanding skills, commands and prompt styles (`GetPromptAssets`, `GetPromptAsset`, `ExpandPromptAsset`, `GetPromptStyles`, `GetPromptStyle`, `ResolvePromptStyle`), `RewritePrompt`, and all the memory routes except `SetMemoryAdmin` and `SetThreadMemory` |
+| `llm_chat` | Chat and turns (`SendMessage`, `SendMessageWS`, `EditMessageWS`, `RegenerateWS`, `VoiceTurn`, `VoiceTurnWS`, `RunTurn`, `Readiness`, `StopGeneration`, `ResolveToolApproval`, `CompactThread`, `CreateThread`, `TestInstruction`, `UploadChatImage`, `UploadChatVideo`, `CountTokens`, `Decide`), the first-run guide (`GetOnboarding`, `SetOnboarding`, `InstallStarterSet`), `ExecuteTool`, the workspace routes that read or change the files of a chat (`ListWorkspaceFiles`, `ReadWorkspaceFile`, `ListWorkspaceChanges`, `GetWorkspaceChange`, `RevertWorkspaceChange`, `GetWorkspaces`, `CreateWorkspace`; the rows say which of them also need `llm_code_mode`), reading and expanding skills, commands and prompt styles (`GetPromptAssets`, `GetPromptAsset`, `ExpandPromptAsset`, `GetPromptStyles`, `GetPromptStyle`, `ResolvePromptStyle`), `RewritePrompt`, and all the memory routes except `SetMemoryAdmin` and `SetThreadMemory` |
 | `llm_settings` | Settings, assistants, instructions, tools and tool config, hooks, MCP servers, saving or deleting skills, commands and prompt styles, `SetStyleOverrides`, `SetWorkspaceTrust`, the workspace-root routes, `GetImagePresets`, `GetImageDefaults`, `SetImageDefaults` |
 | `llm_threads` | Chats and their messages (`GetThreads`, `GetThread`, `DeleteThread`, `RenameThread`, `EditMessage`, `DeleteMessage`, `SetActiveLeaf`, `SetThread*`, `ArchiveSession`, `ExportThread`, `SearchThreads`, `PinThread`, `ImportThread`), session state, and assets |
 | `llm_models` | `GetModels`, `UnloadModels` |
@@ -894,6 +909,16 @@ Every route is registered with one base permission, which SwarmUI checks before 
 | `LLMAssistantCompactThread` | POST | `threadId`, `model?`, `instructions?` | `{success, compacted, compaction?}`; summarizes the start of the chat now (`/compact`). `compacted: false` means there was nothing worth compacting yet. `compaction` is `{id, upToMessageId, messageCount, tokensBefore, summary, createdAt}` |
 
 Pass a `models` array of `{model, device?, backendId?, assistantMessageId?}` with **two or more** entries to `LLMAssistantSendMessageWS` and it runs compare mode instead of a single reply.
+
+#### First-run guide and starter set
+
+All three need `llm_chat` and act only on the calling user. See [First-run guide and starter set](#onboarding).
+
+| Route | Method | Request | Returns |
+|---|---|---|---|
+| `LLMAssistantGetOnboarding` | POST | `checks?` (default true), `refresh?` (ask the backends for their models again) | `{success, status, show}`; with `checks` also `canChat`, `checks[{id (backend, model, tools, embeddings), title, status (ok, warn, fail, info), detail, fix?}]`, `setup{page, hash, canView, canAdd}` and `starter{items[{kind (assistant, snippet, chat), id, title, installed}], total, installed, missing}`. Changes only this: a new user who has chats is saved as `completed` |
+| `LLMAssistantSetOnboarding` | POST | `action`: `skip`, `complete`, `run` (show it again) or `reset` (as for a new user) | `{success, status, show}`; repeating an action changes nothing, and no action touches the starter items. `{success: false, error}` for another action |
+| `LLMAssistantInstallStarterSet` | POST | none | `{success, added[{kind, id, title}], skipped[{kind, id, title, code (exists, permission, error), reason}], starter}`; adds only what is missing, as personal items. A new user with no chats who gets something becomes `pending`, so the example chats do not close the guide |
 
 #### Streaming frames
 
@@ -1152,7 +1177,7 @@ SwarmUI-LLMAssistant/
 ├── Services/                  Assistants, instructions, threads, tools, media, settings layers, rate limits, audit log, GC,
 │                              the one tool loop (ToolTurnRunner, ToolTurnSinks), and one folder per feature:
 │                              Memory/, ChatLibrary/, Compaction/, Hooks/, Mcp/, PromptAssets/, PromptStyles/, PromptRewrite/,
-│                              ImageTools/, Sessions/, Schedules/, Knowledge/, Readiness/
+│                              ImageTools/, Sessions/, Schedules/, Knowledge/, Readiness/, Onboarding/
 ├── Tools/BuiltIn/             The built-in tool handlers (one file per tool or tool family: files, web, memory, image, vision, device actions, code, sessions, schedules, skill, knowledge, MCP)
 ├── T2I/                       Generate-tab parameters and <llmprompt> processing
 ├── WebAPI/                    One static endpoint class per feature, and LLMAssistantAPI.cs, which holds the permission

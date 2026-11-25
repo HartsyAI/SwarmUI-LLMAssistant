@@ -114,6 +114,8 @@ async function llmaInit() {
         }
     }
     llmaUpdateModelStatus();
+    // The first-run guide: the server says whether this user should see it. Not awaited, so the chat is usable meanwhile.
+    llmaOnboarding.init();
 }
 
 // Start a fresh empty chat session with an assistant without persisting
@@ -257,6 +259,8 @@ async function llmaLoadModels(opts = {}) {
             llmaApplyModelSelection();
             // Backend registered and gave us models — stop any in-flight readiness polling.
             llmaStopModelRetry();
+            // The first-run guide may still be saying that there is no backend.
+            llmaOnboarding.onModels();
         } else {
             llmaSetModelSelectError(true);
             // Empty list usually means the backend is still loading — keep polling until it shows up.
