@@ -678,20 +678,24 @@ public static class ThreadStorageService
     /// satisfied either way. Reporting 404 here just traps them with a phantom entry they can never clear.</summary>
     public static bool DeleteThread(User user, string threadId)
     {
+        // Read before it goes: its attached documents are removed with it.
+        JObject deleted;
+        bool existed;
         lock (ThreadWriteLock)
         {
-            // Read before it goes: its attached documents are removed with it.
-            JObject deleted = GetThread(user, threadId);
+            deleted = GetThread(user, threadId);
             bool blobDeleted = user.DeleteGenericData(DataName, ThreadPrefix + threadId);
             bool indexHadEntry = RemoveFromIndex(user, threadId);
             // What the chat's file tools changed (the saved earlier versions) goes with it.
             ChangeJournalService.DeleteForThread(user, threadId);
-            if (deleted is not null)
-            {
-                ChatDocuments.DeleteForThread(user, deleted);
-            }
-            return blobDeleted || indexHadEntry;
+            existed = blobDeleted || indexHadEntry;
         }
+        // Outside the lock: this reads the user's other chats, to keep a document one of them still refers to.
+        if (deleted is not null)
+        {
+            ChatDocuments.DeleteForThread(user, deleted);
+        }
+        return existed;
     }
 
     /// <summary>Generates a unique thread ID.</summary>

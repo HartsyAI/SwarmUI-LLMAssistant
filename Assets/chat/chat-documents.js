@@ -18,7 +18,7 @@ class LLMAChatDocuments {
             ['documentMaxPages', 'llma-s-doc-max-pages', 'Most PDF Pages', 'Pages after this many are left out of a PDF, and the result says so.', 200, 1, 1000],
             ['documentMaxChars', 'llma-s-doc-max-chars', 'Most Characters Per Attachment', 'Text kept from one attached file. A longer file is cut, with a note to the model. The knowledge library has its own limit and refuses instead.', 200000, 1000, 1000000],
             ['documentMaxPerMessage', 'llma-s-doc-per-message', 'Most Documents Per Message', 'How many documents one message can carry.', 5, 1, 20],
-            ['documentContextChars', 'llma-s-doc-context-chars', 'Document Characters Per Reply', 'The most document text sent with one request, about four characters a token. Never more than about half the model\'s context window. Newer attachments come first.', 60000, 1000, 1000000]
+            ['documentContextChars', 'llma-s-doc-context-chars', 'Document Characters Per Reply', 'The most document text sent with one request, about four characters a token. Never more of the model\'s context window than half of the Shorten At share. Newer attachments come first.', 60000, 1000, 1000000]
         ];
     }
 

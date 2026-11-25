@@ -1158,20 +1158,8 @@ public static class ChatEndpoints
         string approvalMode = ResolveApprovalMode(rawInput, thread);
         SaveApprovalModeIfChanged(session, threadId, thread, approvalMode);
         // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
-        // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds). Attached documents are fitted to the smallest known window among the models.
-        int smallestWindow = 0;
-        if (ChatDocuments.ThreadHasDocuments(thread))
-        {
-            foreach (JToken entry in modelsArr)
-            {
-                string laneModel = entry is JObject laneObject ? laneObject["model"]?.ToString() : entry?.ToString();
-                int window = ContextWindowService.Resolve(await LLMModelLookup.GetByIdAsync(laneModel, session), settings);
-                if (window > 0 && (smallestWindow == 0 || window < smallestWindow))
-                {
-                    smallestWindow = window;
-                }
-            }
-        }
+        // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds). Attached documents are fitted to the smallest window among the models.
+        int smallestWindow = await ChatDocuments.SmallestWindowAsync(session, thread, modelsArr.Select(e => e is JObject lane ? lane["model"]?.ToString() : e?.ToString()), settings);
         List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput, session.User, smallestWindow);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
@@ -1306,7 +1294,7 @@ public static class ChatEndpoints
     /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
     /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.
     /// <para>With a <paramref name="user"/>, the text of attached documents is put in front of the messages that carry them, as quoted data, within the room a window of
-    /// <paramref name="contextWindow"/> tokens leaves (see <see cref="ChatDocuments.Inject"/>). Documents on messages a summary covers stay with the chat, on the summary.</para></summary>
+    /// <paramref name="contextWindow"/> tokens leaves (see <see cref="ChatDocuments.AddToHistory"/>).</para></summary>
     internal static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput, User user = null, int contextWindow = 0)
     {
         List<ChatMessageData> history = [];
@@ -1315,7 +1303,6 @@ public static class ChatEndpoints
         List<JObject> activePath = ThreadStorageService.GetActivePath(thread);
         CompactionRecord summary = CompactionPlanner.FindActive(thread, activePath);
         List<JObject> sentPath = CompactionPlanner.Apply(activePath, summary);
-        List<(ChatMessageData Message, JArray Documents)> carriers = [];
         foreach (JObject msg in sentPath)
         {
             ChatMessageData entry = new()
@@ -1363,10 +1350,6 @@ public static class ChatEndpoints
                     entry.Content = string.IsNullOrEmpty(entry.Content) ? suffix : $"{entry.Content}\n\n{suffix}";
                 }
             }
-            if (ChatDocuments.HasDocuments(msg))
-            {
-                carriers.Add((entry, (JArray)msg[ChatDocuments.Field]));
-            }
             history.Add(entry);
         }
         // The summary is what makes the dropped messages' content reachable, so the message-count limit never cuts it.
@@ -1374,20 +1357,10 @@ public static class ChatEndpoints
         List<ChatMessageData> sent = leadsWithSummary
             ? [history[0], .. TruncateHistory(history.GetRange(1, history.Count - 1), settings, rawInput)]
             : TruncateHistory(history, settings, rawInput);
-        if (user is null)
+        if (user is not null)
         {
-            return sent;
+            ChatDocuments.AddToHistory(user, activePath, summary, sentPath, history, sent, DocumentCaps.From(settings).Budget(contextWindow));
         }
-        if (leadsWithSummary)
-        {
-            // A summary is written from the messages' own words, so the files they carried are not in it: they stay attached, as the oldest.
-            JArray covered = [.. activePath.Take(CompactionPlanner.IndexOf(activePath, summary.UpToMessageId) + 1).Where(ChatDocuments.HasDocuments).SelectMany(m => m[ChatDocuments.Field])];
-            if (covered.Count > 0)
-            {
-                carriers.Insert(0, (sent[0], covered));
-            }
-        }
-        ChatDocuments.Inject(user, [.. carriers.Where(c => sent.Contains(c.Message))], DocumentCaps.From(settings).Budget(contextWindow));
         return sent;
     }
 

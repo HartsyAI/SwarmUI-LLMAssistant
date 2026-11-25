@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -13,7 +14,9 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 /// <param name="MaxChars">The most characters of text kept from one file.</param>
 /// <param name="MaxPerMessage">The most documents on one message.</param>
 /// <param name="ContextChars">The most characters of document text sent with one request (less when the model's window is small).</param>
-public sealed record DocumentCaps(int MaxBytes, int MaxPages, int MaxChars, int MaxPerMessage, int ContextChars)
+/// <param name="WindowShare">The most of the model's window document text may fill: half the share at which a chat is summarized, because a summary cannot make attached files smaller. With
+/// more than that, attachments and a few messages would make every reply of a short chat summarize it again.</param>
+public sealed record DocumentCaps(int MaxBytes, int MaxPages, int MaxChars, int MaxPerMessage, int ContextChars, double WindowShare)
 {
     /// <summary>The defaults, and the most each setting can be raised to.</summary>
     public const int DefaultMaxMb = 10, CeilingMaxMb = 32, DefaultMaxPages = 200, CeilingMaxPages = 1000, DefaultMaxChars = 200_000, CeilingMaxChars = 1_000_000,
@@ -30,12 +33,13 @@ public sealed record DocumentCaps(int MaxBytes, int MaxPages, int MaxChars, int 
             Read("documentMaxPages", DefaultMaxPages, 1, CeilingMaxPages),
             Read("documentMaxChars", DefaultMaxChars, 1000, CeilingMaxChars),
             Read("documentMaxPerMessage", DefaultPerMessage, 1, CeilingPerMessage),
-            Read("documentContextChars", DefaultContextChars, 1000, CeilingContextChars));
+            Read("documentContextChars", DefaultContextChars, 1000, CeilingContextChars),
+            CompactionPlanner.Threshold(settings) / 2);
     }
 
-    /// <summary>How many characters of document text a request may carry for a model with a window of <paramref name="contextWindow"/> tokens: the setting, and never more than about half
-    /// the window (at four characters a token). With an unknown window (0) the setting alone applies.</summary>
-    public int Budget(int contextWindow) => contextWindow > 0 ? (int)Math.Min(ContextChars, Math.Max(1000L, contextWindow * 2L)) : ContextChars;
+    /// <summary>How many characters of document text a request may carry for a model with a window of <paramref name="contextWindow"/> tokens: the setting, and never more than
+    /// <see cref="WindowShare"/> of the window (at four characters a token). With an unknown window (0) the setting alone applies.</summary>
+    public int Budget(int contextWindow) => contextWindow > 0 ? (int)Math.Min(ContextChars, Math.Max(1000L, (long)(contextWindow * 4 * WindowShare))) : ContextChars;
 }
 
 /// <summary>Documents attached to chat messages. A file is read once, when it is attached, and its text is kept on the server (<see cref="ChatDocumentStore"/>); the message holds only a
@@ -181,6 +185,55 @@ public static class ChatDocuments
         => message?[Field] is JArray list ? list.OfType<JObject>().Sum(d => d["chars"] is JValue { Type: JTokenType.Integer } chars ? chars.Value<long>() : 0) : 0;
 
     // ---- Into the prompt ----
+
+    /// <summary>Puts documents into the history built for a request. Documents on messages a summary stands in for are not in the summary (it is written from the messages' own words), so
+    /// they stay attached to it, as the oldest.</summary>
+    /// <param name="path">The chat's active branch.</param>
+    /// <param name="summary">The summary that applies to it, or null.</param>
+    /// <param name="shown">The messages the history was built from (the path with the summary in place of what it covers).</param>
+    /// <param name="history">The history, one entry for each of <paramref name="shown"/>.</param>
+    /// <param name="sent">The entries of <paramref name="history"/> the request keeps.</param>
+    public static void AddToHistory(User user, List<JObject> path, CompactionRecord summary, List<JObject> shown, List<ChatMessageData> history, List<ChatMessageData> sent, int budget)
+    {
+        HashSet<ChatMessageData> kept = [.. sent];
+        List<(ChatMessageData Message, JArray Documents)> carriers = [];
+        if (summary is not null && shown.Count > 0 && shown[0]["compaction"] is not null && kept.Contains(history[0]))
+        {
+            JArray covered = [.. path.Take(CompactionPlanner.IndexOf(path, summary.UpToMessageId) + 1).Where(HasDocuments).SelectMany(m => m[Field])];
+            if (covered.Count > 0)
+            {
+                carriers.Add((history[0], covered));
+            }
+        }
+        for (int i = 0; i < shown.Count; i++)
+        {
+            if (HasDocuments(shown[i]) && kept.Contains(history[i]))
+            {
+                carriers.Add((history[i], (JArray)shown[i][Field]));
+            }
+        }
+        Inject(user, carriers, budget);
+    }
+
+    /// <summary>The smallest known window among several models answering the same history (a compare turn), so that what is attached fits each of them; 0 when none is known, or the
+    /// chat holds no document and so no model needs asking.</summary>
+    public static async Task<int> SmallestWindowAsync(Session session, JObject thread, IEnumerable<string> models, JObject settings)
+    {
+        if (!ThreadHasDocuments(thread))
+        {
+            return 0;
+        }
+        int smallest = 0;
+        foreach (string model in models.Where(m => !string.IsNullOrEmpty(m)))
+        {
+            int window = ContextWindowService.Resolve(await LLMModelLookup.GetByIdAsync(model, session), settings);
+            if (window > 0 && (smallest == 0 || window < smallest))
+            {
+                smallest = window;
+            }
+        }
+        return smallest;
+    }
 
     /// <summary>Puts documents' text in front of the messages that carry them, as quoted data, within <paramref name="budget"/> characters in all. The newest are given room first; within a
     /// message the room is shared, short documents whole. A document that does not fit is cut with a note saying so, or only named when there is no room left, so a request never outgrows

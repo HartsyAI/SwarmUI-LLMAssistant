@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Services.Knowledge;
@@ -72,12 +73,28 @@ public sealed class ChatDocumentTests : IDisposable
     }
 
     [Fact]
-    public void The_room_for_documents_is_the_setting_and_never_more_than_about_half_the_window()
+    public void The_room_for_documents_is_the_setting_and_never_more_than_half_of_what_makes_a_chat_summarize()
     {
         Assert.Equal(60_000, Caps().Budget(0));
-        Assert.Equal(8192, Caps().Budget(4096));
+        Assert.Equal(6553, Caps().Budget(4096));
+        Assert.Equal(4096, Caps(new JObject { ["compactThreshold"] = 0.5 }).Budget(4096));
         Assert.Equal(60_000, Caps().Budget(1_000_000));
         Assert.Equal(1000, Caps().Budget(100));
+    }
+
+    [Theory]
+    [InlineData(0.5)]
+    [InlineData(0.8)]
+    [InlineData(0.95)]
+    public void A_big_attachment_alone_never_makes_a_short_chat_due_for_a_summary(double threshold)
+    {
+        JObject settings = new() { ["parameters"] = new JObject { ["compactThreshold"] = threshold, ["contextWindow"] = 4096 } };
+        JObject thread = Thread(Message("m1", null, "user", "Read this", Save(new string('d', 200_000))), Message("m2", "m1", "assistant", "Done."),
+            Message("m3", "m2", "user", "And?"), Message("m4", "m3", "assistant", "More."), Message("m5", "m4", "user", "Again?"), Message("m6", "m5", "assistant", "Yes."));
+        Assert.False(ChatEndpoints.CompactionDue(thread, settings, null, "You are helpful."));
+        // The chat's own words still make it due.
+        thread["messages"][5]["content"] = new string('w', (int)(4096 * 4 * threshold));
+        Assert.True(ChatEndpoints.CompactionDue(thread, settings, null, "You are helpful."));
     }
 
     [Fact]
@@ -187,8 +204,8 @@ public sealed class ChatDocumentTests : IDisposable
     {
         ChatDocument doc = Save(new string('z', 50_000));
         string content = History(Thread(Message("m1", null, "user", "q", doc)), window: 4096)[0].Content;
-        Assert.Contains("only the first 8192 of 50000 characters are shown", content);
-        Assert.True(content.Length < 9000);
+        Assert.Contains("only the first 6553 of 50000 characters are shown", content);
+        Assert.True(content.Length < 7200);
     }
 
     [Fact]
@@ -259,6 +276,16 @@ public sealed class ChatDocumentTests : IDisposable
         List<JObject> path = [Message("m1", null, "user", "", Save(new string('a', 40_000)))];
         Assert.Equal(10_000, CompactionPlanner.EstimateContext(path, null).Tokens);
         Assert.Equal(1000, CompactionPlanner.EstimateContext(path, null, documentBudget: 4000).Tokens);
+    }
+
+    [Fact]
+    public void An_imported_chat_carries_no_documents()
+    {
+        JObject exported = Thread(Message("m1", null, "user", "Read this", Save("x")), Message("m2", "m1", "assistant", "Done."));
+        ThreadImportResult result = ThreadImport.Parse(exported.ToString(), _ => true, "default", DateTime.UtcNow);
+        Assert.True(result.Ok, result.Error);
+        Assert.DoesNotContain("documents", result.Thread["messages"].ToString());
+        Assert.Contains(result.Warnings, w => w.StartsWith("Attachments"));
     }
 
     // ---- Memory ----
