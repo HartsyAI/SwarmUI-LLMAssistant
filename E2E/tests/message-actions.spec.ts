@@ -198,7 +198,8 @@ test('delete asks before it takes other messages with it, and does not ask for a
     let second = userRows(llm).last();
     await second.hover();
     await action(llm, second, 'Delete').click();
-    expect(questions).toHaveLength(1);
+    // The stored chat is read first, so the question comes a moment after the click.
+    await expect.poll(() => questions.length).toBe(1);
     expect(questions[0]).toContain('1 message under it');
     await expect(userRows(llm)).toHaveCount(2);
     // The last reply takes nothing with it, so there is no question.
