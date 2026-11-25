@@ -211,11 +211,11 @@ public static class PromptRewriter
                 error = "it was cut off before it finished (the answer ran past the length limit); give a shorter answer";
                 continue;
             }
-            FormatOutcome outcome = formatter.Normalize(reply.Response, style);
-            error = outcome.Error ?? mask.Check(outcome.Text);
+            FormatOutcome outcome = formatter.Normalize(reply.Response, style, request.Width, request.Height);
+            error = outcome.Error ?? mask.Check(outcome.Text, tag => formatter.IsOwnTag(tag, outcome.Text));
             if (error is null)
             {
-                string text = mask.Restore(outcome.Text, insideJsonString: json);
+                string text = mask.Restore(outcome.Text, insideJsonString: formatter.EscapesTags(outcome.Text));
                 warnings.AddRange(outcome.Warnings);
                 (string negative, int negIn, int negOut) = await RewriteNegativeAsync(style, request, settings, generate, warnings, ct);
                 RewriteResult done = Finish(request, style, text, rewritten: true, null, retried, fellBack: false, warnings, new RewriteUsage(inTokens + negIn, outTokens + negOut));
