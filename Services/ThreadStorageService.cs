@@ -312,6 +312,10 @@ public static class ThreadStorageService
             messages.Add(message);
             thread["messages"] = messages;
             thread["activeLeafId"] = message["id"];
+            if (ChatDocuments.HasDocuments(message))
+            {
+                thread[ChatDocuments.ThreadFlag] = true;
+            }
             SaveThread(user, thread);
             return thread;
         }

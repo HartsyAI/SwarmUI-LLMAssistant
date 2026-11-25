@@ -26,7 +26,7 @@ public static class DocumentEndpoints
             return Fail(extraction.Error, extraction.Status);
         }
         JObject reference = ChatDocuments.Reference(document);
-        reference["tokens"] = ContextWindowService.EstimateTokens(document.Text);
+        reference["tokens"] = (document.Cost + 3) / 4;
         reference["warnings"] = new JArray(document.Warnings);
         return new JObject { ["success"] = true, ["document"] = reference };
     }
@@ -42,7 +42,7 @@ public static class DocumentEndpoints
             return Fail(error, tooLarge ? DocumentStatus.TooLarge : DocumentStatus.Malformed);
         }
         string name = rawInput["name"]?.ToString();
-        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(name, bytes, new DocumentLimits(caps.MaxPages, caps.MaxChars), CancellationToken.None);
+        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(name, bytes, new DocumentLimits(caps.MaxPages, caps.MaxChars), CancellationToken.None, session.User.UserID);
         if (!extraction.Success)
         {
             return Fail(extraction.Error, extraction.Status);

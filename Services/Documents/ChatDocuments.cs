@@ -13,7 +13,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 /// <param name="MaxPages">The most pages read from a PDF.</param>
 /// <param name="MaxChars">The most characters of text kept from one file.</param>
 /// <param name="MaxPerMessage">The most documents on one message.</param>
-/// <param name="ContextChars">The most characters of document text sent with one request (less when the model's window is small).</param>
+/// <param name="ContextChars">The most document text sent with one request, in characters of plain English (less when the model's window is small). Digits count double and other scripts
+/// four times, which is about what they take in tokens (<see cref="DocumentText.Cost"/>).</param>
 /// <param name="WindowShare">The most of the model's window document text may fill: half the share at which a chat is summarized, because a summary cannot make attached files smaller. With
 /// more than that, attachments and a few messages would make every reply of a short chat summarize it again.</param>
 public sealed record DocumentCaps(int MaxBytes, int MaxPages, int MaxChars, int MaxPerMessage, int ContextChars, double WindowShare)
@@ -37,8 +38,8 @@ public sealed record DocumentCaps(int MaxBytes, int MaxPages, int MaxChars, int 
             CompactionPlanner.Threshold(settings) / 2);
     }
 
-    /// <summary>How many characters of document text a request may carry for a model with a window of <paramref name="contextWindow"/> tokens: the setting, and never more than
-    /// <see cref="WindowShare"/> of the window (at four characters a token). With an unknown window (0) the setting alone applies.</summary>
+    /// <summary>How much document text a request may carry for a model with a window of <paramref name="contextWindow"/> tokens, in quarters of a token: the setting, and never more than
+    /// <see cref="WindowShare"/> of the window. With an unknown window (0) the setting alone applies.</summary>
     public int Budget(int contextWindow) => contextWindow > 0 ? (int)Math.Min(ContextChars, Math.Max(1000L, (long)(contextWindow * 4 * WindowShare))) : ContextChars;
 }
 
@@ -53,8 +54,17 @@ public static class ChatDocuments
     /// <summary>The longest file name kept.</summary>
     private const int MaxNameChars = 120;
 
-    /// <summary>The fewest characters of a document worth showing; with less room it is only named.</summary>
-    private const int MinShownChars = 200;
+    /// <summary>The thread field that says a document was attached to the chat at some time, which stays when the message does not (deleted, or left behind by an export and import).</summary>
+    public const string ThreadFlag = "hadDocuments";
+
+    /// <summary>The least of a document worth showing (in cost units); with less room it is only named.</summary>
+    private const int MinShownUnits = 200;
+
+    /// <summary>About what the lines around a document cost, for estimates.</summary>
+    private const int FrameUnits = 400;
+
+    /// <summary>The most names the line about documents left out lists, and how long each may be.</summary>
+    private const int NamedWhenOmitted = 3, OmittedNameChars = 40;
 
     // ---- Attaching ----
 
@@ -81,7 +91,7 @@ public static class ChatDocuments
         {
             return (null, ExtractedDocument.Failed(DocumentStatus.Unsupported, "", "This user cannot keep documents."));
         }
-        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(fileName, data, new DocumentLimits(caps.MaxPages, caps.MaxChars), ct);
+        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(fileName, data, new DocumentLimits(caps.MaxPages, caps.MaxChars), ct, user?.Data?.ID);
         if (!extraction.Success)
         {
             return (null, extraction);
@@ -117,6 +127,7 @@ public static class ChatDocuments
         ["name"] = document.Name,
         ["kind"] = document.Kind,
         ["chars"] = document.Chars,
+        ["cost"] = document.Cost,
         ["pages"] = document.Pages,
         ["truncated"] = document.Truncated,
     };
@@ -161,8 +172,11 @@ public static class ChatDocuments
     /// <summary>Whether a message has a document attached.</summary>
     public static bool HasDocuments(JObject message) => message?[Field] is JArray { Count: > 0 };
 
-    /// <summary>Whether the branch of a chat that is showing holds a document.</summary>
-    public static bool ThreadHasDocuments(JObject thread) => thread is not null && ThreadStorageService.GetActivePath(thread).Any(HasDocuments);
+    /// <summary>Whether a chat is marked as having had a document (<see cref="ThreadFlag"/>).</summary>
+    public static bool IsMarked(JObject thread) => thread?[ThreadFlag] is JValue { Type: JTokenType.Boolean } flag && flag.Value<bool>();
+
+    /// <summary>Whether a chat holds a document on the branch showing, or had one: what a file said can be in any later reply.</summary>
+    public static bool ThreadHasDocuments(JObject thread) => thread is not null && (IsMarked(thread) || ThreadStorageService.GetActivePath(thread).Any(HasDocuments));
 
     /// <summary>Whether a chat, or a chat it is a session of, holds a document: a session is told what to do by the model that started it, which may have read one.</summary>
     public static bool ReachedByDocuments(User user, JObject thread)
@@ -180,9 +194,11 @@ public static class ChatDocuments
         return false;
     }
 
-    /// <summary>The characters of document text a message refers to.</summary>
-    public static long ReferencedChars(JObject message)
-        => message?[Field] is JArray list ? list.OfType<JObject>().Sum(d => d["chars"] is JValue { Type: JTokenType.Integer } chars ? chars.Value<long>() : 0) : 0;
+    /// <summary>About what the documents a message refers to cost a request, in quarters of a token.</summary>
+    public static long ReferencedCost(JObject message)
+        => message?[Field] is JArray list
+            ? list.OfType<JObject>().Sum(d => FrameUnits + ((d["cost"] ?? d["chars"]) is JValue { Type: JTokenType.Integer } cost ? cost.Value<long>() : 0))
+            : 0;
 
     // ---- Into the prompt ----
 
@@ -235,9 +251,10 @@ public static class ChatDocuments
         return smallest;
     }
 
-    /// <summary>Puts documents' text in front of the messages that carry them, as quoted data, within <paramref name="budget"/> characters in all. The newest are given room first; within a
-    /// message the room is shared, short documents whole. A document that does not fit is cut with a note saying so, or only named when there is no room left, so a request never outgrows
-    /// the model's window because of attachments. The same chat and budget give the same text, so a backend's prompt cache still applies.</summary>
+    /// <summary>Puts documents' text in front of the messages that carry them, as quoted data. Everything added (text, the lines around it, and what is said about files left out) stays
+    /// within <paramref name="budget"/> (in quarters of a token, <see cref="DocumentText.Cost"/>), so a request never outgrows the model's window because of attachments. The newest are
+    /// given room first; within a message the room is shared, short documents whole. A document that does not fit is cut with a note saying so; those there is no room for at all are
+    /// named together in one line. The same chat and budget give the same text, so a backend's prompt cache still applies.</summary>
     /// <param name="carriers">Each message to put documents on, with its references, oldest first.</param>
     public static void Inject(User user, IReadOnlyList<(ChatMessageData Message, JArray Documents)> carriers, int budget)
     {
@@ -246,33 +263,81 @@ public static class ChatDocuments
             return;
         }
         string root = ChatDocumentStore.RootFor(user);
-        long room = Math.Max(0, budget);
+        List<List<(string Name, ChatDocument Document)>> loaded = [.. carriers.Select(c => c.Documents.OfType<JObject>()
+            .Select(r => (CleanName(r["name"]?.ToString()), ChatDocumentStore.Read(root, r["id"]?.ToString()))).ToList())];
+        (string[] blocks, List<string> omitted, int omittedAt) = Lay(loaded, budget);
+        if (omitted.Count > 0)
+        {
+            // Something did not fit: lay it out again with room kept for the line that says so.
+            (blocks, omitted, omittedAt) = Lay(loaded, budget - DocumentText.Cost(OmittedLine(omitted)) - 8);
+        }
+        for (int i = 0; i < carriers.Count; i++)
+        {
+            string block = (omitted.Count > 0 && i == omittedAt ? OmittedLine(omitted) + "\n\n" : "") + blocks[i];
+            if (block.Length > 0)
+            {
+                ChatMessageData message = carriers[i].Message;
+                // Added in front: where two lists share a message (a summary's and its own), the older is added last and so comes first.
+                message.Content = (block + message.Content).TrimEnd();
+            }
+        }
+    }
+
+    /// <summary>What each message gets within <paramref name="room"/>, the names that did not fit (oldest first), and the oldest message that lost one.</summary>
+    private static (string[] Blocks, List<string> Omitted, int OmittedAt) Lay(List<List<(string Name, ChatDocument Document)>> carriers, long room)
+    {
+        string[] blocks = [.. carriers.Select(_ => "")];
+        List<string> omitted = [];
+        int omittedAt = 0;
         for (int i = carriers.Count - 1; i >= 0; i--)
         {
-            List<(JObject Reference, ChatDocument Document)> documents = [.. carriers[i].Documents.OfType<JObject>()
-                .Select(r => (r, ChatDocumentStore.Read(root, r["id"]?.ToString())))];
-            int[] shares = Share([.. documents.Select(d => d.Document?.Text.Length ?? 0)], room);
             StringBuilder block = new();
-            for (int d = 0; d < documents.Count; d++)
+            List<ChatDocument> fit = [];
+            long frames = 0, least = 0;
+            List<string> left = [];
+            foreach ((string name, ChatDocument document) in carriers[i])
             {
-                (JObject reference, ChatDocument document) = documents[d];
                 if (document is null)
                 {
-                    block.Append($"[Attached document \"{CleanName(reference["name"]?.ToString())}\" is no longer available, so its text is not included.]\n\n");
+                    left.Add($"{name} (no longer available)");
                     continue;
                 }
-                if (shares[d] < Math.Min(MinShownChars, document.Text.Length))
+                // The lines around it, with the note about cutting (the longer of the two cases).
+                long frame = DocumentText.Cost(Quote(document, "")) + 8;
+                long worthwhile = Math.Min(MinShownUnits, DocumentText.Cost(document.Text));
+                if (frames + least + frame + worthwhile > room)
                 {
-                    block.Append($"[Attached document \"{CleanName(document.Name)}\" ({document.Chars} characters) is not included here to save space. Say so if the answer needs it.]\n\n");
+                    left.Add(name);
                     continue;
                 }
-                string shown = DocumentText.Cut(document.Text, shares[d]);
-                room -= shown.Length;
-                block.Append(Quote(document, shown)).Append("\n\n");
+                frames += frame;
+                least += worthwhile;
+                fit.Add(document);
             }
-            ChatMessageData message = carriers[i].Message;
-            message.Content = (block.ToString() + message.Content).TrimEnd();
+            int[] shares = Share([.. fit.Select(f => (int)DocumentText.Cost(f.Text))], room - frames);
+            for (int d = 0; d < fit.Count; d++)
+            {
+                string shown = DocumentText.CutToCost(fit[d].Text, shares[d]);
+                string quoted = Quote(fit[d], shown) + "\n\n";
+                room -= DocumentText.Cost(quoted);
+                block.Append(quoted);
+            }
+            blocks[i] = block.ToString();
+            if (left.Count > 0)
+            {
+                omitted.InsertRange(0, left);
+                omittedAt = i;
+            }
         }
+        return (blocks, omitted, omittedAt);
+    }
+
+    /// <summary>The one line about the documents whose text is not in the request.</summary>
+    private static string OmittedLine(List<string> names)
+    {
+        string listed = string.Join(", ", names.Take(NamedWhenOmitted).Select(n => $"\"{DocumentText.Cut(n, OmittedNameChars)}\""));
+        string more = names.Count > NamedWhenOmitted ? $" and {names.Count - NamedWhenOmitted} more" : "";
+        return $"[Not included here to save space: attached document{(names.Count == 1 ? "" : "s")} {listed}{more}. Say so if the answer needs {(names.Count == 1 ? "it" : "one of them")}.]";
     }
 
     /// <summary>Divides <paramref name="room"/> among texts of these lengths: each gets an equal share, and what a short one does not use goes to the longer ones.</summary>

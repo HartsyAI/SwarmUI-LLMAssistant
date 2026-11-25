@@ -204,8 +204,9 @@ public sealed class ChatDocumentTests : IDisposable
     {
         ChatDocument doc = Save(new string('z', 50_000));
         string content = History(Thread(Message("m1", null, "user", "q", doc)), window: 4096)[0].Content;
-        Assert.Contains("only the first 6553 of 50000 characters are shown", content);
-        Assert.True(content.Length < 7200);
+        // Everything added, the lines around the text included, is within the room: 40% of the window.
+        Assert.Matches("only the first 6[01][0-9][0-9] of 50000 characters are shown", content);
+        Assert.InRange(content.Length, 6000, 6553 + 1);
     }
 
     [Fact]
@@ -216,11 +217,11 @@ public sealed class ChatDocumentTests : IDisposable
     public void The_newest_documents_get_the_room_and_an_older_one_without_it_is_only_named()
     {
         ChatDocument old = Save(new string('o', 5000), "old.txt");
-        ChatDocument fresh = Save(new string('n', 1950), "new.txt");
+        ChatDocument fresh = Save(new string('n', 1200), "new.txt");
         JObject thread = Thread(Message("m1", null, "user", "first", old), Message("m2", "m1", "assistant", "ok"), Message("m3", "m2", "user", "second", fresh));
         List<ChatMessageData> history = History(thread, new JObject { ["documentContextChars"] = 2000 });
-        Assert.Contains(new string('n', 1950), history[2].Content);
-        Assert.Contains("\"old.txt\" (5000 characters) is not included here", history[0].Content);
+        Assert.Contains(new string('n', 1200), history[2].Content);
+        Assert.StartsWith("[Not included here to save space: attached document \"old.txt\". Say so if the answer needs it.]", history[0].Content);
         Assert.DoesNotContain("ooooo", history[0].Content);
     }
 
@@ -230,6 +231,67 @@ public sealed class ChatDocumentTests : IDisposable
         Assert.Equal([100, 450, 450], ChatDocuments.Share([100, 5000, 5000], 1000));
         Assert.Equal([10, 20], ChatDocuments.Share([10, 20], 1000));
         Assert.Equal([0, 0], ChatDocuments.Share([10, 20], 0));
+    }
+
+    [Theory]
+    [InlineData(1000)]
+    [InlineData(2500)]
+    [InlineData(20_000)]
+    public void Everything_added_stays_within_the_room_however_many_files_there_are(int room)
+    {
+        List<JObject> messages = [];
+        for (int i = 0; i < 60; i++)
+        {
+            ChatDocument doc = Save(new string('x', 900), $"a-file-with-quite-a-long-name-number-{i:D3}.txt");
+            messages.Add(Message($"u{i}", i == 0 ? null : $"a{i - 1}", "user", "q", doc));
+            messages.Add(Message($"a{i}", $"u{i}", "assistant", "ok"));
+        }
+        List<ChatMessageData> history = History(Thread([.. messages]), new JObject { ["documentContextChars"] = room });
+        long added = history.Where(m => m.Role == "user").Sum(m => DocumentText.Cost(m.Content) - 1);
+        Assert.True(added <= room, $"{added} over {room}");
+        // What is left out is said once, however much that is.
+        Assert.Single(history, m => m.Content.Contains("[Not included here to save space"));
+        Assert.Contains(" more. Say so", string.Concat(history.Select(m => m.Content)));
+    }
+
+    [Theory]
+    [InlineData("plain words", 11)]
+    [InlineData("1234", 8)]
+    [InlineData("東京都", 12)]
+    public void Digits_and_other_scripts_cost_more_of_the_room(string text, int cost) => Assert.Equal(cost, DocumentText.Cost(text));
+
+    [Fact]
+    public void A_text_is_cut_to_what_it_costs()
+    {
+        Assert.Equal("ab東", DocumentText.CutToCost("ab東京", 6));
+        Assert.Equal("a", DocumentText.CutToCost("a\U0001F600", 5));
+        Assert.Equal("abc", DocumentText.CutToCost("abc", 100));
+    }
+
+    [Theory]
+    [InlineData('東')]
+    [InlineData('7')]
+    public void A_document_in_another_script_or_of_numbers_still_fits_the_window_in_tokens(char of)
+    {
+        string content = History(Thread(Message("m1", null, "user", "q", Save(new string(of, 50_000)))), window: 4096)[0].Content;
+        // At a token for each such character (two digits a token), no more than 40% of the window.
+        int shown = content.Count(c => c == of);
+        Assert.InRange(shown, 500, of == '7' ? 4096 * 4 / 10 * 2 : 4096 * 4 / 10);
+    }
+
+    [Fact]
+    public void A_second_large_file_does_not_count_twice_against_the_room_after_a_reported_size()
+    {
+        JObject first = Message("m1", null, "user", "", Save(new string('a', 40_000)));
+        JObject reply = Message("m2", "m1", "assistant", "ok");
+        reply["meta"] = new JObject { ["usage"] = new JObject { ["contextTokens"] = 1500 } };
+        JObject second = Message("m3", "m2", "user", "", Save(new string('b', 40_000)));
+        (long tokens, bool reported) = CompactionPlanner.EstimateContext([first, reply, second], null, documentBudget: 4000);
+        Assert.True(reported);
+        // The reply's figure already holds as many documents as a request carries, so the second file adds none.
+        Assert.Equal(1500, tokens);
+        (tokens, _) = CompactionPlanner.EstimateContext([first, reply, second], null, documentBudget: 60_000);
+        Assert.InRange(tokens, 1500 + 4000, 1500 + 5200);
     }
 
     [Fact]
@@ -274,7 +336,7 @@ public sealed class ChatDocumentTests : IDisposable
     public void The_context_estimate_counts_documents_up_to_what_a_request_carries()
     {
         List<JObject> path = [Message("m1", null, "user", "", Save(new string('a', 40_000)))];
-        Assert.Equal(10_000, CompactionPlanner.EstimateContext(path, null).Tokens);
+        Assert.Equal(10_100, CompactionPlanner.EstimateContext(path, null).Tokens);
         Assert.Equal(1000, CompactionPlanner.EstimateContext(path, null, documentBudget: 4000).Tokens);
     }
 
@@ -286,6 +348,52 @@ public sealed class ChatDocumentTests : IDisposable
         Assert.True(result.Ok, result.Error);
         Assert.DoesNotContain("documents", result.Thread["messages"].ToString());
         Assert.Contains(result.Warnings, w => w.StartsWith("Attachments"));
+        // The care taken with the replies stays: the extractor still reads only the user's words, and the mark survives another round trip.
+        Assert.True(ChatDocuments.IsMarked(result.Thread));
+        MemoryTranscript transcript = MemoryTranscriptBuilder.Build(result.Thread);
+        Assert.True(transcript.ReplyLeftOut);
+        Assert.Equal("Read this", Assert.Single(transcript.Lines).Text);
+        ThreadImportResult again = ThreadImport.Parse(ThreadExport.ToJson(result.Thread, DateTime.UtcNow).ToString(), _ => true, "default", DateTime.UtcNow);
+        Assert.True(ChatDocuments.IsMarked(again.Thread));
+    }
+
+    [Fact]
+    public void A_chat_marked_as_having_had_a_file_stays_guarded_without_the_message()
+    {
+        JObject thread = Thread(Message("m1", null, "user", "Hi"), Message("m2", "m1", "assistant", "It said SECRET."), Message("m3", "m2", "user", "I live in Lyon."), Message("m4", "m3", "assistant", "SECRET again"));
+        Assert.False(ChatDocuments.ThreadHasDocuments(thread));
+        thread["hadDocuments"] = true;
+        Assert.True(ChatDocuments.ThreadHasDocuments(thread));
+        Assert.Equal("I live in Lyon.", Assert.Single(MemoryTranscriptBuilder.Build(thread).Lines).Text);
+    }
+
+    [Fact]
+    public void A_chat_without_files_exports_no_mark()
+        => Assert.Null(ThreadExport.ToJson(Thread(Message("m1", null, "user", "Hi")), DateTime.UtcNow)["hadDocuments"]);
+
+    // ---- One reading at a time per user ----
+
+    [Fact]
+    public async Task Each_user_has_one_file_read_at_a_time_and_the_server_a_few()
+    {
+        DocumentGate gate = new(3);
+        TimeSpan soon = TimeSpan.FromMilliseconds(50);
+        IDisposable first = await gate.EnterAsync("alice", soon, CancellationToken.None);
+        Assert.NotNull(first);
+        Assert.Null(await gate.EnterAsync("alice", soon, CancellationToken.None));
+        IDisposable bob = await gate.EnterAsync("bob", soon, CancellationToken.None);
+        IDisposable carol = await gate.EnterAsync("carol", soon, CancellationToken.None);
+        Assert.NotNull(bob);
+        Assert.NotNull(carol);
+        // The server is full; a user turned away for that does not keep their own turn.
+        Assert.Null(await gate.EnterAsync("dan", soon, CancellationToken.None));
+        first.Dispose();
+        first.Dispose();
+        IDisposable dan = await gate.EnterAsync("dan", soon, CancellationToken.None);
+        Assert.NotNull(dan);
+        Assert.Null(await gate.EnterAsync("erin", soon, CancellationToken.None));
+        dan.Dispose();
+        Assert.NotNull(await gate.EnterAsync("alice", soon, CancellationToken.None));
     }
 
     // ---- Memory ----
@@ -339,6 +447,20 @@ public sealed class ChatDocumentTests : IDisposable
         KnowledgeStore.SetVectors(_root, doc.Id, [unit, unit], "p|m|2", null);
         Assert.Equal([1, 3], KnowledgeStore.ReadChunks(_root, doc.Id).Select(c => c.Page));
         Assert.Equal([1, 3], KnowledgeStore.LoadIndex(_root).Select(c => c.Page));
+    }
+
+    [Fact]
+    public void The_library_refuses_a_file_that_was_cut_even_when_tidying_leaves_it_under_the_limit()
+    {
+        // Cut while it was read, then trimmed: what is left is shorter than the limit it was cut at.
+        ExtractedDocument cut = DocumentExtraction.Extract("w.docx", DocumentFixtures.Docx(string.Concat(Enumerable.Repeat(DocumentFixtures.Paragraph("0123456789      "), 200_000))),
+            new DocumentLimits(10, KnowledgeStore.MaxDocumentChars + 1));
+        Assert.True(cut.Truncated);
+        Assert.True(KnowledgeService.TooLong(cut));
+        Assert.True(KnowledgeService.TooLong(new ExtractedDocument(DocumentStatus.Ok, "docx", ["short"], 0, true, [], "")));
+        Assert.False(KnowledgeService.TooLong(new ExtractedDocument(DocumentStatus.Ok, "docx", ["short"], 0, false, [], "")));
+        // A PDF cut by its page cap is added, with the warning that says so.
+        Assert.False(KnowledgeService.TooLong(new ExtractedDocument(DocumentStatus.Ok, "pdf", ["a page"], 9, true, [], "")));
     }
 
     [Fact]

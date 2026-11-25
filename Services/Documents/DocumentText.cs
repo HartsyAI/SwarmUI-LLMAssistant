@@ -92,6 +92,36 @@ public static class DocumentText
         return bad > counted * share;
     }
 
+    /// <summary>What a character costs of a budget, in quarters of a token, on the safe side of what tokenizers do: a plain English character is about a quarter of a token, digits are cut
+    /// finer, and other scripts (Chinese, say) take about a token a character.</summary>
+    private static int Units(char c) => c >= 128 ? 4 : char.IsAsciiDigit(c) ? 2 : 1;
+
+    /// <summary>What a text costs of a budget, in quarters of a token (so plain English costs its length).</summary>
+    public static long Cost(string text)
+    {
+        long units = 0;
+        foreach (char c in text ?? "")
+        {
+            units += Units(c);
+        }
+        return units;
+    }
+
+    /// <summary>The longest start of a text that costs at most <paramref name="units"/>, never ending in half a surrogate pair.</summary>
+    public static string CutToCost(string text, long units)
+    {
+        long spent = 0;
+        for (int i = 0; i < (text?.Length ?? 0); i++)
+        {
+            spent += Units(text[i]);
+            if (spent > units)
+            {
+                return Cut(text, i);
+            }
+        }
+        return text ?? "";
+    }
+
     /// <summary>The first <paramref name="max"/> characters of a text, never ending in half a surrogate pair.</summary>
     public static string Cut(string text, int max)
     {

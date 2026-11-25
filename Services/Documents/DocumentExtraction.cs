@@ -13,8 +13,8 @@ public static class DocumentExtraction
     /// <summary>How long one extraction may take, and how long a request waits for its turn.</summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
-    /// <summary>How many files are read at once. A slot is freed only when its extraction really ends, so one that runs on after its time is up cannot be joined by ever more.</summary>
-    private static readonly SemaphoreSlim Slots = new(3, 3);
+    /// <summary>Whose turn it is. A turn ends only when its extraction really does, so one that runs on after its time is up cannot be joined by ever more.</summary>
+    private static readonly DocumentGate Gate = new(3);
 
     /// <summary>How an old binary Office file (and a password-protected newer one) starts.</summary>
     private static readonly byte[] OleStart = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
@@ -48,10 +48,11 @@ public static class DocumentExtraction
         }
     }
 
-    /// <summary><see cref="Extract"/> on another thread, within <see cref="Timeout"/>.</summary>
-    public static async Task<ExtractedDocument> ExtractAsync(string fileName, byte[] data, DocumentLimits limits, CancellationToken ct)
+    /// <summary><see cref="Extract"/> on another thread, within <see cref="Timeout"/>. <paramref name="owner"/> (a user's id) has one file read at a time.</summary>
+    public static async Task<ExtractedDocument> ExtractAsync(string fileName, byte[] data, DocumentLimits limits, CancellationToken ct, string owner = null)
     {
-        if (!await Slots.WaitAsync(Timeout, ct))
+        IDisposable turn = await Gate.EnterAsync(owner, Timeout, ct);
+        if (turn is null)
         {
             return ExtractedDocument.Failed(DocumentStatus.TooLarge, "", "The server is busy reading other documents. Try again in a moment.");
         }
@@ -60,7 +61,7 @@ public static class DocumentExtraction
         _ = work.ContinueWith(done =>
         {
             _ = done.Exception;
-            Slots.Release();
+            turn.Dispose();
             limit.Dispose();
         }, TaskScheduler.Default);
         try

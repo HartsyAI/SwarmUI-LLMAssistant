@@ -18,6 +18,8 @@ public sealed class ChatDocument
     public string Kind = "";
     /// <summary>The characters of text kept.</summary>
     public int Chars;
+    /// <summary>What the text costs of a request's budget, in quarters of a token (<see cref="DocumentText.Cost"/>).</summary>
+    public int Cost;
     /// <summary>The pages the file has, or 0 for a kind without pages.</summary>
     public int Pages;
     /// <summary>Whether a limit cut the document short.</summary>
@@ -53,6 +55,7 @@ public static class ChatDocumentStore
     {
         document.Id = Guid.NewGuid().ToString("N");
         document.AddedAt = DateTime.UtcNow.ToString("o");
+        document.Cost = (int)DocumentText.Cost(document.Text);
         Directory.CreateDirectory(root);
         string file = FileFor(root, document.Id);
         string temp = file + ".tmp";

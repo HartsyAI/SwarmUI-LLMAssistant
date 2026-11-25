@@ -129,13 +129,126 @@ public sealed class DocumentExtractorTests
         }
     }
 
-    [Fact]
-    public void A_pdf_that_unpacks_far_beyond_the_limit_is_refused()
+    // Small files made to cost far more than their size. 16 MB a stream, 128 MB unpacked, 8 MB of instructions and 200,000 characters a page.
+
+    private const string FontResource = "/Resources << /Font << /F1 5 0 R >> >>";
+
+    private static readonly (string, byte[]) Helvetica = ("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", null);
+
+    private static byte[] Ascii(string text) => Encoding.ASCII.GetBytes(text);
+
+    /// <summary>How much reading a file allocates on this thread.</summary>
+    private static (ExtractedDocument Result, long Allocated) Cost(byte[] pdf)
     {
-        byte[] bomb = new byte[PdfDocumentExtractor.MaxStreamBytes + 1024 * 1024];
-        byte[] pdf = DocumentFixtures.RawPdf([bomb], true);
-        Assert.True(pdf.Length < 1024 * 1024);
-        Assert.Equal(DocumentStatus.TooLarge, Read("bomb.pdf", pdf).Status);
+        long before = GC.GetAllocatedBytesForCurrentThread();
+        ExtractedDocument result = Read("bomb.pdf", pdf);
+        return (result, GC.GetAllocatedBytesForCurrentThread() - before);
+    }
+
+    private static void AssertRefusedCheaply(byte[] pdf, DocumentStatus status = DocumentStatus.TooLarge)
+    {
+        Assert.True(pdf.Length < 2 * 1024 * 1024, $"{pdf.Length}");
+        (ExtractedDocument result, long allocated) = Cost(pdf);
+        Assert.Equal(status, result.Status);
+        Assert.True(allocated < 200 * 1024 * 1024, $"allocated {allocated / 1_000_000} MB");
+    }
+
+    [Fact]
+    public void A_stream_that_unpacks_past_the_limit_is_refused()
+        => AssertRefusedCheaply(DocumentFixtures.RawPdf([new byte[17 * 1024 * 1024]], true));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_page_that_lists_one_stream_over_and_over_is_refused(bool flate)
+    {
+        // Unpacked, the stream is never seen by a decoder; the page would still be built from a hundred copies of it.
+        byte[] pad = Ascii(new string(' ', 1_000_000));
+        string contents = string.Join(' ', Enumerable.Repeat("4 0 R", 500));
+        AssertRefusedCheaply(DocumentFixtures.Objects($"{FontResource} /Contents [{contents}]", (flate ? "/Filter /FlateDecode" : "", flate ? DocumentFixtures.Deflate(pad) : pad), Helvetica));
+    }
+
+    [Fact]
+    public void A_page_that_lists_too_many_streams_is_refused()
+        => AssertRefusedCheaply(DocumentFixtures.Objects($"{FontResource} /Contents [{string.Join(' ', Enumerable.Repeat("4 0 R", 1001))}]", ("", Ascii(" ")), Helvetica));
+
+    [Fact]
+    public void A_page_of_millions_of_characters_is_refused_before_they_are_kept()
+    {
+        byte[] text = Ascii($"BT /F1 1 Tf 10 10 Td ({new string('a', 4_000_000)}) Tj ET");
+        AssertRefusedCheaply(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ("/Filter /FlateDecode", DocumentFixtures.Deflate(text)), Helvetica));
+    }
+
+    [Theory]
+    [InlineData("/X Do ", 3000, 100)]
+    [InlineData("/X Do ", 1500, 1000)]
+    public void A_form_drawn_over_and_over_is_refused(string draw, int times, int letters)
+    {
+        byte[] form = Ascii($"BT /F1 1 Tf 10 10 Td ({new string('a', letters)}) Tj ET");
+        AssertRefusedCheaply(DocumentFixtures.Objects("/Resources << /Font << /F1 5 0 R >> /XObject << /X 6 0 R >> >> /Contents 4 0 R", ("", Ascii(string.Concat(Enumerable.Repeat(draw, times)))), Helvetica,
+            ("/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >>", form)));
+    }
+
+    [Fact]
+    public void A_form_drawn_a_few_times_is_read()
+    {
+        byte[] form = Ascii("BT /F1 12 Tf 10 700 Td (inside the form) Tj ET");
+        ExtractedDocument doc = Read("form.pdf", DocumentFixtures.Objects("/Resources << /Font << /F1 5 0 R >> /XObject << /X 6 0 R >> >> /Contents 4 0 R", ("", Ascii("/X Do")), Helvetica,
+            ("/Type /XObject /Subtype /Form /BBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >>", form)));
+        Assert.Equal(DocumentStatus.Ok, doc.Status);
+        Assert.Contains("inside the form", doc.Text);
+    }
+
+    [Theory]
+    [InlineData("/Filter /LZWDecode")]
+    [InlineData("/Filter /RunLengthDecode")]
+    public void A_compression_whose_output_cannot_be_bounded_is_not_read(string filter)
+        => AssertRefusedCheaply(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", (filter, [0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01]), Helvetica), DocumentStatus.Unsupported);
+
+    [Fact]
+    public void A_predictor_asking_for_enormous_rows_is_refused()
+        => AssertRefusedCheaply(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R",
+            ("/Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 2000000000 >>", DocumentFixtures.Deflate(Ascii("BT ET"))), Helvetica));
+
+    /// <summary>A page using a composite font whose descendant has these entries, with this Unicode map.</summary>
+    private static byte[] CompositeFont(string descendant, string ranges = "<0041> <0041> <0041>", bool packMap = true)
+    {
+        byte[] map = Ascii($"/CIDInit /ProcSet findresource begin 12 dict begin begincmap 1 begincodespacerange <00000000> <FFFFFFFF> endcodespacerange 1 beginbfrange {ranges} endbfrange endcmap end end");
+        return DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ("", Ascii("BT /F1 12 Tf 10 10 Td <0041> Tj ET")),
+            ("<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [7 0 R] /ToUnicode 6 0 R >>", null),
+            (packMap ? "/Filter /FlateDecode" : "", packMap ? DocumentFixtures.Deflate(map) : map),
+            ($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 8 0 R {descendant} >>", null),
+            ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null));
+    }
+
+    [Theory]
+    [InlineData("/W [0 2000000000 500]")]
+    [InlineData("/W2 [0 2000000000 500 250 800]")]
+    [InlineData("/W [1 [500 500] 10 90000000 500]")]
+    public void Font_width_ranges_over_billions_of_characters_are_refused(string widths)
+        => AssertRefusedCheaply(CompositeFont(widths));
+
+    [Theory]
+    [InlineData("<00000000> <00FFFFFF> <0041>", true)]
+    [InlineData("<00000000> <7FFFFFFF> <0041>", false)]
+    [InlineData("<00000000> % a comment\n <00FFFFFF> <0041>", false)]
+    public void A_character_map_with_enormous_ranges_is_refused(string ranges, bool packed)
+        => AssertRefusedCheaply(CompositeFont("", ranges.Replace("\\n", "\n"), packed));
+
+    [Fact]
+    public void An_ordinary_composite_font_is_not_refused()
+        => Assert.NotEqual(DocumentStatus.TooLarge, Read("cid.pdf", CompositeFont("/W [0 [500] 1 65535 600]", "<0000> <FFFF> <0000>")).Status);
+
+    [Fact]
+    public void A_page_over_the_limits_is_left_out_and_the_others_are_read()
+    {
+        byte[] heavy = Ascii($"BT /F1 1 Tf 10 10 Td ({new string('a', 300_000)}) Tj ET");
+        byte[] pdf = DocumentFixtures.RawPdf([DocumentFixtures.Lines("first page"), heavy, DocumentFixtures.Lines("third page")], true);
+        ExtractedDocument doc = Read("mixed.pdf", pdf);
+        Assert.Equal(DocumentStatus.Ok, doc.Status);
+        Assert.True(doc.Truncated);
+        Assert.Equal(["first page", "", "third page"], doc.Pages);
+        Assert.Contains(doc.Warnings, w => w.Contains("too large"));
     }
 
     // ---- Word ----

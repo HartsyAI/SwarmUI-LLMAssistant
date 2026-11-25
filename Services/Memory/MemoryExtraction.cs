@@ -235,7 +235,8 @@ public static class MemoryTranscriptBuilder
         bool toolsRan = false, wrote = false;
         // An attachment on the user's message: what a vision model read in it can come back in the reply, so the reply is treated like one that followed a tool.
         // A document stays in what the model reads for the rest of the chat, so after one, no later reply is read either.
-        bool attached = HasMedia(path[user]) || path.Take(user + 1).Any(ChatDocuments.HasDocuments);
+        bool marked = ChatDocuments.IsMarked(thread);
+        bool attached = HasMedia(path[user]) || marked || path.Take(user + 1).Any(ChatDocuments.HasDocuments);
         for (int i = user + 1; i < path.Count; i++)
         {
             if (path[i]["role"]?.ToString() == Roles.User)
@@ -262,7 +263,7 @@ public static class MemoryTranscriptBuilder
         List<TranscriptLine> lines = [];
         // What the assistant said just before the user did ("where do you live?" / "Berlin"), when it is a plain reply of its own.
         if (user > 0 && path[user - 1]["role"]?.ToString() == Roles.Assistant && IsPlainAssistantMessage(path[user - 1]) && !(user > 1 && HasMedia(path[user - 2]))
-            && !path.Take(user).Any(ChatDocuments.HasDocuments))
+            && !marked && !path.Take(user).Any(ChatDocuments.HasDocuments))
         {
             string before = Clean(path[user - 1]["content"]?.ToString());
             if (before.Length > 0)

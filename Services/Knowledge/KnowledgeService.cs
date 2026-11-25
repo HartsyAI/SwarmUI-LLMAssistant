@@ -148,19 +148,24 @@ public static class KnowledgeService
     public static async Task<(KnowledgeDocument Document, IReadOnlyList<string> Warnings)> AddFileAsync(Session session, string fileName, string title, byte[] data, DocumentCaps caps, CancellationToken ct)
     {
         string name = Path.GetFileName((fileName ?? "").Replace('\\', '/')).Trim();
-        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(name, data, new DocumentLimits(caps.MaxPages, KnowledgeStore.MaxDocumentChars + 1), ct);
+        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(name, data, new DocumentLimits(caps.MaxPages, KnowledgeStore.MaxDocumentChars + 1), ct, session.User.UserID);
         if (!extraction.Success)
         {
             throw new KnowledgeLimitException(extraction.Error);
         }
-        long chars = extraction.Pages.Sum(p => (long)p.Length);
-        if (chars > KnowledgeStore.MaxDocumentChars)
+        if (TooLong(extraction))
         {
             throw new KnowledgeLimitException($"That document is too long (over {KnowledgeStore.MaxDocumentChars:N0} characters of text). Split it into parts.");
         }
+        long chars = extraction.Pages.Sum(p => (long)p.Length);
         List<KnowledgeChunk> chunks = ChunkExtraction(extraction);
         return (await StoreAsync(session, name, title, (int)chars, chunks, ct), extraction.Warnings);
     }
+
+    /// <summary>Whether a file is longer than the library takes. A file without pages that was cut at all is: tidying can leave less than the limit of a text that was cut at it, which
+    /// would add part of a document without saying so. A PDF can also be cut by its page cap, which the warnings say.</summary>
+    internal static bool TooLong(ExtractedDocument extraction)
+        => extraction.Pages.Sum(p => (long)p.Length) > KnowledgeStore.MaxDocumentChars || (extraction.TotalPages == 0 && extraction.Truncated);
 
     /// <summary>The pieces of an extracted document: page by page for one with pages, so each piece knows its page, else along the text's own seams.</summary>
     internal static List<KnowledgeChunk> ChunkExtraction(ExtractedDocument extraction)

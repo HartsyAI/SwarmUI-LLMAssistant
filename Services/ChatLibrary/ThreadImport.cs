@@ -263,6 +263,11 @@ public static class ThreadImport
             ["activeLeafId"] = leaf,
             ["importedAt"] = nowUtc.ToString("o")
         };
+        // The files are not imported, but the replies made from them are: the chat keeps the care taken with them. A file can only ever add this mark.
+        if (ChatDocuments.IsMarked(root) || messages.OfType<JObject>().Any(ChatDocuments.HasDocuments))
+        {
+            thread[ChatDocuments.ThreadFlag] = true;
+        }
         return new ThreadImportResult
         {
             Ok = true,

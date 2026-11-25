@@ -82,6 +82,58 @@ public static class DocumentFixtures
         return file.ToArray();
     }
 
+    /// <summary>The bytes packed as a flate stream holds them.</summary>
+    public static byte[] Deflate(byte[] data)
+    {
+        MemoryStream packed = new();
+        using (ZLibStream zlib = new(packed, CompressionLevel.SmallestSize, true))
+        {
+            zlib.Write(data);
+        }
+        return packed.ToArray();
+    }
+
+    /// <summary>A one-page PDF from loose parts, for files built to misbehave: <paramref name="page"/> adds entries to the page (object 3), and the objects follow as 4, 5 and so on, each a
+    /// stream with these dictionary entries, or (with no stream) the object written as it is.</summary>
+    public static byte[] Objects(string page, params (string Dictionary, byte[] Stream)[] objects)
+    {
+        MemoryStream file = new();
+        List<long> offsets = [];
+        void Text(string s) => file.Write(Encoding.ASCII.GetBytes(s));
+        void Object(string dictionary, byte[] stream)
+        {
+            offsets.Add(file.Position);
+            Text($"{offsets.Count} 0 obj\n");
+            if (stream is null)
+            {
+                Text(dictionary + "\n");
+            }
+            else
+            {
+                Text($"<< {dictionary} /Length {stream.Length} >>\nstream\n");
+                file.Write(stream);
+                Text("\nendstream\n");
+            }
+            Text("endobj\n");
+        }
+        Text("%PDF-1.4\n");
+        Object("<< /Type /Catalog /Pages 2 0 R >>", null);
+        Object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>", null);
+        Object($"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] {page} >>", null);
+        foreach ((string dictionary, byte[] stream) in objects)
+        {
+            Object(dictionary, stream);
+        }
+        long xref = file.Position;
+        Text($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
+        foreach (long offset in offsets)
+        {
+            Text($"{offset:D10} 00000 n \n");
+        }
+        Text($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return file.ToArray();
+    }
+
     /// <summary>A content stream that writes lines of text.</summary>
     public static byte[] Lines(params string[] lines)
         => Encoding.ASCII.GetBytes("BT /F1 12 Tf 40 780 Td " + string.Join(" 0 -18 Td ", lines.Select(l => $"({l}) Tj")) + " ET");

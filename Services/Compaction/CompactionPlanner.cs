@@ -166,7 +166,7 @@ public static class CompactionPlanner
     /// <summary>How many tokens the conversation holds now, and whether that is a count the model reported (<c>true</c>) or an estimate.
     /// The newest reply after the summary that carries <c>meta.usage</c> is the best figure: what it was sent plus what it wrote, with the
     /// messages after it estimated. Without one, everything that would be sent is estimated, <paramref name="systemPromptTokens"/> included. Attached documents' text is counted too, up to
-    /// <paramref name="documentBudget"/> characters (the most a request carries); those on summarized messages are still sent, so they still count.</summary>
+    /// <paramref name="documentBudget"/> quarter-tokens (the most a request carries, however many files there are); those on summarized messages are still sent, so they still count.</summary>
     public static (long Tokens, bool Reported) EstimateContext(List<JObject> path, CompactionRecord active, int systemPromptTokens = 0, int documentBudget = int.MaxValue)
     {
         int anchor = active is null ? -1 : IndexOf(path, active.UpToMessageId);
@@ -177,7 +177,8 @@ public static class CompactionPlanner
             long reported = path[i]["meta"]?["usage"]?.Value<long?>("contextTokens") ?? 0;
             if (reported > 0)
             {
-                return (reported + path.Skip(i + 1).Sum(m => (long)EstimateMessage(m)) + EstimateDocuments(path.Skip(i + 1), documentBudget), true);
+                // The reported size already holds the documents sent up to that reply: only what later ones add to the (bounded) total is new.
+                return (reported + path.Skip(i + 1).Sum(m => (long)EstimateMessage(m)) + EstimateDocuments(path, documentBudget) - EstimateDocuments(path.Take(i + 1), documentBudget), true);
             }
         }
         long total = systemPromptTokens + (active is null ? 0 : ContextWindowService.EstimateTokens(SummaryText(active.Summary)));
@@ -186,7 +187,7 @@ public static class CompactionPlanner
 
     /// <summary>An estimate of the tokens the documents on these messages add to a request.</summary>
     private static long EstimateDocuments(IEnumerable<JObject> messages, int documentBudget)
-        => (Math.Min(messages.Sum(ChatDocuments.ReferencedChars), Math.Max(0, documentBudget)) + 3) / 4;
+        => (Math.Min(messages.Sum(ChatDocuments.ReferencedCost), Math.Max(0, documentBudget)) + 3) / 4;
 
     /// <summary>An estimate of one saved message's tokens: its text, plus the calls it made and what they returned.</summary>
     public static int EstimateMessage(JObject message)

@@ -1,4 +1,5 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Utils;
@@ -79,7 +80,14 @@ public static class CompactionService
             throw new SwarmReadableErrorException("The model did not write a summary, so the chat was left as it is."
                 + (result?.FinishReason == LLMGenerateResult.Length ? " It ran out of tokens first; try a model that thinks less." : ""));
         }
-        (long before, _) = CompactionPlanner.EstimateContext(path, active);
+        // Attached documents count as far as a request would carry them.
+        int documentBudget = int.MaxValue;
+        if (ChatDocuments.ThreadHasDocuments(thread))
+        {
+            JObject settings = SettingsService.GetMergedSettings(session.User);
+            documentBudget = DocumentCaps.From(settings).Budget(ContextWindowService.Resolve(await LLMModelLookup.GetByIdAsync(model, session), settings));
+        }
+        (long before, _) = CompactionPlanner.EstimateContext(path, active, documentBudget: documentBudget);
         return new CompactionRecord(Guid.NewGuid().ToString("N"), path[plan.AnchorIndex]["id"]?.ToString(), CompactionPlanner.Fingerprint(path.Take(plan.AnchorIndex + 1)),
             summary, plan.AnchorIndex + 1, before, model ?? "", DateTime.UtcNow.ToString("o"), path[^1]["id"]?.ToString() ?? "");
     }
