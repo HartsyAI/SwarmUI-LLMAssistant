@@ -4,9 +4,11 @@ Playwright specs that drive the real LLM Assistant tab in a real browser, agains
 
 ```
 E2E/
-  MockLLM/        scripted OpenAI-compatible server (C#, net8)
+  MockLLM/        scripted OpenAI-compatible server (C#, net8): chat, tool calls, usage, embeddings
+  MockMCP/        a scripted MCP server (server.mjs; stdio, or Streamable HTTP with `--http`) the MCP specs connect to
+  hooks/          a sample command hook (block-secrets.mjs) the hook specs run
   harness/        stack.mjs starts/stops MockLLM + the throwaway SwarmUI; Playwright global setup/teardown
-  tests/          fixtures.ts + the specs
+  tests/          fixtures.ts + the specs (one spec file per feature area)
   .run/           (generated, gitignored) the throwaway data dir and logs
 ```
 
@@ -42,6 +44,16 @@ Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT`
 - Four image models and one LoRA with no weights are seeded under `models/Stable-Diffusion` (header-only safetensors written by `stack.mjs`): `e2e-ideogram-4.safetensors`, whose keys make core classify it as Ideogram 4, `e2e-mystery.safetensors`, which core cannot place, and `e2e-declared-json.safetensors`, which core cannot place either but whose header carries `modelspec.prompt_*` keys. `e2e-hinted.safetensors` (unplaceable, with a title, trigger phrase and usage notes in its header) and `Lora/e2e-style-lora.safetensors` (core's default LoRA folder; the name is case-sensitive on Linux) (trigger phrase and tags) are for the image-tools specs. They exist so the prompt-styles and image-tools specs can check which style a model gets and what the list tools return; nothing can generate with them.
 - The local GGUF engine (`LLM: Local`) is **not** covered here, since it needs a GPU. A PR that touches `HartsyLocalLLMProvider` needs a manual GPU smoke check on top.
 
+## In CI
+
+`.github/workflows/e2e.yml` runs on every pull request and every push to `main`. It checks out SwarmUI and this extension, builds SwarmUI, and runs:
+
+- the unit tests (`dotnet test Tests/LLMAssistant.Tests.csproj`), once, in shard 1;
+- the browser suite split over **3 shards** (`npx playwright test --shard=N/3`, Playwright splits by spec file), each on its own runner with its own throwaway SwarmUI, with a **120-minute limit per shard** (`fail-fast` is off, so one failing shard does not cancel the others);
+- one aggregate job named **`e2e`**, the single check name to require: it passes only when every shard passed (a cancelled or skipped shard fails it).
+
+Each shard uploads its Playwright report and server logs as the `e2e-report-N` artifact. Specs inside one shard still run serially against one server (`workers: 1`), so a spec must not depend on another shard's state. No test counts are quoted in the docs: count them with `npx playwright test --list` and `dotnet test`.
+
 ## Scripting the mock
 
 Specs set replies with `setScenarios([...])` from `tests/fixtures.ts`:
@@ -62,5 +74,6 @@ Round fields: `text`, `reasoning`, `toolCalls`, `usage`, `delayMs`, `chunkDelayM
 
 ## Known gaps
 
+- The local GGUF engine, CUDA and real embedding models are not exercised (see above): a change that touches them needs a manual check on real hardware.
 - The harness has no text-to-image backend, so nothing here generates an image. `<llmprompt:...>` expansion is covered through core's `TestPromptFill` route, which runs the same prompt preparation without one. Image-bound features (the companion's reactions to a finished generation, `generate_image`) are not exercised end to end.
 - The Playwright suite checks behaviour, not looks. Each PR also gets a manual pass in a browser at desktop and mobile widths and in light and dark themes.

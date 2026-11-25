@@ -1,6 +1,24 @@
-# Prompt styles and automatic image-prompt rewriting: plan (DRAFT FOR REVIEW)
+# Prompt styles and automatic image-prompt rewriting: design record
 
-Status: plan only, nothing built. Replaces S1-b and S1-c in `NEXT-PHASES.md` (the memory slice S1-a is separate and independent). Written 2026-11-19.
+Status (2026-11-24): **P0, P1, P2, P3a and P3b are built and merged; P4 is not built.** This file was the plan (written 2026-11-19) and is now the record of why the feature looks the way it does. The README section "Prompt styles" describes what the code does today; where this file and the README disagree, the README is right. It replaced S1-b and S1-c in `NEXT-PHASES.md`.
+
+| Phase | Built? | PR |
+|---|---|---|
+| P0 Prompting guides (docs only) | Yes, in `docs/prompting/` | #74 |
+| P1 Style registry and resolvers, both axes, Settings tab | Yes | #75 |
+| P2 Chat-model addendum in turn setup | Yes (the mechanism; no addendum text is built in) | #79 |
+| P3a Rewrite service: tag masking, formatters, retry and fallback, cache | Yes | #76 |
+| P3b Automatic rewrite of every generation: hook, parameters, metadata, tool result, Enhance button | Yes | #77 |
+| P4 More families, real-model evaluation, polish | **Not built** | none |
+
+**What differs from the plan below (as built):**
+- Only two styles are built in: `generic` and `ideogram-4`. `flux-3`, `fibo-2`, `moss-image`, `ming-image`, natural-language families and a video style (section 4) are not written; the researched guides exist (P0) but no style is derived from them yet.
+- **Automatic rewriting is off by default** (`promptRewrite.auto`), not on. The chat-model addendum master switch is on by default, but no addendum exists, so nothing changes until a user writes one.
+- Not built from the switch list (3.4): per-assistant and per-chat overrides for the rewrite, a composer chip, per-entry-point switches and a failure-policy setting (a failed rewrite always falls back to the user's wording, wrapped in valid JSON for a JSON-only model). What is built: the master setting, the per-generation parameters **LLM Auto-Enhance Prompt** and **LLM Prompt Style**, the `generate_image` `rewrite: "off"` argument, per-style on/off for chat-model styles, and per-model rules.
+- Not built from 3.6: the writing model is not shown wildcard names or samples and does not choose wildcards; a `<wildcard:name>` is masked like any Swarm tag and expanded by core afterwards.
+- Edit-before-generate in the Ask-mode approval card was not built (decision 2: show-after only).
+- **Not verified on real hardware:** no style has been tried with a real image model and a real chat model; see section 7 and `docs/prompting/README.md` for the open real-model checks.
+- The test sections below describe the plan; the as-built tests are `Tests/PromptStyleTests.cs`, `PromptRewriteTests.cs`, `PromptAutoEnhanceTests.cs`, `LlmAddendumTests.cs`, `PromptAssetTests.cs` and the e2e specs `prompt-styles`, `prompt-rewrite`, `prompt-auto-enhance`, `llm-addendum`.
 Standing rules apply: generic and modular, no core hacking, backend-agnostic (the extension only calls Swarm's generic LLM endpoints and never cares what engine is behind them), reuse core CSS/components, theme variables only, one PR per phase, browser-tested, no AI attribution lines.
 
 > **Revision (user, 2026-11-19): two axes, both in scope.** We prompt properly for the specific **LLM** being used (chat model family) **and** properly for the specific **image model** a prompt is written for. They are independent and they compose. Section 3.0 is the new core of the design; the rest was adjusted to match.
@@ -121,13 +139,7 @@ Stages:
 
 Caching: a short in-memory cache on (prompt, style, size, rewrite model) so regenerate does not pay twice; one rewrite per tool call even for a batch of images.
 
-Entry points (**superseded by 3.2b where they differ**):
-- **A. `generate_image` tool:** after the preset/params merge, when the model is known. Argument `rewrite` (`auto` default, `off`). The tool result carries original and rewritten prompt and the style used; the image metadata keeps both; the chat model sees the rewritten text, so "make it darker" edits what was actually sent.
-- **B. Generate-tab "Enhance Prompt" (and Random Prompt):** the button also sends the selected model; same service. Shows the style used in a small label.
-- **C. `<llmprompt>` tag:** use the T2I input's model (to verify that it is available at the point the extension's pre-parse hook runs).
-- **D. Chat:** never rewritten (it is the assistant's own writing). The chat system prompt gains a short note that image prompts are adapted to the model automatically, so the assistant writes plain descriptive prompts and does not pre-format JSON.
-
-Approval (Ask mode): v1 rewrites inside the tool's execution, so the approval card shows the original and a note "will be adapted for Ideogram 4". Later (optional, needs a small generic pipeline addition, an argument-preparation stage before approval): the card shows the rewritten prompt and lets the user edit it.
+Entry points: see 3.2b. The first plan listed four (the tool, the Enhance button, the `<llmprompt>` tag, chat); the built design replaced them with one hook before core parses the prompt, plus the Enhance button. Chat itself is never rewritten (it is the assistant's own writing).
 
 ### 3.2b Where it runs (revised after round 2)
 
@@ -148,13 +160,10 @@ Approval (Ask mode): v1 rewrites inside the tool's execution, so the approval ca
 ### 3.3 Prompt injection and safety
 The original prompt is data inside the rewrite request, quoted and labelled; the rewriter has no tools; its output only ever becomes a prompt and is checked by the validator. Bundled styles cite their sources in the front matter.
 
-### 3.4 Switches (all default on, all independent)
-- LLM axis: "Tune prompts for the chat model" (per user; admin default), plus per-family and per-model off, per assistant.
-- Image axis master: "Adapt image prompts to the selected model" (per user; an admin can set the shared default or force it off).
-- Per entry point: tool, Enhance button, `<llmprompt>`.
-- Per assistant (through `ToolConfigService`), per chat (a small chip in the composer showing "Prompt rewrite: auto/off"), per call (`rewrite: off` argument), per style, per model (override "off").
-- The Generate tab, the tool and the API are all covered by the one toggle (round 2, decision 1); the "Auto-enhance prompt" param can switch it off for one generation or one preset.
-Precedence: per call > per chat > per assistant > per model/style > entry point > master.
+### 3.4 Switches (as built; the plan listed more)
+- **Image axis:** `promptRewrite.auto` (Settings > Prompt styles, **off** by default); the per-generation parameters **LLM Auto-Enhance Prompt** (`default` / `on` / `off`) and **LLM Prompt Style**; `generate_image`'s `rewrite: "off"`; per-model rules, which can also say "no style".
+- **LLM axis:** **Tune prompts for the chat model** (`promptStyles.llmAddenda`, on by default), an on/off switch per style (`promptStyles.disabled`), and each assistant's `promptAddendum: false`.
+- Precedence for a generation: the per-generation parameter beats the setting. The planned per-chat, per-assistant and per-entry-point layers were not built (see the status above).
 
 ### 3.5 Settings: a "Prompt styles" tab
 Two sections, "By chat model" (LLM axis) and "By image model" (image axis), each with its own list, overrides and resolve preview. Built from core components (Bootstrap list/segmented/switch, `.basic-button`, core form helpers, theme variables); new `llma-` CSS only where core has no equivalent, stated in the PR.
@@ -181,6 +190,9 @@ Each model family has a reference doc in the extension repo at `docs/prompting/<
 Process: read-only research, one agent per family group (families that share a guide are grouped, for example SD1/SD2, SDXL, SD3/3.5, Flux 1 / 2 / 3, Wan 2.1 / 2.2, LTX 1 / 2, Qwen-Image), results reviewed by you in the order you use the models, then the styles are derived from the docs. Nothing is copied wholesale from upstream system prompts without checking its licence.
 
 ## 4. Bundled styles
+
+*Status: only `generic` and `ideogram-4` are built in (`ideogram-4` has golden unit cases for its formatter). Everything after them is not built.*
+
 - v1 ships `ideogram-4` (JSON with layout) and `generic` (natural language, the current `prompt` behaviour). Both come with golden unit tests.
 - Next, in order of evidence: `flux-3`, `fibo-2` (core already defines their bbox formats; I have not read their prompting docs), `moss-image`, `ming-image`, then natural-language families and a video style (the existing `video-prompt` instruction).
 - Tag-style families (SDXL finetunes such as Pony or Illustrious) share one core class with other SDXL models, so class detection cannot tell them apart: see question 4.
@@ -190,49 +202,27 @@ Bundled **LLM** addenda: a `default` (empty) plus a small first set for the mode
 
 ## 5. Phases (one PR each)
 
-**P0: Prompting guides (docs only, no code).** `docs/prompting/_swarm-syntax.md` and one guide per model family group (section 3.7), reviewed by you. Independent of everything else and read-only, so it can start first and run while P1 is built; it is what P1's bundled styles are derived from.
+**P0: Prompting guides (built, #74; docs only, no code).** `docs/prompting/_swarm-syntax.md` and one guide per model family group (section 3.7), reviewed by you. Independent of everything else and read-only, so it can start first and run while P1 is built; it is what P1's bundled styles are derived from.
 
-**P1: Style registry and resolvers, both axes** (no behaviour change yet). Add kind `style` to the prompt-asset loader with `kind: llm | image`; the LLM-family resolver (reusing `LLMModelMatcher`, with name-glob fallback when `Family` is unknown) and the image resolver (core model class); bundled `generic` and `ideogram-4`; the Settings tab with both sections: list, customize/reset, per-model overrides, resolve previews. Testable alone.
+**P1: Style registry and resolvers, both axes (built, #75)** (no behaviour change yet). Add kind `style` to the prompt-asset loader with `kind: llm | image`; the LLM-family resolver (reusing `LLMModelMatcher`, with name-glob fallback when `Family` is unknown) and the image resolver (core model class); bundled `generic` and `ideogram-4`; the Settings tab with both sections: list, customize/reset, per-model overrides, resolve previews. Testable alone.
 
-**P2: LLM axis wiring (built; no addenda shipped).** Apply the LLM addendum in turn setup (`TurnSetupService`, so chat, headless and sessions all get it), for the model used in each turn (compare lanes separately); switches; dry-run shows the addendum and its token cost; deterministic addendum text. No addenda are bundled: one is added for a model family only after it has been tried on that model (none were, so none ship); the mechanism, an empty default and a docs example are what P2 delivers.
+**P2: LLM axis wiring (built, #79; no addenda shipped).** Apply the LLM addendum in turn setup (`TurnSetupService`, so chat, headless and sessions all get it), for the model used in each turn (compare lanes separately); switches; dry-run shows the addendum and its token cost; deterministic addendum text. No addenda are bundled: one is added for a model family only after it has been tried on that model (none were, so none ship); the mechanism, an empty default and a docs example are what P2 delivers.
 
-**P3: Image rewrite service and wiring.** `PromptRewriteService`, the formatter/validator framework with the Ideogram 4 formatter, entry points A-D, the switches, rewrite-model and failure-policy settings, the test box, transparency (tool result, image metadata). Uses both axes.
+**P3: Image rewrite service and wiring (built as P3a #76 and P3b #77; the switches, the failure-policy setting and entry points B to D differ from this list, see the status at the top).** `PromptRewriteService`, the formatter/validator framework with the Ideogram 4 formatter, entry points A-D, the switches, rewrite-model and failure-policy settings, the test box, transparency (tool result, image metadata). Uses both axes.
 
-**P4: More families, evaluation, polish.** Additional image styles and LLM addenda, a golden prompt set run against real models (side-by-side with and without, judged by the user), the approval-card preview/edit if wanted, video styles.
+**P4: More families, evaluation, polish (not built).** Additional image styles and LLM addenda, a golden prompt set run against real models (side-by-side with and without, judged by the user), the approval-card preview/edit if wanted, video styles.
 
 ## 6. Tests
-- **Unit, LLM axis:** matcher specificity and scope precedence; `Family` null falls back to globs (`anthropic/claude-*` through a gateway id); an assistant's more specific variant still wins; addendum is appended in a fixed order; output is byte-identical for the same model (prefix cache); per-lane in compare mode; switches off; token estimate includes the addendum.
-- **Playwright, LLM axis:** with the mock serving two model ids, a chat on each sends the system prompt with the matching addendum (asserted through `/__requests`); customizing and resetting a style takes effect; switching model mid-chat changes the next request only.
-- **Unit, image axis:** resolution order and scope precedence; per-model override and "off"; Ideogram formatter golden cases (wrong key order, both `photo` and `art_style`, bbox out of range or inverted, lowercase hex, missing required keys, text element with newlines, fenced or chatty output); retry then fallback; skip when already valid; tag masking round trip; switch precedence matrix; cache key.
-- **Playwright against the mock LLM** (scripted: bad JSON first, valid second): the harness seeds a header-only safetensors file whose keys make core classify it as `ideogram-4` (core detects from header keys; to verify it works without a backend), then: `generate_image` on that model sends the rewriter a request containing the Ideogram style and the original prompt (asserted through the mock's `/__requests`), the result shows original and rewritten; off switches (master, per call, per chat, per model) each prevent the rewrite call; the Enhance button sends the selected model; a customized style is used; reset restores the bundled one; failure policy paths; the Settings tab flows including resolve preview and test box; phone width and dark/light screenshots.
-- **Live evaluation (user's machine, real LLM and real Ideogram 4):** the golden prompt set; judged visually. Not in CI.
 
-## 7. Risks
+The test plan was written before the code. What exists is listed in the status at the top (unit tests per area, and e2e specs that drive the mock LLM with header-only model files). The mock proves wiring, validation, fallback and the switches only. The live evaluation (a golden prompt set judged by the user against a real chat model and a real Ideogram 4) was never run and is not in CI.
+
+## 7. Risks (all still open; none has been exercised with real models)
 - Finetunes that need a different style than their class (question 4).
 - LLM JSON errors on a JSON-only model: handled by the formatter, a retry, and the family fallback.
 - Latency and cost of one extra LLM call per image; cache and one-rewrite-per-call limit it; the setup check warns when the rewrite model is local and shares GPU memory with image generation.
 - New core model classes appear over time: unknown classes fall to the generic style, so nothing breaks.
 - Copying upstream system prompts: check licences, cite sources, prefer writing our own.
 
-## 8. Open questions (round 3)
-1. **Controls (your question 8), my recommendation:** no new chips. The auto-enhance toggle is a core-style parameter in the Generate tab's parameter panel (next to the existing Enhance Prompt / Random Prompt buttons if you want a quick button too), and in chat the same global toggle goes in the existing composer settings popover. Per-assistant and per-chat overrides live only in Settings, because they are rarely changed. Good?
-2. **Default:** auto-enhance on for everyone after the update, or off until a user turns it on? (Your "automatic, no thinking" suggests on; it does add an LLM call and latency to every generation.)
-3. **Wildcard policy:** off / only when asked / smart (my recommendation: smart, conservative, as in 3.6). And may the rewriting model see wildcard names and a few sample lines (matters when the rewrite model is hosted)?
-4. **Start P0 now?** I can begin the research pass (read-only, no code, nothing touches your repo except the new docs folder), reviewed in the order you use the models. Which models do you use most, so I review those first?
-5. **Name patterns for finetunes:** is matching a custom style to a model by exact name plus a pattern like `*pony*` what you want?
+## 8. Open questions
 
-(About my earlier question 5, "which families after Ideogram": ignore it. Your decision is that every family gets researched and covered.)
-
-## 9. Earlier questions (kept for the record; answered by the round 2 decisions above unless open)
-1. "Enhance prompt on": is that one toggle that applies to every image the assistant makes (my reading), and should typing in the Generate tab and pressing Generate also rewrite, or only the Enhance button and the assistant's tool?
-2. Preview first: do you want an option to see and edit the rewritten prompt before the image is generated (Ask mode card), or is show-after enough for v1?
-3. If the rewrite fails validation twice: fall back to the original text, fail the call, or use a deterministic minimal JSON wrapper for JSON-only models like Ideogram? (I recommend the wrapper, once we confirm on a real model that it generates acceptably.)
-4. Finetunes of one base class (Pony, Illustrious on SDXL): is a per-model override (pick the model, pick the style) enough, or should styles also match on filename or model metadata tags?
-5. Which families after Ideogram 4 should we ship first? Core has box formats for FLUX.3, Fibo 2, Ming Image and MOSS Image; which ones do you actually run?
-6. When the user has placed `<bbox[...]:...>` regions in a prompt, should the rewrite treat them as fixed layout (my recommendation) and build around them?
-7. Negative prompts: rewrite them too for families that use one, or leave them untouched in v1?
-8. Where should the per-chat switch live: a chip in the chat composer, or only in Settings and per call?
-9. Video: include video styles in P3/P4 or leave them for later?
-10. LLM axis shape: addenda layered on the task instruction (my recommendation: small, composable, safe for bundled updates) or whole replacement prompts per family like today's variants?
-11. Which chat/utility LLM families do you actually use (hosted and local)? That decides the first bundled LLM addenda; I will not ship any for a family we cannot test.
-12. Which tasks should the LLM axis cover in the first version: all of them (chat, tool use, vision, caption, rewrite, companion), or chat and rewrite first?
+The round 3 and earlier questions are superseded by what was built (the decisions at the top and the README describe the result) (for example: the auto-enhance control is a core-style parameter and not a chip; wildcard policy became "hide wildcards from the writing model"; finetunes attach to a model by exact name or pattern through a rule). The record of the questions was removed because the answers live in the README. What is still open is only P4: which model families to write styles for next, and how to judge them on real models.
