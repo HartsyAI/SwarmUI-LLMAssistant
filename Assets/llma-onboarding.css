@@ -1,0 +1,47 @@
+/* ================================================================
+   LLM Assistant — First-run guide (onboarding.js)
+   Uses SwarmUI theme variables exclusively.
+   ================================================================ */
+
+.llma-onboarding {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 20px max(16px, calc((100% - 720px) / 2));
+    color: var(--text);
+}
+.llma-onboarding-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--text-strong);
+}
+.llma-onboarding-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+/* Skip and finish stay in reach while the rest scrolls. */
+.llma-onboarding-actions {
+    position: sticky;
+    bottom: -20px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 10px 0;
+    background: var(--background);
+}
+
+/* While the guide shows, it takes the place of an empty chat's greeting, and the message box stays below it. */
+.llma-content.llma-onboarding-open .llma-empty-greeting {
+    display: none;
+}
+.llma-content.llma-onboarding-open > .llma-chat-panel {
+    flex: 0 0 auto;
+}
+.llma-content.llma-onboarding-open .llma-chat-panel:has(.llma-messages:empty) .llma-input-area {
+    margin-bottom: 0;
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
