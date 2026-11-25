@@ -148,6 +148,12 @@ function seedData(runDir) {
     // An unplaceable model whose own header says it takes JSON prompts with boxes (the modelspec.prompt_* keys a tool that makes the file may write).
     writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-declared-json.safetensors'), ['some.unrelated.weight'],
         { 'modelspec.prompt_format': 'json', 'modelspec.prompt_negative': 'none', 'modelspec.prompt_supports': 'boxes, bogus', 'modelspec.prompt_boxes': 'yxyx-1000' });
+    // For the style pack specs: models whose few header keys make core classify them as Flux.3 Klein, MOSS Image, Fibo 2 and Chroma (the detection rules are in core's T2IModelClassSorter).
+    let sd = name => path.join(modelsDir, 'Stable-Diffusion', name);
+    writeHeaderOnlySafetensors(sd('e2e-flux-3.safetensors'), ['content_mode_blocks.image.0.attn_out.weight', 'single_stream_modulations.txt.lin.weight']);
+    writeHeaderOnlySafetensors(sd('e2e-moss-image.safetensors'), ['shared_block_modulation.weight', 'layers.0.proj.ffn_up_gate.weight']);
+    writeHeaderOnlySafetensors(sd('e2e-fibo-2.safetensors'), ['perceiver.layers.0.self_attention.to_q.weight', 'noise_refiner.0.feed_forward.w13.weight', 'layers.43.feed_forward.w13.weight']);
+    writeHeaderOnlySafetensors(sd('e2e-chroma.safetensors'), ['distilled_guidance_layer.in_proj.bias', 'double_blocks.0.img_attn.proj.bias']);
     // For the image catalog tools: an unplaceable model whose header gives a title, a trigger phrase and usage notes, and a LoRA with a trigger phrase and tags.
     writeHeaderOnlySafetensors(path.join(modelsDir, 'Stable-Diffusion', 'e2e-hinted.safetensors'), ['some.unrelated.weight'],
         { 'modelspec.title': 'E2E Hinted Model', 'modelspec.usage_hint': 'Write short comma separated tags.', 'modelspec.trigger_phrase': 'hinted_token' });

@@ -34,6 +34,21 @@ public interface IPromptFormatter
 
     /// <summary>The user's own wording put into this form, used when the model failed twice: never bare text for a model that cannot read it. Null when the original is already fine as it is.</summary>
     string Wrap(string original);
+
+    /// <summary>Like <see cref="Normalize(string, PromptStyle)"/> for a formatter that needs the image size (a layout in pixels). A size of 0 means unknown. Most formatters do not care.</summary>
+    FormatOutcome Normalize(string raw, PromptStyle style, int width, int height) => Normalize(raw, style);
+
+    /// <summary>Whether a tag placeholder in <paramref name="text"/> (the text <see cref="Normalize(string, PromptStyle)"/> made) lands inside a JSON string, so the tag must be escaped for one. Formatters
+    /// whose answer is sometimes JSON and sometimes plain text decide per answer; the default is <see cref="ProducesJson"/>.</summary>
+    bool EscapesTags(string text) => ProducesJson;
+
+    /// <summary>Whether <paramref name="tag"/> (written with its angle brackets) is part of the format itself, not a Swarm tag, in <paramref name="text"/>: Flux.3 names each layout element in its caption
+    /// as <c>&lt;person_1&gt;</c>. Such a tag is let through the check that the model invented no Swarm tag. The default is no.</summary>
+    bool IsOwnTag(string tag, string text) => false;
+
+    /// <summary>Whether a prompt that holds a user's <c>&lt;bbox[...]:...&gt;</c> tag is left as written instead of rewritten. Core expands that tag into a raw JSON object at generation, which would land unescaped
+    /// inside a JSON string of the rewritten prompt, or next to a layout the writer made, and break it. The default is yes for a formatter that makes JSON.</summary>
+    bool LeavesBboxAlone => ProducesJson;
 }
 
 /// <summary>The formatters, found by a style's <c>formatter</c> key and otherwise by its <c>format</c> (text, tags, json).</summary>
@@ -46,6 +61,10 @@ public static class PromptFormatters
         ["tags"] = new TagsFormatter(),
         ["json"] = new JsonFormatter(),
         ["ideogram-4"] = new Ideogram4Formatter(),
+        ["flux-3"] = new Flux3Formatter(),
+        ["fibo-2"] = new Fibo2Formatter(),
+        ["ming-image"] = new MingImageFormatter(),
+        ["moss-image"] = new MossImageFormatter(),
     };
 
     /// <summary>The formatter for <paramref name="style"/>: the one it names, else the one for its format. A named formatter that is not built in falls back to the format's, so a shared style cannot break a rewrite.</summary>
@@ -56,6 +75,19 @@ public static class PromptFormatters
             return named;
         }
         return ById.TryGetValue(style.Format ?? PromptStyle.FormatText, out IPromptFormatter byFormat) ? byFormat : ById["text"];
+    }
+
+    /// <summary>Runs <paramref name="formatter"/> on an answer and never throws: a formatter that fails on odd input gives a refusal the model can try again from, never an exception out of the rewrite.</summary>
+    public static FormatOutcome Safe(IPromptFormatter formatter, string raw, PromptStyle style, int width = 0, int height = 0)
+    {
+        try
+        {
+            return formatter.Normalize(raw, style, width, height);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return FormatOutcome.Fail("it could not be read in this format");
+        }
     }
 
     /// <summary>Whether <paramref name="id"/> names a built-in formatter.</summary>
@@ -385,7 +417,7 @@ public sealed class Ideogram4Formatter : IPromptFormatter
 
     /// <summary>A box as four whole numbers on the 0 to 1000 grid in the order [y_min, x_min, y_max, x_max]. Numbers are rounded (halves away from zero) and clamped; a box that cannot be one is dropped with a warning, and a box
     /// written as 0 to 1 fractions (Swarm's own <c>&lt;bbox&gt;</c> convention) is refused, since rounding it would give a tiny box in the corner instead of the one meant.</summary>
-    private static string NormalizeBox(JToken token, int index, List<string> warnings, out JArray box)
+    internal static string NormalizeBox(JToken token, int index, List<string> warnings, out JArray box)
     {
         box = null;
         if (token is null || token.Type == JTokenType.Null)
@@ -417,7 +449,7 @@ public sealed class Ideogram4Formatter : IPromptFormatter
     }
 
     /// <summary>A palette of uppercase <c>#RRGGBB</c> colors, at most <paramref name="max"/>; short <c>#RGB</c> is expanded, anything else dropped with a warning.</summary>
-    private static JArray NormalizePalette(JToken token, int max, string where, List<string> warnings)
+    internal static JArray NormalizePalette(JToken token, int max, string where, List<string> warnings)
     {
         JArray result = [];
         if (token is not JArray colors)
