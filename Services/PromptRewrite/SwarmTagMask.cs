@@ -83,8 +83,8 @@ public sealed class SwarmTagMask
         return -1;
     }
 
-    /// <summary>What is wrong with how <paramref name="output"/> carries the placeholders, or null when each one is there exactly once and none is invented. The text is checked before the tags are put back.</summary>
-    public string Check(string output)
+    /// <summary>What is wrong with how <paramref name="output"/> carries the placeholders, or null when each one is there exactly once and none is invented. The text is checked before the tags are put back. A tag that <paramref name="isOwnTag"/> accepts is part of the prompt format (Flux.3's <c>&lt;person_1&gt;</c> cites), not an invented Swarm tag.</summary>
+    public string Check(string output, Func<string, bool> isOwnTag = null)
     {
         int[] seen = new int[Tags.Count];
         foreach (Match match in Placeholder.Matches(output ?? ""))
@@ -107,10 +107,10 @@ public sealed class SwarmTagMask
             }
         }
         // Every real tag of the idea is a placeholder now, so any raw tag in the answer was written by the model (or planted by the idea): never let it through.
-        SwarmTagMask invented = Mask(output);
-        if (invented.Tags.Count > 0)
+        string wrote = Mask(output).Tags.FirstOrDefault(tag => isOwnTag is null || !isOwnTag(tag));
+        if (wrote is not null)
         {
-            return $"it wrote the Swarm tag {invented.Tags[0]} itself; tags may only come from the placeholders it was given";
+            return $"it wrote the Swarm tag {wrote} itself; tags may only come from the placeholders it was given";
         }
         return null;
     }

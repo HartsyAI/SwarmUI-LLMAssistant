@@ -12,7 +12,7 @@ Status (2026-11-24): **P0, P1, P2, P3a and P3b are built and merged; P4 is not b
 | P4 More families, real-model evaluation, polish | **Not built** | none |
 
 **What differs from the plan below (as built):**
-- Only two styles are built in: `generic` and `ideogram-4`. `flux-3`, `fibo-2`, `moss-image`, `ming-image`, natural-language families and a video style (section 4) are not written; the researched guides exist (P0) but no style is derived from them yet.
+- Sixteen styles are built in: `generic`, `ideogram-4` and style pack 1 (`flux-3`, `fibo-2`, `ming-image`, `moss-image`, `qwen-image`, `flux-1`, `flux-2`, `z-image`, `hidream`, `sd3`, `sdxl`, `sd1-sd2`, `chroma` and the video style `video-prose`), written from the researched guides in `docs/prompting/` with formatters for the four JSON and layout families. None of the pack has been run on a real model; the families it leaves out are listed in `docs/prompting/README.md`.
 - **Automatic rewriting is off by default** (`promptRewrite.auto`), not on. The chat-model addendum master switch is on by default, but no addendum exists, so nothing changes until a user writes one.
 - Not built from the switch list (3.4): per-assistant and per-chat overrides for the rewrite, a composer chip, per-entry-point switches and a failure-policy setting (a failed rewrite always falls back to the user's wording, wrapped in valid JSON for a JSON-only model). What is built: the master setting, the per-generation parameters **LLM Auto-Enhance Prompt** and **LLM Prompt Style**, the `generate_image` `rewrite: "off"` argument, per-style on/off for chat-model styles, and per-model rules.
 - Not built from 3.6: the writing model is not shown wildcard names or samples and does not choose wildcards; a `<wildcard:name>` is masked like any Swarm tag and expanded by core afterwards.
@@ -191,7 +191,7 @@ Process: read-only research, one agent per family group (families that share a g
 
 ## 4. Bundled styles
 
-*Status: only `generic` and `ideogram-4` are built in (`ideogram-4` has golden unit cases for its formatter). Everything after them is not built.*
+*Status: sixteen styles are built in (`generic`, `ideogram-4` and style pack 1, see the status table in `docs/prompting/README.md`); the formatters for `ideogram-4`, `flux-3`, `fibo-2`, `ming-image` and `moss-image` have golden unit cases. No style has been evaluated on a real model, and the other families are not built.*
 
 - v1 ships `ideogram-4` (JSON with layout) and `generic` (natural language, the current `prompt` behaviour). Both come with golden unit tests.
 - Next, in order of evidence: `flux-3`, `fibo-2` (core already defines their bbox formats; I have not read their prompting docs), `moss-image`, `ming-image`, then natural-language families and a video style (the existing `video-prompt` instruction).
