@@ -473,14 +473,45 @@ function llmaPostRenderMermaid(containerEl) {
     });
 }
 
-function llmaCopyCode(btn) {
+/**
+ * Puts text on the clipboard. A page served over plain HTTP from another machine has no clipboard API, so the older copy command is used there and its answer checked.
+ * @param {string} text - What to copy.
+ * @returns {Promise<boolean>} Whether it was copied.
+ */
+async function llmaWriteClipboard(text) {
+    try {
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+        let focused = document.activeElement;
+        let box = document.createElement('textarea');
+        box.className = 'llma-copy-render';
+        box.value = text;
+        document.body.appendChild(box);
+        box.focus({ preventScroll: true });
+        box.select();
+        let copied = document.execCommand('copy');
+        box.remove();
+        focused?.focus({ preventScroll: true });
+        return copied;
+    }
+    catch (error) {
+        console.error('[LLMAssistant] Copy failed:', error);
+        return false;
+    }
+}
+
+async function llmaCopyCode(btn) {
     const code = btn.parentElement.querySelector('code');
     if (!code) return;
-    navigator.clipboard.writeText(code.textContent || '').then(() => {
-        const prev = btn.textContent;
-        btn.textContent = translate('Copied!');
-        setTimeout(() => { btn.textContent = prev; }, 1500);
-    });
+    if (!await llmaWriteClipboard(code.textContent || '')) {
+        llmaShowToast('Could not copy to the clipboard', 'error');
+        return;
+    }
+    const prev = btn.textContent;
+    btn.textContent = translate('Copied!');
+    setTimeout(() => { btn.textContent = prev; }, 1500);
 }
 
 // Delegated handler for the code-block "Copy" buttons. Registered once (CSP-clean; no inline

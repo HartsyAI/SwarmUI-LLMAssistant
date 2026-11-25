@@ -50,6 +50,26 @@ function llmaIngestThread(thread) {
     return LLMAState.messages;
 }
 
+// After a turn, the server's tree is the truth about each message's parent and about which one is the tip, so the next message is shown where the server puts it.
+// A reply the page shows that the server did not save (failed, or stopped before anything arrived) stays on screen, marked unsaved.
+function llmaAdoptServerTree(thread) {
+    let saved = Array.isArray(thread.messages) ? thread.messages : [];
+    let ids = new Set(saved.map(n => n.id));
+    let leaf = llmaActions.node(LLMAState.activeLeafId);
+    // A tip the page expects to be stored and is not there yet (a stopped reply still being saved): keep what the page has until it is.
+    if (saved.length == 0 || (leaf && !leaf.unsaved && !ids.has(leaf.id))) {
+        return;
+    }
+    let local = (LLMAState.allNodes || []).filter(n => !ids.has(n.id));
+    for (let node of local) {
+        llmaActions.markUnsaved(node);
+    }
+    LLMAState.allNodes = saved.concat(local);
+    LLMAState.activeLeafId = thread.activeLeafId || saved[saved.length - 1].id;
+    LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
+    llmaActions.syncTail();
+}
+
 function llmaChildrenOf(nodeId) {
     return (LLMAState.allNodes || []).filter(n => !n.unsaved && llmaParentId(n) === (nodeId ?? null));
 }
@@ -78,6 +98,8 @@ function llmaDescendToLeaf(nodeId) {
 // persist server-side and adopt the authoritative thread.
 async function llmaSetActiveLeaf(leafId, opts = {}) {
     if (!LLMAState.activeThreadId || !leafId) return;
+    // Every way of changing the branch comes through here (pager, sidebar, search result, Show later messages, Keep this one).
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     LLMAState.activeLeafId = leafId;
     LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
     llmaRenderMessageHistory(LLMAState.messages);
@@ -105,7 +127,7 @@ async function llmaSetActiveLeaf(leafId, opts = {}) {
 // Switch the active branch at a divergence point: pick the prev/next sibling of `node`, descend to its
 // leaf, and make that the active path.
 async function llmaSwitchBranch(nodeId, dir) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     const node = (LLMAState.allNodes || []).find(n => n.id === nodeId);
     if (!node) return;
     const sibs = llmaSiblingsOf(node);
@@ -118,14 +140,14 @@ async function llmaSwitchBranch(nodeId, dir) {
 
 // Jump directly to a specific sibling branch (from the branch-picker dropdown).
 async function llmaSwitchToBranch(targetNodeId) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     if (!targetNodeId) return;
     await llmaSetActiveLeaf(llmaDescendToLeaf(targetNodeId));
 }
 
 // Branch from here: make this message the tip of the active branch; the next message sent branches from it.
 async function llmaForkFromMessage(msgId) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before branching', 'info'); return; }
+    if (llmaActions.refuseIfBusy('Stop generation before branching')) return;
     const node = llmaActions.node(msgId);
     if (!node) return;
     // A reply that was never saved is not a place to branch from: the message before it is.
@@ -148,6 +170,8 @@ async function llmaLoadThreads() {
     llmaRenderThreadList(LLMAState.threads);
     llmaSessions.onThreadsLoaded(LLMAState.threads);
     llmaLibrary.refresh();
+    // The open chat may have started or finished working in the background.
+    llmaActions.syncTail();
 }
 
 // -- Branch picker (sidebar) --
@@ -930,6 +954,9 @@ async function llmaSaveActiveThread() {
         llmaReloadActiveThread();
     }
     // Trust the server's view of the thread.
+    if (!LLMAState.isGenerating && saved.id == LLMAState.activeThreadId) {
+        llmaAdoptServerTree(saved);
+    }
     meta.title        = saved.title || meta.title;
     meta.updatedAt    = saved.updatedAt || meta.updatedAt;
     meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : meta.messageCount;

@@ -160,21 +160,41 @@
 
     /** Delete a message and everything under it (optimistic local removal; re-fetch on server rejection). Asks first when that takes other messages with it. */
     async function llmaDeleteMessage(msgId) {
-        if (!LLMAState.activeThreadId || !msgId) return;
-        if (LLMAState.isGenerating) {
-            llmaShowToast('Stop generation before deleting messages', 'info');
-            return;
+        if (!LLMAState.activeThreadId || !msgId || llmaActions.deleting) return;
+        if (llmaActions.refuseIfBusy('Stop generation before deleting messages')) return;
+        llmaActions.deleting = true;
+        try {
+            await llmaDeleteFromServer(msgId);
         }
-        const node = llmaActions.node(msgId);
-        if (node?.unsaved) {
-            llmaActions.forget(node);
-            return;
+        finally {
+            llmaActions.deleting = false;
         }
-        const below = llmaActions.countBelow(msgId);
-        if (below > 0 && !confirm(llmaActions.deleteQuestion(below))) return;
+    }
+
+    /** Reads the chat as stored, asks if need be, and deletes. File-private. */
+    async function llmaDeleteFromServer(msgId) {
+        const threadId = LLMAState.activeThreadId;
         // A delete made from the keyboard leaves focus on the message that took this one's place.
         const row = document.querySelector(`#llma-messages [data-msg-id="${msgId}"]`);
         const focusAt = row?.contains(document.activeElement) ? llmaA11y.messageRows().indexOf(row) : -1;
+        // The stored chat decides what the delete takes with it, and whether the message was saved at all: the page's own idea of both can be behind.
+        let saved;
+        try {
+            saved = await llmaActions.fetchThread(threadId);
+        }
+        catch (error) {
+            console.error('[LLMAssistant] Could not read the chat before a delete:', error);
+            llmaShowToast('Failed to delete message', 'error');
+            return;
+        }
+        if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
+        if (!saved.messages.some(m => m.id === msgId)) {
+            // Never saved (a reply that failed or was stopped before anything), or already gone: show the chat as it is stored.
+            llmaShowStoredThread(saved, focusAt);
+            return;
+        }
+        const below = llmaActions.countBelow(msgId, saved.messages);
+        if (below > 0 && !confirm(llmaActions.deleteQuestion(below))) return;
         // Optimistic local removal so the UI feels snappy; if the server rejects we re-fetch to recover.
         const prevMessages = LLMAState.messages;
         LLMAState.messages = prevMessages.filter(m => m.id !== msgId);
@@ -184,7 +204,7 @@
         llmaUpdateContextBar();
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
         try {
-            const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: LLMAState.activeThreadId, messageId: msgId });
+            const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: threadId, messageId: msgId });
             if (!res?.success) {
                 llmaShowToast(res?.error || 'Failed to delete message', 'error');
                 await llmaReloadActiveThread();
@@ -193,24 +213,28 @@
             // Adopt the authoritative thread: in the branch model a delete removes the whole subtree
             // beneath the message and may move the active leaf, so re-render from the server's view.
             if (res.thread) {
-                const t = typeof res.thread === 'string' ? JSON.parse(res.thread) : res.thread;
-                llmaIngestThread(t);
-                llmaRenderMessageHistory(LLMAState.messages);
-                llmaRebuildAssetsForThread();
-                llmaUpdateContextBar();
-                if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+                llmaShowStoredThread(typeof res.thread === 'string' ? JSON.parse(res.thread) : res.thread, focusAt);
             }
         } catch {
             llmaShowToast('Failed to delete message', 'error');
             await llmaReloadActiveThread();
             return;
         }
+        // Sidebar metadata refresh (title may have changed if first message was deleted, etc.)
+        llmaSaveActiveThread();
+    }
+
+    /** Draws the chat as stored after a delete, says so, and puts keyboard focus where the deleted message was. File-private. */
+    function llmaShowStoredThread(thread, focusAt) {
+        llmaIngestThread(thread);
+        llmaRenderMessageHistory(LLMAState.messages);
+        llmaRebuildAssetsForThread();
+        llmaUpdateContextBar();
+        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
         llmaA11y.announce(translate('Message deleted'));
         if (focusAt >= 0) {
             llmaA11y.focusMessageAt(focusAt);
         }
-        // Sidebar metadata refresh (title may have changed if first message was deleted, etc.)
-        llmaSaveActiveThread();
     }
 
     /** Sets how this chat approves tool calls ('ask', 'auto' or 'plan'), updates the control, and saves it on the chat when asked to. */
@@ -237,10 +261,7 @@
 
     /** Edit a message in place and send it again as a new branch. */
     function llmaStartEdit(msgId) {
-        if (LLMAState.isGenerating) {
-            llmaShowToast('Stop generation before editing messages', 'info');
-            return;
-        }
+        if (llmaActions.refuseIfBusy('Stop generation before editing messages')) return;
         const msg = LLMAState.messages.find(m => m.id === msgId);
         if (!msg) return;
         const bubble = document.querySelector(`[data-msg-id="${msgId}"] .llma-msg-bubble`);
@@ -275,10 +296,7 @@
         saveBtn.addEventListener('click', () => {
             const newContent = textarea.value.trim();
             if (!newContent || !LLMAState.activeThreadId) return;
-            if (LLMAState.isGenerating) {
-                llmaShowToast('Stop generation before editing messages', 'info');
-                return;
-            }
+            if (llmaActions.refuseIfBusy('Stop generation before editing messages')) return;
             // Edit = fork a NEW branch from this message and re-send. The original message and the replies
             // beneath it are preserved as a sibling branch, switchable via the ‹ k/n › pager. The server
             // creates the authoritative branch (LLMAssistantEditMessageWS); we mirror it locally first so
@@ -337,10 +355,7 @@
     /** Regenerate an assistant reply as a NEW sibling branch (the previous reply stays switchable via the
      *  ‹ k/n › pager). The server moves the branch point to the preceding turn and streams a fresh reply. */
     function llmaRegenerateMessage(msgId) {
-        if (LLMAState.isGenerating) {
-            llmaShowToast('Stop generation before regenerating', 'info');
-            return;
-        }
+        if (llmaActions.refuseIfBusy('Stop generation before regenerating')) return;
         const clicked = llmaActions.node(msgId);
         if (!clicked || !LLMAState.activeThreadId) return;
         // A reply the server never saved (the request failed or was stopped before any text) is asked for again from the message before it.

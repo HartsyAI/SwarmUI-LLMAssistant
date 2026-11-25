@@ -1,4 +1,4 @@
-import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, reopen } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, reopen, enableSessionTools, resetSessionTools } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // The per-message actions: copy, regenerate / retry, edit and resend, delete, branch from here.
@@ -215,6 +215,256 @@ test('delete asks before it takes other messages with it, and does not ask for a
     await expect(llm.locator('#llma-messages .llma-msg-row')).toHaveCount(0);
     expect(questions[1]).toContain('every message under it');
     expect(await stored(llm)).toHaveLength(0);
+});
+
+/** Where the page thinks the next message goes, and the parents it gives the stored messages. */
+async function pageTree(page: Page): Promise<{ leaf: string; parents: Record<string, string | null> }> {
+    return await page.evaluate(() => {
+        let state = (0, eval)('LLMAState');
+        let parents: Record<string, string | null> = {};
+        for (let node of state.allNodes.filter((n: any) => !n.unsaved)) {
+            parents[node.id] = node.parentId || null;
+        }
+        return { leaf: state.activeLeafId, parents };
+    });
+}
+
+/** Expects the page and the server to hold the same tree and the same tip. */
+async function expectSameTree(page: Page) {
+    await expect.poll(async () => {
+        let listed = await api(page, 'LLMAssistantGetThreads');
+        let saved = (await api(page, 'LLMAssistantGetThread', { threadId: listed.threads[0].id })).thread;
+        let here = await pageTree(page);
+        let parents = Object.fromEntries(saved.messages.map((m: any) => [m.id, m.parentId || null]));
+        return JSON.stringify({ leaf: here.leaf == saved.activeLeafId, parents: Object.entries(here.parents).sort() }) ==
+            JSON.stringify({ leaf: true, parents: Object.entries(parents).sort() });
+    }).toBe(true);
+}
+
+/** Answers every confirm with `accept`, and collects the questions. */
+function questionsAsked(page: Page, accept: boolean): string[] {
+    let questions: string[] = [];
+    page.on('dialog', dialog => {
+        questions.push(dialog.message());
+        return accept ? dialog.accept() : dialog.dismiss();
+    });
+    return questions;
+}
+
+test('after Stop the next message hangs under the kept reply, and deleting that reply asks first', async ({ llm }) => {
+    let long = Array.from({ length: 150 }, (_, i) => `word${i}`).join(' ');
+    await setScenarios([{ match: 'cut me off', rounds: [{ text: long, chunkDelayMs: 80 }] }, { match: 'carry on', rounds: [{ text: 'carried on' }] }]);
+    await send(llm, 'cut me off');
+    await expect(lastAssistant(llm)).toContainText('word3');
+    await llm.locator('#llma-stop-btn').click();
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await exchange(llm, 'carry on', 'carried on');
+    await expectSameTree(llm);
+    let messages = await stored(llm);
+    expect(messages.map(m => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(messages[2].parentId).toBe(messages[1].id);
+    let questions = questionsAsked(llm, false);
+    let stopped = replyRows(llm).first();
+    await stopped.hover();
+    await action(llm, stopped, 'Delete').click();
+    await expect.poll(() => questions.length).toBe(1);
+    expect(questions[0]).toContain('(2)');
+    expect(await stored(llm)).toHaveLength(4);
+});
+
+test('delete counts what the server holds, also what this page never saw', async ({ llm }) => {
+    await setScenarios([{ match: 'here', rounds: [{ text: 'reply here' }] }, { match: 'elsewhere', rounds: [{ text: 'reply elsewhere' }] }]);
+    await exchange(llm, 'here', 'reply here');
+    let threadId = (await api(llm, 'LLMAssistantGetThreads')).threads[0].id;
+    // Another client adds a turn under the reply on screen.
+    expect((await api(llm, 'LLMAssistantRunTurn', { threadId, message: 'elsewhere' })).success).toBe(true);
+    let questions = questionsAsked(llm, false);
+    let reply = replyRows(llm).first();
+    await reply.hover();
+    await action(llm, reply, 'Delete').click();
+    await expect.poll(() => questions.length).toBe(1);
+    expect(questions[0]).toContain('(2)');
+    expect(await stored(llm)).toHaveLength(4);
+});
+
+test('deleting an old failed reply keeps the later messages on screen', async ({ llm }) => {
+    await setScenarios([{ match: 'stumble', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }, { match: 'onwards', rounds: [{ text: 'reply onwards' }] }]);
+    await send(llm, 'stumble');
+    await expect(llm.locator('.llma-msg-error')).toBeVisible({ timeout: 20_000 });
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await exchange(llm, 'onwards', 'reply onwards');
+    await expect(replyRows(llm)).toHaveCount(2);
+    let questions = questionsAsked(llm, false);
+    let failed = replyRows(llm).first();
+    await failed.hover();
+    await action(llm, failed, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(1);
+    await expect(userRows(llm)).toHaveCount(2);
+    await expect(lastAssistant(llm)).toContainText('reply onwards');
+    expect(questions).toEqual([]);
+    expect(await stored(llm)).toHaveLength(3);
+    await expectSameTree(llm);
+});
+
+test('a reply the page wrongly takes for unsaved is still deleted on the server', async ({ llm }) => {
+    await setScenarios([{ match: 'solid', rounds: [{ text: 'solid reply' }] }]);
+    await exchange(llm, 'solid', 'solid reply');
+    // As after a socket that dropped before the first token while the server went on to save the reply.
+    await llm.evaluate(() => {
+        let state = (0, eval)('LLMAState');
+        state.messages[state.messages.length - 1].unsaved = true;
+    });
+    let reply = replyRows(llm).first();
+    await reply.hover();
+    await action(llm, reply, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(0);
+    await expect.poll(async () => (await stored(llm)).length).toBe(1);
+    await reopen(llm);
+    await expect(replyRows(llm)).toHaveCount(0);
+});
+
+test('compare: a model that fails does not take the other with it, and the next message hangs where the server puts it', async ({ llm }) => {
+    await setScenarios([
+        { match: 'duel', model: 'mock-model', rounds: [{ error: { status: 500, message: 'lane one broke' } }] },
+        { match: 'duel', model: 'mock-model-b', rounds: [{ delayMs: 1500, text: 'lane two answered' }] },
+        { match: 'afterwards', rounds: [{ text: 'afterwards reply' }] }
+    ]);
+    await llm.locator('#llma-compare-toggle').click();
+    await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
+    await send(llm, 'duel');
+    let columns = llm.locator('.llma-compare-col');
+    await expect(columns.nth(1)).toContainText('lane two answered', { timeout: 30_000 });
+    await expect(columns.nth(0).locator('.llma-msg-error')).toBeVisible();
+    await expect(columns.nth(1).locator('.llma-msg-error')).toHaveCount(0);
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect.poll(async () => (await stored(llm)).length).toBe(2);
+    await llm.locator('#llma-compare-toggle').click();
+    await exchange(llm, 'afterwards', 'afterwards reply');
+    let messages = await stored(llm);
+    let next = messages.find(m => m.content == 'afterwards')!;
+    expect(next.parentId).toBe(messages[0].id);
+    await expectSameTree(llm);
+});
+
+test('the branch cannot be switched while a reply streams, from the sidebar either', async ({ llm }) => {
+    let long = Array.from({ length: 120 }, (_, i) => `word${i}`).join(' ');
+    await setScenarios([{ match: 'streaming now', rounds: [{ text: long, chunkDelayMs: 100 }] }]);
+    await send(llm, 'streaming now');
+    await expect(lastAssistant(llm)).toContainText('word1');
+    let leaf = await llm.evaluate(async () => {
+        let state = (0, eval)('LLMAState');
+        let before = state.activeLeafId;
+        await (0, eval)('llmaJumpToBranch')(state.activeThreadId, state.allNodes[0].id + '-other');
+        return { before, after: state.activeLeafId };
+    });
+    expect(leaf.after).toBe(leaf.before);
+    await expect(llm.locator('.llma-toast')).toContainText('Stop generation before switching branches');
+    await llm.locator('#llma-stop-btn').click();
+});
+
+test('Copy keeps think tags and dollar signs that are inside code', async ({ llm, context }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    let source = 'Write `<think>` or `$HOME` for $5.\n\n```html\n<think>kept in code</think>\necho $$ $A_1\n```\n\nDone';
+    await setScenarios([{ match: 'tags in code', rounds: [{ text: `<think>real reasoning</think>${source}` }] }]);
+    await exchange(llm, 'tags in code', 'Done');
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Copy as Markdown').click();
+    await expect.poll(() => llm.evaluate(() => navigator.clipboard.readText())).toContain('Done');
+    expect((await llm.evaluate(() => navigator.clipboard.readText())).replace(/\r/g, '')).toBe(source);
+    await action(llm, reply, 'Copy').click();
+    await expect.poll(() => llm.evaluate(() => navigator.clipboard.readText())).not.toContain('```');
+    let text = (await llm.evaluate(() => navigator.clipboard.readText())).replace(/\r/g, '');
+    expect(text).toContain('Write <think> or $HOME for $5.');
+    expect(text).toContain('<think>kept in code</think>\necho $$ $A_1');
+    expect(text).not.toContain('real reasoning');
+});
+
+test('with no clipboard API, Copy says whether the old copy command worked and gives focus back', async ({ llm }) => {
+    await setScenarios([{ match: 'over lan', rounds: [{ text: 'plain words' }] }]);
+    await exchange(llm, 'over lan', 'plain words');
+    // A page served over plain HTTP from another machine: no clipboard API, only the copy command, which may refuse.
+    await llm.evaluate(() => {
+        Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+        (window as any).copyWorks = false;
+        document.execCommand = () => {
+            (window as any).copied = (document.activeElement as HTMLTextAreaElement).value;
+            return (window as any).copyWorks;
+        };
+    });
+    let reply = replyRows(llm).last();
+    let copy = action(llm, reply, 'Copy');
+    await copy.focus();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('.llma-toast')).toContainText('Could not copy');
+    await expect(copy).toBeFocused();
+    await llm.evaluate(() => (window as any).copyWorks = true);
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('.llma-toast')).toContainText('Copied!');
+    await expect(copy).toBeFocused();
+    expect(await llm.evaluate(() => (window as any).copied)).toBe('plain words');
+});
+
+test.describe('a session working in the background', () => {
+    test.beforeEach(async ({ llm }) => {
+        await enableSessionTools(llm);
+    });
+
+    test.afterEach(async ({ llm }) => {
+        await resetSessionTools(llm);
+    });
+
+    /** A chat with a session that is still writing its first reply, slowly enough to outlast a test. Returns the session's chat id. */
+    async function workingSession(page: Page): Promise<string> {
+        let parent = (await api(page, 'LLMAssistantCreateThread', { assistantId: 'default' })).thread.id;
+        let slow = Array.from({ length: 600 }, (_, i) => `slow${i}`).join(' ');
+        await setScenarios([{ match: 'long job', rounds: [{ text: slow, chunkDelayMs: 200 }] }]);
+        let started = await api(page, 'LLMAssistantExecuteTool', { toolId: 'session_start', threadId: parent, arguments: { title: 'Long job', prompt: 'long job', model: 'mock-model' } });
+        let child = started.result.id;
+        await expect.poll(async () => (await api(page, 'LLMAssistantGetThread', { threadId: child })).thread.sessionStatus, { timeout: 30_000 }).toBe('running');
+        return child;
+    }
+
+    test('its chat offers no action that changes it', async ({ llm }) => {
+        await workingSession(llm);
+        await reopen(llm);
+        await llm.locator('.llma-thread-child').click();
+        await expect(llm.locator('#llma-session-banner')).toContainText('Running');
+        let user = userRows(llm).first();
+        await user.hover();
+        for (let name of ['Edit', 'Delete', 'Branch from here']) {
+            await expect(action(llm, user, name)).toHaveAttribute('aria-disabled', 'true');
+        }
+        await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
+        await action(llm, user, 'Delete').click({ force: true });
+        await expect(llm.locator('.llma-toast')).toContainText('working in the background');
+        await expect(userRows(llm)).toHaveCount(1);
+        await llm.locator('#llma-session-banner').getByRole('button', { name: 'Stop' }).click();
+        await expect(action(llm, userRows(llm).first(), 'Delete')).toHaveAttribute('aria-disabled', 'false', { timeout: 30_000 });
+    });
+
+    for (let route of ['LLMAssistantRegenerateWS', 'LLMAssistantEditMessageWS']) {
+        test(`${route} stops its turn first, so the new reply lands where it was asked for`, async ({ llm }) => {
+            let child = await workingSession(llm);
+            let before = (await api(llm, 'LLMAssistantGetThread', { threadId: child })).thread.messages;
+            // Long enough for some of the reply to have arrived: it is saved when the turn is stopped.
+            await llm.waitForTimeout(2000);
+            await setScenarios([{ match: 'long job', rounds: [{ text: 'fresh answer' }] }, { match: 'new wording', rounds: [{ text: 'fresh answer' }] }]);
+            let done = await llm.evaluate(([name, body]) => new Promise<any>(resolve => {
+                (0, eval)('makeWSRequest')(name, body, (data: any) => data.done && resolve(data), 0, (error: string) => resolve({ error }));
+            }), [route, { threadId: child, messageId: before[0].id, content: 'new wording', model: 'mock-model' }] as const);
+            expect(done.error).toBeUndefined();
+            await llm.waitForTimeout(1000);
+            let after = (await api(llm, 'LLMAssistantGetThread', { threadId: child })).thread;
+            let replies = after.messages.filter((m: any) => m.role == 'assistant' && m.content == 'fresh answer');
+            expect(replies).toHaveLength(1);
+            // The reply answers the message that was asked about, not what the stopped turn saved on its way out.
+            let asked = route == 'LLMAssistantRegenerateWS' ? before[0] : after.messages.find((m: any) => m.content == 'new wording');
+            expect(replies[0].parentId).toBe(asked.id);
+            expect(after.activeLeafId).toBe(replies[0].id);
+            expect(after.sessionStatus).not.toBe('running');
+        });
+    }
 });
 
 test('deleting the branch on screen leaves a way to the other one', async ({ llm }) => {

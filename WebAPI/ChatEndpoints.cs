@@ -825,6 +825,8 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
             if (content is null) { return Fail("content is required."); }
+            // A session still working in the background is stopped first (what it had is saved), so it cannot append to the branch made here.
+            await BackgroundTurnService.StopAsync(session.User, threadId);
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
             JObject original = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
@@ -859,6 +861,8 @@ public static class ChatEndpoints
             string messageId = rawInput["messageId"]?.ToString();
             if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
+            // A session still working in the background is stopped first (what it had is saved), so its reply cannot land beside the new one.
+            await BackgroundTurnService.StopAsync(session.User, threadId);
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
             if (!MessageActions.TryResolveReplyPoint(thread, messageId, out string replyTo, out string error)) { return Fail(error); }

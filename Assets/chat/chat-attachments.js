@@ -271,7 +271,7 @@
         const actions = document.createElement('div');
         actions.className = 'llma-quick-caption-actions';
         const copyBtn = llmaCreateActionBtn(translate('Copy'), () => {
-            navigator.clipboard.writeText(caption).then(() => llmaShowToast('Copied', 'success'));
+            llmaActions.copy(caption);
         }, 'basic-button');
         const chatBtn = llmaCreateActionBtn(translate('Send to chat'), () => {
             const input = document.getElementById('llma-input');

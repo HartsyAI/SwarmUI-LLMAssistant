@@ -278,7 +278,7 @@ Under each message (shown on hover, on keyboard focus, and always on a touch scr
 | **Delete** | any message | Removes the message **and every message under it, on every branch**. It asks first when that is more than the one message. | `LLMAssistantDeleteMessage` |
 | **Use as Prompt** | replies | Puts the reply in the Generate tab's prompt box. | none |
 
-While a reply streams, the actions that change the chat are off. The side-by-side columns of a comparison have **Copy**, **Copy as Markdown**, **Use as Prompt**, **Keep this one** and **Delete**.
+While a reply streams, and while the chat is a [session](#sessions) working in the background (a call waiting for approval included), the actions that change the chat are off. `LLMAssistantEditMessageWS` and `LLMAssistantRegenerateWS` stop such a session's turn first, as sending a message does. A delete reads the stored chat before it asks, so the question counts what is really under the message. The side-by-side columns of a comparison have **Copy**, **Copy as Markdown**, **Use as Prompt**, **Keep this one** and **Delete**.
 
 ## Accessibility <a id="accessibility"></a>
 

@@ -574,9 +574,7 @@ function llmaAssetCopy(asset) {
     const def = llmaAssetTypeDef(asset.type);
     const payload = def.copyPayload ? def.copyPayload(asset) : asset.content;
     if (payload == null) return;
-    navigator.clipboard.writeText(String(payload))
-        .then(() => llmaShowToast('Copied!', 'success'))
-        .catch(() => llmaShowToast('Copy failed', 'error'));
+    llmaActions.copy(String(payload));
 }
 
 function llmaAssetDownload(asset) {

@@ -193,18 +193,6 @@
                 if (llmaContext.onFrame(data)) {
                     return;
                 }
-                if (data.error) {
-                    renderer.cancelPendingRender();
-                    llmaShowErrorInBubble(bubble, data.error);
-                    // The server saves a failed reply only when something of it had arrived.
-                    const failed = LLMAState.messages.find(m => m.id === assistantMsgId);
-                    if (!streamedRaw && !(failed?.toolCalls || []).length) {
-                        llmaActions.markUnsaved(failed);
-                    }
-                    llmaA11y.announceFailure(data.error);
-                    llmaFinishStreamState();
-                    return;
-                }
                 // Backend status events, eg LlamaSharp's "loading_model" before the disk read kicks
                 // off. The typing-indicator dots already exist in the bubble; we swap them for a labeled
                 // spinner so the user knows something is happening during a multi-second model load.
@@ -362,8 +350,8 @@
                     if (onComplete) onComplete(cleanFinal);
                 }
             }, 0, err => {
-                // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
-                // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
+                // An error frame from the server and a failed socket both come here (core's helper never hands an error frame to the callback above).
+                // err is a string; pass it straight through so the humanizer can recognize it instead of collapsing to "WebSocket error".
                 // A failure after some text keeps the text: text still waiting for its render is drawn first.
                 renderer.flushRender();
                 bubble?.querySelector('.llma-typing')?.remove();
@@ -399,9 +387,11 @@
     function llmaStopGeneration() {
         // Tell the server to actually cancel generation; closing the socket below only detaches this
         // client from it; the model would otherwise keep running to completion in the background.
-        // Fire-and-forget: the local UI reset happens immediately regardless of whether this round-trips.
+        // The local UI reset happens immediately regardless of whether this round-trips. The server saves what it had a moment
+        // later, so the chat is read again then: the page and the server agree on where the next message goes.
         if (LLMAState.activeThreadId) {
-            llmaRequest('LLMAssistantStopGeneration', { threadId: LLMAState.activeThreadId }).catch(() => {});
+            llmaRequest('LLMAssistantStopGeneration', { threadId: LLMAState.activeThreadId }).catch(() => {})
+                .finally(() => setTimeout(llmaSaveActiveThread, 750));
         }
         if (LLMAState._activeSocket) {
             try { LLMAState._activeSocket.close(); } catch (_) {}
@@ -415,22 +405,23 @@
             llmaSetStreaming(false);
             return;
         }
-        if (LLMAState._streamingMsgId && LLMAState._streamingText) {
-            const msg = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
-            if (msg) msg.content = LLMAState._streamingText;
-            const bubble = document.querySelector(`[data-msg-id="${LLMAState._streamingMsgId}"] .llma-msg-bubble`);
-            if (bubble) {
-                llmaSetRenderedHtml(bubble, llmaRenderMarkdown(LLMAState._streamingText));
-                llmaPostRenderMermaid(bubble);
+        const stopped = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
+        if (stopped) {
+            const bubble = document.querySelector(`[data-msg-id="${stopped.id}"] .llma-msg-bubble`);
+            if (LLMAState._streamingText || (stopped.toolCalls || []).length) {
+                // The server keeps a reply that had text or ran a tool, as the tip of the branch: so does the page.
+                LLMAState.activeLeafId = stopped.id;
+                if (LLMAState._streamingText) {
+                    stopped.content = LLMAState._streamingText;
+                    if (bubble && !(stopped.toolCalls || []).length) {
+                        llmaSetRenderedHtml(bubble, llmaRenderMarkdown(LLMAState._streamingText));
+                        llmaPostRenderMermaid(bubble);
+                    }
+                }
             }
-            llmaSaveActiveThread();
-        }
-        else if (LLMAState._streamingMsgId) {
-            // Stopped before anything arrived: nothing was saved, so the row says so instead of showing dots for good.
-            const msg = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
-            if (msg && !(msg.toolCalls || []).length) {
-                llmaActions.markUnsaved(msg);
-                const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
+            else {
+                // Stopped before anything arrived: nothing is saved, so the row says so instead of showing dots for good.
+                llmaActions.markUnsaved(stopped);
                 if (bubble) {
                     bubble.innerHTML = `<div class="llma-msg-stopped">${llmaEscapeHtml(translate('Stopped before a reply arrived.'))}</div>`;
                 }

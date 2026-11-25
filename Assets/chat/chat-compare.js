@@ -299,9 +299,15 @@
         // One controller per lane handles its own column's incremental render.
         const ctls = lanes.map(L => llmaMakeLaneController(L, startTime));
 
+        let finalized = false;
         const finalizeGroup = () => {
+            if (finalized) {
+                return;
+            }
+            finalized = true;
             LLMAState._activeSocket = null;
             LLMAState._streamingLanes = null;
+            llmaCompareSettleLeaf(lanes);
             llmaSetStreaming(false);
             // A lane that failed has announced itself; this says the turn is over.
             llmaA11y.announce(lanes.some(L => L.node.unsaved || L.node.meta?.error) ? translate('Comparison finished with errors') : translate('Both replies complete'));
@@ -318,10 +324,8 @@
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];
                 if (!ctl || ctl.isDone()) {
-                    if (data.error) ctl && ctl.fail(data.error);
                     return;
                 }
-                if (data.error) { ctl.fail(data.error); if (++doneCount >= ctls.length) finalizeGroup(); return; }
                 if (data.status) { ctl.status(data); return; }
                 if (data.chunk)  { ctl.chunk(data.chunk); }
                 if (data.iteration !== undefined) ctl.newIteration();
@@ -329,16 +333,22 @@
                 if (data.tool_approval) ctl.toolApproval(data.tool_approval);
                 if (data.tool_result) ctl.toolResult(data.tool_result);
                 if (data.done) { ctl.done(data); if (++doneCount >= ctls.length) finalizeGroup(); }
-            }, 0, err => {
-                // Socket-level failure kills every still-open lane.
+            }, 0, (err, data) => {
+                // Core's helper hands every error frame here, one lane's included: that lane fails and the other goes on.
+                if (data && typeof data.lane === 'number' && ctls[data.lane]) {
+                    if (!ctls[data.lane].isDone()) {
+                        ctls[data.lane].fail(err);
+                        if (++doneCount >= ctls.length) finalizeGroup();
+                    }
+                    return;
+                }
+                // A failure of the socket or of the whole request ends every lane still open.
                 ctls.forEach(c => { if (!c.isDone()) c.fail(err || 'WebSocket error'); });
-                LLMAState._activeSocket = null;
-                LLMAState._streamingLanes = null;
-                llmaSetStreaming(false);
+                finalizeGroup();
             });
         } catch (ex) {
             ctls.forEach(c => { if (!c.isDone()) c.fail(ex && ex.message ? ex.message : String(ex)); });
-            llmaSetStreaming(false);
+            finalizeGroup();
         }
     }
 
@@ -453,9 +463,16 @@
                 llmaActions.markUnsaved(L.node);
             }
         }
+        llmaCompareSettleLeaf(lanes);
         LLMAState._streamingLanes = null;
-        if (typeof llmaSaveActiveThread === 'function') llmaSaveActiveThread();
         return true;
+    }
+
+    /** Puts the page's tip where the server puts it after a comparison: lane 1's reply when it was saved, else the message both were asked. */
+    function llmaCompareSettleLeaf(lanes) {
+        const first = lanes[0].node;
+        LLMAState.activeLeafId = first.unsaved ? first.parentId : first.id;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
     }
 
     // ---- DOM: live columns ------------------------------------------------------
@@ -509,7 +526,7 @@
         // Keep this one and Delete change the chat, so they are off while a reply streams.
         for (const button of Array.from(actions.children).slice(-2)) {
             button.dataset.llmaMutates = 'true';
-            button.setAttribute('aria-disabled', LLMAState.isGenerating ? 'true' : 'false');
+            button.setAttribute('aria-disabled', llmaActions.busy() ? 'true' : 'false');
         }
         return actions;
     }
@@ -517,8 +534,7 @@
     /** Converge: make this lane's reply the active path and exit compare mode. The comparison turn stays
      *  visible as columns in history; new messages continue single-model from here. */
     function llmaKeepLane(msgId) {
-        if (LLMAState.isGenerating) {
-            llmaShowToast('Stop generation before choosing a reply', 'info');
+        if (llmaActions.refuseIfBusy('Stop generation before choosing a reply')) {
             return;
         }
         // A lane that never saved a reply cannot be continued from.

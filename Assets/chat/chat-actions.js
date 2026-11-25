@@ -8,8 +8,16 @@
 
 'use strict';
 
+/** Matches a fenced code block or a code span in Markdown: what is inside is text to keep, whatever it looks like. Its two groups are the fence and the span's backticks. */
+const LLMA_CODE_PATTERN = '(?:^|(?<=\\n))[ \\t]*(`{3,}|~{3,})[\\s\\S]*?(?:\\n[ \\t]*\\1[`~]*[ \\t]*(?=\\n|$)|$)|(`+)(?:(?!\\n[ \\t]*\\n)[\\s\\S])*?\\2';
+
 /** The actions a user takes on one message of the chat. */
 class LLMAMessageActions {
+    constructor() {
+        /** Set while a delete is being asked about or carried out, so a second click does not ask twice. */
+        this.deleting = false;
+    }
+
     /** The node with this id on any branch of the open chat, or null. */
     node(msgId) {
         return (LLMAState.allNodes || []).find(n => n.id == msgId) || LLMAState.messages.find(m => m.id == msgId) || null;
@@ -22,7 +30,7 @@ class LLMAMessageActions {
             let button = llmaCreateIconBtn(icon, translate(label), onClick);
             if (mutates) {
                 button.dataset.llmaMutates = 'true';
-                button.setAttribute('aria-disabled', LLMAState.isGenerating ? 'true' : 'false');
+                button.setAttribute('aria-disabled', this.busy() ? 'true' : 'false');
             }
             bar.appendChild(button);
         };
@@ -56,13 +64,46 @@ class LLMAMessageActions {
         return bar;
     }
 
-    /** A message's Markdown source. A reply's reasoning is not part of what it said, so it is left out. */
+    /** Whether the open chat is a session working in the background (a call waiting for approval included): the server is changing its tree. */
+    working() {
+        return llmaSessions.isActive(LLMAState.threads.find(t => t.id == LLMAState.activeThreadId)?.sessionStatus);
+    }
+
+    /** Whether the open chat may be changing on the server, so nothing here may change it: a reply is streaming, or it works in the background. */
+    busy() {
+        return LLMAState.isGenerating || this.working();
+    }
+
+    /** True, after saying why, when an action that changes the chat cannot run now. `whileStreaming` is what to say while a reply streams here. */
+    refuseIfBusy(whileStreaming) {
+        if (LLMAState.isGenerating) {
+            llmaShowToast(whileStreaming, 'info');
+            return true;
+        }
+        if (this.working()) {
+            llmaShowToast('This chat is working in the background. Stop it first.', 'info');
+            return true;
+        }
+        return false;
+    }
+
+    /** The chat as the server stores it now. Throws when it cannot be read. */
+    async fetchThread(threadId) {
+        let result = await llmaRequest('LLMAssistantGetThread', { threadId: threadId });
+        if (!result?.success || !result.thread) {
+            throw new Error(result?.error || 'Chat not found');
+        }
+        return typeof result.thread == 'string' ? JSON.parse(result.thread) : result.thread;
+    }
+
+    /** A message's Markdown source. A reply's reasoning is not part of what it said, so it is left out (a think tag quoted in code stays). */
     markdownOf(node) {
         let content = node?.content || '';
         if (node?.role != 'assistant') {
             return content;
         }
-        return content.replace(/<think>[\s\S]*?(<\/think>|$)/gi, '').trim();
+        let reasoningOrCode = new RegExp(`<think>[\\s\\S]*?(?:</think>|$)|${LLMA_CODE_PATTERN}`, 'gi');
+        return content.replace(reasoningOrCode, found => found.toLowerCase().startsWith('<think>') ? '' : found).trim();
     }
 
     /** A message as plain text: a user's message as typed, a reply with its Markdown marks gone. */
@@ -71,9 +112,13 @@ class LLMAMessageActions {
         if (node?.role != 'assistant' || !window.marked || !window.DOMPurify) {
             return markdown;
         }
-        // Math is set aside first: the Markdown parser would read the underscores in it as emphasis.
+        // Math is set aside first: the Markdown parser would read the underscores in it as emphasis. Dollar signs in code are not math.
         let math = [];
-        let source = markdown.replace(/\$\$[\s\S]+?\$\$|\$(?!\$)[^\n]+?\$/g, found => {
+        let codeOrMath = new RegExp(`${LLMA_CODE_PATTERN}|\\$\\$(?:(?!\`\`\`)[\\s\\S])+?\\$\\$|\\$(?!\\$)[^\\n\`]+?\\$`, 'g');
+        let source = markdown.replace(codeOrMath, found => {
+            if (!found.startsWith('$')) {
+                return found;
+            }
             math.push(found);
             return `%%LLMA_COPY_${math.length - 1}%%`;
         });
@@ -94,17 +139,10 @@ class LLMAMessageActions {
 
     /** Puts text on the clipboard and says whether that worked. */
     async copy(text) {
-        try {
-            if (navigator.clipboard) {
-                await navigator.clipboard.writeText(text);
-            }
-            else {
-                copyText(text);
-            }
+        if (await llmaWriteClipboard(text)) {
             llmaShowToast('Copied!', 'success');
         }
-        catch (error) {
-            console.error('[LLMAssistant] Copy failed:', error);
+        else {
             llmaShowToast('Could not copy to the clipboard', 'error');
         }
     }
@@ -124,24 +162,14 @@ class LLMAMessageActions {
         }
     }
 
-    /** Drops a never-saved reply from the page and draws the chat without it. */
-    forget(node) {
-        LLMAState.allNodes = (LLMAState.allNodes || []).filter(n => n.id != node.id);
-        if (LLMAState.activeLeafId == node.id || LLMAState.messages.some(m => m.id == node.id)) {
-            LLMAState.activeLeafId = node.parentId ?? null;
-            LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
-        }
-        llmaRenderMessageHistory(LLMAState.messages);
-        llmaUpdateContextBar();
-    }
-
-    /** How many messages hang under this one, on every branch: deleting it deletes them too. */
-    countBelow(msgId) {
+    /** How many messages of a stored chat hang under this one, on every branch: deleting it deletes them too. */
+    countBelow(msgId, nodes) {
         let count = 0;
         let queue = [msgId];
         let seen = new Set(queue);
         while (queue.length > 0) {
-            for (let child of llmaChildrenOf(queue.pop())) {
+            let parent = queue.pop();
+            for (let child of nodes.filter(n => llmaParentId(n) == parent)) {
                 if (!seen.has(child.id)) {
                     seen.add(child.id);
                     queue.push(child.id);
@@ -158,10 +186,11 @@ class LLMAMessageActions {
         return `${others} ${translate('This includes other branches.')} ${translate('This cannot be undone.')}`;
     }
 
-    /** Greys out the actions that change the chat while a reply is streaming. */
+    /** Greys out the actions that change the chat while a reply is streaming or the chat is working in the background. */
     syncBusy() {
+        let busy = this.busy() ? 'true' : 'false';
         for (let button of document.querySelectorAll('#llma-messages [data-llma-mutates]')) {
-            button.setAttribute('aria-disabled', LLMAState.isGenerating ? 'true' : 'false');
+            button.setAttribute('aria-disabled', busy);
         }
     }
 
@@ -175,14 +204,16 @@ class LLMAMessageActions {
         if (!container) {
             return;
         }
-        container.querySelector(':scope > .llma-msg-tail')?.remove();
+        // The row is drawn again each time (also when the chat list is read), so a button in it that has the keyboard keeps it.
+        let old = container.querySelector(':scope > .llma-msg-tail');
+        let held = old?.contains(document.activeElement) ? document.activeElement.className : null;
+        old?.remove();
         let last = LLMAState.messages[LLMAState.messages.length - 1];
-        if (LLMAState.isGenerating || !LLMAState.activeThreadId || !last || last.unsaved || llmaCompareSiblings(last.id).length >= 2) {
+        // A session at work in the background has its reply on the way: asking again would start a second one.
+        if (this.busy() || !LLMAState.activeThreadId || !last || last.unsaved || llmaCompareSiblings(last.id).length >= 2) {
             return;
         }
-        // A session at work in the background has its reply on the way: asking again would start a second one.
-        let working = llmaSessions.isActive(LLMAState.threads.find(t => t.id == LLMAState.activeThreadId)?.sessionStatus);
-        let canRetry = last.role == 'user' && last.kind != 'session_report' && !working;
+        let canRetry = last.role == 'user' && last.kind != 'session_report';
         let canContinue = llmaChildrenOf(last.id).some(n => !n.unsaved);
         if (!canRetry && !canContinue) {
             return;
@@ -200,6 +231,9 @@ class LLMAMessageActions {
             row.appendChild(later);
         }
         container.appendChild(row);
+        if (held) {
+            Array.from(row.children).find(b => b.className == held)?.focus({ preventScroll: true });
+        }
     }
 }
 
