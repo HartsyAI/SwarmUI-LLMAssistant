@@ -63,7 +63,7 @@ test('a new user sees the guide over an empty chat, with the setup checked and t
     expect(await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).toMatchObject({ status: 'completed', show: false });
 });
 
-test('the assistant gallery is never covered, by switching or by deleting the open chat', async ({ llm }) => {
+test('switching assistant shows the gallery, not the guide, which is still there in the next empty chat', async ({ llm }) => {
     await asNewUser(llm);
     let guide = llm.locator('#llma-onboarding');
     await expect(guide).toBeVisible();

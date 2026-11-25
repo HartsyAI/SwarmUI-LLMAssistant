@@ -3,6 +3,7 @@ using Hartsy.Extensions.LLMAssistant.Services.Knowledge;
 using Hartsy.Extensions.LLMAssistant.Services.Readiness;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 
@@ -65,8 +66,18 @@ public static class OnboardingService
         return new JObject { ["success"] = true, ["status"] = status, ["show"] = OnboardingState.ShouldShow(status, HasChats(user)) };
     }
 
-    /// <summary>Records that the user sent a message in a chat, which ends their first run.</summary>
-    public static void NoteMessage(User user) => OnboardingState.OnMessage(new UserOnboardingStorage(user));
+    /// <summary>Records that the user sent a message in a chat, which ends their first run. Never throws: it runs on the way to a reply, which must not fail over the guide's bookkeeping.</summary>
+    public static void NoteMessage(User user)
+    {
+        try
+        {
+            OnboardingState.OnMessage(new UserOnboardingStorage(user));
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] The first-run state could not be saved: {ex.Message}");
+        }
+    }
 
     /// <summary>Installs what is missing of the starter set: <c>{success, added[], skipped[], starter{}}</c>. A new user with no chats who gets something is left <c>pending</c>, so the example
     /// chats do not end their first run.</summary>
