@@ -144,7 +144,7 @@ class LLMAPromptStyles {
         html += '</ul>';
         let options = styles.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('') + `<option value="off">${translate('No style')}</option>`;
         html += `<div class="d-flex gap-2 align-items-center flex-wrap mb-2"><input type="text" class="auto-text-block llma-rule-match" list="llma-styles-models-${axis}" placeholder="${translate('Model name or pattern')}" autocomplete="off">`
-            + `<select class="form-select llma-rule-style" style="width:auto;">${options}</select>`
+            + `<select class="form-select llma-rule-style" style="width:auto;max-width:100%;">${options}</select>`
             + `<button type="button" class="basic-button llma-rule-add">${translate('Add rule')}</button></div>`;
         return html;
     }
