@@ -5,7 +5,8 @@
 class LLMAChatDocuments {
 
     constructor() {
-        /** Files on the composer, not yet sent: {key, name, reference}; reference is null while the server reads the file. */
+        /** Files attached but not yet sent: {key, thread, name, reference}; thread is the chat they were attached in (null for one not started yet), and reference is null while the
+         *  server reads the file. */
         this.pending = [];
         /** Counts attached files, to tell them apart. */
         this.nextKey = 1;
@@ -18,7 +19,7 @@ class LLMAChatDocuments {
             ['documentMaxPages', 'llma-s-doc-max-pages', 'Most PDF Pages', 'Pages after this many are left out of a PDF, and the result says so.', 200, 1, 1000],
             ['documentMaxChars', 'llma-s-doc-max-chars', 'Most Characters Per Attachment', 'Text kept from one attached file. A longer file is cut, with a note to the model. The knowledge library has its own limit and refuses instead.', 200000, 1000, 1000000],
             ['documentMaxPerMessage', 'llma-s-doc-per-message', 'Most Documents Per Message', 'How many documents one message can carry.', 5, 1, 20],
-            ['documentContextChars', 'llma-s-doc-context-chars', 'Document Characters Per Reply', 'The most document text sent with one request, about four characters a token. Never more of the model\'s context window than half of the Shorten At share. Newer attachments come first.', 60000, 1000, 1000000]
+            ['documentContextChars', 'llma-s-doc-context-chars', 'Document Characters Per Reply', 'The most document text sent with one request, counted as plain English (about four characters a token; digits count double, other scripts four times). Never more of the model\'s context window than half of the Shorten At share. Newer attachments come first.', 60000, 1000, 1000000]
         ];
     }
 
@@ -45,9 +46,19 @@ class LLMAChatDocuments {
         return value > 0 ? Math.min(Math.max(value, field[5]), field[6]) : field[4];
     }
 
+    /** The chat open now, or null before one is started. */
+    thread() {
+        return LLMAState.activeThreadId || null;
+    }
+
+    /** The files waiting in a chat's composer. */
+    waiting(thread = this.thread()) {
+        return this.pending.filter(e => e.thread == thread);
+    }
+
     /** Attaches a file: shows its chip, has the server read it, and keeps the reference, or says why it cannot be attached. */
     async add(file) {
-        if (this.pending.length >= this.cap('documentMaxPerMessage')) {
+        if (this.waiting().length >= this.cap('documentMaxPerMessage')) {
             llmaShowToast(`${translate('A message can carry at most this many documents')}: ${this.cap('documentMaxPerMessage')}`, 'error');
             return;
         }
@@ -59,7 +70,7 @@ class LLMAChatDocuments {
             llmaShowToast(`${file.name} ${translate('is too large')} (${this.formatBytes(file.size)}). ${translate('The limit in MB is')} ${this.cap('documentMaxMb')}.`, 'error');
             return;
         }
-        let entry = { key: this.nextKey++, name: file.name, reference: null };
+        let entry = { key: this.nextKey++, thread: this.thread(), name: file.name, reference: null };
         this.pending.push(entry);
         this.renderPending();
         let reply = null;
@@ -92,33 +103,34 @@ class LLMAChatDocuments {
         this.renderPending();
     }
 
-    /** Whether anything is attached to the composer. */
+    /** Whether anything is attached to the composer of the chat open now. */
     hasPending() {
-        return this.pending.length > 0;
+        return this.waiting().length > 0;
     }
 
-    /** Whether a file is still being read. */
+    /** Whether a file of the chat open now is still being read. */
     isReading() {
-        return this.pending.some(e => !e.reference);
+        return this.waiting().some(e => !e.reference);
     }
 
-    /** Takes the files that are ready off the composer and returns their references, or null when there are none. */
-    take() {
-        let ready = this.pending.filter(e => e.reference).map(e => e.reference);
-        this.pending = this.pending.filter(e => !e.reference);
+    /** Takes a chat's files that are ready off the composer and returns their references, or null when there are none. */
+    take(thread = this.thread()) {
+        let ready = this.waiting(thread).filter(e => e.reference);
+        this.pending = this.pending.filter(e => !ready.includes(e));
         this.renderPending();
-        return ready.length > 0 ? ready : null;
+        return ready.length > 0 ? ready.map(e => e.reference) : null;
     }
 
-    /** Draws the chips above the composer. */
+    /** Draws the chips above the composer: those of the chat open now. */
     renderPending() {
         let box = document.getElementById('llma-document-chips');
         if (!box) {
             return;
         }
+        let waiting = this.waiting();
         box.innerHTML = '';
-        box.style.display = this.pending.length > 0 ? '' : 'none';
-        for (let entry of this.pending) {
+        box.style.display = waiting.length > 0 ? '' : 'none';
+        for (let entry of waiting) {
             let chip = this.chip(entry.reference || { name: entry.name }, entry.reference ? this.describe(entry.reference) : translate('Reading…'));
             chip.classList.toggle('llma-doc-chip-reading', !entry.reference);
             let remove = llmaCreateActionBtn('×', () => this.remove(entry.key), 'llma-doc-chip-remove');
@@ -167,6 +179,27 @@ class LLMAChatDocuments {
             list.appendChild(this.chip(doc, this.describe(doc)));
         }
         bubble.prepend(list);
+    }
+
+    /** About how many tokens the documents on these messages add to a request: never more than a request carries, however many there are (as the server works it out). */
+    tokens(messages) {
+        let cost = 0;
+        for (let message of messages || []) {
+            for (let doc of message.documents || []) {
+                cost += 400 + Number(doc.cost ?? doc.chars ?? 0);
+            }
+        }
+        if (cost == 0) {
+            return 0;
+        }
+        let budget = this.cap('documentContextChars');
+        let window = llmaContext.windowTokens();
+        if (window > 0) {
+            let shortenAt = Number(LLMAState.settings?.parameters?.compactThreshold);
+            shortenAt = shortenAt > 0 && shortenAt <= 1 ? shortenAt : 0.8;
+            budget = Math.min(budget, Math.max(1000, Math.floor(window * 2 * shortenAt)));
+        }
+        return Math.ceil(Math.min(cost, budget) / 4);
     }
 
     /** "12.3 MB" style size text. */

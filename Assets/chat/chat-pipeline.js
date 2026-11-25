@@ -32,6 +32,8 @@
         }
 
         llmaCodeMode.hidePlanCard();
+        // The files attached in this chat; a chat not started yet gets its id below.
+        const attachedIn = llmaChatDocuments.thread();
         // /compact summarizes the start of the chat now instead of sending a message.
         if (!LLMAState.attachedImage && !llmaChatDocuments.hasPending() && llmaContext.tryCommand(message)) {
             input.value = '';
@@ -85,7 +87,7 @@
             llmaClearAttachment();
         }
 
-        const documents = llmaChatDocuments.take();
+        const documents = llmaChatDocuments.take(attachedIn);
 
         // Add user message (uses the served URL; no base64 in the in-memory message either). In the
         // branch model it hangs off the current active leaf and becomes the new leaf, mirroring the

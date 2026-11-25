@@ -43,6 +43,8 @@
             }
         }
         llmaRebuildAssetsForThread();
+        // Files waiting in the composer belong to the chat they were attached in.
+        llmaChatDocuments.renderPending();
         // Where a long chat's start was replaced by a summary.
         llmaContext.renderMarker();
         // Refresh the empty-chat greeting: it shows when the rendered list is empty and hides otherwise.

@@ -869,7 +869,7 @@ function llmaRenderAssistantPanel(assistantId) {
 
     const icon  = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
     const msgCount = LLMAState.messages.length;
-    const tokens   = llmaApproxTokens(LLMAState.messages);
+    const tokens   = llmaApproxTokens(LLMAState.messages) + llmaChatDocuments.tokens(LLMAState.messages);
 
     inner.innerHTML = `
         <div class="llma-panel-card">
@@ -948,7 +948,7 @@ function llmaUpdatePanelStats() {
         boxes[1].textContent = exact.toLocaleString();
     }
     else {
-        boxes[1].textContent = '~' + llmaApproxTokens(msgs);
+        boxes[1].textContent = '~' + (llmaApproxTokens(msgs) + llmaChatDocuments.tokens(msgs));
     }
 }
 
@@ -974,9 +974,11 @@ async function llmaRefreshExactTotalTokens() {
         if (!result || result.success === false) return;
         // Only apply if the conversation hasn't moved on since we requested.
         if ((LLMAState.messages || []).length !== snapshotLen) return;
-        LLMAState.exactTokenCount = Number(result.count) || 0;
+        // The count is of the messages' own words; attached documents are estimated on top, and the figure is then an estimate.
+        const documentTokens = llmaChatDocuments.tokens(msgs);
+        LLMAState.exactTokenCount = (Number(result.count) || 0) + documentTokens;
         LLMAState.exactTokenCountForLen = snapshotLen;
-        LLMAState.exactTokenCountIsExact = !!result.exact;
+        LLMAState.exactTokenCountIsExact = !!result.exact && documentTokens == 0;
         llmaUpdatePanelStats();
         llmaUpdateContextBar();
     } catch {

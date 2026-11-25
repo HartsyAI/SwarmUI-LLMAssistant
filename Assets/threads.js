@@ -693,6 +693,8 @@ async function llmaCreateThread(assistantId) {
     LLMAState.assets            = [];
     LLMAState.activeAssistantId = assistantId || LLMAState.activeAssistantId;
     llmaSetSessionState({ activeThreadId: thread.id });
+    // Files waiting in another chat's composer stay with that chat.
+    llmaChatDocuments.renderPending();
 
     // A Tools toggle flipped before this thread existed (LLMAState.activeThreadToolsEnabled was set
     // against no thread id) needs to land on the thread now that it has one, BEFORE the caller's first

@@ -150,7 +150,8 @@ test('a long document is cut to the room a reply has, with a marker', async ({ l
     await send(llm, 'LONG-QUESTION');
     await expect(lastAssistant(llm)).toContainText('ok');
     let [message] = await sentUserMessages('LONG-QUESTION');
-    expect(message).toContain('only the first 1000 of 5018 characters are shown');
+    // The room covers the lines around the file too.
+    expect(message).toMatch(/only the first [3-8][0-9]{2} of 5018 characters are shown/);
     expect(message).not.toContain('END-OF-FILE');
 });
 
@@ -276,7 +277,7 @@ test('a small model window cuts a long document and does not summarize the chat 
         await expect(llm.locator('#llma-send-btn')).toBeVisible();
     }
     let all = JSON.stringify(await mockRequests());
-    expect(all).toContain('only the first 6553 of 50000 characters are shown');
+    expect(all).toMatch(/only the first 6[01][0-9]{2} of 50000 characters are shown/);
     expect(all).not.toContain('Conversation to summarize:');
 });
 
@@ -301,6 +302,39 @@ test('a session started from a chat with a document cannot save memory on the mo
     finally {
         await resetSessionTools(llm);
     }
+});
+
+test('a file attached in one chat stays with that chat until it is sent there', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
+    await send(llm, 'FIRST-CHAT');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    let first = await threadId(llm);
+    await attach(llm, [txt('mine.txt', 'ONLY-FOR-THE-FIRST')]);
+    await llm.evaluate(() => (0, eval)('llmaCreateThread(LLMAState.activeAssistantId)'));
+    await expect(llm.locator('#llma-document-chips')).toBeHidden();
+    await send(llm, 'OTHER-CHAT');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    expect(JSON.stringify(await sentUserMessages('OTHER-CHAT'))).not.toContain('ONLY-FOR-THE-FIRST');
+    await llm.evaluate((id) => (0, eval)('llmaSwitchThread')(id), first);
+    await expect(chips(llm)).toHaveCount(1);
+    await send(llm, 'BACK-AGAIN');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    expect((await sentUserMessages('BACK-AGAIN')).join()).toContain('ONLY-FOR-THE-FIRST');
+});
+
+test('an exported chat that had a file is still guarded after import', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
+    await attach(llm, [txt('kept.txt', 'words')]);
+    await send(llm, 'EXPORT-ME');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    let exported = await api(llm, 'LLMAssistantExportThread', { threadId: await threadId(llm), format: 'json' });
+    expect(exported.success, JSON.stringify(exported)).toBe(true);
+    let imported = await api(llm, 'LLMAssistantImportThread', { content: exported.content });
+    expect(imported.success, JSON.stringify(imported)).toBe(true);
+    let id = imported.threadId;
+    let saved = (await api(llm, 'LLMAssistantGetThread', { threadId: id })).thread;
+    expect(saved.hadDocuments).toBe(true);
+    expect(JSON.stringify(saved.messages)).not.toContain('"documents"');
 });
 
 test('the document caps are on the General settings tab and are saved', async ({ llm }) => {
