@@ -9,6 +9,9 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Usage;
 /// token counts each time they are asked for, at today's prices, so editing a price changes past figures too.</summary>
 public static class UsageService
 {
+    /// <summary>The replies of the chats read for totals, kept until a chat changes.</summary>
+    private static readonly UsageCache Cache = new();
+
     /// <summary>The user's price table and budget.</summary>
     public static UsageSettings SettingsFor(User user) => UsageSettings.FromSettings(SettingsService.GetUserSettings(user));
 
@@ -68,8 +71,9 @@ public static class UsageService
     {
         UsageWindows windows = UsageWindows.At(now, zone);
         DateTimeOffset earliest = sessionStart is DateTimeOffset start && start < windows.Week ? start : windows.Week;
-        List<string> ids = UsageReport.ChangedSince(ThreadStorageService.GetThreadIndex(user), earliest);
-        return UsageReport.Sum(ids.Select(id => ThreadStorageService.GetThread(user, id)).Where(thread => thread is not null), settings, windows, sessionStart);
+        IEnumerable<IReadOnlyList<ReplyUsage>> chats = UsageReport.ChangedSince(ThreadStorageService.GetThreadIndex(user), earliest)
+            .Select(chat => Cache.Replies($"{user.UserID}|{chat.Id}", chat.Stamp, () => ThreadStorageService.GetThread(user, chat.Id)));
+        return UsageReport.Sum(chats, settings, windows, sessionStart);
     }
 
     /// <summary>The budget as a reply carries it: <c>{enabled, daily, weekly, warnings}</c>.</summary>

@@ -24,12 +24,11 @@
     column-gap: 10px;
     min-width: 0;
 }
-.llma-usage-warning { border: 0; cursor: pointer; }
+.llma-usage-banner { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 3px 14px; }
+.llma-usage-warning { border: 0; cursor: pointer; white-space: normal; }
 /* Beside the extra figures on a narrow screen, the message count keeps to one line. */
 .llma-context-bar .llma-ctx-left { white-space: nowrap; }
 .llma-context-bar { column-gap: 10px; }
-/* The bar is faint by design; a warning must be readable. */
-.llma-context-bar.llma-over-budget { opacity: 1; }
 
 .llma-usage-popover {
     max-width: min(24rem, calc(100vw - 16px));

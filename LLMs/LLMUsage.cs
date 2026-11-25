@@ -25,6 +25,9 @@ public sealed class LLMUsage
     /// <summary>How many rounds reported usage.</summary>
     public int Rounds;
 
+    /// <summary>A request of the turn did not report in full (the turn was stopped or failed during it, or the endpoint skipped it), so the turn cost more than the counts say.</summary>
+    public bool Incomplete;
+
     /// <summary>Whether any round reported usage. A provider that does not report it leaves this false, and callers estimate instead.</summary>
     public bool Any => Rounds > 0;
 
@@ -45,15 +48,23 @@ public sealed class LLMUsage
     /// <summary>Adds one engine usage report.</summary>
     public void Add(TextUsage usage) => Add(usage.PromptTokens, usage.CompletionTokens, usage.CachedPromptTokens);
 
-    /// <summary>The JSON a message saves in <c>meta.usage</c> and a <c>done</c> frame carries.</summary>
-    public JObject ToJson() => new()
+    /// <summary>The JSON a message saves in <c>meta.usage</c> and a <c>done</c> frame carries; <c>incomplete</c> is present only when true.</summary>
+    public JObject ToJson()
     {
-        ["promptTokens"] = PromptTokens,
-        ["completionTokens"] = CompletionTokens,
-        ["cachedTokens"] = CachedTokens,
-        ["contextTokens"] = ContextTokens,
-        ["rounds"] = Rounds,
-    };
+        JObject json = new()
+        {
+            ["promptTokens"] = PromptTokens,
+            ["completionTokens"] = CompletionTokens,
+            ["cachedTokens"] = CachedTokens,
+            ["contextTokens"] = ContextTokens,
+            ["rounds"] = Rounds,
+        };
+        if (Incomplete)
+        {
+            json["incomplete"] = true;
+        }
+        return json;
+    }
 
     /// <summary>Reads what <see cref="ToJson"/> wrote, or null when <paramref name="json"/> is not a usage object.</summary>
     public static LLMUsage FromJson(JToken json)
@@ -70,6 +81,7 @@ public sealed class LLMUsage
             CachedTokens = obj.Value<long?>("cachedTokens") ?? 0,
             LastPromptTokens = context,
             Rounds = obj.Value<int?>("rounds") ?? 1,
+            Incomplete = obj.Value<bool?>("incomplete") ?? false,
         };
     }
 

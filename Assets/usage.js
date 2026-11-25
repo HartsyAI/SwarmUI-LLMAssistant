@@ -6,8 +6,10 @@
 class LLMAUsage {
 
     constructor() {
-        /** The server's last reply for a chat: {threadId, currency, replies, totals, budget}. */
+        /** The server's last reply for a chat: {threadId, currency, replies, totals}. */
         this.data = null;
+        /** The soft budget as last asked for: {currency, warnings}. It does not depend on a chat being open. */
+        this.budget = null;
         /** The pending refresh timer. */
         this.timer = null;
         /** Counts requests, so a slow reply cannot replace a newer one. */
@@ -16,7 +18,7 @@ class LLMAUsage {
         this.popoverSequence = 0;
         /** Budget warnings already shown as a toast on this page. */
         this.warned = new Set();
-        /** When this browser session began (see sessionStart). */
+        /** When this browser session began, by this browser's clock in milliseconds (see sessionStart). */
         this.started = null;
         // The session begins when the page does, not when its total is first looked at.
         this.sessionStart();
@@ -36,9 +38,9 @@ class LLMAUsage {
     sessionStart() {
         if (!this.started) {
             let key = 'llma_usage_session_start';
-            this.started = new Date().toISOString();
+            this.started = Date.now();
             try {
-                this.started = sessionStorage.getItem(key) || this.started;
+                this.started = Number(sessionStorage.getItem(key)) || this.started;
                 sessionStorage.setItem(key, this.started);
             }
             catch {
@@ -46,6 +48,11 @@ class LLMAUsage {
             }
         }
         return this.started;
+    }
+
+    /** How long ago the session began. The server is told this rather than a time, so a browser clock that disagrees with the server's cannot move the start. */
+    sessionSeconds() {
+        return Math.max(0, Math.ceil((Date.now() - this.sessionStart()) / 1000));
     }
 
     /** An amount with its currency label. Small amounts keep enough digits to be told apart. */
@@ -69,30 +76,36 @@ class LLMAUsage {
         this.timer = setTimeout(() => this.refresh(), delayMs);
     }
 
-    /** Asks again after a Stop: the server saves a stopped reply a moment after the socket closes. A timer of its own, so an ordinary redraw cannot cancel it. */
+    /** Redraws after a Stop: the server saves a stopped reply a moment after the socket closes. A timer of its own, so an ordinary redraw cannot cancel it. The whole
+     *  context bar is redrawn, which also shows it for a chat whose first reply was stopped. */
     refreshAfterStop() {
-        setTimeout(() => this.scheduleRefresh(), 1500);
+        setTimeout(() => llmaUpdateContextBar(), 1500);
     }
 
-    /** Fetches the open chat's figures and draws them. A chat that cannot be read simply shows none. */
+    /** Fetches the open chat's figures and the budget, and draws them. A chat that cannot be read simply shows none. */
     async refresh() {
         let threadId = LLMAState.activeThreadId;
         let sequence = ++this.sequence;
-        let reply = null;
-        if (threadId && (LLMAState.messages || []).length > 0) {
-            try {
-                reply = await llmaRequest('LLMAssistantGetThreadUsage', { threadId: threadId, timeZone: this.timeZone() });
-            }
-            catch {
-                reply = null;
-            }
-        }
+        let chat = threadId && (LLMAState.messages || []).length > 0 ? this.ask('LLMAssistantGetThreadUsage', { threadId: threadId }) : null;
+        let [reply, status] = await Promise.all([chat, this.ask('LLMAssistantGetUsageTotals', { timeZone: this.timeZone(), budgetOnly: true })]);
         if (sequence != this.sequence) {
             return;
         }
-        this.data = reply?.success ? reply : null;
+        this.data = reply;
+        this.budget = status ? { currency: status.currency, warnings: status.budget.warnings } : null;
         this.render();
         this.warn();
+    }
+
+    /** One request whose failure shows nothing: null instead of an error. */
+    async ask(route, args) {
+        try {
+            let reply = await llmaRequest(route, args);
+            return reply?.success ? reply : null;
+        }
+        catch {
+            return null;
+        }
     }
 
     /** Draws everything from the figures already fetched (call after the messages are redrawn). */
@@ -129,7 +142,7 @@ class LLMAUsage {
             }
         }
         this.renderThread(shown ? data : null);
-        this.renderWarning(data);
+        this.renderWarning();
         // A new line under the last reply must not hide behind the composer. A view anywhere else (a search result, earlier text) stays where it is.
         if (added && atBottom) {
             llmaScrollToBottom();
@@ -171,22 +184,24 @@ class LLMAUsage {
                 text += ` (${translate('priced replies only')})`;
             }
         }
+        if (totals.partialReplies > 0) {
+            text += ` · ${translate('incomplete')}`;
+        }
         button.textContent = text;
         button.style.display = '';
     }
 
-    /** The budget badge: present while a limit is reached. It informs and blocks nothing. */
-    renderWarning(data) {
+    /** The budget badge: present while a limit is reached, with or without a chat open. It informs and blocks nothing. */
+    renderWarning() {
         let badge = document.getElementById('llma-usage-warning');
         if (!badge) {
             return;
         }
-        let warnings = data?.budget?.warnings || [];
-        badge.style.display = warnings.length > 0 ? '' : 'none';
-        document.querySelector('.llma-context-bar')?.classList.toggle('llma-over-budget', warnings.length > 0);
+        let warnings = this.budget?.warnings || [];
+        badge.parentElement.style.display = warnings.length > 0 ? '' : 'none';
         if (warnings.length > 0) {
             badge.textContent = warnings.length > 1 ? translate('Over budget') : (warnings[0].period == 'day' ? translate('Over daily budget') : translate('Over weekly budget'));
-            badge.title = warnings.map(w => this.warningText(w, data.currency)).join('\n');
+            badge.title = warnings.map(w => this.warningText(w, this.budget.currency)).join('\n');
         }
     }
 
@@ -194,17 +209,21 @@ class LLMAUsage {
     warningText(warning, currency) {
         let period = warning.period == 'day' ? translate('Today') : translate('This week');
         let mark = warning.estimated ? '~' : '';
-        return `${period}: ${mark}${this.money(warning.spent, currency)} ${translate('of a budget of')} ${this.money(warning.limit, currency)}. ${translate('This is only a warning; nothing is blocked.')}`;
+        return `${period}: ${mark}${this.money(warning.spent, currency)} ${translate('of a budget of')} ${this.money(warning.limit, currency)}.`;
     }
 
-    /** Says once per period and day that a limit was reached. */
+    /** Says once per period and day that a limit was reached, in one message (a second toast would replace the first). */
     warn() {
-        for (let warning of this.data?.budget?.warnings || []) {
+        let fresh = [];
+        for (let warning of this.budget?.warnings || []) {
             let key = `${warning.period}|${warning.limit}|${new Date().toDateString()}`;
             if (!this.warned.has(key)) {
                 this.warned.add(key);
-                llmaShowToast(this.warningText(warning, this.data.currency), 'info');
+                fresh.push(this.warningText(warning, this.budget.currency));
             }
+        }
+        if (fresh.length > 0) {
+            llmaShowToast(`${fresh.join(' ')} ${translate('This is only a warning; nothing is blocked.')}`, 'info');
         }
     }
 
@@ -239,22 +258,23 @@ class LLMAUsage {
         pop.querySelector('.llma-usage-edit').addEventListener('click', () => this.openSettings(reply.price ? '' : reply.model));
     }
 
-    /** The popover for the chat: its own figures, then this session's, today's and this week's. */
+    /** The popover for the context bar: the open chat's own figures (when it has replies), any budget warning, then this session's, today's and this week's. */
     async openThread(anchor) {
-        let data = this.data;
-        if (!data) {
-            return;
+        let data = this.data && this.data.threadId == LLMAState.activeThreadId && this.data.totals.replies > 0 ? this.data : null;
+        let chat = '';
+        if (data) {
+            let totals = data.totals;
+            let mark = totals.estimatedReplies > 0 ? '~' : '';
+            let rows = this.row('Replies', this.count(totals.replies))
+                + this.row('Input tokens', `${mark}${this.count(totals.promptTokens)}`)
+                + (totals.cachedTokens > 0 ? this.row('of which cached', this.count(totals.cachedTokens)) : '')
+                + this.row('Output tokens', `${mark}${this.count(totals.completionTokens)}`)
+                + this.row('Cost', totals.cost === null ? translate('No price set') : `${totals.costEstimated ? '~' : ''}${this.money(totals.cost, data.currency)}`);
+            chat = `<b>${escapeHtml(translate('This chat'))}</b><table class="llma-usage-table">${rows}</table>`
+                + `<div class="llma-usage-note">${escapeHtml([translate('Every branch of the chat is counted.'), ...this.notes(totals)].join(' '))}</div>`;
         }
-        let totals = data.totals;
-        let mark = totals.estimatedReplies > 0 ? '~' : '';
-        let rows = this.row('Replies', this.count(totals.replies))
-            + this.row('Input tokens', `${mark}${this.count(totals.promptTokens)}`)
-            + (totals.cachedTokens > 0 ? this.row('of which cached', this.count(totals.cachedTokens)) : '')
-            + this.row('Output tokens', `${mark}${this.count(totals.completionTokens)}`)
-            + this.row('Cost', totals.cost === null ? translate('No price set') : `${totals.costEstimated ? '~' : ''}${this.money(totals.cost, data.currency)}`);
-        let warnings = (data.budget?.warnings || []).map(w => `<div class="alert alert-warning py-1 px-2 my-1">${escapeHtml(this.warningText(w, data.currency))}</div>`).join('');
-        let pop = this.show(anchor, `<b>${escapeHtml(translate('This chat'))}</b><table class="llma-usage-table">${rows}</table>`
-            + `<div class="llma-usage-note">${escapeHtml([translate('Every branch of the chat is counted.'), ...this.notes(totals)].join(' '))}</div>${warnings}`
+        let warnings = (this.budget?.warnings || []).map(w => `<div class="alert alert-warning py-1 px-2 my-1">${escapeHtml(this.warningText(w, this.budget.currency))} ${escapeHtml(translate('This is only a warning; nothing is blocked.'))}</div>`).join('');
+        let pop = this.show(anchor, `${chat}${warnings}`
             + `<div class="llma-usage-periods">${escapeHtml(translate('Loading totals...'))}</div>`
             + `<button type="button" class="basic-button llma-usage-edit">${escapeHtml(translate('Prices and budget'))}</button>`);
         pop.querySelector('.llma-usage-edit').addEventListener('click', () => this.openSettings(''));
@@ -285,7 +305,7 @@ class LLMAUsage {
     async periodsHtml() {
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantGetUsageTotals', { timeZone: this.timeZone(), since: this.sessionStart() });
+            reply = await llmaRequest('LLMAssistantGetUsageTotals', { timeZone: this.timeZone(), sessionSeconds: this.sessionSeconds() });
         }
         catch (err) {
             return `<div class="llma-usage-note">${escapeHtml(llmaShortError(err) || translate('Totals could not be loaded.'))}</div>`;
@@ -298,15 +318,19 @@ class LLMAUsage {
                 continue;
             }
             let cost = totals.cost === null ? '-' : `${totals.costEstimated ? '~' : ''}${this.money(totals.cost, reply.currency)}${totals.unpricedReplies > 0 ? ' *' : ''}`;
-            rows += `<tr data-period="${key}"><th scope="row">${escapeHtml(translate(label))}</th><td>${totals.estimatedReplies > 0 ? '~' : ''}${this.count(totals.totalTokens)} ${escapeHtml(translate('tok'))}</td><td>${escapeHtml(cost)}</td></tr>`;
+            let incomplete = totals.partialReplies > 0 ? ` (${translate('incomplete')})` : '';
+            rows += `<tr data-period="${key}"><th scope="row">${escapeHtml(translate(label))}</th><td>${totals.estimatedReplies > 0 ? '~' : ''}${this.count(totals.totalTokens)} ${escapeHtml(translate('tok') + incomplete)}</td><td>${escapeHtml(cost)}</td></tr>`;
             if (totals.cost !== null && totals.unpricedReplies > 0) {
                 notes[0] = `* ${translate('Leaves out replies of models with no price.')}`;
             }
             if (totals.estimatedReplies > 0) {
                 notes[1] = `~ ${translate('Includes estimates.')}`;
             }
+            if (totals.partialReplies > 0) {
+                notes[2] = translate('Incomplete: some replies reported only part of their usage, so the real figures are higher.');
+            }
         }
-        notes.push(translate('All your chats, including sub-sessions and scheduled runs. Weeks start on Monday. Deleted chats and background requests such as titles and summaries are not counted.'));
+        notes.push(translate('All your chats, including sub-sessions and scheduled runs. Weeks start on Monday. Chats and messages you delete, and old scheduled runs that are removed automatically, drop out of these totals and the budget. Background requests such as titles and summaries are not counted.'));
         return `<table class="llma-usage-table">${rows}</table><div class="llma-usage-note">${escapeHtml(notes.filter(n => n).join(' '))}</div>`;
     }
 
@@ -358,30 +382,32 @@ class LLMAUsageSettings {
         this.dirty = false;
         /** A model to add a row for once the table is drawn. */
         this.wanted = '';
+        /** Counts loads, so one that was overtaken (another load, or a discard) draws nothing. */
+        this.sequence = 0;
     }
 
-    /** Draws the tab. Unsaved changes are left as they are. */
+    /** Draws the tab from what is saved, then the totals. Unsaved changes are left as they are. */
     async load() {
-        let totals = document.getElementById('llma-usage-totals');
-        totals.innerHTML = await llmaUsage.periodsHtml();
-        if (this.dirty) {
-            this.addWanted();
-            return;
+        let sequence = ++this.sequence;
+        if (!this.dirty) {
+            let reply = await llmaUsage.ask('LLMAssistantGetUsageSettings', {});
+            if (sequence != this.sequence) {
+                return;
+            }
+            // Something typed while the answer was on its way is not drawn over.
+            if (!this.dirty) {
+                if (!reply) {
+                    document.getElementById('llma-usage-form').innerHTML = `<div class="text-muted py-2">${escapeHtml(translate('The price table could not be loaded. Changing prices needs the settings permission.'))}</div>`;
+                    return;
+                }
+                this.render(reply.usage);
+            }
         }
-        let reply = null;
-        try {
-            reply = await llmaRequest('LLMAssistantGetUsageSettings', {});
-        }
-        catch {
-            reply = null;
-        }
-        let form = document.getElementById('llma-usage-form');
-        if (!reply?.success) {
-            form.innerHTML = `<div class="text-muted py-2">${escapeHtml(translate('You do not have permission to change prices.'))}</div>`;
-            return;
-        }
-        this.render(reply.usage);
         this.addWanted();
+        let html = await llmaUsage.periodsHtml();
+        if (sequence == this.sequence) {
+            document.getElementById('llma-usage-totals').innerHTML = html;
+        }
     }
 
     /** Draws the currency, price table and budget from the saved settings. */
@@ -410,13 +436,13 @@ class LLMAUsageSettings {
 
     /** One labelled limit box. */
     limitInput(id, label, value) {
-        return `<label class="llma-usage-limit"><span class="small">${escapeHtml(translate(label))}</span><input type="number" min="0" step="any" class="form-control form-control-sm" id="${id}" value="${Number(value) || 0}"></label>`;
+        return `<label class="llma-usage-limit"><span class="small">${escapeHtml(translate(label))}</span><input type="number" min="0" step="any" class="form-control form-control-sm" id="${id}" data-label="${escapeHtml(translate(label))}" value="${Number(value) || 0}"></label>`;
     }
 
     /** Adds one row of the price table and returns it. */
     addRow(model, price) {
         let row = createDiv(null, 'llma-usage-row');
-        let box = (name, label, value) => `<input type="number" min="0" step="any" class="form-control form-control-sm" data-field="${name}" placeholder="${escapeHtml(translate(label))}" aria-label="${escapeHtml(translate(label))}" value="${value === null || value === undefined ? '' : Number(value)}">`;
+        let box = (name, label, value) => `<input type="number" min="0" step="any" class="form-control form-control-sm" data-field="${name}" data-label="${escapeHtml(translate(label))}" placeholder="${escapeHtml(translate(label))}" aria-label="${escapeHtml(translate(label))}" value="${value === null || value === undefined ? '' : Number(value)}">`;
         row.innerHTML = `<input type="text" class="form-control form-control-sm" data-field="model" list="llma-usage-models" placeholder="${escapeHtml(translate('Model id'))}" aria-label="${escapeHtml(translate('Model id'))}" value="${escapeHtml(model)}" autocomplete="off">`
             + box('input', 'Input', price.input) + box('output', 'Output', price.output) + box('cached', 'Cached (optional)', price.cached)
             + `<button type="button" class="basic-button llma-usage-remove">${escapeHtml(translate('Remove'))}</button>`;
@@ -443,6 +469,13 @@ class LLMAUsageSettings {
     /** Saves the tab. Returns false, with the reason shown, when it was refused. */
     async save() {
         let status = document.getElementById('llma-usage-status');
+        // A number box that holds something unreadable reports an empty value, which would be saved as "no limit" or "no cached price".
+        let unreadable = [...document.querySelectorAll('#llma-usage-form input[type="number"]')].find(input => input.validity.badInput);
+        if (unreadable) {
+            this.fail(status, `${translate('This is not a number:')} ${unreadable.dataset.label}.`);
+            unreadable.focus();
+            return false;
+        }
         let prices = {};
         for (let row of document.querySelectorAll('#llma-usage-rows .llma-usage-row')) {
             let value = (name) => row.querySelector(`[data-field="${name}"]`).value.trim();
@@ -489,9 +522,13 @@ class LLMAUsageSettings {
         return this.dirty ? await this.save() : true;
     }
 
-    /** Forgets unsaved changes (the dialog was closed or the settings reset). */
+    /** Forgets unsaved changes (the dialog was closed or the settings reset): the tab is emptied, so nothing discarded can be seen or saved later. */
     discard() {
         this.dirty = false;
+        this.wanted = '';
+        this.sequence++;
+        document.getElementById('llma-usage-form')?.replaceChildren();
+        document.getElementById('llma-usage-totals')?.replaceChildren();
     }
 }
 

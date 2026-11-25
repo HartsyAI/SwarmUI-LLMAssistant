@@ -1,5 +1,6 @@
 using System.Globalization;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -14,7 +15,7 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Usage;
 /// <param name="CompletionTokens">Tokens the model wrote, summed over the turn's model rounds.</param>
 /// <param name="CachedTokens">The part of the prompt tokens served from the endpoint's cache.</param>
 /// <param name="Estimated">True when the backend reported nothing and the counts come from the length of the saved text.</param>
-/// <param name="Partial">True when the backend reported some of the turn's rounds but not all (a stopped turn), so the counts are low.</param>
+/// <param name="Partial">True when the backend reported some of the turn but not all of it (a stopped turn), so the counts are low.</param>
 /// <param name="Time">When the reply was saved, or null when it carries no readable time.</param>
 public sealed record ReplyUsage(string MessageId, string Model, long PromptTokens, long CompletionTokens, long CachedTokens, bool Estimated, bool Partial, DateTimeOffset? Time);
 
@@ -40,6 +41,7 @@ public static class UsageReader
             }
         }
         List<CompactionRecord> compactions = [.. (thread["compactions"] as JArray ?? []).Select(CompactionRecord.FromJson).Where(r => r is not null)];
+        Estimator estimator = new(byId, compactions);
         foreach (JObject message in messages.OfType<JObject>())
         {
             if (!IsModelReply(message))
@@ -57,12 +59,12 @@ public static class UsageReader
             LLMUsage reported = LLMUsage.FromJson(meta["usage"]);
             if (reported is { Any: true } && reported.PromptTokens + reported.CompletionTokens > 0)
             {
-                bool partial = message["rounds"] is JArray rounds && rounds.Count > reported.Rounds;
+                bool partial = reported.Incomplete || (message["rounds"] is JArray rounds && rounds.Count > reported.Rounds);
                 replies.Add(new ReplyUsage(messageId, model, reported.PromptTokens, reported.CompletionTokens, reported.CachedTokens, false, partial, time));
             }
             else
             {
-                (long prompt, long completion) = Estimate(message, byId, compactions);
+                (long prompt, long completion) = estimator.Estimate(message);
                 replies.Add(new ReplyUsage(messageId, model, prompt, completion, 0, true, false, time));
             }
         }
@@ -93,30 +95,70 @@ public static class UsageReader
         return null;
     }
 
-    /// <summary>A rough count for a reply with no report, at about four characters a token: the prompt is the conversation before it (shortened as a summary in
+    /// <summary>Rough counts for replies with no report, at about four characters a token: the prompt is the conversation before the reply (shortened as a summary in
     /// force then would have shortened it) plus its tool results, and the completion is its text, reasoning and tool arguments. The system prompt, tool
-    /// definitions and attachments are not saved with the chat, so the figure is usually low.</summary>
-    private static (long Prompt, long Completion) Estimate(JObject reply, Dictionary<string, JObject> byId, List<CompactionRecord> compactions)
+    /// definitions and attachments are not saved with the chat, so the figure is usually low. Each message of the chat is measured once, however many replies follow it.</summary>
+    private sealed class Estimator(Dictionary<string, JObject> byId, List<CompactionRecord> compactions)
     {
-        List<JObject> history = [];
-        HashSet<string> seen = new(StringComparer.Ordinal);
-        string parent = reply["parentId"]?.Type == JTokenType.String ? reply["parentId"].ToString() : null;
-        while (parent is not null && seen.Add(parent) && byId.TryGetValue(parent, out JObject node))
+        /// <summary>The conversation up to and including a message: its tokens, and for each summary the tokens it covers (-1 until its last covered message is passed)
+        /// and whether the message it was made after is passed.</summary>
+        private sealed record Lineage(long Tokens, long[] Covered, bool[] Made);
+
+        /// <summary>The lineages worked out so far, by message id.</summary>
+        private readonly Dictionary<string, Lineage> known = new(StringComparer.Ordinal);
+
+        /// <summary>The estimate for one reply.</summary>
+        public (long Prompt, long Completion) Estimate(JObject reply)
         {
-            history.Add(node);
-            parent = node["parentId"]?.Type == JTokenType.String ? node["parentId"].ToString() : null;
+            Lineage before = Through(ParentOf(reply));
+            long prompt = before?.Tokens ?? 0;
+            for (int i = compactions.Count - 1; before is not null && i >= 0; i--)
+            {
+                if (before.Made[i] && before.Covered[i] >= 0)
+                {
+                    prompt = before.Tokens - before.Covered[i] + ContextWindowService.EstimateTokens(CompactionPlanner.SummaryText(compactions[i].Summary));
+                    break;
+                }
+            }
+            long written = (reply["rawContent"] ?? reply["content"])?.ToString().Length ?? 0;
+            long results = 0;
+            foreach (JObject call in (reply["toolCalls"] as JArray ?? []).OfType<JObject>())
+            {
+                written += (call["name"]?.ToString().Length ?? 0) + (call["arguments"]?.ToString(Formatting.None).Length ?? 0);
+                results += call["result"]?.ToString(Formatting.None).Length ?? 0;
+            }
+            return (prompt + (results + 3) / 4, (written + 3) / 4);
         }
-        history.Reverse();
-        CompactionRecord active = compactions.LastOrDefault(c => seen.Contains(c.TipMessageId) && seen.Contains(c.UpToMessageId));
-        long prompt = CompactionPlanner.Apply(history, active).Sum(m => (long)CompactionPlanner.EstimateMessage(m));
-        long written = (reply["rawContent"] ?? reply["content"])?.ToString().Length ?? 0;
-        long results = 0;
-        foreach (JObject call in (reply["toolCalls"] as JArray ?? []).OfType<JObject>())
+
+        /// <summary>A message's parent id, or null at a root.</summary>
+        private static string ParentOf(JObject message) => message["parentId"]?.Type == JTokenType.String ? message["parentId"].ToString() : null;
+
+        /// <summary>The lineage ending at <paramref name="id"/>, or null when there is none. A loop of parents ends where it closes.</summary>
+        private Lineage Through(string id)
         {
-            written += (call["name"]?.ToString().Length ?? 0) + (call["arguments"]?.ToString(Formatting.None).Length ?? 0);
-            results += call["result"]?.ToString(Formatting.None).Length ?? 0;
+            Stack<(string Id, JObject Message)> pending = new();
+            HashSet<string> seen = new(StringComparer.Ordinal);
+            Lineage line = null;
+            while (id is not null && !known.TryGetValue(id, out line) && seen.Add(id) && byId.TryGetValue(id, out JObject node))
+            {
+                pending.Push((id, node));
+                id = ParentOf(node);
+            }
+            while (pending.TryPop(out (string Id, JObject Message) next))
+            {
+                long tokens = (line?.Tokens ?? 0) + CompactionPlanner.EstimateMessage(next.Message);
+                long[] covered = new long[compactions.Count];
+                bool[] made = new bool[compactions.Count];
+                for (int i = 0; i < compactions.Count; i++)
+                {
+                    covered[i] = next.Id == compactions[i].UpToMessageId ? tokens : line?.Covered[i] ?? -1;
+                    made[i] = next.Id == compactions[i].TipMessageId || (line?.Made[i] ?? false);
+                }
+                line = new Lineage(tokens, covered, made);
+                known[next.Id] = line;
+            }
+            return line;
         }
-        return (prompt + (results + 3) / 4, (written + 3) / 4);
     }
 }
 
@@ -209,9 +251,9 @@ public sealed record UsageWindows(DateTimeOffset Day, DateTimeOffset Week)
 /// <summary>The sums for the periods a user can ask about, and the budget warnings that follow from them.</summary>
 public static class UsageReport
 {
-    /// <summary>Sums <paramref name="threads"/> into the day, the week and, when <paramref name="sessionStart"/> is given, the time since it.
-    /// The threads are read one at a time, so a caller may load them lazily.</summary>
-    public static Dictionary<string, UsageTotals> Sum(IEnumerable<JObject> threads, UsageSettings settings, UsageWindows windows, DateTimeOffset? sessionStart = null)
+    /// <summary>Sums the replies of <paramref name="chats"/> into the day, the week and, when <paramref name="sessionStart"/> is given, the time since it.
+    /// The chats are taken one at a time, so a caller may read them lazily.</summary>
+    public static Dictionary<string, UsageTotals> Sum(IEnumerable<IReadOnlyList<ReplyUsage>> chats, UsageSettings settings, UsageWindows windows, DateTimeOffset? sessionStart = null)
     {
         Dictionary<string, (DateTimeOffset From, UsageTotals Totals)> periods = new()
         {
@@ -222,10 +264,9 @@ public static class UsageReport
         {
             periods["session"] = (start, new UsageTotals());
         }
-        DateTimeOffset earliest = periods.Values.Min(p => p.From);
-        foreach (JObject thread in threads)
+        foreach (IReadOnlyList<ReplyUsage> chat in chats)
         {
-            foreach (ReplyUsage reply in UsageReader.Replies(thread, earliest))
+            foreach (ReplyUsage reply in chat)
             {
                 ModelPrice price = settings.PriceFor(reply.Model);
                 foreach ((DateTimeOffset from, UsageTotals totals) in periods.Values)
@@ -240,13 +281,47 @@ public static class UsageReport
         return periods.ToDictionary(p => p.Key, p => p.Value.Totals);
     }
 
-    /// <summary>The ids of the chats in a thread index that changed at or after <paramref name="earliest"/>: a chat untouched since then holds no reply from the period.</summary>
-    public static List<string> ChangedSince(JArray index, DateTimeOffset earliest)
+    /// <summary>The longest session accepted in <c>sessionSeconds</c> (ten years).</summary>
+    public const double MaxSessionSeconds = 315_360_000;
+
+    /// <summary>When the caller's session began, from <c>sessionSeconds</c> (seconds before <paramref name="now"/>) or else <c>since</c> (an ISO time); null when neither is sent.
+    /// <c>since</c> is read from the request itself, because a time bound to a string loses its offset on the way (JSON reads it as a date).</summary>
+    public static bool TryReadSessionStart(JObject request, DateTimeOffset now, out DateTimeOffset? start, out string error)
+    {
+        start = null;
+        error = null;
+        JToken seconds = request?["sessionSeconds"];
+        if (seconds is not null && seconds.Type != JTokenType.Null && !string.IsNullOrWhiteSpace(seconds.ToString()))
+        {
+            if (!double.TryParse(seconds.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double ago) || !(ago >= 0 && ago <= MaxSessionSeconds))
+            {
+                error = "sessionSeconds must be a number of seconds, 0 or more.";
+                return false;
+            }
+            start = now.AddSeconds(-ago);
+            return true;
+        }
+        JToken since = request?["since"];
+        if (since is not null && since.Type != JTokenType.Null && !string.IsNullOrWhiteSpace(since.ToString()))
+        {
+            start = UsageReader.ReadTime(since);
+            if (start is null)
+            {
+                error = "since must be an ISO time, such as 2026-01-31T09:00:00Z.";
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>The chats in a thread index that changed at or after <paramref name="earliest"/> (a chat untouched since then holds no reply from the period), each
+    /// with a stamp that changes whenever the chat is saved (empty when the index has none).</summary>
+    public static List<(string Id, string Stamp)> ChangedSince(JArray index, DateTimeOffset earliest)
         => [.. index.OfType<JObject>()
             .Where(row => UsageReader.ReadTime(row["updatedAt"]) is not DateTimeOffset updated || updated >= earliest)
-            .Select(row => row["id"]?.ToString())
-            .Where(id => !string.IsNullOrEmpty(id))
-            .Distinct()];
+            .Select(row => (Id: row["id"]?.ToString(), Stamp: ThreadSearchIndex.IsoTime(row["updatedAt"])))
+            .Where(row => !string.IsNullOrEmpty(row.Id))
+            .DistinctBy(row => row.Id)];
 
     /// <summary>The limits the day's and week's cost have reached: <c>[{period, spent, limit, estimated}]</c>, empty when the budget is off. A warning only:
     /// no request is ever refused because of it.</summary>

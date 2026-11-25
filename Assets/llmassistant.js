@@ -1439,6 +1439,10 @@ function llmaOpenSettings() {
     if (typeof llmaImageTools != 'undefined') {
         llmaImageTools.load();
     }
+    // The dialog keeps the tab it was left on, so the Usage tab is drawn again when it is the one showing.
+    if (document.getElementById('llma-settings-usage').style.display != 'none') {
+        llmaUsageSettings.load();
+    }
     overlay.style.display = '';
     llmaInstallFocusTrap(overlay);
     setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);
@@ -1462,7 +1466,7 @@ function llmaToolEditorIsOpen() {
 // through here — a single choke point, so the discard guard below covers all of them at once.
 // Returns false if the user backed out of discarding (callers should skip any "saved"/"closed" toast).
 function llmaCloseSettings() {
-    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm(translate('Discard unsaved changes?'))) {
+    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen() || llmaUsageSettings.dirty) && !confirm(translate('Discard unsaved changes?'))) {
         return false;
     }
     const overlay = document.getElementById('llma-settings-overlay');

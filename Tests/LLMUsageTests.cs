@@ -117,6 +117,79 @@ public class LLMUsageTests
         Assert.Null(outcome.Usage);
         Assert.Null(saved[0]["meta"]!["usage"]);
     }
+
+    private static JObject Report(int prompt, int completion) => new() { ["usage"] = new JObject { ["promptTokens"] = prompt, ["completionTokens"] = completion } };
+
+    private static async Task<List<TextChunk>> Collect(IAsyncEnumerable<TextChunk> stream, List<TextChunk> into = null)
+    {
+        into ??= [];
+        await foreach (TextChunk chunk in stream)
+        {
+            into.Add(chunk);
+        }
+        return into;
+    }
+
+    [Fact]
+    public async Task ARunningTotalSentWithEveryEventIsCountedOnceByItsLastReport()
+    {
+        List<TextChunk> chunks = await Collect(LLMChunkStream.FromFrames(async (send, _) =>
+        {
+            await send(Report(100, 1));
+            await send(new JObject { ["chunk"] = "a" });
+            await send(Report(100, 2));
+            await send(new JObject { ["chunk"] = "b" });
+            await send(Report(100, 3));
+        }));
+        Assert.Equal([TextChunkKind.Chunk, TextChunkKind.Chunk, TextChunkKind.Usage, TextChunkKind.StopReason], chunks.Select(c => c.Kind));
+        Assert.Equal(3, chunks[2].Usage!.Value.CompletionTokens);
+    }
+
+    [Fact]
+    public async Task AFailingRequestStillHandsOverWhatItReported()
+    {
+        List<TextChunk> seen = [];
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Collect(LLMChunkStream.FromFrames(async (send, _) =>
+        {
+            await send(Report(100, 1));
+            await send(Report(100, 7));
+            throw new InvalidOperationException("dropped");
+        }), seen));
+        Assert.Equal(7, Assert.Single(seen).Usage!.Value.CompletionTokens);
+    }
+
+    [Fact]
+    public async Task AToolTurnWhoseRoundsAllReportIsComplete()
+    {
+        ScriptedChatProvider provider = new([Call("c1"), Used(100, 10), Stop(StopReason.ToolCall)], [Text("done"), Stop(StopReason.Stop), Used(150, 20)]);
+        List<JObject> saved = [];
+        await ToolTurnRunner.RunAsync(Input(true), Context(provider, saved), new RecordingChatSink());
+        JObject usage = (JObject)saved[0]["meta"]["usage"];
+        Assert.Equal(250, usage.Value<long>("promptTokens"));
+        Assert.Null(usage["incomplete"]);
+    }
+
+    [Fact]
+    public async Task ATurnStoppedDuringALaterRoundBeforeItSaidAnythingIsIncomplete()
+    {
+        using CancellationTokenSource stop = new();
+        ScriptedChatProvider provider = new([Call("c1"), Used(100, 10), Stop(StopReason.ToolCall)], [Text("never")]) { BeforeRound = round => { if (round == 2) { stop.Cancel(); } } };
+        List<JObject> saved = [];
+        await ToolTurnRunner.RunAsync(Input(true), Context(provider, saved), new RecordingChatSink(), stop.Token);
+        JObject usage = (JObject)saved[0]["meta"]["usage"];
+        Assert.Equal(1, usage.Value<int>("rounds"));
+        Assert.True(usage.Value<bool>("incomplete"));
+        Assert.True(LLMUsage.FromJson(usage).Incomplete);
+    }
+
+    [Fact]
+    public async Task ATurnWhoseLaterRoundReportsNothingIsIncomplete()
+    {
+        ScriptedChatProvider provider = new([Call("c1"), Used(100, 10), Stop(StopReason.ToolCall)], [Text("done"), Stop(StopReason.Stop)]);
+        List<JObject> saved = [];
+        await ToolTurnRunner.RunAsync(Input(true), Context(provider, saved), new RecordingChatSink());
+        Assert.True(saved[0]["meta"]["usage"].Value<bool>("incomplete"));
+    }
 }
 
 /// <summary>Where a model listing states its context window: each endpoint names it differently.</summary>

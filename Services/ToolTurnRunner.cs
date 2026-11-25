@@ -147,6 +147,9 @@ public static class ToolTurnRunner
         JArray toolEvents = [];
         JArray rounds = [];
         LLMUsage usage = new();
+        // Requests sent to the model, and those that reported their usage before any Stop: fewer reports than requests means the counts are short.
+        int requests = 0;
+        int reports = 0;
         string stopReason = null;
         bool truncated = false;
         string roundLimit = null;
@@ -175,8 +178,9 @@ public static class ToolTurnRunner
         }
         try
         {
+            requests = runsTools ? 0 : 1;
             IAsyncEnumerable<TextChunk> chunks = runsTools
-                ? ToolLoop.Create(MakeRoundStream(input, provider, replay), SeedRequest(input), new HostToolDispatcher(resolved, input), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
+                ? ToolLoop.Create(MakeRoundStream(input, provider, replay, () => requests++), SeedRequest(input), new HostToolDispatcher(resolved, input), new ToolLoopOptions { MaxRounds = resolved.MaxRounds }).RunAsync(linked.Token)
                 : provider.StreamAsync(input, linked.Token);
             await foreach (TextChunk chunk in chunks.WithCancellation(linked.Token))
             {
@@ -240,6 +244,8 @@ public static class ToolTurnRunner
                         break;
                     case TextChunkKind.Usage when chunk.Usage is { } reported:
                         usage.Add(reported);
+                        // A report that arrives after a Stop is what the endpoint had counted so far.
+                        reports += linked.IsCancellationRequested ? 0 : 1;
                         break;
                     case TextChunkKind.StopReason:
                         stopReason = ToStopReason(chunk.Stop);
@@ -286,6 +292,7 @@ public static class ToolTurnRunner
             await sink.ToolNotRun(new JObject { ["id"] = entry["id"]?.ToString(), ["name"] = entry["name"]?.ToString(), ["result"] = stub });
         }
         spokenText.Append(speech.Flush());
+        usage.Incomplete = usage.Any && (reports < requests || stopReason == "error");
         ToolTurnOutcome outcome = new(fullText.ToString(), truncated ? null : stopReason, truncated, truncated ? "max_iterations" : null, toolEvents,
             spokenText.ToString(), rounds, roundLimit, error, usage.Any ? usage : null);
         if (fullText.Length > 0 || toolEvents.Count > 0)
@@ -440,11 +447,12 @@ public static class ToolTurnRunner
 
     /// <summary>One model round: the input's own messages plus whatever the loop appended, through the provider's stream.</summary>
     private static Func<TextRequest, CancellationToken, IAsyncEnumerable<TextChunk>> MakeRoundStream(ExtendedLLMInput input, ILLMProvider provider,
-        ReasoningReplay replay)
+        ReasoningReplay replay, Action sending)
     {
         int baseCount = input.Messages.Count;
         return (request, token) =>
         {
+            sending();
             List<LLMMessage> appended = replay.Carry([.. request.Messages.Skip(baseCount).Select(LLMMessageMapping.FromAppendedTextMessage)]);
             return provider.StreamAsync(input.CloneForRound(appended, request.ForceToolId), token);
         };

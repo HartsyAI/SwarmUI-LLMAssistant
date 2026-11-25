@@ -12,6 +12,9 @@ internal sealed class ScriptedChatProvider(params TextChunk[][] rounds) : ILLMPr
     /// <summary>The round (1-based) that throws <see cref="Failure"/> instead of streaming; 0 for none.</summary>
     public int FailRound;
 
+    /// <summary>Called with each round's number (1-based) before it streams.</summary>
+    public Action<int> BeforeRound;
+
     /// <summary>What the failing round throws.</summary>
     public Exception Failure;
 
@@ -34,6 +37,7 @@ internal sealed class ScriptedChatProvider(params TextChunk[][] rounds) : ILLMPr
     public async IAsyncEnumerable<TextChunk> StreamAsync(ExtendedLLMInput input, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
     {
         Inputs.Add(input);
+        BeforeRound?.Invoke(Inputs.Count);
         if (FailRound == Inputs.Count && Failure is not null)
         {
             throw Failure;

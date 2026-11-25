@@ -142,10 +142,14 @@
                 <div class="llma-ctx-track"><div class="llma-ctx-fill" id="llma-ctx-fill"></div></div>
             </div>
             <div class="llma-ctx-right">
-                <button type="button" class="badge text-bg-warning llma-usage-warning" id="llma-usage-warning" style="display:none;"></button>
                 <button type="button" class="llma-usage-thread" id="llma-usage-thread" title="Tokens and cost of this chat, today and this week" style="display:none;"></button>
                 <span id="llma-ctx-tokens"></span>
             </div>
+        </div>
+
+        <!-- A reached soft budget (usage.js). Outside the context bar, which hides while no chat is open. -->
+        <div class="llma-usage-banner" style="display:none;">
+            <button type="button" class="badge text-bg-warning llma-usage-warning" id="llma-usage-warning"></button>
         </div>
 
         <!-- Content -->

@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 using HartsyInference.Engine.Requests;
 using Newtonsoft.Json.Linq;
@@ -10,11 +11,12 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// <see cref="TextChunkKind.Result"/>, <c>native_tool_call</c> to <see cref="TextChunkKind.NativeToolCall"/>, <c>stopReason</c> to
 /// <see cref="TextChunkKind.StopReason"/>, <c>status</c> to <see cref="TextChunkKind.Status"/>, and <c>usage</c> (<c>{promptTokens, completionTokens, cachedTokens}</c>)
 /// to <see cref="TextChunkKind.Usage"/>. Other frames are not part of the chunk
-/// vocabulary and are dropped.</summary>
+/// vocabulary and are dropped. A request has one usage chunk, its last report: some servers send the running total with every event, so adding the reports up would count a
+/// request many times over.</summary>
 public static class LLMChunkStream
 {
-    /// <summary>Runs <paramref name="produce"/> and streams the frames it emits. A run that ends without a stop reason ends with
-    /// <see cref="StopReason.Stop"/>; a producer exception surfaces to the consumer.</summary>
+    /// <summary>Runs <paramref name="produce"/> (one request) and streams the frames it emits, with its last usage report after the others. A run that ends without a stop reason
+    /// ends with <see cref="StopReason.Stop"/>; a producer exception surfaces to the consumer, after the usage reported before it.</summary>
     public static async IAsyncEnumerable<TextChunk> FromFrames(Func<Func<JObject, Task>, CancellationToken, Task> produce, [EnumeratorCancellation] CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(produce);
@@ -44,14 +46,40 @@ public static class LLMChunkStream
         }, CancellationToken.None);
         bool sawStop = false;
         bool sawToolCall = false;
+        TextChunk usage = null;
+        ExceptionDispatchInfo failure = null;
         try
         {
-            await foreach (TextChunk chunk in channel.Reader.ReadAllAsync(ct).ConfigureAwait(false))
+            await using IAsyncEnumerator<TextChunk> frames = channel.Reader.ReadAllAsync(ct).GetAsyncEnumerator(ct);
+            while (true)
             {
+                try
+                {
+                    if (!await frames.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    failure = ExceptionDispatchInfo.Capture(ex);
+                    break;
+                }
+                TextChunk chunk = frames.Current;
+                if (chunk.Kind == TextChunkKind.Usage)
+                {
+                    usage = chunk;
+                    continue;
+                }
                 sawStop |= chunk.Kind == TextChunkKind.StopReason;
                 sawToolCall |= chunk.Kind == TextChunkKind.NativeToolCall;
                 yield return chunk;
             }
+            if (usage is not null)
+            {
+                yield return usage;
+            }
+            failure?.Throw();
         }
         finally
         {

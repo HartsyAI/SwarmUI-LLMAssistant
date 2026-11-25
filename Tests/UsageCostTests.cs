@@ -1,3 +1,5 @@
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Usage;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -210,11 +212,11 @@ public class UsageCostTests
             Reply("yesterday", null, prompt: 100, time: "2026-03-04T04:59:59.9999999Z"),
             Reply("today", null, prompt: 1000, time: "2026-03-04T05:00:00Z"),
             Reply("session", null, prompt: 10000, time: "2026-03-04T19:00:00Z")).ToString());
-        Dictionary<string, UsageTotals> periods = UsageReport.Sum([thread], Priced(), windows, DateTimeOffset.Parse("2026-03-04T18:00:00Z"));
+        Dictionary<string, UsageTotals> periods = UsageReport.Sum([UsageReader.Replies(thread)], Priced(), windows, DateTimeOffset.Parse("2026-03-04T18:00:00Z"));
         Assert.Equal(11000, periods["day"].PromptTokens);
         Assert.Equal(11110, periods["week"].PromptTokens);
         Assert.Equal(10000, periods["session"].PromptTokens);
-        Assert.False(UsageReport.Sum([thread], Priced(), windows).ContainsKey("session"));
+        Assert.False(UsageReport.Sum([UsageReader.Replies(thread)], Priced(), windows).ContainsKey("session"));
     }
 
     [Fact]
@@ -222,7 +224,7 @@ public class UsageCostTests
     {
         UsageWindows windows = UsageWindows.At(DateTimeOffset.Parse("2026-03-04T20:00:00Z"), DateTimeZone.Utc);
         JObject thread = Thread(Reply("old", null, prompt: 5, time: "2026-02-27T00:00:00Z"));
-        Dictionary<string, UsageTotals> periods = UsageReport.Sum([thread], Priced(), windows, DateTimeOffset.Parse("2026-02-26T00:00:00Z"));
+        Dictionary<string, UsageTotals> periods = UsageReport.Sum([UsageReader.Replies(thread)], Priced(), windows, DateTimeOffset.Parse("2026-02-26T00:00:00Z"));
         Assert.Equal(5, periods["session"].PromptTokens);
         Assert.Equal(0, periods["week"].Replies);
     }
@@ -243,7 +245,86 @@ public class UsageCostTests
     public void OnlyChatsChangedSinceThePeriodBeganAreRead()
     {
         JArray index = JArray.Parse("""[{"id":"new","updatedAt":"2026-03-04T10:00:00Z"},{"id":"old","updatedAt":"2026-02-01T10:00:00Z"},{"id":"unknown"}]""");
-        Assert.Equal(["new", "unknown"], UsageReport.ChangedSince(index, DateTimeOffset.Parse("2026-03-02T00:00:00Z")));
+        List<(string Id, string Stamp)> changed = UsageReport.ChangedSince(index, DateTimeOffset.Parse("2026-03-02T00:00:00Z"));
+        Assert.Equal(["new", "unknown"], changed.Select(c => c.Id));
+        Assert.Equal(["2026-03-04T10:00:00.0000000Z", ""], changed.Select(c => c.Stamp));
+    }
+
+    [Fact]
+    public void AChatIsReadAgainOnlyWhenItHasChanged()
+    {
+        UsageCache cache = new();
+        int loads = 0;
+        JObject Load(long prompt)
+        {
+            loads++;
+            return Thread(Reply("a", null, prompt: prompt));
+        }
+        Assert.Equal(1, cache.Replies("u|t", "s1", () => Load(1))[0].PromptTokens);
+        Assert.Equal(1, cache.Replies("u|t", "s1", () => Load(2))[0].PromptTokens);
+        Assert.Equal(3, cache.Replies("u|t", "s2", () => Load(3))[0].PromptTokens);
+        Assert.Equal(4, cache.Replies("v|t", "s2", () => Load(4))[0].PromptTokens);
+        Assert.Equal(3, loads);
+        // A row with no stamp is never remembered, and a chat that is gone has no replies.
+        cache.Replies("u|x", "", () => Load(5));
+        cache.Replies("u|x", "", () => Load(5));
+        Assert.Equal(5, loads);
+        Assert.Empty(cache.Replies("u|t", "s3", () => null));
+    }
+
+    [Fact]
+    public void TheSessionBeginsSoManySecondsAgoOrAtAServerTime()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-03-04T12:00:00Z");
+        DateTimeOffset? Read(string json)
+        {
+            Assert.True(UsageReport.TryReadSessionStart(JObject.Parse(json), now, out DateTimeOffset? start, out _), json);
+            return start;
+        }
+        Assert.Equal(now.AddSeconds(-90), Read("""{"sessionSeconds":90}"""));
+        Assert.Equal(now.AddSeconds(-90), Read("""{"sessionSeconds":"90","since":"2020-01-01T00:00:00Z"}"""));
+        Assert.Equal(now.AddHours(-1), Read("""{"since":"2026-03-04T13:00:00+02:00"}"""));
+        Assert.Null(Read("""{"since":""}"""));
+        Assert.Null(Read("{}"));
+        foreach (string bad in new[] { """{"sessionSeconds":-1}""", """{"sessionSeconds":"soon"}""", """{"sessionSeconds":1e30}""", """{"since":"yesterday"}""" })
+        {
+            Assert.False(UsageReport.TryReadSessionStart(JObject.Parse(bad), now, out _, out string error), bad);
+            Assert.False(string.IsNullOrEmpty(error));
+        }
+    }
+
+    [Fact]
+    public void AnIncompleteReportMarksTheReplyAndTheTotals()
+    {
+        JObject reply = Reply("a", null, prompt: 100, completion: 10);
+        reply["meta"]["usage"]["incomplete"] = true;
+        JObject totals = (JObject)UsageService.Describe(Thread(reply), Priced())["totals"];
+        Assert.Equal(1, totals.Value<int>("partialReplies"));
+        Assert.Equal(0, totals.Value<int>("estimatedReplies"));
+    }
+
+    [Fact]
+    public void EveryEstimateInALongChatCountsWhatCameBeforeItUnderTheSummaryInForce()
+    {
+        List<JObject> messages = [];
+        string parent = null;
+        for (int i = 0; i < 6; i++)
+        {
+            messages.Add(User($"u{i}", parent, new string('a', 400)));
+            messages.Add(Reply($"a{i}", $"u{i}", text: new string('b', 40)));
+            parent = $"a{i}";
+        }
+        JObject thread = Thread([.. messages]);
+        Assert.Equal([100, 210, 320, 430, 540, 650], UsageReader.Replies(thread).Select(r => r.PromptTokens));
+        // Two summaries: the later one in the list wins from the message it was made after.
+        thread["compactions"] = new JArray
+        {
+            new JObject { ["id"] = "c1", ["upToMessageId"] = "a0", ["tipMessageId"] = "u2", ["summary"] = "one" },
+            new JObject { ["id"] = "c2", ["upToMessageId"] = "a2", ["tipMessageId"] = "u4", ["summary"] = "two" },
+        };
+        long[] prompts = [.. UsageReader.Replies(thread).Select(r => r.PromptTokens)];
+        long summary = ContextWindowService.EstimateTokens(CompactionPlanner.SummaryText("one"));
+        Assert.Equal([100, 210, 210 + summary, 320 + summary, 210 + summary, 320 + summary], prompts);
     }
 
     [Fact]
