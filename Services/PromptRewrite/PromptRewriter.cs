@@ -144,7 +144,7 @@ public static class PromptRewriter
             string trimmed = PromptFormatters.StripWrapping(original);
             if (trimmed.StartsWith('{') && trimmed.EndsWith('}'))
             {
-                FormatOutcome already = formatter.Normalize(original, style);
+                FormatOutcome already = PromptFormatters.Safe(formatter, original, style);
                 if (already.Error is null)
                 {
                     return Finish(request, style, already.Text, rewritten: false, "The prompt is already in this model's format.", retried: false, fellBack: false, already.Warnings, null);
@@ -168,6 +168,11 @@ public static class PromptRewriter
             {
                 reason = $"The prompt has more than {SwarmTagMask.MaxTags} tags.";
             }
+        }
+        if (reason is null && formatter.LeavesBboxAlone && mask.Tags.Any(IsBboxTag))
+        {
+            const string bbox = "The prompt contains a bbox layout, which this model's format cannot carry safely; it was left as written.";
+            return Finish(request, style, original, rewritten: false, bbox, retried: false, fellBack: false, [bbox], null);
         }
         if (reason is not null)
         {
@@ -211,11 +216,11 @@ public static class PromptRewriter
                 error = "it was cut off before it finished (the answer ran past the length limit); give a shorter answer";
                 continue;
             }
-            FormatOutcome outcome = formatter.Normalize(reply.Response, style);
-            error = outcome.Error ?? mask.Check(outcome.Text);
+            FormatOutcome outcome = PromptFormatters.Safe(formatter, reply.Response, style, request.Width, request.Height);
+            error = outcome.Error ?? mask.Check(outcome.Text, tag => formatter.IsOwnTag(tag, outcome.Text));
             if (error is null)
             {
-                string text = mask.Restore(outcome.Text, insideJsonString: json);
+                string text = mask.Restore(outcome.Text, insideJsonString: formatter.EscapesTags(outcome.Text));
                 warnings.AddRange(outcome.Warnings);
                 (string negative, int negIn, int negOut) = await RewriteNegativeAsync(style, request, settings, generate, warnings, ct);
                 RewriteResult done = Finish(request, style, text, rewritten: true, null, retried, fellBack: false, warnings, new RewriteUsage(inTokens + negIn, outTokens + negOut));
@@ -224,6 +229,9 @@ public static class PromptRewriter
         }
         return Fallback(request, style, formatter, $"The writing model's answer was refused twice ({error}).", warnings, retried, inTokens, outTokens);
     }
+
+    /// <summary>Whether a masked tag is Swarm's <c>&lt;bbox[...]:...&gt;</c> layout tag.</summary>
+    private static bool IsBboxTag(string tag) => System.Text.RegularExpressions.Regex.IsMatch(tag, @"^<bbox\s*[\[:]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
     /// <summary>The system prompt: the style's own instructions, then the rules every rewrite follows (the tag placeholders, the idea as data, the size).</summary>
     public static string BuildSystem(PromptStyle style, RewriteRequest request, bool json)

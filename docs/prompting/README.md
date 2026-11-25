@@ -1,6 +1,6 @@
 # Model prompting guides (P0)
 
-Reference docs for the prompt-styles work, one per model family, written 2026-11-19 from public sources (official where they exist, marked community otherwise). Two styles are built in (`Assets/prompt-assets/styles/generic.md` and `ideogram-4.md`; the Ideogram one cites its guide here). No other guide has a style yet: a style is derived from a guide only after a real-model test (the P4 work in `PROMPT-STYLES-PLAN.md`, not built). Start with `_swarm-syntax.md`.
+Reference docs for the prompt-styles work, one per model family, written 2026-11-19 from public sources (official where they exist, marked community otherwise). Bundled styles are derived from these guides (see the status table below); none of them has been tested on a real model yet, and CI cannot do that, so treat a style as a starting point until someone has judged its output. Start with `_swarm-syntax.md`.
 
 These guides cover only what shapes the prompt text: the text encoder, prompt format and schema, length limits, negative prompts, text rendering, layout boxes, and motion or camera language. They deliberately do not list generation settings (steps, CFG, sampler, resolution, fps, frame counts): the engine and Swarm's model classes already hold the per-model defaults, and a style reads facts such as the model class and whether it is a video model from there, not from these documents.
 
@@ -24,6 +24,30 @@ Caveat: most pages were read through a summarising fetch tool, so a schema's fie
 **Video**: `wan.md`, `hunyuan-video.md`, `hunyuan-video-1_5.md`, `ltx-video.md`, `mochi.md`, `cosmos.md`, `kandinsky5-video.md`, `minimax-h3.md`, `svd.md` (image-to-video, no text prompt).
 
 Not covered (not prompted with image/video text): audio models (Ace Step, MiniMax Music, YuE2), SAM3, SeedVR2, ControlNets.
+
+## Bundled style status
+
+Style pack 1 added these styles under `Assets/prompt-assets/styles/`. A family not in the table has no bundled style yet and keeps the `generic` style (`ideogram-4` was added earlier). "Formatter" means the answer is checked and normalized in code; every style is **unverified on a real model**.
+
+| Guide | Bundled style | Matches (core ids) | Formatter |
+|---|---|---|---|
+| `ideogram-4.md` | `ideogram-4` | class `ideogram-4` | `ideogram-4` |
+| `flux-3.md` | `flux-3` | class `flux-3-image-klein` | `flux-3` (caption plus layout array) |
+| `fibo-2.md` | `fibo-2` | class `fibo-2` | `fibo-2` |
+| `ming-image.md` | `ming-image` | class `ming-image` | `ming-image` |
+| `moss-image.md` | `moss-image` | class `moss-image` | `moss-image` (compiles the pixel draft) |
+| `qwen-image.md` | `qwen-image` | classes `qwen-image`, `qwen-image-edit`, `qwen-image-edit-plus`, `qwen-image-2.1` | text |
+| `flux-1.md` | `flux-1` | classes `Flux.1-dev`, `Flux.1-schnell` (not Kontext, Fill, depth, canny) | text |
+| `flux-2.md` | `flux-2` | classes `flux.2-dev`, `flux.2-klein-4b`, `flux.2-klein-9b` | text |
+| `z-image.md` | `z-image` | class `z-image` | text |
+| `hidream.md` | `hidream` | classes `hidream-i1`, `hidream-o1` (not the edit class) | text |
+| `sd3.md` | `sd3` | classes `stable-diffusion-v3-medium`, `-v3.5-large`, `-v3.5-medium` | text |
+| `sdxl.md` | `sdxl` | classes SDXL base, 0.9 base, refiner, turbo (not the edit class) | tags |
+| `sd1-sd2.md` | `sd1-sd2` | classes `stable-diffusion-v1`, `-v2-512`, `-v2-768-v`, `-v2-turbo` (not inpaint; not Alt-Diffusion) | tags |
+| `chroma.md` | `chroma` | classes `chroma`, `chroma-radiance` (not Zeta Chroma) | text |
+| `wan.md`, `hunyuan-video.md`, `hunyuan-video-1_5.md` | `video-prose` | compat `wan-21`, `wan-21-1_3b`, `wan-21-14b`, `wan-22-5b`, `hunyuan-video`, `hunyuan-video-1_5` | text |
+
+Left out on purpose, and why: **SSD-1B and Alt-Diffusion** (the legacy `(word:1.2)` parser is off for them in core, and the rewriter cannot write `<weight>` tags, which it must treat as Swarm tags), **Zeta Chroma** (its guide says prompting is not stated), **Flux.1 Kontext, Fill, depth and canny and the SDXL and SD1 edit or inpaint classes** (they are edits, not text-to-image expansion), **LTX Video, Mochi, Cosmos, Kandinsky 5 Video and MiniMax H3** (their guides differ from Wan's on audio, length limits or negatives, so one shared video style would mislead). Every other family in the index above is not done yet. Thin guides (SD3, SDXL, SD1/2, Chroma, Z-Image, HiDream I1) were still written up, because they agree on the basics, but they rest on model cards and community notes and each guide says so.
 
 ## Findings that change the design
 
