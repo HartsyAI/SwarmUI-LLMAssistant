@@ -294,6 +294,10 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChildSessionEndpoints.LLMAssistantArchiveSession, true, PermThreads);
         API.RegisterAPICall(HeadlessEndpoints.LLMAssistantReadiness, false, PermChat);
         API.RegisterAPICall(HeadlessEndpoints.LLMAssistantRunTurn, true, PermChat);
+        // First-run guide and starter set: the caller's own state and items; the install checks llm_settings / llm_threads per item.
+        API.RegisterAPICall(OnboardingEndpoints.LLMAssistantGetOnboarding, false, PermChat);
+        API.RegisterAPICall(OnboardingEndpoints.LLMAssistantSetOnboarding, true, PermChat);
+        API.RegisterAPICall(OnboardingEndpoints.LLMAssistantInstallStarterSet, true, PermChat);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantGetKnowledge, false, PermKnowledge);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantAddKnowledge, true, PermKnowledge);
         API.RegisterAPICall(KnowledgeEndpoints.LLMAssistantDeleteKnowledge, true, PermKnowledge);

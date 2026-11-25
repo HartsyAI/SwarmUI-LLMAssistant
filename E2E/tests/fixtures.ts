@@ -289,6 +289,8 @@ export const test = base.extend<{ llm: Page }>({
         }
         let cleared = await api(page, 'LLMAssistantSetSessionState', { state: { activeThreadId: null, compareMode: null, compareModelB: null } });
         expect(cleared.success).toBe(true);
+        // The first-run guide would show to a user with no chats; the other specs start past it (onboarding.spec.ts runs it again).
+        expect((await api(page, 'LLMAssistantSetOnboarding', { action: 'skip' })).success).toBe(true);
         await page.reload();
         await openTab(page);
         await expect(page.locator('#llma-model-select option[value="mock-model"]')).toHaveCount(1, { timeout: 30_000 });
