@@ -100,7 +100,7 @@
 .llma-container .llma-input::placeholder { color: var(--text-soft); opacity: 1; }
 /* Accent colour used for text. */
 .llma-container :is(.llma-msg-bubble a, .llma-greeting-accent, .llma-welcome-bubble-name, .llma-attach-warn-link, .llma-json-key, .llma-thread-branch-row.active,
-    .llma-thinking-toggle-btn.on, .llma-tools-btn.active) { color: var(--llma-accent-text); }
+    .llma-thinking-toggle-btn.on, .llma-tools-btn.active, .llma-asset-type-badge) { color: var(--llma-accent-text); }
 .llma-container .llma-msg-bubble a { text-decoration: underline; }
 /* Text on an accent fill: the fill is pulled toward the background, so the theme's strongest text reads on it in every theme. */
 .llma-container .llma-msg-bubble.user-bubble,
@@ -140,6 +140,10 @@
 @media (max-width: 680px) {
     .llma-sidebar { transition: transform 0.22s ease, visibility 0.22s; }
     .llma-sidebar:not(.sidebar-open) { visibility: hidden; }
+    /* Wider, so a chat's title is still readable beside its three full-size buttons. */
+    .llma-sidebar { width: min(300px, 88%); }
+    /* The composer's buttons grew: the Thinking button keeps its icon and state, and its name stays for screen readers. */
+    .llma-container .llma-thinking-toggle-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 }
 
 /* A button faded out of sight is out of the Tab order too. */
