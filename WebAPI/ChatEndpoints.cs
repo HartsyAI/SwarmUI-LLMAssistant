@@ -849,8 +849,8 @@ public static class ChatEndpoints
     }
 
     /// <summary>Regenerates an assistant reply as a NEW sibling branch (the previous reply stays switchable
-    /// via the pager) and streams it. WS. Request: <c>{ threadId, messageId (assistant reply to regen),
-    /// assistantMessageId, model?, ... }</c>.</summary>
+    /// via the pager) and streams it. A user message's id answers that message instead (a retry after a request that saved no reply). WS.
+    /// Request: <c>{ threadId, messageId (the reply to regenerate, or the user message to answer), assistantMessageId, model?, ... }</c>.</summary>
     public static async Task<JObject> LLMAssistantRegenerateWS(WebSocket socket, Session session, JObject rawInput)
     {
         try
@@ -861,14 +861,9 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
-            JObject target = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
-            if (target is null) { return Fail($"Message '{messageId}' not found in thread."); }
-            JToken pidTok = target["parentId"];
-            string parentId = pidTok is null || pidTok.Type == JTokenType.Null ? null : pidTok.ToString();
-            if (string.IsNullOrEmpty(parentId)) { return Fail("Cannot regenerate a message with no preceding turn."); }
-            // Move the active leaf to the preceding turn; the streamed reply appends as a new child, a
-            // sibling of the previous reply.
-            if (ThreadStorageService.SetActiveLeaf(session.User, threadId, parentId) is null)
+            if (!MessageActions.TryResolveReplyPoint(thread, messageId, out string replyTo, out string error)) { return Fail(error); }
+            // Move the active leaf to the turn being answered; the streamed reply appends as a new child of it.
+            if (ThreadStorageService.SetActiveLeaf(session.User, threadId, replyTo) is null)
             {
                 return Fail("Failed to set branch point.");
             }

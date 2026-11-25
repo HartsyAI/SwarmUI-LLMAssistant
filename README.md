@@ -23,6 +23,8 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [Adding an LLM backend](#adding-an-llm-backend)
 - [Quick start](#quick-start)
 - [The interface](#the-interface)
+- [Message actions](#message-actions)
+- [Accessibility](#accessibility)
 - [Assistants](#assistants)
 - [Long chats](#long-chats)
 - [Chat library](#chat-library)
@@ -258,6 +260,42 @@ Editing one of your messages, or regenerating a reply, creates a **new branch** 
 - **Pin** a chat with the star on its row. Pinned chats are listed first under **Pinned** (and first in `LLMAssistantGetThreads`), whichever grouping is on. Pinning is not activity: the chat keeps its date. A session is listed under the chat that started it, so it cannot be pinned on its own; pinning the chat that started it moves the whole group.
 - **Export** (the download icon in the top bar) gives JSON, Markdown or plain text. JSON and Markdown come from the `LLMAssistantExportThread` route; plain text is made in the page and has no route. JSON carries every branch and the one that was showing, and can be imported again; Markdown is the conversation on screen (your and the assistant's text only; a line in a message that looks like a heading or a rule is escaped so it cannot pass for a speaker).
 - **Import** (the upload icon next to the search box) reads the JSON of an export. A preview shows the title, the message count, the first messages and what will be left out; nothing is saved until you confirm, and the chat is always added as a new one with new ids. Only the text of user and assistant messages is imported: attachments, tool calls and results, mode, workspace, session, schedule and approval settings, and summaries of long chats are never taken from a file. Limits: 4 million characters, 2,000 messages, 100,000 characters per message, 64 levels of JSON nesting. Duplicate ids, parents that are not in the file, and loops are refused.
+
+---
+
+## Message actions <a id="message-actions"></a>
+
+Under each message (shown on hover, on keyboard focus, and always on a touch screen):
+
+| Action | On | What it does | API route |
+|---|---|---|---|
+| **Copy** | any message | Copies plain text. A reply's Markdown marks and its reasoning are left out; math stays as written. | none (changes nothing) |
+| **Copy as Markdown** | replies | Copies the reply's Markdown source, without the reasoning. | none (`LLMAssistantGetThread` returns each message's `content`) |
+| **Regenerate** | replies | Asks again. The new reply is a sibling of the old one, which stays. | `LLMAssistantRegenerateWS` with the reply's id |
+| **Retry** | under a last message of yours that has no reply | Asks for a reply to it: after a request that failed or was stopped before any text (neither saves a reply). **Regenerate** on such a failed reply does the same. | `LLMAssistantRegenerateWS` with the user message's id |
+| **Edit** | your messages | **Save & resend** (`Ctrl/Cmd+Enter`) sends the new wording as a sibling branch. The messages after the old one leave the view and are kept on its branch. **Cancel** or `Esc` changes nothing. | `LLMAssistantEditMessageWS` (`LLMAssistantEditMessage` rewrites the text in place and sends nothing) |
+| **Branch from here** | any message | Shows the chat up to this message; your next message starts a new branch there. **Show later messages**, under it, goes back. | `LLMAssistantSetActiveLeaf` |
+| **Delete** | any message | Removes the message **and every message under it, on every branch**. It asks first when that is more than the one message. | `LLMAssistantDeleteMessage` |
+| **Use as Prompt** | replies | Puts the reply in the Generate tab's prompt box. | none |
+
+While a reply streams, the actions that change the chat are off. The side-by-side columns of a comparison have **Copy**, **Copy as Markdown**, **Use as Prompt**, **Keep this one** and **Delete**.
+
+## Accessibility <a id="accessibility"></a>
+
+| Keys | Where | Action |
+|---|---|---|
+| `Tab` / `Shift+Tab` | the chat | The message list is one stop: the newest message, or the one you were last on |
+| `↑` / `↓`, `Home` / `End` | a message has focus | Previous / next, first / last message |
+| `Enter` | a message has focus | Go to its actions; `←` / `→` move along them |
+| `Esc` | message actions, a message | Back to the message, then to the composer |
+| `Esc` | a popover, menu, drawer or dialog | Close it and return focus to what opened it |
+| `←` / `→`, `Home` / `End` | settings tabs | Switch tabs |
+
+- Dialogs keep `Tab` inside them. Focus rings use the theme's strongest text colour.
+- Screen readers: messages are articles named for who wrote them. One polite live region says when a reply starts, finishes, stops or fails, when a tool waits for approval, and repeats the toasts. Reply text is not announced as it streams.
+- **Reduced motion** (the system setting) turns off the animations and smooth scrolling.
+- **Touch screens and narrow windows**: controls are at least 44 by 44 pixels.
+- The Playwright suite runs [axe](https://github.com/dequelabs/axe-core) (WCAG 2.0 to 2.2, A and AA) on the main views in the `modern_dark` and `modern_light` themes. Other themes, SwarmUI's own page around the tab, and real screen readers have not been checked.
 
 ---
 
@@ -876,7 +914,7 @@ Every route is registered with one base permission, which SwarmUI checks before 
 | `LLMAssistantSendMessage` | POST | `message`, `instructionId?`, `model?`, `device?`, `backendId?`, `temperature?`, `maxTokens?`, `loops?`, `enableThinking?`, `noCache?`, `assistantId?` | `{success, response, reasoning, finish_reason}`, one-shot, does **not** touch threads. `response` is the answer alone, `reasoning` what the model thought first (empty if none), `finish_reason` `stop` or `length` (a budget that runs out mid-reasoning is a success with the partial reasoning and an empty `response`). A failure is `{success: false, error, finish_reason: "error"}`. `enableThinking` true/false; omitted keeps the model's template default (on for Dory and Qwen3) |
 | `LLMAssistantSendMessageWS` | **WS** | `threadId`, `message`, `userMessageId?`, `assistantMessageId?`, `model?`, `models?`, `media?`, `instructionId?`, `forceToolId?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `approvalMode?` | streaming frames (below); `approvalMode` (`auto`, `ask` or `plan`) comes from the composer's Ask / Auto / Plan control, defaults to the mode saved on the chat, and is saved there when it differs; `enableThinking` comes from the composer's Thinking toggle (Auto leaves it out) and is read by the edit, regenerate and compare paths too |
 | `LLMAssistantEditMessageWS` | **WS** | `threadId`, `messageId`, `content`, `userMessageId?`, `assistantMessageId?`, … | streaming frames; forks a new branch |
-| `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId`, `assistantMessageId?`, `model?`, … | streaming frames; new sibling reply |
+| `LLMAssistantRegenerateWS` | **WS** | `threadId`, `messageId` (a reply, or a user message to answer), `assistantMessageId?`, `model?`, … | streaming frames; new sibling reply. A user message's id gets a new reply under that message (Retry) |
 | `LLMAssistantReadiness` | POST | `deep?` | `{success, overall, deep, checkedAt, checks[{id, title, status, detail, fix?}]}`; the setup check (see [Setup check and headless turns](#headless)). Reads only; counts and statuses, no error text an admin alone may see |
 | `LLMAssistantRunTurn` | POST | `message`, `threadId?`, `assistantId?`, `model?`, `approvalMode?` (`ask` default), `dryRun?`, `temperature?`, `maxTokens?`, `seed?`, `loops?`, `enableThinking?`, `instructionId?`, `forceToolId?` | `{success, threadId, response, model, stopReason, toolCalls[], usage?, created?}`, or with `dryRun` the report on the request it would make. One request, one reply, kept in a chat; a call that needs approval is refused |
 | `LLMAssistantVoiceTurn` | POST | `message` (required), `assistantId?`, `model?`, `temperature?`, `maxTokens?`, `loops?` | `{success, response, toolCalls[{name, arguments}], truncated?}`; stateless, writes no thread and is never cached, so asking twice answers twice. With no `model` it uses the first model any backend offers. `toolCalls` is the device-action subset (`set_led_profile`, `set_volume`, `mute_mic`), for the voice device to carry out; other tools run on the server through the same loop as chat |

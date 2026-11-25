@@ -2,13 +2,13 @@ import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, ope
 
 // Baseline: the behaviour that exists today. Every later phase must keep these green.
 
-test('the tab loads, lists the mock models, and opens in Chat mode with the Code switch live', async ({ llm }) => {
+test('the tab loads, lists the mock models, and opens in Chat mode with the Code switch live', { tag: '@smoke' }, async ({ llm }) => {
     await expect(llm.locator('#llma-model-select option')).toHaveCount(2);
     await expect(llm.locator('#llma-mode-chat')).toBeChecked();
     await expect(llm.locator('#llma-mode-code')).toBeEnabled();
 });
 
-test('a message streams a reply and the model receives the system prompt and the user text', async ({ llm }) => {
+test('a message streams a reply and the model receives the system prompt and the user text', { tag: '@smoke' }, async ({ llm }) => {
     await setScenarios([{ match: 'ping', rounds: [{ text: 'pong from the mock server', chunkDelayMs: 20 }] }]);
     await send(llm, 'ping');
     await expect(lastAssistant(llm)).toContainText('pong from the mock server');
@@ -129,7 +129,7 @@ test('threads can be renamed and deleted', async ({ llm }) => {
     await expect(llm.locator('.llma-thread-item')).toHaveCount(0);
 });
 
-test('the settings dialog opens and switches tabs', async ({ llm }) => {
+test('the settings dialog opens and switches tabs', { tag: '@smoke' }, async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await expect(llm.locator('#llma-settings-overlay')).toBeVisible();
     for (let tab of ['assistants', 'tools', 'companion', 'general']) {

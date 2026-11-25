@@ -124,6 +124,8 @@ function llmaPickerEnsureEl() {
     el.id = 'llma-tool-popup';
     el.style.display = 'none';
     el.setAttribute('role', 'listbox');
+    // A list that scrolls must be reachable by keyboard; the composer keeps focus and moves the selection.
+    el.tabIndex = 0;
     el.setAttribute('aria-label', translate('Tools'));
     wrap.appendChild(el);
     LLMAToolPicker.el = el;
@@ -139,7 +141,7 @@ function llmaPickerClose() {
         LLMAToolPicker._awayHandler = null;
     }
     const input = document.getElementById('llma-input');
-    if (input) { input.removeAttribute('aria-activedescendant'); input.setAttribute('aria-expanded', 'false'); }
+    if (input) { input.removeAttribute('aria-activedescendant'); input.removeAttribute('aria-controls'); }
 }
 
 // Open the picker as a full menu of the assistant's tools, triggered by the "/" button instead of
@@ -220,7 +222,6 @@ function llmaPickerRender() {
     el.style.display = '';
     const input = document.getElementById('llma-input');
     if (input) {
-        input.setAttribute('aria-expanded', 'true');
         input.setAttribute('aria-controls', 'llma-tool-popup');
         input.setAttribute('aria-activedescendant', `llma-tool-opt-${LLMAToolPicker.active}`);
     }

@@ -349,7 +349,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
     // Inline preview card (image / html / svg): the content itself fills the top, details sit below.
     const previewInner = (inline && !compact) ? llmaAssetPreviewHtml(asset) : null;
     if (previewInner) {
-        return `<div class="${cls} preview" data-asset-id="${llmaEscapeHtml(asset.id)}" role="button" tabindex="0">
+        return `<div class="${cls} preview" data-asset-id="${llmaEscapeHtml(asset.id)}">
             <div class="llma-asset-preview kind-${llmaEscapeHtml(asset.type)}">${previewInner}</div>
             <div class="llma-asset-foot">
                 <div class="llma-asset-card-body">
@@ -368,7 +368,7 @@ function llmaRenderAssetCardHtml(asset, { inline = false, compact = false } = {}
         thumb = `<span class="llma-asset-thumb"><img src="${llmaEscapeHtml(asset.content)}" alt=""></span>`;
     }
 
-    return `<div class="${cls}" data-asset-id="${llmaEscapeHtml(asset.id)}" role="button" tabindex="0">
+    return `<div class="${cls}" data-asset-id="${llmaEscapeHtml(asset.id)}">
         ${thumb}
         <div class="llma-asset-card-body">
             <div class="llma-asset-card-title">${llmaEscapeHtml(asset.title)}</div>
@@ -423,6 +423,19 @@ function llmaOpenAssetMenu(button, assetId) {
     }
     const menu = document.createElement('div');
     menu.className = 'llma-asset-menu';
+    menu.setAttribute('role', 'group');
+    menu.setAttribute('aria-label', translate('More actions'));
+    // The menu sits on the page body, so it handles its own keys: arrows move, Escape and Tab close it and go back to the button.
+    menu.addEventListener('keydown', (e) => {
+        if (e.key == 'Escape' || e.key == 'Tab') {
+            e.preventDefault();
+            e.stopPropagation();
+            close();
+            button.focus();
+            return;
+        }
+        llmaA11y.moveWithArrows(e, Array.from(menu.children));
+    });
     const away = (ev) => {
         if (!menu.contains(ev.target)) {
             close();
@@ -444,6 +457,7 @@ function llmaOpenAssetMenu(button, assetId) {
     menu.style.top = `${Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`;
     menu.style.left = `${Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8))}px`;
     setTimeout(() => document.addEventListener('mousedown', away, true), 0);
+    menu.firstElementChild?.focus();
 }
 
 // ── Sidebar renderer ─────────────────────────────────────────────

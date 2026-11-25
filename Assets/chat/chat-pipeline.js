@@ -160,6 +160,7 @@
         // server-side first); a normal send uses the default.
         const wsEndpoint = opts.endpoint || 'LLMAssistantSendMessageWS';
         llmaSetStreaming(true);
+        llmaA11y.announce(translate('Assistant is replying'));
         const assistantMsgId = llmaGenerateId();
         // Persist the assistant reply under the same id we render with (see userMessageId note in
         // llmaSendMessage) so message ops on the reply resolve server-side.
@@ -195,6 +196,12 @@
                 if (data.error) {
                     renderer.cancelPendingRender();
                     llmaShowErrorInBubble(bubble, data.error);
+                    // The server saves a failed reply only when something of it had arrived.
+                    const failed = LLMAState.messages.find(m => m.id === assistantMsgId);
+                    if (!streamedRaw && !(failed?.toolCalls || []).length) {
+                        llmaActions.markUnsaved(failed);
+                    }
+                    llmaA11y.announceFailure(data.error);
                     llmaFinishStreamState();
                     return;
                 }
@@ -273,6 +280,7 @@
                     llmaCodeMode.onToolOutput(data.tool_output);
                 }
                 if (data.tool_approval) {
+                    llmaA11y.announce(`${translate('A tool is waiting for your approval')}: ${data.tool_approval.name}`);
                     // A tool call is waiting for the user: show Allow / Deny on its step.
                     if (bubble) {
                         llmaRenderToolApproval(bubble, data.tool_approval);
@@ -344,6 +352,12 @@
                         llmaShowToast('Reply cut off at the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
+                    if (data.failure) {
+                        llmaA11y.announceFailure(data.failure);
+                    }
+                    else {
+                        llmaA11y.announce(data.stopReason === 'length' ? translate('Reply cut off at the max token limit') : translate('Reply complete'));
+                    }
                     llmaFinishStreamState();
                     if (onComplete) onComplete(cleanFinal);
                 }
@@ -367,10 +381,16 @@
                     msg.meta = Object.assign({}, msg.meta, { error: message });
                     LLMAState.activeLeafId = assistantMsgId;
                 }
+                if (!partial) {
+                    llmaActions.markUnsaved(msg);
+                }
+                llmaA11y.announceFailure(message);
                 llmaFinishStreamState();
             });
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);
+            llmaActions.markUnsaved(assistantMsg);
+            llmaA11y.announceFailure(ex);
             llmaSetStreaming(false);
         }
     }
@@ -387,6 +407,9 @@
             try { LLMAState._activeSocket.close(); } catch (_) {}
             LLMAState._activeSocket = null;
         }
+        if (LLMAState.isGenerating) {
+            llmaA11y.announce(translate('Reply stopped'));
+        }
         // Compare mode persists each lane's partial text and finalizes its columns.
         if (typeof llmaCompareHandleStop === 'function' && llmaCompareHandleStop()) {
             llmaSetStreaming(false);
@@ -401,6 +424,17 @@
                 llmaPostRenderMermaid(bubble);
             }
             llmaSaveActiveThread();
+        }
+        else if (LLMAState._streamingMsgId) {
+            // Stopped before anything arrived: nothing was saved, so the row says so instead of showing dots for good.
+            const msg = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
+            if (msg && !(msg.toolCalls || []).length) {
+                llmaActions.markUnsaved(msg);
+                const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
+                if (bubble) {
+                    bubble.innerHTML = `<div class="llma-msg-stopped">${llmaEscapeHtml(translate('Stopped before a reply arrived.'))}</div>`;
+                }
+            }
         }
         LLMAState._streamingMsgId = null;
         LLMAState._streamingText = '';
@@ -438,6 +472,9 @@
         if (!active) {
             document.querySelectorAll('.llma-tool-approval').forEach(row => row.remove());
         }
+        llmaA11y.setBusy(active);
+        // Greys out the actions that change the chat, and shows or removes the Retry row.
+        llmaActions.syncTail();
     }
 
     // --- Public API (called by sibling files + other chat/ modules) ---

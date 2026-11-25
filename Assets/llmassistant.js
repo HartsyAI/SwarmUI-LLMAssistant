@@ -96,6 +96,7 @@ async function llmaInit() {
     llmaSetupKeyboardShortcuts();
     llmaSetupResponsive();
     if (typeof llmaSetupAssets === 'function') llmaSetupAssets();
+    llmaA11y.setup();
 
     // Restore the last active thread from session state if present and still exists.
     const resumeThreadId = sessionState.activeThreadId;
@@ -513,6 +514,8 @@ function llmaUpdateModelChip() {
         const versus = LLMAState.compareMode === true && LLMAState.compareModelB && model;
         text.textContent = versus ? `${short(model)} vs ${short(LLMAState.compareModelB)}` : (model ? short(model) : translate('Select a model'));
     }
+    // The accessible name keeps the words the chip shows, so it can be asked for by what is on screen.
+    chip.setAttribute('aria-label', `${text?.textContent || ''}: ${translate('Switch model')}`);
     chip.classList.toggle('warn', !model);
     chip.title = model ? `${model}\n${translate('Click to switch model')}` : translate('No model selected: click to pick one');
 }
@@ -882,7 +885,7 @@ function llmaRenderAssistantPanel(assistantId) {
     inner.innerHTML = `
         <div class="llma-panel-card">
             <div class="llma-panel-avatar" style="background:${llmaGradientBg(assistant.color)};">
-                ${assistant.avatar ? `<img src="${llmaEscapeHtml(assistant.avatar)}">` : `<span>${icon}</span>`}
+                ${assistant.avatar ? `<img src="${llmaEscapeHtml(assistant.avatar)}" alt="">` : `<span>${icon}</span>`}
             </div>
             <div class="llma-panel-name">${llmaEscapeHtml(assistant.name)}</div>
             <div class="llma-panel-desc">${llmaEscapeHtml(assistant.description || '')}</div>
@@ -1261,7 +1264,7 @@ function llmaRenderWelcomeAssistants() {
                  tabindex="0" role="button" aria-label="${llmaEscapeHtml(a.name)}">
                 <div class="llma-card-visual">
                     ${a.avatar
-                        ? `<img class="llma-card-img" src="${llmaEscapeHtml(a.avatar)}">`
+                        ? `<img class="llma-card-img" src="${llmaEscapeHtml(a.avatar)}" alt="">`
                         : `<div class="llma-card-gradient" style="background:${llmaGradientBg(a.color)};"><span class="llma-card-icon">${icon}</span></div>`}
                 </div>
                 <div class="llma-card-body">
@@ -1654,7 +1657,7 @@ function llmaRenderAssistantList() {
         html += `
             <div class="llma-asst-list-item" data-asst-id="${llmaEscapeHtml(a.id)}">
                 <div class="llma-list-avatar" style="background:${llmaGradientBg(a.color)};">
-                    ${a.avatar ? `<img src="${llmaEscapeHtml(a.avatar)}">` : icon}
+                    ${a.avatar ? `<img src="${llmaEscapeHtml(a.avatar)}" alt="">` : icon}
                 </div>
                 <div class="llma-list-info">
                     <div class="llma-list-name">${llmaEscapeHtml(a.name)}${a.isBuiltIn ? ` <span class="llma-builtin-badge">(${translate('built-in')})</span>` : ''}${scopeBadge}</div>
@@ -1767,7 +1770,7 @@ function llmaShowAssistantEditor(assistant) {
     if (preview) {
         delete preview.dataset.avatarData;
         if (assistant?.avatar) {
-            preview.innerHTML = `<img src="${llmaEscapeHtml(assistant.avatar)}">`;
+            preview.innerHTML = `<img src="${llmaEscapeHtml(assistant.avatar)}" alt="${llmaEscapeHtml(translate('Avatar'))}">`;
             preview.dataset.avatarData = assistant.avatar;
         } else {
             preview.innerHTML = '';
@@ -2005,7 +2008,7 @@ function llmaSetupAvatarUpload() {
             const dataUrl = await llmaFileToBase64(file);
             const preview = document.getElementById('llma-avatar-preview');
             if (preview) {
-                preview.innerHTML = `<img src="${dataUrl}">`;
+                preview.innerHTML = `<img src="${dataUrl}" alt="${llmaEscapeHtml(translate('Avatar'))}">`;
                 preview.dataset.avatarData = dataUrl; // shown immediately while upload runs
             }
             fileInput.value = '';
@@ -2020,7 +2023,7 @@ function llmaSetupAvatarUpload() {
                 }
                 if (preview) {
                     // Swap the preview to the served URL so we know the upload landed.
-                    preview.innerHTML = `<img src="${llmaEscapeHtml(result.url)}">`;
+                    preview.innerHTML = `<img src="${llmaEscapeHtml(result.url)}" alt="${llmaEscapeHtml(translate('Avatar'))}">`;
                     preview.dataset.avatarData = result.url;
                 }
             } catch (ex) {
@@ -2258,9 +2261,9 @@ function llmaSetupKeyboardShortcuts() {
 
         // Up/Down arrows in the thread list move the highlighted item and (on Enter) switch threads.
         // Only intercepted while focus is on a thread row — otherwise arrows are free for textareas.
-        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && document.activeElement?.classList?.contains('llma-thread-item')) {
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && document.activeElement?.classList?.contains('llma-thread-name')) {
             e.preventDefault();
-            const items = Array.from(document.querySelectorAll('.llma-thread-item'));
+            const items = Array.from(document.querySelectorAll('#llma-thread-list button.llma-thread-name'));
             const idx = items.indexOf(document.activeElement);
             const next = e.key === 'ArrowDown' ? Math.min(items.length - 1, idx + 1) : Math.max(0, idx - 1);
             items[next]?.focus();

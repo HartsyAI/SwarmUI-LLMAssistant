@@ -51,14 +51,14 @@ function llmaIngestThread(thread) {
 }
 
 function llmaChildrenOf(nodeId) {
-    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === (nodeId ?? null));
+    return (LLMAState.allNodes || []).filter(n => !n.unsaved && llmaParentId(n) === (nodeId ?? null));
 }
 
 // All nodes sharing a parent with `node` (in creation order) — the set of branches at that point.
 function llmaSiblingsOf(node) {
     if (!node) return [];
     const pid = llmaParentId(node);
-    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === pid);
+    return (LLMAState.allNodes || []).filter(n => !n.unsaved && llmaParentId(n) === pid);
 }
 
 // Follow the most-recent child chain down to a leaf (a node with no children).
@@ -123,11 +123,14 @@ async function llmaSwitchToBranch(targetNodeId) {
     await llmaSetActiveLeaf(llmaDescendToLeaf(targetNodeId));
 }
 
-// Fork: make this message the tip of the active branch; the next message sent branches from here.
+// Branch from here: make this message the tip of the active branch; the next message sent branches from it.
 async function llmaForkFromMessage(msgId) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before forking', 'info'); return; }
-    await llmaSetActiveLeaf(msgId, { focusInput: true });
-    llmaShowToast('Forked — your next message starts a new branch', 'info');
+    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before branching', 'info'); return; }
+    const node = llmaActions.node(msgId);
+    if (!node) return;
+    // A reply that was never saved is not a place to branch from: the message before it is.
+    await llmaSetActiveLeaf(node.unsaved ? node.parentId : msgId, { focusInput: true });
+    llmaShowToast('Your next message starts a new branch from here', 'info');
 }
 
 // -- Load / Fetch --
@@ -302,6 +305,7 @@ function llmaRenderThreadList(threads) {
                         title="${expanded ? llmaEscapeHtml(translate('Hide branches')) : llmaEscapeHtml(translate('Show branches'))}" aria-label="${llmaEscapeHtml(translate('Toggle branches'))}">&#9656;</button>`
                 : '';
             const displayTitle = thread.title || translate('Untitled');
+            const current = isActive ? ' aria-current="true"' : '';
             let pinLabel = llmaEscapeHtml(thread.pinned ? translate('Unpin chat') : translate('Pin chat'));
             let pinButton = llmaLibrary.canPin(thread)
                 ? `<button class="llma-thread-pin${thread.pinned ? ' pinned' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
@@ -311,11 +315,10 @@ function llmaRenderThreadList(threads) {
                 <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}${depth > 0 ? ' llma-thread-child' : ''}${thread.pinned ? ' pinned' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
                      data-depth="${depth}"
-                     title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}"
-                     role="button" tabindex="0">
+                     title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}">
                     ${checkbox}
                     ${llmaSessions.isSession(thread) ? llmaSessions.dotHtml(thread.sessionStatus) : badge}
-                    <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
+                    <button type="button" class="llma-thread-name"${current}>${llmaEscapeHtml(displayTitle)}</button>
                     ${llmaSessions.parentAddonsHtml(thread, kids)}
                     ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
                     ${thread.scheduleId ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('schedule')}</span>` : ''}
@@ -334,7 +337,7 @@ function llmaRenderThreadList(threads) {
         html += llmaLibrary.moreHtml();
     }
 
-    list.innerHTML = html;
+    llmaA11y.keepFocus(list, () => list.innerHTML = html);
     llmaBindThreadListEvents(list);
     if (llmaThreadSelectMode) {
         llmaUpdateBulkCount(); // the visible set changed (search, new chat): refresh Select-all state
@@ -369,19 +372,10 @@ function llmaBindThreadListEvents(list) {
             llmaSwitchThread(item.dataset.id);
         });
         item.addEventListener('keydown', (e) => {
-            // F2 starts rename on the focused item (matches OS file-manager convention).
+            // F2 starts rename on the focused item (matches OS file-manager convention). Enter and Space need nothing here: the title is a button.
             if (e.key === 'F2') {
                 e.preventDefault();
                 llmaBeginRenameThread(item);
-                return;
-            }
-            if (e.key === 'Enter' || e.key === ' ') {
-                // Ignore Enter when the user is typing in the inline rename input.
-                if (e.target.classList?.contains('llma-thread-rename-input') || e.target.closest?.('.llma-thread-pin')) {
-                    return;
-                }
-                e.preventDefault();
-                llmaSwitchThread(item.dataset.id);
             }
         });
     });
@@ -611,12 +605,18 @@ function llmaBeginRenameThread(itemEl) {
     input.select();
 
     let committed = false;
-    const restore = (newTitle) => {
-        const span = document.createElement('span');
-        span.className = 'llma-thread-name';
-        span.textContent = newTitle;
+    // Set when Enter ends the edit, so the keyboard stays on the row.
+    let enterPressed = false;
+    const restore = (newTitle, refocus = enterPressed) => {
+        const name = document.createElement('button');
+        name.type = 'button';
+        name.className = 'llma-thread-name';
+        name.textContent = newTitle;
         // Guard against the input already being detached (re-render mid-commit).
-        if (input.parentNode) input.replaceWith(span);
+        if (input.parentNode) input.replaceWith(name);
+        if (refocus) {
+            name.focus();
+        }
     };
     const commit = async () => {
         if (committed) return;
@@ -649,8 +649,8 @@ function llmaBeginRenameThread(itemEl) {
         }
     };
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        else if (e.key === 'Escape') { e.preventDefault(); committed = true; restore(original); }
+        if (e.key === 'Enter') { e.preventDefault(); enterPressed = true; commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); committed = true; restore(original, true); }
     });
     input.addEventListener('blur', commit);
     input.addEventListener('click', (e) => e.stopPropagation());

@@ -1,7 +1,7 @@
 /* ================================================================
    LLM Assistant - chat/chat-composer.js
    Input-area wiring (send/stop/attach/drop/paste + "/" picker hooks),
-   char count, and per-message actions (copy / edit / delete / regenerate).
+   char count, and the message actions that change the chat (edit / delete / regenerate).
    ================================================================ */
 
 (function () {
@@ -150,17 +150,31 @@
         counter.textContent = `~${Math.ceil(text.length / 4)} ${translate('tokens')}`;
     }
 
-    /** Copy a message's text to the clipboard. */
+    /** Copy a message's plain text to the clipboard (Copy as Markdown is in chat-actions.js). */
     function llmaCopyMessage(msgId) {
-        const msg = LLMAState.messages.find(m => m.id === msgId);
-        if (msg) {
-            navigator.clipboard.writeText(msg.content).then(() => llmaShowToast('Copied!', 'success'));
+        const node = llmaActions.node(msgId);
+        if (node) {
+            llmaActions.copy(llmaActions.plainTextOf(node));
         }
     }
 
-    /** Delete a message (optimistic local removal; re-fetch on server rejection). */
+    /** Delete a message and everything under it (optimistic local removal; re-fetch on server rejection). Asks first when that takes other messages with it. */
     async function llmaDeleteMessage(msgId) {
         if (!LLMAState.activeThreadId || !msgId) return;
+        if (LLMAState.isGenerating) {
+            llmaShowToast('Stop generation before deleting messages', 'info');
+            return;
+        }
+        const node = llmaActions.node(msgId);
+        if (node?.unsaved) {
+            llmaActions.forget(node);
+            return;
+        }
+        const below = llmaActions.countBelow(msgId);
+        if (below > 0 && !confirm(llmaActions.deleteQuestion(below))) return;
+        // A delete made from the keyboard leaves focus on the message that took this one's place.
+        const row = document.querySelector(`#llma-messages [data-msg-id="${msgId}"]`);
+        const focusAt = row?.contains(document.activeElement) ? llmaA11y.messageRows().indexOf(row) : -1;
         // Optimistic local removal so the UI feels snappy; if the server rejects we re-fetch to recover.
         const prevMessages = LLMAState.messages;
         LLMAState.messages = prevMessages.filter(m => m.id !== msgId);
@@ -191,6 +205,10 @@
             await llmaReloadActiveThread();
             return;
         }
+        llmaA11y.announce(translate('Message deleted'));
+        if (focusAt >= 0) {
+            llmaA11y.focusMessageAt(focusAt);
+        }
         // Sidebar metadata refresh (title may have changed if first message was deleted, etc.)
         llmaSaveActiveThread();
     }
@@ -217,13 +235,23 @@
         }
     }
 
-    /** Inline-edit a message (optimistic local update; revert on failure). */
+    /** Edit a message in place and send it again as a new branch. */
     function llmaStartEdit(msgId) {
+        if (LLMAState.isGenerating) {
+            llmaShowToast('Stop generation before editing messages', 'info');
+            return;
+        }
         const msg = LLMAState.messages.find(m => m.id === msgId);
         if (!msg) return;
         const bubble = document.querySelector(`[data-msg-id="${msgId}"] .llma-msg-bubble`);
         if (!bubble) return;
+        if (bubble.querySelector('textarea')) {
+            bubble.querySelector('textarea').focus();
+            return;
+        }
         const original = msg.content;
+        // What the bubble shows now (text and attachments), put back as it was on Cancel.
+        const shown = Array.from(bubble.childNodes);
         // Match the textarea's height to the rendered bubble's current height — `rows` alone only
         // accounts for explicit newlines, not wrapped lines, so a long single-line message would
         // otherwise collapse to a tiny 2-row box the moment you click Edit.
@@ -232,6 +260,7 @@
 
         const textarea = document.createElement('textarea');
         textarea.className = 'llma-input';
+        textarea.setAttribute('aria-label', translate('Edit message'));
         textarea.value = original;
         textarea.rows = Math.max(2, original.split('\n').length);
         textarea.style.width = '100%';
@@ -240,11 +269,16 @@
         const btnRow = document.createElement('div');
         btnRow.className = 'llma-msg-edit-actions';
         const saveBtn = document.createElement('button');
+        saveBtn.type = 'button';
         saveBtn.className = 'basic-button';
-        saveBtn.textContent = translate('Save');
+        saveBtn.textContent = translate('Save & resend');
         saveBtn.addEventListener('click', () => {
             const newContent = textarea.value.trim();
-            if (!newContent || !LLMAState.activeThreadId || LLMAState.isGenerating) return;
+            if (!newContent || !LLMAState.activeThreadId) return;
+            if (LLMAState.isGenerating) {
+                llmaShowToast('Stop generation before editing messages', 'info');
+                return;
+            }
             // Edit = fork a NEW branch from this message and re-send. The original message and the replies
             // beneath it are preserved as a sibling branch, switchable via the ‹ k/n › pager. The server
             // creates the authoritative branch (LLMAssistantEditMessageWS); we mirror it locally first so
@@ -272,9 +306,26 @@
             llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantEditMessageWS' });
         });
         const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
         cancelBtn.className = 'basic-button';
         cancelBtn.textContent = translate('Cancel');
-        cancelBtn.addEventListener('click', () => { bubble.textContent = original; });
+        const cancel = () => {
+            bubble.replaceChildren(...shown);
+            const row = bubble.closest('.llma-msg-row');
+            row?.querySelector('.llma-msg-actions button[aria-label="' + translate('Edit') + '"]')?.focus();
+        };
+        cancelBtn.addEventListener('click', cancel);
+        textarea.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                cancel();
+            }
+            else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                saveBtn.click();
+            }
+        });
 
         btnRow.appendChild(saveBtn);
         btnRow.appendChild(cancelBtn);
@@ -286,18 +337,26 @@
     /** Regenerate an assistant reply as a NEW sibling branch (the previous reply stays switchable via the
      *  ‹ k/n › pager). The server moves the branch point to the preceding turn and streams a fresh reply. */
     function llmaRegenerateMessage(msgId) {
-        if (LLMAState.isGenerating) return;
-        const node = (LLMAState.allNodes || []).find(m => m.id === msgId);
-        if (!node) return;
-        const parentId = node.parentId ?? null;
-        if (!parentId) { llmaShowToast('Nothing to regenerate from', 'info'); return; }
-        // Drop back to the preceding turn locally; the streamed reply becomes a sibling of this one.
-        LLMAState.activeLeafId = parentId;
-        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, parentId);
+        if (LLMAState.isGenerating) {
+            llmaShowToast('Stop generation before regenerating', 'info');
+            return;
+        }
+        const clicked = llmaActions.node(msgId);
+        if (!clicked || !LLMAState.activeThreadId) return;
+        // A reply the server never saved (the request failed or was stopped before any text) is asked for again from the message before it.
+        const targetId = clicked.unsaved ? clicked.parentId : msgId;
+        const target = llmaActions.node(targetId);
+        // A user message (Retry) is answered itself; a reply is answered from the message before it.
+        const replyTo = target ? (target.role === 'user' ? target.id : target.parentId) : null;
+        if (!replyTo) { llmaShowToast('Nothing to regenerate from', 'info'); return; }
+        LLMAState.allNodes = LLMAState.allNodes.filter(n => !n.unsaved);
+        // Drop back to the turn being answered locally; the streamed reply becomes a new child of it.
+        LLMAState.activeLeafId = replyTo;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, replyTo);
         llmaRenderMessageHistory(LLMAState.messages);
 
         const payload = llmaBuildPayload('', 'chat');
-        payload.messageId = msgId; // the reply to regenerate (server finds its parent turn)
+        payload.messageId = targetId; // the reply to regenerate, or the user message to answer
         llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantRegenerateWS' });
     }
 

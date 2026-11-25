@@ -33,6 +33,8 @@ public class LLMAssistantExtension : Extension
         Logs.Info($"[LLMAssistant] Version {ExtensionVersion} loading...");
         // Extension JS (vendored libs under Assets/vendor are lazy-loaded by utils.js; no CDN).
         ScriptFiles.Add("Assets/utils.js");
+        // Keyboard, focus and screen-reader support, used by the files below.
+        ScriptFiles.Add("Assets/llma-a11y.js");
         // The one place the front end touches core through a non-documented route (see the file header).
         ScriptFiles.Add("Assets/core-bridge.js");
         // Settings and parameter forms, built from core's make*Input helpers and input groups.
@@ -62,6 +64,7 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
+        ScriptFiles.Add("Assets/chat/chat-actions.js");
         ScriptFiles.Add("Assets/chat/chat-render.js");
         ScriptFiles.Add("Assets/chat/chat-toolcalls.js");
         ScriptFiles.Add("Assets/chat/chat-findbar.js");
@@ -95,6 +98,8 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
         StyleSheetFiles.Add("Assets/llma-backend-cards.css");
         StyleSheetFiles.Add("Assets/llma-code.css");
+        // Last, so its focus rings, touch sizes and contrast fixes win over the sheets above.
+        StyleSheetFiles.Add("Assets/llma-a11y.css");
         // Static asset files (images), served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
         OtherAssets.Add("Assets/swarmui-logo.jpg");

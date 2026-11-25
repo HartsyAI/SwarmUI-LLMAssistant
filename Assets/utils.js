@@ -411,7 +411,8 @@ function llmaRenderMarkdown(text, options) {
     }
 
     // Add copy buttons to code blocks
-    result = result.replace(/<pre>/g, `<pre><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
+    // A code block scrolls sideways when its lines are long, so it takes keyboard focus.
+    result = result.replace(/<pre>/g, `<pre tabindex="0"><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
 
     return result;
 }
@@ -650,6 +651,8 @@ function llmaShowToast(message, type = 'info') {
     // it does mean those specific messages aren't usefully translatable. See the i18n audit notes.
     toast.textContent = translate(message);
     container.appendChild(toast);
+    // A node added with its text is not reliably read out, so the toast is also said through the live region.
+    llmaA11y.announce(toast.textContent);
     llmaToastTimer = setTimeout(() => toast.remove(), LLMA_CONSTANTS.TOAST_DURATION_MS);
 }
 
@@ -894,6 +897,7 @@ const LLMA_ICON_PATHS = {
     edit: '<path d="M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 0 1 2 2l-7.6 7.6z"/><path d="M9.5 4.3l2.2 2.2"/>',
     trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
     prompt: '<path d="M2.5 8h9M8 4.5L11.5 8 8 11.5"/><path d="M13.5 3v10"/>',
+    markdown: '<rect x="1.2" y="3.5" width="13.6" height="9" rx="1.6"/><path d="M3.8 10.3V5.8L6 8.3l2.2-2.5v4.5M11.6 5.8v4.3M9.9 8.5l1.7 1.8 1.7-1.8"/>',
 };
 
 /**

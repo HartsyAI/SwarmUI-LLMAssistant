@@ -291,6 +291,7 @@
         wsPayload.models = lanes.map(L => ({ model: L.model, device: L.device, backendId: L.backendId, assistantMessageId: L.msgId }));
 
         llmaSetStreaming(true);
+        llmaA11y.announce(translate('Both models are replying'));
         LLMAState._streamingLanes = lanes;
         const startTime = performance.now();
         let doneCount = 0;
@@ -302,6 +303,8 @@
             LLMAState._activeSocket = null;
             LLMAState._streamingLanes = null;
             llmaSetStreaming(false);
+            // A lane that failed has announced itself; this says the turn is over.
+            llmaA11y.announce(lanes.some(L => L.node.unsaved || L.node.meta?.error) ? translate('Comparison finished with errors') : translate('Both replies complete'));
             if (typeof llmaRebuildAssetsForThread === 'function') llmaRebuildAssetsForThread();
             if (typeof llmaSaveActiveThread === 'function') llmaSaveActiveThread();
             if (typeof llmaUpdateContextBar === 'function') llmaUpdateContextBar();
@@ -428,6 +431,10 @@
                     L.node.rawContent = streamedRaw;
                     L.node.meta = Object.assign({}, L.node.meta, { error: err });
                 }
+                else {
+                    llmaActions.markUnsaved(L.node);
+                }
+                llmaA11y.announceFailure(err);
             },
         };
     }
@@ -440,6 +447,10 @@
         for (const L of lanes) {
             if (L.node && L.bubble) {
                 L.bubble.querySelector('.llma-typing')?.remove();
+            }
+            // A lane stopped before anything arrived saved no reply.
+            if (L.node && !L.node.content && !(L.node.toolCalls || []).length) {
+                llmaActions.markUnsaved(L.node);
             }
         }
         LLMAState._streamingLanes = null;
@@ -480,18 +491,21 @@
         return refs;
     }
 
-    /** Per-column action bar: Copy · Use as Prompt · Keep this one · Del. Reuses the shared
+    /** Per-column action bar: Copy · Copy as Markdown · Use as Prompt · Keep this one · Delete. Reuses the shared
      *  llmaCreateActionBtn helper (same .llma-msg-action-btn element the normal message actions use). */
     function llmaBuildCompareActions(msgId) {
-        const actions = document.createElement('div');
-        actions.className = 'llma-msg-actions';
+        const actions = llmaActions.emptyBar();
         actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => { if (typeof llmaCopyMessage === 'function') llmaCopyMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Copy as Markdown'), () => llmaActions.copyMarkdown(msgId)));
         actions.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => {
             const m = (LLMAState.allNodes || []).find(x => x.id === msgId);
             if (m && typeof llmaSendToPromptBox === 'function') llmaSendToPromptBox(m.content);
         }));
         actions.appendChild(llmaCreateActionBtn(translate('Keep this one'), () => llmaKeepLane(msgId)));
-        actions.appendChild(llmaCreateActionBtn(translate('Del'), () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Delete'), () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
+        for (const button of actions.children) {
+            button.type = 'button';
+        }
         return actions;
     }
 
