@@ -103,6 +103,7 @@
         (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
         LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId, undefined, documents);
+        llmaOnboarding.onSend();
         // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
