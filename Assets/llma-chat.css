@@ -728,7 +728,11 @@ video.llma-msg-image {
     width: 100%;
     max-width: 760px;
     box-sizing: border-box;
-    padding: 8px 16px 0;
+    padding: 8px 16px;
+    /* Many files scroll here rather than push the composer off a small screen. */
+    max-height: 112px;
+    overflow-y: auto;
+    flex-shrink: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -754,7 +758,7 @@ video.llma-msg-image {
     font-size: 12px;
 }
 .llma-doc-chip-name {
-    min-width: 0;
+    min-width: 3em;
     max-width: 260px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -762,7 +766,8 @@ video.llma-msg-image {
     font-weight: 600;
 }
 .llma-doc-chip-meta {
-    min-width: 0;
+    flex-shrink: 0;
+    max-width: 75%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

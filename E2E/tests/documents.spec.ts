@@ -1,10 +1,10 @@
-import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, api, clearKnowledge, clearMemory, resetKnowledgeTool, useDocumentCaps, reopen, turn, toolResults, BUILTINS, useEmbeddingModel } from './fixtures';
+import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, api, clearKnowledge, clearMemory, resetKnowledgeTool, useDocumentCaps, reopen, turn, toolResults, BUILTINS, useEmbeddingModel, enableSessionTools, resetSessionTools } from './fixtures';
 import type { Page } from '@playwright/test';
 import { pdf, docx } from './document-files';
 
 // Documents attached to chat messages and added to the knowledge library: PDF, Word and text files read on the server, sent to the model as quoted data, within caps.
 
-const DEFAULT_CAPS = { documentMaxMb: 10, documentMaxPages: 200, documentMaxChars: 200000, documentMaxPerMessage: 5, documentContextChars: 60000 };
+const DEFAULT_CAPS = { documentMaxMb: 10, documentMaxPages: 200, documentMaxChars: 200000, documentMaxPerMessage: 5, documentContextChars: 60000, contextWindow: 0 };
 
 const test = base.extend<{ llm: Page }>({
     llm: async ({ llm }, use) => {
@@ -231,6 +231,76 @@ test('a model known to take no images still takes documents', async ({ llm }) =>
     await expect(llm.locator('.llma-toast')).toContainText("doesn't support image input");
     await expect(llm.locator('#llma-attachment-preview')).toBeHidden();
     await attach(llm, [txt('fine.txt', 'words')]);
+});
+
+test('both sides of a compare turn read the document', async ({ llm }) => {
+    await setScenarios([{ match: 'COMPARE-QUESTION', model: 'mock-model', rounds: [{ text: 'lane A' }] }, { match: 'COMPARE-QUESTION', model: 'mock-model-b', rounds: [{ text: 'lane B' }] }]);
+    await llm.locator('#llma-compare-toggle').click();
+    await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
+    await attach(llm, [txt('both.txt', 'BOTH-LANES-WORDS')]);
+    await send(llm, 'COMPARE-QUESTION');
+    await expect(llm.locator('body')).toContainText('lane A');
+    await expect(llm.locator('body')).toContainText('lane B');
+    for (let model of ['mock-model', 'mock-model-b']) {
+        let request = (await mockRequests()).find(r => r.model === model && JSON.stringify(r.messages).includes('COMPARE-QUESTION'));
+        expect(JSON.stringify(request.messages), model).toContain('BOTH-LANES-WORDS');
+    }
+});
+
+test('editing a message keeps its documents', async ({ llm }) => {
+    await setScenarios([{ match: 'BEFORE-EDIT', rounds: [{ text: 'first' }] }, { match: 'AFTER-EDIT', rounds: [{ text: 'second' }] }]);
+    await attach(llm, [txt('kept.txt', 'KEPT-THROUGH-EDIT')]);
+    await send(llm, 'BEFORE-EDIT');
+    await expect(lastAssistant(llm)).toContainText('first');
+    let row = llm.locator('.llma-msg-row.user').last();
+    await row.hover();
+    await row.getByRole('button', { name: 'Edit' }).click();
+    await row.locator('textarea').fill('AFTER-EDIT');
+    await row.getByRole('button', { name: 'Save' }).click();
+    await expect(lastAssistant(llm)).toContainText('second');
+    expect((await sentUserMessages('AFTER-EDIT'))[0]).toContain('KEPT-THROUGH-EDIT');
+    await expect(llm.locator('.llma-msg-row.user .llma-doc-chip')).toHaveCount(1);
+    let saved = await thread(llm);
+    expect(saved.messages.filter((m: any) => m.documents?.length === 1)).toHaveLength(2);
+});
+
+test('a small model window cuts a long document and does not summarize the chat on every turn', async ({ llm }) => {
+    await useDocumentCaps(llm, { ...DEFAULT_CAPS, contextWindow: 4096 });
+    await reopen(llm);
+    await setScenarios([{ regex: 'SMALL-TURN', rounds: [{ text: 'ok', usage: { prompt_tokens: 2200, completion_tokens: 10 } }] }]);
+    await attach(llm, [txt('huge.txt', 'h'.repeat(50000))]);
+    for (let i = 1; i <= 6; i++) {
+        await send(llm, `SMALL-TURN ${i}`);
+        await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble')).toHaveCount(i);
+        await expect(lastAssistant(llm)).toContainText('ok');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    }
+    let all = JSON.stringify(await mockRequests());
+    expect(all).toContain('only the first 6553 of 50000 characters are shown');
+    expect(all).not.toContain('Conversation to summarize:');
+});
+
+test('a session started from a chat with a document cannot save memory on the model\'s say-so', async ({ llm }) => {
+    await enableSessionTools(llm);
+    try {
+        await setScenarios([
+            { match: 'CHILD-TASK', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { category: 'fact', content: 'The user pays CHILD-POISON.' } }] }, { text: 'child done' }] },
+            { regex: '.*', rounds: [{ text: 'ok' }] },
+        ]);
+        await attach(llm, [txt('parent.txt', 'words')]);
+        await send(llm, 'PARENT-MESSAGE');
+        await expect(lastAssistant(llm)).toContainText('ok');
+        let started = await api(llm, 'LLMAssistantExecuteTool', { toolId: 'session_start', threadId: await threadId(llm), arguments: { title: 'Child', prompt: 'CHILD-TASK please remember this', model: 'mock-model' } });
+        expect(started.result.success, JSON.stringify(started)).toBe(true);
+        let child = async () => (await api(llm, 'LLMAssistantGetThread', { threadId: started.result.id })).thread;
+        await expect.poll(async () => JSON.stringify((await child()).messages), { timeout: 30_000 }).toContain('child done');
+        expect(JSON.stringify((await child()).messages)).toContain('This chat holds an attached document');
+        let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
+        expect(JSON.stringify(profile.notes)).not.toContain('CHILD-POISON');
+    }
+    finally {
+        await resetSessionTools(llm);
+    }
 });
 
 test('the document caps are on the General settings tab and are saved', async ({ llm }) => {

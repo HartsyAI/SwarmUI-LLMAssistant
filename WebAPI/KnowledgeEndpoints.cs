@@ -50,7 +50,7 @@ public static class KnowledgeEndpoints
         bool file = rawInput["data"] is { Type: not JTokenType.Null };
         if (text is null && !file)
         {
-            return Fail("text or data is required.");
+            return Fail("text is required (or data, for a file).");
         }
         string name = rawInput["name"]?.ToString() ?? "";
         try
