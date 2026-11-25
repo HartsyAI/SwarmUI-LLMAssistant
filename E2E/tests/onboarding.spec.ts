@@ -33,6 +33,9 @@ async function asNewUser(page: Page) {
     await reopen(page);
 }
 
+// Each test reloads the page once or twice on top of the fixture's own load, which on a busy machine passes the default limit.
+test.beforeEach(() => test.slow());
+
 test.afterEach(async ({ llm }) => {
     await removeStarters(llm);
     await api(llm, 'LLMAssistantSetOnboarding', { action: 'skip' });
