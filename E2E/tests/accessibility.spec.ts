@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { test, expect, send, lastAssistant, setScenarios, reopen, api } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, reopen, api, turn, enableCodeToolsGlobally, resetCodeTools } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // Accessibility of the chat UI: axe on the main views in the dark and light themes, keyboard navigation, focus, the live region, reduced motion and touch sizes.
@@ -131,6 +131,58 @@ for (let theme of ['modern_dark', 'modern_light']) {
             await audit(llm, 'selecting chats');
         });
 
+        test('the gallery, comparison and side panel have no violations', async ({ llm }) => {
+            await llm.evaluate(() => (0, eval)('llmaShowWelcome')());
+            await expect(llm.locator('.llma-asst-card').first()).toBeVisible();
+            await audit(llm, 'assistant gallery');
+            await llm.locator('.llma-asst-card').first().click();
+            await expect(llm.locator('#llma-input')).toBeVisible();
+            await llm.locator('#llma-compare-toggle').click();
+            await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
+            await send(llm, 'versus');
+            await expect(llm.locator('.llma-compare-col')).toHaveCount(2);
+            await expect(llm.locator('#llma-send-btn')).toBeVisible({ timeout: 30_000 });
+            await audit(llm, 'comparison');
+            await llm.locator('#llma-compare-toggle').click();
+            await llm.keyboard.press('Control+Shift+F');
+            await expect(llm.locator('#llma-find-bar')).toBeVisible();
+            await audit(llm, 'find bar');
+            await llm.keyboard.press('Escape');
+            await llm.locator('#llma-asst-toggle').click();
+            await expect(llm.locator('#llma-panel-inner')).toBeVisible();
+            await audit(llm, 'assistant panel');
+        });
+
+        test('code mode has no violations', async ({ llm }) => {
+            await enableCodeToolsGlobally(llm);
+            await reopen(llm);
+            try {
+                await llm.locator('label[for="llma-mode-code"]').click();
+                await expect(llm.locator('#llma-workspace-select')).toBeVisible();
+                await setScenarios([turn('write a note', [{ name: 'code_write', arguments: { path: `notes-${theme}.txt`, content: 'hello\n', overwrite: true } }], 'Written.')]);
+                await send(llm, 'write a note');
+                await expect(llm.locator('.llma-tool-approval')).toBeVisible({ timeout: 30_000 });
+                await audit(llm, 'code mode: a call waiting for approval');
+                await llm.locator('.llma-tool-approval').getByRole('button', { name: 'Allow once' }).click();
+                await expect(lastAssistant(llm)).toContainText('Written.', { timeout: 30_000 });
+                await expect(llm.locator('#llma-send-btn')).toBeVisible();
+                await expect(llm.locator('.llma-code-entry').first()).toBeVisible();
+                await audit(llm, 'code mode: files');
+                await llm.locator('.llma-code-entry').first().press('Enter');
+                await expect(llm.locator('.llma-code-viewer-name')).toBeVisible();
+                await audit(llm, 'code mode: file viewer');
+                for (let tab of ['changes', 'terminal', 'tasks']) {
+                    await llm.locator(`.llma-code-tabs [data-code-tab="${tab}"]`).click();
+                    await expect(llm.locator(`.llma-code-tabs [data-code-tab="${tab}"]`)).toBeFocused();
+                    await llm.waitForLoadState('networkidle');
+                    await audit(llm, `code mode: ${tab}`);
+                }
+            }
+            finally {
+                await resetCodeTools(llm);
+            }
+        });
+
         test('the phone layout has no violations', async ({ llm }) => {
             await richChat(llm);
             await llm.setViewportSize({ width: 375, height: 740 });
@@ -184,6 +236,29 @@ test('arrow keys move between messages, Enter reaches the actions, and Escape go
     await expect(rows.nth(1)).toBeFocused();
     await llm.keyboard.press('Escape');
     await expect(llm.locator('#llma-input')).toBeFocused();
+});
+
+test('the chat list works from the keyboard and keeps focus through its redraws', async ({ llm }) => {
+    for (let text of ['older chat', 'newer chat']) {
+        await llm.locator('#llma-new-thread-btn, .llma-empty-new-btn').locator('visible=true').first().click();
+        await expect(llm.locator('#llma-messages .llma-msg-row')).toHaveCount(0);
+        await send(llm, text);
+        await expect(lastAssistant(llm)).toContainText(`Mock reply: ${text}`);
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    }
+    let titles = llm.locator('#llma-thread-list button.llma-thread-name');
+    await expect(titles).toHaveCount(2);
+    await titles.first().focus();
+    await llm.keyboard.press('ArrowDown');
+    await expect(titles.nth(1)).toBeFocused();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-messages')).toContainText('older chat');
+    await expect(titles.filter({ hasText: 'older chat' })).toBeFocused();
+    await expect(titles.filter({ hasText: 'older chat' })).toHaveAttribute('aria-current', 'true');
+    await llm.keyboard.press('F2');
+    await llm.locator('.llma-thread-rename-input').fill('renamed by keyboard');
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-thread-list button.llma-thread-name', { hasText: 'renamed by keyboard' })).toBeFocused();
 });
 
 test('a visible focus ring follows the keyboard', async ({ llm }) => {

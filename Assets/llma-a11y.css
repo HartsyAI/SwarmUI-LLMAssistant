@@ -115,6 +115,9 @@
 .llma-container .nav-pills .nav-link { color: var(--text); }
 .llma-container .llma-select-toggle[aria-pressed="true"] { color: var(--llma-accent-text); }
 .llma-container .text-muted { color: var(--text-soft) !important; }
+/* Error red as small text on its own red tint is under 4.5:1: the title leans on the strong text colour, the icon and border stay red. */
+.llma-container :is(.llma-msg-error-title, .llma-msg-meta-truncated) { color: color-mix(in srgb, var(--backend-errored) 35%, var(--text-strong)); opacity: 1; }
+.llma-container .llma-compare-col .llma-msg-actions { opacity: 1; }
 
 /* A switched-off tool was faded as a whole, text and switch included. It is marked by its border instead. */
 .llma-container .llma-tool-list-item.disabled { opacity: 1; border-style: dashed; }

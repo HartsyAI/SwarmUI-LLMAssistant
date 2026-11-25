@@ -506,12 +506,26 @@
         for (const button of actions.children) {
             button.type = 'button';
         }
+        // Keep this one and Delete change the chat, so they are off while a reply streams.
+        for (const button of Array.from(actions.children).slice(-2)) {
+            button.dataset.llmaMutates = 'true';
+            button.setAttribute('aria-disabled', LLMAState.isGenerating ? 'true' : 'false');
+        }
         return actions;
     }
 
     /** Converge: make this lane's reply the active path and exit compare mode. The comparison turn stays
      *  visible as columns in history; new messages continue single-model from here. */
     function llmaKeepLane(msgId) {
+        if (LLMAState.isGenerating) {
+            llmaShowToast('Stop generation before choosing a reply', 'info');
+            return;
+        }
+        // A lane that never saved a reply cannot be continued from.
+        if (llmaActions.node(msgId)?.unsaved) {
+            llmaShowToast('That model saved no reply', 'info');
+            return;
+        }
         llmaToggleCompareMode(false);
         if (typeof llmaSetActiveLeaf === 'function') {
             llmaSetActiveLeaf(msgId, { focusInput: true });

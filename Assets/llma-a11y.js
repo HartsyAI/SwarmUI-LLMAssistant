@@ -324,6 +324,10 @@ class LLMAAccessibility {
             done(trigger);
             return;
         }
+        // A text box or a menu inside a drawer has its own use for Escape (cancel a rename, clear the search, close the menu).
+        if (e.target.closest?.('input, textarea, .llma-asset-menu, .llma-branch-menu')) {
+            return;
+        }
         // The sidebar and the assistant panel slide over the chat on narrow screens.
         for (let [id, openClass, toggleId] of [['llma-sidebar', 'sidebar-open', 'llma-sidebar-toggle'], ['llma-asst-panel', 'panel-open', 'llma-asst-toggle']]) {
             let drawer = document.getElementById(id);

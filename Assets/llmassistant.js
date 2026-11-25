@@ -1261,7 +1261,7 @@ function llmaRenderWelcomeAssistants() {
         const isActive = a.id === LLMAState.activeAssistantId;
         html += `
             <div class="llma-asst-card${isActive ? ' active-card' : ''}" data-assistant-id="${llmaEscapeHtml(a.id)}"
-                 tabindex="0" role="button" aria-label="${llmaEscapeHtml(a.name)}">
+                 tabindex="0" role="button">
                 <div class="llma-card-visual">
                     ${a.avatar
                         ? `<img class="llma-card-img" src="${llmaEscapeHtml(a.avatar)}" alt="">`
@@ -1277,7 +1277,7 @@ function llmaRenderWelcomeAssistants() {
 
     // Create new card
     html += `
-        <div class="llma-asst-card create-card" tabindex="0" role="button" aria-label="${translate('Create new assistant')}">
+        <div class="llma-asst-card create-card" tabindex="0" role="button">
             <div class="llma-card-visual"><span class="llma-create-plus">+</span></div>
             <div class="llma-card-body">
                 <div class="llma-card-name">${translate('Create New')}</div>

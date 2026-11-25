@@ -280,17 +280,21 @@ class LLMACodeMode {
         }
         let open = n => (this.tab == n ? ' active' : '');
         let badge = n => (n > 0 ? ` <span class="badge text-bg-secondary">${n}</span>` : '');
-        inner.innerHTML = `<ul class="nav nav-tabs llma-code-tabs" role="tablist">`
-            + `<li class="nav-item"><button type="button" class="nav-link${open('files')}" data-code-tab="files" role="tab">${translate('Files')}</button></li>`
-            + `<li class="nav-item"><button type="button" class="nav-link${open('changes')}" data-code-tab="changes" role="tab">${translate('Changes')}${badge(this.changes.length)}</button></li>`
-            + `<li class="nav-item"><button type="button" class="nav-link${open('terminal')}" data-code-tab="terminal" role="tab">${translate('Terminal')}${badge(this.bashCalls().length)}</button></li>`
-            + `<li class="nav-item"><button type="button" class="nav-link${open('tasks')}" data-code-tab="tasks" role="tab">${translate('Tasks')}${badge(this.todos.length)}</button></li>`
+        // A list of buttons rather than a tab list: the reload button sits in the same row, which a tab list may not hold.
+        let current = n => (this.tab == n ? ' aria-current="true"' : '');
+        inner.innerHTML = `<ul class="nav nav-tabs llma-code-tabs">`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('files')}" data-code-tab="files"${current('files')}>${translate('Files')}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('changes')}" data-code-tab="changes"${current('changes')}>${translate('Changes')}${badge(this.changes.length)}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('terminal')}" data-code-tab="terminal"${current('terminal')}>${translate('Terminal')}${badge(this.bashCalls().length)}</button></li>`
+            + `<li class="nav-item"><button type="button" class="nav-link${open('tasks')}" data-code-tab="tasks"${current('tasks')}>${translate('Tasks')}${badge(this.todos.length)}</button></li>`
             + `<li class="nav-item ms-auto"><button type="button" class="btn btn-sm llma-code-refresh" title="${translate('Reload the file list')}" aria-label="${translate('Reload the file list')}">&#x21BB;</button></li>`
             + '</ul><div class="llma-code-body" id="llma-code-body"></div>';
         for (let button of inner.querySelectorAll('[data-code-tab]')) {
             button.addEventListener('click', () => {
                 this.tab = button.dataset.codeTab;
                 this.renderPanel();
+                // The redraw replaced the button that was pressed: focus goes to its successor.
+                inner.querySelector(`[data-code-tab="${this.tab}"]`)?.focus();
                 if (this.tab == 'changes') {
                     // Files change outside the chat too (the user's editor, a command): opening the tab looks again.
                     this.refreshChanges();
@@ -665,7 +669,7 @@ class LLMACodeMode {
         if (!document.body.contains(tree)) {
             return;
         }
-        tree.innerHTML = html == '' ? `<div class="text-muted p-2">${translate('The workspace is empty. Ask the assistant to create something.')}</div>` : `<ul class="list-group list-group-flush">${html}</ul>`;
+        tree.innerHTML = html == '' ? `<div class="text-muted p-2">${translate('The workspace is empty. Ask the assistant to create something.')}</div>` : `<ul class="list-group list-group-flush" role="group" aria-label="${translate('Files')}">${html}</ul>`;
         for (let row of tree.querySelectorAll('.llma-code-entry')) {
             row.addEventListener('click', () => this.onEntry(row.dataset.path, row.dataset.type));
             row.addEventListener('keydown', event => {
@@ -696,7 +700,7 @@ class LLMACodeMode {
             }
         }
         if (listing.truncated) {
-            html += `<li class="list-group-item bg-transparent text-muted small">${translate('Only the first entries are shown.')}</li>`;
+            html += `<li class="list-group-item bg-transparent text-muted small" role="presentation">${translate('Only the first entries are shown.')}</li>`;
         }
         return html;
     }
