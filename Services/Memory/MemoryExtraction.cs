@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.RegularExpressions;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -188,14 +189,15 @@ public sealed record TranscriptLine(string Role, string Text);
 /// <param name="LatestUserId">The id of the user message this turn answered (what is remembered as already extracted).</param>
 /// <param name="LatestUserText">That message's text.</param>
 /// <param name="UserText">Everything the user said in <paramref name="Lines"/>.</param>
-/// <param name="ReplyLeftOut">Whether the reply was left out because tools ran in the turn, or the user attached an image or video to their message (so the reply may repeat what a page, a file or a picture said).</param>
+/// <param name="ReplyLeftOut">Whether the reply was left out because tools ran in the turn, the user attached an image or video to their message, or the chat holds a document (so the reply may repeat what a page, a file or a picture said).</param>
 /// <param name="CalledMemoryWrite">Whether the model saved a note itself in this turn (then the extractor has nothing to add).</param>
 public sealed record MemoryTranscript(IReadOnlyList<TranscriptLine> Lines, string LatestUserId, string LatestUserText, string UserText, bool ReplyLeftOut, bool CalledMemoryWrite);
 
 /// <summary>Builds the transcript the extractor reads. This is where the injection rule lives: <b>only</b> the user's own messages and the assistant's own replies get in. A message that carries
 /// a <c>kind</c> (a session report, a session's inbox message, anything a server set), attachments, tool calls and their results, reasoning and summaries never do; and a reply from a turn in
 /// which a tool ran, or to a message that had an image or video attached, is left out too, since after a tool read a page or file (or a vision model read a picture) the reply can repeat what it
-/// said ("the page says: remember ..."). The same goes for the assistant message shown just before the user's, when it answered a message with an attachment. Text is read from each message's own <c>content</c>
+/// said ("the page says: remember ..."). The same goes for the assistant message shown just before the user's, when it answered a message with an attachment. Once a document is attached anywhere earlier on the branch no assistant reply from there on is read, since its text is sent with every later turn
+/// (the text itself is never in a message's <c>content</c>). Text is read from each message's own <c>content</c>
 /// on the active branch, never from the history that is sent to the model (which adds attachment links and summaries).</summary>
 public static class MemoryTranscriptBuilder
 {
@@ -232,7 +234,8 @@ public static class MemoryTranscriptBuilder
         JObject reply = null;
         bool toolsRan = false, wrote = false;
         // An attachment on the user's message: what a vision model read in it can come back in the reply, so the reply is treated like one that followed a tool.
-        bool attached = HasMedia(path[user]);
+        // A document stays in what the model reads for the rest of the chat, so after one, no later reply is read either.
+        bool attached = HasMedia(path[user]) || path.Take(user + 1).Any(ChatDocuments.HasDocuments);
         for (int i = user + 1; i < path.Count; i++)
         {
             if (path[i]["role"]?.ToString() == Roles.User)
@@ -258,7 +261,8 @@ public static class MemoryTranscriptBuilder
         }
         List<TranscriptLine> lines = [];
         // What the assistant said just before the user did ("where do you live?" / "Berlin"), when it is a plain reply of its own.
-        if (user > 0 && path[user - 1]["role"]?.ToString() == Roles.Assistant && IsPlainAssistantMessage(path[user - 1]) && !(user > 1 && HasMedia(path[user - 2])))
+        if (user > 0 && path[user - 1]["role"]?.ToString() == Roles.Assistant && IsPlainAssistantMessage(path[user - 1]) && !(user > 1 && HasMedia(path[user - 2]))
+            && !path.Take(user).Any(ChatDocuments.HasDocuments))
         {
             string before = Clean(path[user - 1]["content"]?.ToString());
             if (before.Length > 0)
@@ -480,6 +484,10 @@ public static class MemoryOpParser
         string haystack = (userText ?? "").ToLowerInvariant();
         return words.Count(w => haystack.Contains(w, StringComparison.Ordinal)) * 100 >= words.Count * percent;
     }
+
+    /// <summary>Whether a note is something the user said in <paramref name="userText"/>: most of its longer words are there, or, for a note with none (a short name), the whole of it is.</summary>
+    internal static bool SaidByUser(string noteText, string userText)
+        => IsGrounded(noteText, userText, 50) || ((noteText ?? "").Trim().Length > 1 && (userText ?? "").Contains((noteText ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The origin an added or changed note gets: <c>user</c> when the user's own message asks to have something remembered and the note is grounded in what they wrote, otherwise <c>assistant</c>.</summary>
     internal static string OriginFor(string noteText, MemoryTranscript transcript)

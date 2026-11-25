@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.LLMs;
@@ -679,10 +680,16 @@ public static class ThreadStorageService
     {
         lock (ThreadWriteLock)
         {
+            // Read before it goes: its attached documents are removed with it.
+            JObject deleted = GetThread(user, threadId);
             bool blobDeleted = user.DeleteGenericData(DataName, ThreadPrefix + threadId);
             bool indexHadEntry = RemoveFromIndex(user, threadId);
             // What the chat's file tools changed (the saved earlier versions) goes with it.
             ChangeJournalService.DeleteForThread(user, threadId);
+            if (deleted is not null)
+            {
+                ChatDocuments.DeleteForThread(user, deleted);
+            }
             return blobDeleted || indexHadEntry;
         }
     }

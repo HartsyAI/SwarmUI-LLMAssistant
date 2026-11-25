@@ -230,6 +230,8 @@ public static class LLMAssistantAPI
         API.RegisterAPICall(ChatEndpoints.LLMAssistantTestInstruction, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatImage, true, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantUploadChatVideo, true, PermChat);
+        API.RegisterAPICall(DocumentEndpoints.LLMAssistantUploadChatDocument, true, PermChat);
+        API.RegisterAPICall(DocumentEndpoints.LLMAssistantExtractDocument, false, PermChat);
         API.RegisterAPICall(ChatEndpoints.LLMAssistantCountTokens, false, PermChat);
         // Settings
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetSettings, false, PermSettings);

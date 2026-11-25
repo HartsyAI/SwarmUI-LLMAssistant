@@ -8,7 +8,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Knowledge;
 /// <param name="Number">Which piece of the document this is, from 0.</param>
 /// <param name="Text">The text, as the model will read it.</param>
 /// <param name="Heading">The nearest heading above it ("A > B" for nested ones), or empty.</param>
-public sealed record KnowledgeChunk(int Number, string Text, string Heading);
+/// <param name="Page">The page of the file it is from (a PDF), from 1, or 0.</param>
+public sealed record KnowledgeChunk(int Number, string Text, string Heading, int Page = 0);
 
 /// <summary>Turning a document into text that can be searched: reading it as text, splitting it into pieces, and the words a search compares. Everything here is a pure function of
 /// its input, with no clock, no storage and no operating-system text services, so it behaves the same on a server that runs with invariant globalization and is tested with fixed
