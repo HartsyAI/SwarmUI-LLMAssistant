@@ -1,5 +1,6 @@
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
+using Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 using Hartsy.Extensions.LLMAssistant.Services.Usage;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -104,6 +105,15 @@ public class UsageCostTests
         JObject thread = Thread(User("u", null, "q"), Reply("a", "u", prompt: 10, completion: 1), Reply("b", "u", prompt: 20, completion: 2), manual, imported);
         thread["activeLeafId"] = "b";
         Assert.Equal(["a", "b"], UsageReader.Replies(thread).Select(r => r.MessageId));
+    }
+
+    [Fact]
+    public void TheStarterSetsExampleChatsUsedNothing()
+    {
+        foreach (StarterChat chat in StarterContent.Chats)
+        {
+            Assert.Empty(UsageReader.Replies(chat.ToThread("user", "default", DateTime.UtcNow)));
+        }
     }
 
     [Fact]

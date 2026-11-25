@@ -158,6 +158,63 @@ public class LLMUsageTests
         Assert.Equal(7, Assert.Single(seen).Usage!.Value.CompletionTokens);
     }
 
+    /// <summary>A provider that streams the way a frame-based one does (the interface's own <c>StreamAsync</c>), one script of frames for each request.</summary>
+    private sealed class FrameProvider(params JObject[][] requests) : ILLMProvider
+    {
+        private int _next;
+
+        public string Id => "frames";
+
+        public string DisplayName => "Frames";
+
+        public Task<List<LLMModelInfo>> ListModels(CancellationToken ct = default) => Task.FromResult(new List<LLMModelInfo>());
+
+        public Task<string> Generate(ExtendedLLMInput input, CancellationToken ct = default) => Task.FromResult("");
+
+        public async Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct)
+        {
+            foreach (JObject frame in requests[_next++])
+            {
+                await onChunk((JObject)frame.DeepClone());
+            }
+        }
+
+        public int? CountTokens(string text) => null;
+
+        public Task<bool> Unload() => Task.FromResult(false);
+    }
+
+    [Theory]
+    [InlineData("error")]
+    [InlineData("cancelled")]
+    public async Task TheUsageOfARequestThatEndsBadlyGoesAheadOfItsStopReasonAndOnlyOnce(string reason)
+    {
+        List<TextChunk> chunks = await Collect(LLMChunkStream.FromFrames(async (send, _) =>
+        {
+            await send(Report(100, 1));
+            await send(Report(100, 4));
+            await send(new JObject { ["stopReason"] = reason, ["error"] = "broke" });
+            await send(Report(100, 9));
+        }));
+        Assert.Equal([TextChunkKind.Usage, TextChunkKind.StopReason], chunks.Select(c => c.Kind));
+        Assert.Equal(4, chunks[0].Usage!.Value.CompletionTokens);
+    }
+
+    [Fact]
+    public async Task AToolTurnThatEndsOnAnErrorEventKeepsWhatThatRequestReported()
+    {
+        FrameProvider provider = new(
+            [new JObject { ["native_tool_call"] = new JObject { ["id"] = "c1", ["name"] = "get_time", ["arguments"] = new JObject() } }, Report(100, 10), new JObject { ["stopReason"] = "tool_call" }],
+            [new JObject { ["chunk"] = "so far" }, Report(150, 5), new JObject { ["stopReason"] = "error", ["error"] = "the server broke" }]);
+        List<JObject> saved = [];
+        ToolTurnContext context = new() { ResolveProvider = _ => Task.FromResult<ILLMProvider>(provider), Dispatch = (_, _) => Task.FromResult(new JObject()), Persist = saved.Add };
+        ToolTurnOutcome outcome = await ToolTurnRunner.RunAsync(Input(true), context, new RecordingChatSink());
+        Assert.Equal("error", outcome.StopReason);
+        JObject usage = (JObject)saved[0]["meta"]["usage"];
+        Assert.Equal((250L, 15L, 2), (usage.Value<long>("promptTokens"), usage.Value<long>("completionTokens"), usage.Value<int>("rounds")));
+        Assert.True(usage.Value<bool>("incomplete"));
+    }
+
     [Fact]
     public async Task AToolTurnWhoseRoundsAllReportIsComplete()
     {

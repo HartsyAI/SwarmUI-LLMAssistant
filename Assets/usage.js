@@ -87,7 +87,7 @@ class LLMAUsage {
         let threadId = LLMAState.activeThreadId;
         let sequence = ++this.sequence;
         let chat = threadId && (LLMAState.messages || []).length > 0 ? this.ask('LLMAssistantGetThreadUsage', { threadId: threadId }) : null;
-        let [reply, status] = await Promise.all([chat, this.ask('LLMAssistantGetUsageTotals', { timeZone: this.timeZone(), budgetOnly: true })]);
+        let [reply, status] = await Promise.all([chat, this.totals({ budgetOnly: true }).catch(() => null)]);
         if (sequence != this.sequence) {
             return;
         }
@@ -95,6 +95,18 @@ class LLMAUsage {
         this.budget = status ? { currency: status.currency, warnings: status.budget.warnings } : null;
         this.render();
         this.warn();
+    }
+
+    /** The totals route in the browser's time zone; for a zone the server does not know, in UTC (`utcInstead` set), so the warning and the totals still show. */
+    async totals(args) {
+        try {
+            return await llmaRequest('LLMAssistantGetUsageTotals', { ...args, timeZone: this.timeZone() });
+        }
+        catch {
+            let reply = await llmaRequest('LLMAssistantGetUsageTotals', args);
+            reply.utcInstead = true;
+            return reply;
+        }
     }
 
     /** One request whose failure shows nothing: null instead of an error. */
@@ -305,7 +317,7 @@ class LLMAUsage {
     async periodsHtml() {
         let reply = null;
         try {
-            reply = await llmaRequest('LLMAssistantGetUsageTotals', { timeZone: this.timeZone(), sessionSeconds: this.sessionSeconds() });
+            reply = await this.totals({ sessionSeconds: this.sessionSeconds() });
         }
         catch (err) {
             return `<div class="llma-usage-note">${escapeHtml(llmaShortError(err) || translate('Totals could not be loaded.'))}</div>`;
@@ -329,6 +341,9 @@ class LLMAUsage {
             if (totals.partialReplies > 0) {
                 notes[2] = translate('Incomplete: some replies reported only part of their usage, so the real figures are higher.');
             }
+        }
+        if (reply.utcInstead) {
+            notes.push(translate('The server does not know your time zone, so days and weeks are counted in UTC.'));
         }
         notes.push(translate('All your chats, including sub-sessions and scheduled runs. Weeks start on Monday. Chats and messages you delete, and old scheduled runs that are removed automatically, drop out of these totals and the budget. Background requests such as titles and summaries are not counted.'));
         return `<table class="llma-usage-table">${rows}</table><div class="llma-usage-note">${escapeHtml(notes.filter(n => n).join(' '))}</div>`;

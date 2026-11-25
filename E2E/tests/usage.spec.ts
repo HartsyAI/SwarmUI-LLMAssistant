@@ -291,6 +291,20 @@ test('a reached budget warns and blocks nothing', async ({ llm }) => {
     await expect(llm.locator('#popover_llma_usage')).not.toContainText('This chat');
 });
 
+test('a time zone the server does not know still gets the warning and the totals, counted in UTC', async ({ llm }) => {
+    await llm.evaluate(() => {
+        (0, eval)('llmaUsage').timeZone = () => 'Mars/Olympus';
+    });
+    await api(llm, 'LLMAssistantSaveUsageSettings', { prices: { 'mock-model': { input: 2, output: 10 } }, budget: { enabled: true, daily: 0.001 } });
+    await setScenarios([exchange('hello', 'Hi there.')]);
+    await exchangeWith(llm, 'hello', 'Hi there.');
+    await expect(llm.locator('#llma-usage-warning')).toHaveText('Over daily budget');
+    await llm.locator('#llma-usage-warning').click();
+    let popover = llm.locator('#popover_llma_usage');
+    await expect(popover.locator('tr[data-period="day"]')).toContainText('1,200 tok');
+    await expect(popover).toContainText('counted in UTC');
+});
+
 test('each compare lane shows its own cost, and only the priced model has one', async ({ llm }) => {
     await api(llm, 'LLMAssistantSaveUsageSettings', { prices: { 'mock-model': { input: 2, output: 10 } } });
     await setScenarios([

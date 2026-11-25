@@ -15,8 +15,9 @@ namespace Hartsy.Extensions.LLMAssistant.LLMs;
 /// request many times over.</summary>
 public static class LLMChunkStream
 {
-    /// <summary>Runs <paramref name="produce"/> (one request) and streams the frames it emits, with its last usage report after the others. A run that ends without a stop reason
-    /// ends with <see cref="StopReason.Stop"/>; a producer exception surfaces to the consumer, after the usage reported before it.</summary>
+    /// <summary>Runs <paramref name="produce"/> (one request) and streams the frames it emits, with its last usage report after the others, except that it goes ahead of an
+    /// error or cancelled stop reason: the engine's tool loop reads nothing after one of those. A run that ends without a stop reason ends with <see cref="StopReason.Stop"/>;
+    /// a producer exception surfaces to the consumer, after the usage reported before it.</summary>
     public static async IAsyncEnumerable<TextChunk> FromFrames(Func<Func<JObject, Task>, CancellationToken, Task> produce, [EnumeratorCancellation] CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(produce);
@@ -47,6 +48,7 @@ public static class LLMChunkStream
         bool sawStop = false;
         bool sawToolCall = false;
         TextChunk usage = null;
+        bool usageSent = false;
         ExceptionDispatchInfo failure = null;
         try
         {
@@ -71,11 +73,16 @@ public static class LLMChunkStream
                     usage = chunk;
                     continue;
                 }
+                if (chunk is { Kind: TextChunkKind.StopReason, Stop: StopReason.Error or StopReason.Cancelled } && usage is not null && !usageSent)
+                {
+                    usageSent = true;
+                    yield return usage;
+                }
                 sawStop |= chunk.Kind == TextChunkKind.StopReason;
                 sawToolCall |= chunk.Kind == TextChunkKind.NativeToolCall;
                 yield return chunk;
             }
-            if (usage is not null)
+            if (usage is not null && !usageSent)
             {
                 yield return usage;
             }
