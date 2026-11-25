@@ -17,6 +17,8 @@ const LLMAState = {
     activeThreadMemoryExtraction: null,
     // Per-chat prompt rewrite switch: true/false, or null to follow the assistant and the settings (see rewrite-controls.js).
     activeThreadAutoEnhance: null,
+    // The assistant the loaded chat belongs to, which its turns use; activeAssistantId (the selected one) can differ from it.
+    activeThreadAssistantId: null,
     activeAssistantId: null,
     messages:          [],
     threads:           [],

@@ -90,6 +90,21 @@ public static class RewritePolicy
         return new RewriteDecision(layers.Master, RewriteLevels.Master);
     }
 
+    /// <summary>What actually happens: <see cref="Resolve"/>, except that a model whose rule is <em>no style</em> cannot be rewritten whatever a higher level says, and then the model is what decided.</summary>
+    public static RewriteDecision Outcome(RewriteLayers layers)
+    {
+        RewriteDecision decision = Resolve(layers);
+        return decision.Run && layers.Model == false ? new RewriteDecision(false, RewriteLevels.Model) : decision;
+    }
+
+    /// <summary>A switch as an API request gives it: <c>on</c> or <c>true</c>, <c>off</c> or <c>false</c> (core turns a JSON boolean into that text); <c>default</c>, empty or absent says nothing. False for anything else.</summary>
+    public static bool TryReadRequestSwitch(string value, out bool? result)
+    {
+        string text = (value ?? "").Trim().ToLowerInvariant();
+        result = text == "true" ? true : text == "false" ? false : ReadSwitch(text);
+        return result is not null || text.Length == 0 || text == SwitchDefault;
+    }
+
     /// <summary><c>on</c> is true and <c>off</c> is false; anything else (<c>default</c>, empty, unknown) says nothing.</summary>
     public static bool? ReadSwitch(string value) => (value ?? "").Trim().ToLowerInvariant() switch
     {
@@ -120,7 +135,7 @@ public static class RewritePolicy
     public static bool ShouldRewrite(User user, RewriteScope scope, string callMode, string imageModel, string styleId, RewriteSettings settings)
     {
         RewriteLayers layers = Layers(scope, callMode, null, settings);
-        return Resolve(layers).Run && Resolve(layers with { Model = ModelSwitch(user, imageModel, styleId) }).Run;
+        return Resolve(layers).Run && Outcome(layers with { Model = ModelSwitch(user, imageModel, styleId) }).Run;
     }
 
     /// <summary>What the user's rules say about an image model: off for a rule of <em>no style</em>, else nothing. A style named for the generation itself beats the rule.</summary>
@@ -146,6 +161,25 @@ public static class RewritePolicy
         return new RewriteScope(RewriteEntryPoints.Chat, ReadSwitch(thread?[ThreadKey]), assistant.AutoEnhance);
     }
 
+    /// <summary>Gives the chat <paramref name="to"/> the switch of the chat <paramref name="from"/>, when that one has its own: a session of a chat, and the chat a schedule made by a chat lists its runs under.</summary>
+    public static void CopyChatSwitch(JObject from, JObject to)
+    {
+        if (from?[ThreadKey] is { Type: JTokenType.Boolean } own)
+        {
+            to[ThreadKey] = own.DeepClone();
+        }
+    }
+
+    /// <summary>Takes the rewrite switch out of what a <em>default</em> preset set, when the chat has its own switch: a preset nobody named for this call must not undo what the user chose for the chat. Applied before the
+    /// call's own <c>params</c>, which still win.</summary>
+    public static void DropDefaultPresetSwitch(JObject presetLayer, bool defaultPreset, bool? chat, string parameterId, Func<string, string> idOf = null)
+    {
+        if (defaultPreset && chat is not null && parameterId is not null)
+        {
+            ImageParamKeys.Remove(presetLayer, parameterId, idOf);
+        }
+    }
+
     /// <summary>Sets or clears (null) a chat's own switch. Not activity in the chat, so it keeps its date and place in the list. Returns the chat, or null if not found.</summary>
     public static JObject SetChatSwitch(User user, string threadId, bool? value)
     {
@@ -163,17 +197,29 @@ public static class RewritePolicy
         }, touch: false);
     }
 
-    /// <summary>The image model a call to the image tool would use when the call names none: the assistant's default preset's, else the user's default image model; empty when neither is set.</summary>
+    /// <summary>The preset a call to the image tool gets when it names none (the assistant's, else the user's default preset for the tool), or null.</summary>
+    public static T2IPreset DefaultPreset(User user, string assistantId)
+    {
+        string name = ToolConfigService.GetConfig(ToolConstants.GenerateImage, user, assistantId)[GenerateImageTool.ConfigDefaultPreset]?.ToString();
+        return string.IsNullOrWhiteSpace(name) ? null : UserPresetCache.GetPreset(user, name);
+    }
+
+    /// <summary>What a preset sets a parameter to, however it spells the key; empty when it does not.</summary>
+    public static string PresetValue(T2IPreset preset, string parameterId)
+    {
+        if (preset is null || parameterId is null)
+        {
+            return "";
+        }
+        JObject layer = [];
+        ImageParamKeys.MergeLayer(layer, preset.ParamMap.Select(kv => new KeyValuePair<string, JToken>(kv.Key, kv.Value)));
+        return ImageParamKeys.Get(layer, parameterId)?.ToString()?.Trim() ?? "";
+    }
+
+    /// <summary>The image model a call to the image tool would use when the call names none: the default preset's, else the user's default image model; empty when neither is set.</summary>
     public static string DefaultChatImageModel(User user, string assistantId)
     {
-        string presetName = ToolConfigService.GetConfig(ToolConstants.GenerateImage, user, assistantId)[GenerateImageTool.ConfigDefaultPreset]?.ToString();
-        T2IPreset preset = string.IsNullOrWhiteSpace(presetName) ? null : UserPresetCache.GetPreset(user, presetName);
-        JObject layer = [];
-        if (preset is not null)
-        {
-            ImageParamKeys.MergeLayer(layer, preset.ParamMap.Select(kv => new KeyValuePair<string, JToken>(kv.Key, kv.Value)));
-        }
-        string presetModel = ImageParamKeys.Get(layer, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
+        string presetModel = PresetValue(DefaultPreset(user, assistantId), ImageParamKeys.Model);
         return ImageParamKeys.PickModel("", "", presetModel, ImageToolSettings.ForUser(user).DefaultModel).Requested;
     }
 }

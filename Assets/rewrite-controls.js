@@ -47,10 +47,23 @@ class LLMARewriteControls {
         return value === true ? 'on' : value === false ? 'off' : 'default';
     }
 
-    /** Takes the chat switch of a chat that was just loaded, then asks the server again. */
+    /** Takes the chat switch and the assistant of a chat that was just loaded, then asks the server again. */
     onThreadLoaded(thread) {
+        LLMAState.activeThreadAssistantId = thread.assistantId || null;
         LLMAState.activeThreadAutoEnhance = typeof thread.autoEnhance == 'boolean' ? thread.autoEnhance : null;
         this.refresh();
+    }
+
+    /** Takes up a chat that was just created. A switch changed while the creation was on its way is saved now, before the first message goes out. */
+    async onThreadCreated(thread) {
+        let wanted = LLMAState.activeThreadAutoEnhance;
+        if (wanted !== (thread.autoEnhance ?? null)) {
+            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantSetThreadAutoEnhance', { threadId: thread.id, enabled: wanted }), translate('Could not save the setting for this chat'));
+            if (reply) {
+                thread.autoEnhance = wanted;
+            }
+        }
+        this.onThreadLoaded(thread);
     }
 
     /** Asks the server what applies to the chat showing, for an image model (empty for the one the image tool would default to). */
@@ -58,7 +71,8 @@ class LLMARewriteControls {
         try {
             return await llmaRequest('LLMAssistantGetRewritePolicy', {
                 threadId: LLMAState.activeThreadId || '',
-                assistantId: LLMAState.activeAssistantId || '',
+                // A chat has its own assistant, which the selected one can differ from; only a chat not created yet takes the selected one.
+                assistantId: LLMAState.activeThreadId ? '' : (LLMAState.activeAssistantId || ''),
                 chatOverride: this.toSwitch(LLMAState.activeThreadAutoEnhance),
                 imageModel: imageModel
             });
@@ -85,12 +99,11 @@ class LLMARewriteControls {
             call: 'this generation', chat: 'this chat', assistant: 'the assistant', model: 'your rule for the image model',
             entryPoint: 'the All chats switch', master: 'the main switch in Settings'
         };
-        let by = `${translate('Decided by')} ${translate(levels[policy.decidedBy] || policy.decidedBy)}.`;
+        let level = policy.preset ? `${translate('the default preset')} ${policy.preset}` : translate(levels[policy.decidedBy] || policy.decidedBy);
+        let by = `${translate('Decided by')} ${level}.`;
         if (!policy.run) {
-            return `${translate('Off: image prompts are sent as written.')} ${by}`;
-        }
-        if (policy.layers.model === false) {
-            return `${translate('On, but your rule gives this image model no style, so its prompts are sent as written:')} ${policy.imageModel}. ${by}`;
+            let model = policy.decidedBy == 'model' ? ` ${translate('It gives this image model no style:')} ${policy.imageModel}.` : '';
+            return `${translate('Off: image prompts are sent as written.')} ${by}${model}`;
         }
         return `${translate('On: image prompts are rewritten for their model.')} ${by}`;
     }

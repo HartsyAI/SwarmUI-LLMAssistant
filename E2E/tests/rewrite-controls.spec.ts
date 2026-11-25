@@ -1,4 +1,4 @@
-import { test as base, expect, setScenarios, mockRequests, clearRequests, api, send, lastAssistant, reopen, turn } from './fixtures';
+import { test as base, expect, setScenarios, mockRequests, clearRequests, api, send, lastAssistant, reopen, turn, enableScheduleTools, resetScheduleTools, clearSchedules } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // Rewrite controls: which switch decides whether a generation's prompt is rewritten (per call, per chat, per assistant, the model's rule, the entry point, the main switch), the composer's popover and preview,
@@ -6,6 +6,7 @@ import type { Page } from '@playwright/test';
 // rewrite. Every case uses its own prompt, so the rewrite cache never answers for the model.
 
 const MYSTERY = 'e2e-mystery.safetensors';
+const OTHER = 'e2e-rewrite-other';
 
 const test = base.extend<{ llm: Page }>({
     llm: async ({ llm }, use) => {
@@ -19,7 +20,9 @@ const test = base.extend<{ llm: Page }>({
 async function clean(page: Page) {
     await setSwitches(page, false);
     expect((await api(page, 'LLMAssistantSetStyleOverrides', { overrides: [] })).success).toBe(true);
-    await api(page, 'LLMAssistantDeleteAssistant', { assistantId: 'default', scope: 'personal' });
+    for (let assistantId of ['default', OTHER]) {
+        await api(page, 'LLMAssistantDeleteAssistant', { assistantId: assistantId, scope: 'personal' });
+    }
     await clearRequests();
     await setScenarios([]);
 }
@@ -290,4 +293,135 @@ test('the popover and the preview fit a phone width', async ({ llm }) => {
     await expect(llm.locator('.llma-preview-rewritten')).toBeVisible();
     await inside('.llma-rewrite-modal');
     await llm.screenshot({ path: 'test-results/rewrite-preview-phone.png' });
+});
+
+/** A new preset that switches the rewrite on, made the default assistant's default for the image tool. Its name is new each time, so no cached preset list answers for it. */
+async function useEnhancingDefaultPreset(page: Page): Promise<string> {
+    let param = (await api(page, 'ListT2IParams')).list.find((p: any) => p.name == 'LLM Auto-Enhance Prompt').id;
+    let title = `E2E-Enhance-${Date.now()}`;
+    let added = await api(page, 'AddNewPreset', { title: title, description: '', param_map: { [param]: 'on' } });
+    expect(added.success, JSON.stringify(added)).toBe(true);
+    let current = (await api(page, 'LLMAssistantGetAssistant', { assistantId: 'default' })).assistant;
+    let saved = await api(page, 'LLMAssistantSaveAssistant', { assistant: { ...current, toolConfig: { generate_image: { defaultPreset: title } } }, scope: 'personal' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    return title;
+}
+
+test('a chat\'s own assistant decides, not the one selected, for the status and for a tool run by hand', async ({ llm }) => {
+    await setSwitches(llm, true);
+    await setAssistant(llm, true);
+    let other = { id: OTHER, name: OTHER, icon: 'chat', instructions: {}, enabledToolIds: ['generate_image'] };
+    let saved = await api(llm, 'LLMAssistantSaveAssistant', { assistant: { ...other, autoEnhance: false }, scope: 'personal' });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+    let thread = (await api(llm, 'LLMAssistantCreateThread', { assistantId: OTHER })).thread;
+    // What a reload of the assistant list does: the open chat is the other assistant's, the selected one is the default.
+    await llm.evaluate(async id => {
+        await (0, eval)('llmaLoadAssistants')();
+        await (0, eval)('llmaSwitchThread')(id);
+        (0, eval)('LLMAState').activeAssistantId = 'default';
+        await (0, eval)('llmaRewriteControls').refresh();
+    }, thread.id);
+    await expect(llm.locator('#llma-enhance-label')).toHaveText('Off');
+    await openPopover(llm);
+    await expect(llm.locator('#llma-enhance-status')).toContainText('the assistant');
+    await llm.keyboard.press('Escape');
+    // The route answers for the chat's assistant even when the request names another.
+    expect(await api(llm, 'LLMAssistantGetRewritePolicy', { threadId: thread.id, assistantId: 'default' })).toMatchObject({ run: false, decidedBy: 'assistant' });
+    let byHand = async (label: string) => {
+        await clearRequests();
+        await setScenarios([{ match: `idea-${label}`, rounds: [{ text: `A rewritten picture ${label}.` }] }]);
+        await llm.evaluate(async args => {
+            (0, eval)('LLMAState').activeAssistantId = 'default';
+            await (0, eval)('llmaRunToolDirect')({ id: 'generate_image' }, args);
+        }, { prompt: `idea-${label}`, model: MYSTERY });
+        // The tool really ran as the chat's assistant: it was not refused before reaching the generation.
+        let messages = (await api(llm, 'LLMAssistantGetThread', { threadId: thread.id })).thread.messages;
+        let result = messages[messages.length - 1].toolCalls[0].result;
+        expect(String(result.error ?? ''), JSON.stringify(result)).not.toContain('not enabled');
+        return await rewrites();
+    };
+    expect(await byHand('hand-off')).toHaveLength(0);
+    // The route does the same for a caller that gives only the chat.
+    await clearRequests();
+    await api(llm, 'LLMAssistantExecuteTool', { toolId: 'generate_image', threadId: thread.id, arguments: { prompt: 'idea-route-off', model: MYSTERY } });
+    expect(await rewrites()).toHaveLength(0);
+    await api(llm, 'LLMAssistantSaveAssistant', { assistant: { ...other, autoEnhance: true }, scope: 'personal' });
+    await setAssistant(llm, false);
+    expect(await byHand('hand-on')).toHaveLength(1);
+});
+
+test('a default preset\'s rewrite setting counts for a chat with no switch of its own, and gives way to one that has it', async ({ llm }) => {
+    let preset = await useEnhancingDefaultPreset(llm);
+    try {
+        await llm.evaluate(async () => { await (0, eval)('llmaRewriteControls').refresh(); });
+        await expect(llm.locator('#llma-enhance-label')).toHaveText('On');
+        await openPopover(llm);
+        await expect(llm.locator('#llma-enhance-status')).toContainText(preset);
+        await llm.keyboard.press('Escape');
+        expect(await draw(llm, 'preset-default')).toHaveLength(1);
+
+        await chooseForChat(llm, 'off');
+        await expect(llm.locator('#llma-enhance-label')).toHaveText('Off');
+        let thread = await activeThread(llm);
+        expect(await api(llm, 'LLMAssistantGetRewritePolicy', { threadId: thread.id })).toMatchObject({ run: false, decidedBy: 'chat', preset: null });
+        expect(await draw(llm, 'preset-chat-off')).toHaveLength(0);
+        // The call's own params still win, and so does the preset when the call names it.
+        let param = (await api(llm, 'ListT2IParams')).list.find((p: any) => p.name == 'LLM Auto-Enhance Prompt').id;
+        expect(await draw(llm, 'params-over-chat', { params: { [param]: 'on' } })).toHaveLength(1);
+        expect(await draw(llm, 'named-preset', { preset: preset })).toHaveLength(1);
+    }
+    finally {
+        await api(llm, 'DeletePreset', { preset: preset });
+    }
+});
+
+test('the chat a schedule lists its runs under takes the switch of the chat that made the schedule', async ({ llm }) => {
+    await enableScheduleTools(llm);
+    try {
+        let maker = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default', autoEnhance: false })).thread;
+        await setScenarios([{ match: 'rewrite-sched', rounds: [{ text: 'Ran.' }] }]);
+        let made = await api(llm, 'LLMAssistantExecuteTool', { toolId: 'schedule_create', threadId: maker.id, arguments: { title: 'Pictures', prompt: 'rewrite-sched', everyMinutes: 60, model: 'mock-model' } });
+        expect(made.result.success, JSON.stringify(made)).toBe(true);
+        let id = (await api(llm, 'LLMAssistantGetSchedules')).schedules[0].id;
+        let started = await api(llm, 'LLMAssistantRunSchedule', { scheduleId: id });
+        expect(started.started, JSON.stringify(started)).toBe(true);
+        let run = (await api(llm, 'LLMAssistantGetThread', { threadId: started.threadId })).thread;
+        expect(run.autoEnhance).toBe(false);
+        expect((await api(llm, 'LLMAssistantGetThread', { threadId: run.parentThreadId })).thread.autoEnhance).toBe(false);
+        await expect.poll(async () => (await api(llm, 'LLMAssistantGetThread', { threadId: started.threadId })).thread.sessionStatus, { timeout: 30_000 }).toBe('done');
+    }
+    finally {
+        await clearSchedules(llm);
+        await resetScheduleTools(llm);
+    }
+});
+
+test('creating a chat takes the switch as a boolean or as text, and refuses anything else', async ({ llm }) => {
+    for (let [sent, stored] of [[true, true], [false, false], ['off', false], ['default', null]] as const) {
+        let reply = await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default', autoEnhance: sent });
+        expect(reply.thread.autoEnhance ?? null, String(sent)).toBe(stored);
+    }
+    let before = (await api(llm, 'LLMAssistantGetThreads')).threads.length;
+    let refused = await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default', autoEnhance: 'maybe' });
+    expect(refused.error).toContain('autoEnhance must be');
+    expect((await api(llm, 'LLMAssistantGetThreads')).threads).toHaveLength(before);
+    // A chat that is on, for a model with no style: nothing would be rewritten, and the model is what says so.
+    let thread = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default', autoEnhance: true })).thread;
+    await api(llm, 'LLMAssistantSetStyleOverrides', { overrides: [{ axis: 'image', match: MYSTERY, style: 'off' }] });
+    expect(await api(llm, 'LLMAssistantGetRewritePolicy', { threadId: thread.id, imageModel: MYSTERY })).toMatchObject({ run: false, decidedBy: 'model' });
+});
+
+test('a switch changed while the chat is being created is kept', async ({ llm }) => {
+    await llm.route('**/API/LLMAssistantCreateThread', async route => {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        await route.continue();
+    });
+    await chooseForChat(llm, 'on');
+    let asked = llm.waitForRequest('**/API/LLMAssistantCreateThread');
+    await send(llm, 'hello while creating');
+    await asked;
+    await chooseForChat(llm, 'off');
+    await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble').last()).toContainText('Mock reply');
+    await expect.poll(async () => (await activeThread(llm)).autoEnhance).toBe(false);
+    await expect(llm.locator('#llma-enhance-label')).toHaveText('Off');
 });

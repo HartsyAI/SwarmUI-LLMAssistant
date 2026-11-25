@@ -705,8 +705,8 @@ async function llmaCreateThread(assistantId) {
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
     // "Don't remember this chat", flipped before the chat existed, was sent with the creation itself (rememberChat), so there is no second call that could fail and leave the chat remembered.
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
-    // The rewrite switch chosen before the chat existed was sent with the creation too.
-    llmaRewriteControls.onThreadLoaded(thread);
+    // The rewrite switch chosen before the chat existed was sent with the creation too; one changed while it was on its way is saved here.
+    await llmaRewriteControls.onThreadCreated(thread);
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;

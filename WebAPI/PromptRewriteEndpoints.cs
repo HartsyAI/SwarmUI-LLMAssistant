@@ -1,7 +1,9 @@
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
+using Hartsy.Extensions.LLMAssistant.T2I;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
+using SwarmUI.Text2Image;
 
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
@@ -10,9 +12,11 @@ namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 public static class PromptRewriteEndpoints
 {
     /// <summary>Whether an automatic rewrite would run, and why; nothing is rewritten and the chat model is not asked. Request: <c>{ threadId?, assistantId?, entryPoint? (chat, the default, or generate), imageModel?,
-    /// styleId?, autoEnhance? (the generation's own on/off), chatOverride? (on/off for a chat not created yet) }</c>. With <c>entryPoint</c> chat and no <c>imageModel</c>, the model the image tool would default to is
-    /// used. Returns <c>{success, run, decidedBy (call, chat, assistant, model, entryPoint or master), entryPoint, imageModel, layers: {call, chat, assistant, model, entryPoint, master}, settings: {auto, chat,
-    /// generate}}</c>, a layer being true, false or null (says nothing), and <c>settings.chat</c> / <c>settings.generate</c> being <c>on</c>, <c>off</c> or <c>default</c>.</summary>
+    /// styleId?, autoEnhance? (the generation's own on/off), chatOverride? (on/off for a chat not created yet) }</c>. <c>assistantId</c> is for a chat not created yet: a chat's own assistant wins, as in its turns. With <c>entryPoint</c> chat and no <c>imageModel</c>, the model the image tool would default to is
+    /// used, and when neither the request nor the chat has a switch of its own the default preset's rewrite setting counts as the call's (as in the tool). Returns <c>{success, run, decidedBy (call, chat, assistant,
+    /// model, entryPoint or master), preset (the default preset the call level came from, or null), entryPoint, imageModel, layers: {call, chat, assistant, model, entryPoint, master}, settings: {auto, chat,
+    /// generate}}</c>, a layer being true, false or null (says nothing), and <c>settings.chat</c> / <c>settings.generate</c> being <c>on</c>, <c>off</c> or <c>default</c>. <c>run</c> is false, decided by the model,
+    /// whenever the model's rule is <em>no style</em>.</summary>
     public static async Task<JObject> LLMAssistantGetRewritePolicy(Session session, string threadId = "", string assistantId = "", string entryPoint = RewriteEntryPoints.Chat, string imageModel = "", string styleId = "",
         string autoEnhance = "", string chatOverride = "")
     {
@@ -27,10 +31,12 @@ public static class PromptRewriteEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
         }
-        if (string.IsNullOrWhiteSpace(assistantId))
+        // A chat's turns always use the chat's own assistant, so it wins over one the request names; the name is for a chat not created yet.
+        if (thread?["assistantId"]?.ToString() is { Length: > 0 } own)
         {
-            assistantId = thread?["assistantId"]?.ToString();
+            assistantId = own;
         }
+        string callMode = autoEnhance, style = styleId, presetName = null;
         RewriteScope scope = RewriteScope.Generate;
         string model = (imageModel ?? "").Trim();
         if (entry == RewriteEntryPoints.Chat)
@@ -44,15 +50,28 @@ public static class PromptRewriteEndpoints
             {
                 model = RewritePolicy.DefaultChatImageModel(session.User, assistantId);
             }
+            T2IPreset preset = RewritePolicy.DefaultPreset(session.User, assistantId);
+            if (string.IsNullOrWhiteSpace(style))
+            {
+                string presetStyle = RewritePolicy.PresetValue(preset, PromptTagHandler.ParamPromptStyle?.Type.ID);
+                style = string.Equals(presetStyle, PromptAutoEnhance.StyleAuto, StringComparison.OrdinalIgnoreCase) ? "" : presetStyle;
+            }
+            string presetMode = RewritePolicy.PresetValue(preset, PromptTagHandler.ParamAutoEnhance?.Type.ID);
+            if (scope.Chat is null && RewritePolicy.ReadSwitch(callMode) is null && RewritePolicy.ReadSwitch(presetMode) is not null)
+            {
+                callMode = presetMode;
+                presetName = preset.Title;
+            }
         }
         RewriteSettings settings = RewriteSettings.ForUser(session.User);
-        RewriteLayers layers = RewritePolicy.Layers(scope, autoEnhance, RewritePolicy.ModelSwitch(session.User, model, styleId), settings);
-        RewriteDecision decision = RewritePolicy.Resolve(layers);
+        RewriteLayers layers = RewritePolicy.Layers(scope, callMode, RewritePolicy.ModelSwitch(session.User, model, style), settings);
+        RewriteDecision decision = RewritePolicy.Outcome(layers);
         return new JObject
         {
             ["success"] = true,
             ["run"] = decision.Run,
             ["decidedBy"] = decision.Level,
+            ["preset"] = decision.Level == RewriteLevels.Call ? presetName : null,
             ["entryPoint"] = entry,
             ["imageModel"] = model,
             ["layers"] = new JObject

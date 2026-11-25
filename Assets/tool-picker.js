@@ -383,6 +383,8 @@ async function llmaRunToolDirect(tool, args) {
         await llmaCreateThread(LLMAState.activeAssistantId);
     }
     llmaShowChatPanel();
+    // The chat's own assistant, as its turns use; the selected one can differ from it.
+    const assistantId = LLMAState.activeThreadAssistantId || LLMAState.activeAssistantId;
     const callId = llmaGenerateId();
     const msgId = llmaGenerateId();
     llmaAppendMessageToDOM('assistant', '', null, msgId);
@@ -397,7 +399,7 @@ async function llmaRunToolDirect(tool, args) {
             toolId: tool.id,
             arguments: args,
             callId,
-            assistantId: LLMAState.activeAssistantId,
+            assistantId,
             threadId: LLMAState.activeThreadId,
         });
         result = res?.result ?? { success: res?.success !== false };

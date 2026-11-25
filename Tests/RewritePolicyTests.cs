@@ -112,6 +112,63 @@ public class RewritePolicyTests
         Assert.Null(RewritePolicy.ModelSwitch(null, "", ""));
     }
 
+    [Theory]
+    [InlineData("on", true, true)]
+    [InlineData("True", true, true)]
+    [InlineData("off", true, false)]
+    [InlineData("False", true, false)]
+    [InlineData("default", true, null)]
+    [InlineData("", true, null)]
+    [InlineData(null, true, null)]
+    [InlineData("yes", false, null)]
+    [InlineData("1", false, null)]
+    public void ARequestMayGiveASwitchAsTextOrABooleanAndAnythingElseIsRefused(string text, bool accepted, bool? expected)
+    {
+        Assert.Equal(accepted, RewritePolicy.TryReadRequestSwitch(text, out bool? value));
+        Assert.Equal(expected, value);
+    }
+
+    /// <summary>A preset's layer holding the rewrite parameter in two spellings, with a stand-in for core's key cleaning.</summary>
+    private static JObject PresetLayer() => new() { ["LLM Auto-Enhance Prompt"] = "on", ["llmautoenhanceprompt"] = "on", ["steps"] = "20" };
+
+    private static string Clean(string key) => new([.. key.ToLowerInvariant().Where(char.IsLetter)]);
+
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, null, true)]
+    [InlineData(false, false, true)]
+    public void OnlyADefaultPresetsRewriteSettingGivesWayToTheChatsOwnSwitch(bool defaultPreset, bool? chat, bool kept)
+    {
+        JObject layer = PresetLayer();
+        RewritePolicy.DropDefaultPresetSwitch(layer, defaultPreset, chat, "llmautoenhanceprompt", Clean);
+        Assert.Equal(kept ? 3 : 1, layer.Count);
+        Assert.Equal("20", (string)layer["steps"]);
+    }
+
+    [Theory]
+    [InlineData("""{"autoEnhance":true}""", true)]
+    [InlineData("""{"autoEnhance":false}""", false)]
+    [InlineData("""{"autoEnhance":"on"}""", null)]
+    [InlineData("{}", null)]
+    [InlineData(null, null)]
+    public void ASessionOrAScheduleChatTakesTheSwitchOfTheChatThatMadeIt(string from, bool? expected)
+    {
+        JObject to = [];
+        RewritePolicy.CopyChatSwitch(from is null ? null : JObject.Parse(from), to);
+        Assert.Equal(expected, (bool?)to[RewritePolicy.ThreadKey]);
+    }
+
+    [Fact]
+    public void AModelWithNoStyleIsNotRewrittenWhateverSaysOnAndIsWhatDecided()
+    {
+        RewriteLayers on = new(true, null, null, false, null, false);
+        Assert.Equal(new RewriteDecision(false, RewriteLevels.Model), RewritePolicy.Outcome(on));
+        Assert.Equal(new RewriteDecision(true, RewriteLevels.Call), RewritePolicy.Outcome(on with { Model = null }));
+        // A higher level that says off is still what decided.
+        Assert.Equal(new RewriteDecision(false, RewriteLevels.Call), RewritePolicy.Outcome(on with { Call = false }));
+    }
+
     [Fact]
     public void AnAssistantsSwitchIsInheritedUntilAChildSaysOtherwise()
     {

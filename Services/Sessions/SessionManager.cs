@@ -149,10 +149,7 @@ public static class SessionManager
                 thread["toolsEnabled"] = parent["toolsEnabled"];
             }
             // A chat that switched prompt rewriting on or off means it for the images its sessions make too.
-            if (parent[PromptRewrite.RewritePolicy.ThreadKey]?.Type == JTokenType.Boolean)
-            {
-                thread[PromptRewrite.RewritePolicy.ThreadKey] = parent[PromptRewrite.RewritePolicy.ThreadKey];
-            }
+            PromptRewrite.RewritePolicy.CopyChatSwitch(parent, thread);
             // The title is the one the assistant gave; a generated one would replace it after the first turn.
             ThreadStorageService.MarkTitleClaimed(thread);
             return true;

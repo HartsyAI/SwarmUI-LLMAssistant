@@ -103,7 +103,8 @@ public class GenerateImageTool : ToolHandler
         }
         // Resolve presets: explicit args, else fall back to the assistant/user default.
         List<string> presetNames = ParsePresetNames(args["preset"]);
-        if (presetNames.Count == 0)
+        bool defaultedPreset = presetNames.Count == 0;
+        if (defaultedPreset)
         {
             string defaultPreset = ToolConfigService.GetConfig(HandlerId, session.User, ctx.AssistantId)[ConfigDefaultPreset]?.ToString();
             if (!string.IsNullOrWhiteSpace(defaultPreset))
@@ -138,6 +139,9 @@ public class GenerateImageTool : ToolHandler
             presetsApplied.Add(preset.Title);
         }
         string presetModel = ImageParamKeys.Get(rawInput, ImageParamKeys.Model)?.ToString()?.Trim() ?? "";
+        // Which chat and assistant switches apply to this call. A default preset's own rewrite setting gives way to the chat's.
+        RewriteScope rewriteScope = RewritePolicy.ForChat(session.User, ctx.ThreadId, ctx.AssistantId);
+        RewritePolicy.DropDefaultPresetSwitch(rawInput, defaultedPreset, rewriteScope.Chat, PromptTagHandler.ParamAutoEnhance?.Type.ID);
         string paramsModel = "";
         if (args["params"] is JObject paramsArg)
         {
@@ -216,7 +220,7 @@ public class GenerateImageTool : ToolHandler
         JObject extraMetadata = new()
         {
             [PromptAutoEnhance.MetaReportId] = reportId,
-            [PromptAutoEnhance.MetaScope] = RewritePolicy.ForChat(session.User, ctx.ThreadId, ctx.AssistantId).ToMeta()
+            [PromptAutoEnhance.MetaScope] = rewriteScope.ToMeta()
         };
         if (presetsApplied.Count > 0)
         {
