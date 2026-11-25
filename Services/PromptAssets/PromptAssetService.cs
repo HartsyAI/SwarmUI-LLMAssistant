@@ -287,8 +287,15 @@ public static class PromptAssetService
     private static string FilePathFor(string root, string kind, string name)
         => kind == PromptAsset.KindSkill ? Path.Combine(root, "skills", name, PromptAssetStore.SkillFile) : Path.Combine(root, "commands", name + ".md");
 
-    /// <summary>Saves a skill or command as a personal asset, or as a shared one (which needs <c>llm_shared_write</c>). Returns false with the reason in <paramref name="error"/>.</summary>
-    public static bool Save(User user, string kind, string name, string description, string argumentHint, string body, bool userOnly, string scope, out string error)
+    /// <summary>The error of a create-only save whose name is in use.</summary>
+    public const string AlreadyExists = "There is already a skill or command by that name.";
+
+    /// <summary>Whether <paramref name="root"/> has a file for <paramref name="name"/>, as a command or as a skill.</summary>
+    public static bool NameTaken(string root, string name) => File.Exists(FilePathFor(root, PromptAsset.KindCommand, name)) || File.Exists(FilePathFor(root, PromptAsset.KindSkill, name));
+
+    /// <summary>Saves a skill or command as a personal asset, or as a shared one (which needs <c>llm_shared_write</c>). With <paramref name="createOnly"/> nothing is replaced: a name that has a
+    /// file already, of either kind, is refused with <see cref="AlreadyExists"/>. Returns false with the reason in <paramref name="error"/>.</summary>
+    public static bool Save(User user, string kind, string name, string description, string argumentHint, string body, bool userOnly, string scope, out string error, bool createOnly = false)
     {
         error = null;
         name = (name ?? "").Trim().ToLowerInvariant();
@@ -330,9 +337,29 @@ public static class PromptAssetService
             error = "There is nowhere to save it.";
             return false;
         }
+        if (!Write(root, scope, kind, name, text, createOnly, out error))
+        {
+            return false;
+        }
+        if (scope == PromptAsset.ScopeShared)
+        {
+            AuditLogService.RecordSharedWrite("update", $"{kind}:{name}", user, new JObject { ["kind"] = kind });
+        }
+        return true;
+    }
+
+    /// <summary>Writes an asset's file under <paramref name="root"/>, the check and the write under one lock, so a create-only write cannot replace what another save made meanwhile.</summary>
+    internal static bool Write(string root, string scope, string kind, string name, string text, bool createOnly, out string error)
+    {
+        error = null;
         string file = FilePathFor(root, kind, name);
         lock (FileLock)
         {
+            if (createOnly && NameTaken(root, name))
+            {
+                error = AlreadyExists;
+                return false;
+            }
             if (!File.Exists(file) && PromptAssetStore.Load(root, scope).Count >= PromptAssetStore.MaxPerRoot)
             {
                 error = $"Up to {PromptAssetStore.MaxPerRoot} skills and commands can be kept in one place.";
@@ -341,11 +368,7 @@ public static class PromptAssetService
             Directory.CreateDirectory(Path.GetDirectoryName(file));
             string temp = file + ".tmp";
             File.WriteAllText(temp, text, new UTF8Encoding(false));
-            File.Move(temp, file, true);
-        }
-        if (scope == PromptAsset.ScopeShared)
-        {
-            AuditLogService.RecordSharedWrite("update", $"{kind}:{name}", user, new JObject { ["kind"] = kind });
+            File.Move(temp, file, !createOnly);
         }
         return true;
     }

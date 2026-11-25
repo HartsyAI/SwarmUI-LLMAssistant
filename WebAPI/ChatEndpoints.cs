@@ -8,6 +8,7 @@ using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.Memory;
+using Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
@@ -794,6 +795,7 @@ public static class ChatEndpoints
             // AppendMessage fills in the id when the client didn't supply one; capture it as the explicit
             // parent for compare lanes (so both replies become siblings of this exact user turn).
             string parentUserId = userMsg["id"]?.ToString();
+            OnboardingService.NoteMessage(session.User);
             // Compare mode: `models` is an array of { model, device?, assistantMessageId? }. Two-or-more
             // entries fan the same prompt out to each model side-by-side. Otherwise the normal single path.
             JArray compareModels = rawInput["models"] as JArray;

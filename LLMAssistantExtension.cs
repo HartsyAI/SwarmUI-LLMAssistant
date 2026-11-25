@@ -60,6 +60,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/memory.js");
         // The setup check at the foot of the General tab.
         ScriptFiles.Add("Assets/readiness.js");
+        // The first-run guide and the starter set. Needs readiness.js (its status badges).
+        ScriptFiles.Add("Assets/onboarding.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
         ScriptFiles.Add("Assets/assets.js");
@@ -97,6 +99,7 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
         StyleSheetFiles.Add("Assets/llma-backend-cards.css");
         StyleSheetFiles.Add("Assets/llma-code.css");
+        StyleSheetFiles.Add("Assets/llma-onboarding.css");
         // Static asset files (images), served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.
         OtherAssets.Add("Assets/swarmui-logo.jpg");

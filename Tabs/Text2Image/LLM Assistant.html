@@ -146,6 +146,9 @@
 
         <!-- Content -->
         <div class="llma-content">
+            <!-- First-run guide (onboarding.js): shown over an empty chat; the message box stays usable. -->
+            <section class="llma-onboarding" id="llma-onboarding" style="display:none;" aria-labelledby="llma-onboarding-title"></section>
+
             <!-- Welcome / Gallery -->
             <div class="llma-welcome" id="llma-welcome">
                 <!-- Personalized hero (assistant avatar + greeting + rotating tip).
@@ -381,6 +384,8 @@
                     <div id="llma-settings-general-form"></div>
                     <!-- The setup check (readiness.js): is everything ready, and what to fix -->
                     <div id="llma-readiness" class="mt-3"></div>
+                    <!-- Running the first-run guide again (onboarding.js) -->
+                    <div id="llma-onboarding-settings" class="mt-3"></div>
                 </div>
 
                 <!-- Assistants -->
