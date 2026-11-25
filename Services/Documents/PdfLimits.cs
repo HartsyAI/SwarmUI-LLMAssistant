@@ -35,8 +35,9 @@ internal static class PdfLimits
     /// <summary>The most forms one page may draw, and the most content streams it may list.</summary>
     public const int MaxPageForms = 2000, MaxPageContentStreams = 1000;
 
-    /// <summary>The most characters the font maps of one file may describe by ranges. The parser makes an entry for every character in a range, so a few bytes can ask for billions.</summary>
-    public const long MaxFontMapEntries = 500_000;
+    /// <summary>The most characters one width list or character map may describe by ranges, and all of them in a file, a map counting again for each font that uses it. The parser makes an
+    /// entry for every character in a range, so a few bytes can ask for billions. Ordinary files give whole 16-bit ranges (65,536) font after font, so about thirty such lists or maps fit.</summary>
+    public const long MaxFontMapEntries = 150_000, MaxFileFontMapEntries = 2_000_000;
 
     /// <summary>The most objects looked at when checking a file's font maps.</summary>
     private const int MaxObjects = 300_000;
@@ -179,7 +180,8 @@ internal static class PdfLimits
     {
         Stack<IToken> waiting = new();
         HashSet<IndirectReference> seen = [];
-        HashSet<StreamToken> maps = [];
+        // What each character map covers, so one that many fonts use is read once.
+        Dictionary<object, long> maps = [];
         long entries = 0;
         int looked = 0;
         waiting.Push(catalog);
@@ -225,17 +227,27 @@ internal static class PdfLimits
                 case DictionaryToken dictionary:
                     foreach (KeyValuePair<string, IToken> entry in dictionary.Data)
                     {
+                        long covered = 0;
                         if (entry.Key is "W" or "W2" && Resolve(entry.Value, scanner) is ArrayToken widths)
                         {
-                            entries += WidthEntries(widths, entry.Key == "W" ? 3 : 5, scanner);
+                            covered = WidthEntries(widths, entry.Key == "W" ? 3 : 5, scanner);
                         }
-                        else if (entry.Key is "ToUnicode" or "Encoding" && Resolve(entry.Value, scanner) is StreamToken map && maps.Add(map))
+                        else if (entry.Key is "ToUnicode" or "Encoding" && Resolve(entry.Value, scanner) is StreamToken map)
                         {
-                            entries += MapEntries(map.Decode(decoders, scanner).Span);
+                            object key = entry.Value is IndirectReferenceToken named ? named.Data : map;
+                            if (!maps.TryGetValue(key, out covered))
+                            {
+                                maps[key] = covered = MapEntries(map.Decode(decoders, scanner).Span);
+                            }
                         }
+                        if (covered > MaxFontMapEntries)
+                        {
+                            return false;
+                        }
+                        entries += covered;
                         waiting.Push(entry.Value);
                     }
-                    if (entries > MaxFontMapEntries)
+                    if (entries > MaxFileFontMapEntries)
                     {
                         return false;
                     }

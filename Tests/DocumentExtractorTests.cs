@@ -239,6 +239,57 @@ public sealed class DocumentExtractorTests
     public void An_ordinary_composite_font_is_not_refused()
         => Assert.NotEqual(DocumentStatus.TooLarge, Read("cid.pdf", CompositeFont("/W [0 [500] 1 65535 600]", "<0000> <FFFF> <0000>")).Status);
 
+    /// <summary>A page with several composite fonts, each listing widths for every 16-bit character, and each with its own Unicode map of the whole range or all sharing one.</summary>
+    private static byte[] ManyFonts(int count, bool sharedMap)
+    {
+        byte[] map = DocumentFixtures.Deflate(Ascii("begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfrange <0000> <FFFF> <0000> endbfrange endcmap"));
+        // Object 4 is the content, 5 the descriptor, 6 the shared map; then three objects for each font: the font, its descendant and its own map.
+        List<(string, byte[])> objects = [("", Ascii("BT /F0 12 Tf 10 10 Td <0041> Tj ET")), ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null), ("/Filter /FlateDecode", map)];
+        for (int i = 0; i < count; i++)
+        {
+            int font = 7 + i * 3;
+            objects.Add(($"<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [{font + 1} 0 R] /ToUnicode {(sharedMap ? 6 : font + 2)} 0 R >>", null));
+            objects.Add(("<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor 5 0 R /W [0 65535 500] >>", null));
+            objects.Add(("/Filter /FlateDecode", map));
+        }
+        string fonts = string.Join(' ', Enumerable.Range(0, count).Select(i => $"/F{i} {7 + i * 3} 0 R"));
+        return DocumentFixtures.Objects($"/Resources << /Font << {fonts} >> >> /Contents 4 0 R", [.. objects]);
+    }
+
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(12, false)]
+    [InlineData(12, true)]
+    public void A_file_with_several_full_range_fonts_is_read(int count, bool sharedMap)
+    {
+        ExtractedDocument doc = Read("cjk.pdf", ManyFonts(count, sharedMap));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+    }
+
+    [Theory]
+    [InlineData(40, false)]
+    [InlineData(200, true)]
+    public void Fonts_without_end_are_refused_even_when_they_share_a_map(int count, bool sharedMap)
+        => AssertRefusedCheaply(ManyFonts(count, sharedMap));
+
+    [Fact]
+    public void The_heaviest_page_that_is_accepted_costs_a_bounded_amount()
+    {
+        // Close to every per-page limit at once: nearly 200,000 characters in nearly 8 MB of instructions.
+        StringBuilder content = new("BT /F1 1 Tf 10 10 Td ");
+        content.Append('(').Append('a', 190_000).Append(") Tj ET ");
+        while (content.Length < 7_900_000)
+        {
+            content.Append("q Q ");
+        }
+        byte[] pdf = DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ("/Filter /FlateDecode", DocumentFixtures.Deflate(Ascii(content.ToString()))), Helvetica);
+        (ExtractedDocument doc, long allocated) = Cost(pdf);
+        Assert.Equal(DocumentStatus.Ok, doc.Status);
+        // Allocated in all while reading it (twice over: once to measure), not held at once.
+        Assert.True(allocated < 2500L * 1024 * 1024, $"allocated {allocated / 1_000_000} MB");
+        Console.WriteLine($"HEAVIEST allocated {allocated / 1_000_000} MB");
+    }
+
     [Fact]
     public void A_page_over_the_limits_is_left_out_and_the_others_are_read()
     {
