@@ -45,6 +45,10 @@ public interface IPromptFormatter
     /// <summary>Whether <paramref name="tag"/> (written with its angle brackets) is part of the format itself, not a Swarm tag, in <paramref name="text"/>: Flux.3 names each layout element in its caption
     /// as <c>&lt;person_1&gt;</c>. Such a tag is let through the check that the model invented no Swarm tag. The default is no.</summary>
     bool IsOwnTag(string tag, string text) => false;
+
+    /// <summary>Whether a prompt that holds a user's <c>&lt;bbox[...]:...&gt;</c> tag is left as written instead of rewritten. Core expands that tag into a raw JSON object at generation, which would land unescaped
+    /// inside a JSON string of the rewritten prompt, or next to a layout the writer made, and break it. The default is yes for a formatter that makes JSON.</summary>
+    bool LeavesBboxAlone => ProducesJson;
 }
 
 /// <summary>The formatters, found by a style's <c>formatter</c> key and otherwise by its <c>format</c> (text, tags, json).</summary>
@@ -71,6 +75,19 @@ public static class PromptFormatters
             return named;
         }
         return ById.TryGetValue(style.Format ?? PromptStyle.FormatText, out IPromptFormatter byFormat) ? byFormat : ById["text"];
+    }
+
+    /// <summary>Runs <paramref name="formatter"/> on an answer and never throws: a formatter that fails on odd input gives a refusal the model can try again from, never an exception out of the rewrite.</summary>
+    public static FormatOutcome Safe(IPromptFormatter formatter, string raw, PromptStyle style, int width = 0, int height = 0)
+    {
+        try
+        {
+            return formatter.Normalize(raw, style, width, height);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return FormatOutcome.Fail("it could not be read in this format");
+        }
     }
 
     /// <summary>Whether <paramref name="id"/> names a built-in formatter.</summary>

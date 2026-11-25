@@ -14,6 +14,12 @@ internal static class StructuredJson
     /// <summary>A non-empty string value of <paramref name="key"/>, trimmed, or null when it is missing, null or blank.</summary>
     public static string Text(JObject obj, string key) => obj[key] is JValue { Type: JTokenType.String } v && !string.IsNullOrWhiteSpace((string)v) ? ((string)v).Trim() : null;
 
+    /// <summary>A whole number that fits an int, or null when the token is anything else (a string, a list, a fraction, a number too large). Never throws.</summary>
+    public static int? Int(JToken token) => token is JValue { Type: JTokenType.Integer } v && v.Value is long l && l >= int.MinValue && l <= int.MaxValue ? (int)l : null;
+
+    /// <summary>Whether <paramref name="key"/> is a string equal to <paramref name="expected"/>. A missing or null key counts as equal (the key is optional); any other kind of value does not.</summary>
+    public static bool IsStringOrAbsent(JObject obj, string key, string expected) => !Has(obj, key) || (obj[key] is JValue { Type: JTokenType.String } v && string.Equals((string)v, expected, StringComparison.Ordinal));
+
     /// <summary>Whether <paramref name="key"/> is present and not null.</summary>
     public static bool Has(JObject obj, string key) => obj[key] is not null && obj[key].Type != JTokenType.Null;
 
@@ -82,7 +88,7 @@ internal static class StructuredJson
 /// <summary>Flux.3's prompt: a plain caption, or a caption followed by one space and a JSON array of layout rows (<c>id</c>, <c>bbox</c>, <c>desc</c>) when placement matters. The caption names each row at its
 /// first mention as <c>&lt;id&gt;</c>, so this formatter lets those names through the check that the model wrote no Swarm tag, and only when they match a row. Boxes are <c>[y_min, x_min, y_max, x_max]</c>
 /// on a 0 to 1000 grid. Swarm tags must stay in the caption: they are put back unescaped, and a tag inside a row's text could break the JSON around it.
-/// <para>Written from <c>docs/prompting/flux-3.md</c>. Core's own <c>&lt;bbox&gt;</c> output does not match this form (see the guide), so a user's bbox tag is simply kept as a placeholder.</para></summary>
+/// <para>Written from <c>docs/prompting/flux-3.md</c>. Core's own <c>&lt;bbox&gt;</c> output does not match this form (see the guide), so a prompt that carries a user's bbox tag is left as written (see <see cref="IPromptFormatter.LeavesBboxAlone"/>).</para></summary>
 public sealed class Flux3Formatter : IPromptFormatter
 {
     /// <summary>A row id: a class noun with an index (<c>person_1</c>) or a language code with text and an index (<c>En_Text_1</c>). The index at the end keeps an id from ever being a Swarm tag name.</summary>
@@ -194,6 +200,9 @@ public sealed class Flux3Formatter : IPromptFormatter
 
     /// <inheritdoc/>
     public bool EscapesTags(string text) => false;
+
+    /// <inheritdoc/>
+    public bool LeavesBboxAlone => true;
 
     /// <inheritdoc/>
     public bool IsOwnTag(string tag, string text)
@@ -350,7 +359,7 @@ public sealed class Fibo2Formatter : IPromptFormatter
 public sealed class MingImageFormatter : IPromptFormatter
 {
     private static readonly Regex Coordinates = new(
-        @"^\s*cx\s*:\s*(?<cx>-?\d+(\.\d+)?)\s*,\s*cy\s*:\s*(?<cy>-?\d+(\.\d+)?)\s*,\s*w\s*:\s*(?<w>-?\d+(\.\d+)?)\s*,\s*h\s*:\s*(?<h>-?\d+(\.\d+)?)\s*$",
+        @"^\s*cx\s*:\s*(?<cx>-?[0-9]+(\.[0-9]+)?)\s*,\s*cy\s*:\s*(?<cy>-?[0-9]+(\.[0-9]+)?)\s*,\s*w\s*:\s*(?<w>-?[0-9]+(\.[0-9]+)?)\s*,\s*h\s*:\s*(?<h>-?[0-9]+(\.[0-9]+)?)\s*$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>The most colors kept for one layer.</summary>
@@ -442,10 +451,10 @@ public sealed class MingImageFormatter : IPromptFormatter
             {
                 return $"layer {index} coordinates must be one string like \"cx: 0.500, cy: 0.500, w: 1.000, h: 1.000\"";
             }
-            cx = Parse(m.Groups["cx"]);
-            cy = Parse(m.Groups["cy"]);
-            w = Parse(m.Groups["w"]);
-            h = Parse(m.Groups["h"]);
+            if (!TryParse(m.Groups["cx"], out cx) || !TryParse(m.Groups["cy"], out cy) || !TryParse(m.Groups["w"], out w) || !TryParse(m.Groups["h"], out h))
+            {
+                return $"layer {index} coordinates must be one string like \"cx: 0.500, cy: 0.500, w: 1.000, h: 1.000\"";
+            }
         }
         else if (token is JObject o && new[] { "cx", "cy", "w", "h" }.All(k => o[k] is JValue { Type: JTokenType.Integer or JTokenType.Float }))
         {
@@ -474,7 +483,7 @@ public sealed class MingImageFormatter : IPromptFormatter
         return null;
     }
 
-    private static double Parse(Group group) => double.Parse(group.Value, NumberStyles.Float, CultureInfo.InvariantCulture);
+    private static bool TryParse(Group group, out double value) => double.TryParse(group.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value) && double.IsFinite(value);
 
     /// <inheritdoc/>
     public string Wrap(string original) => null;
@@ -503,7 +512,7 @@ public sealed class MossImageFormatter : IPromptFormatter
     public FormatOutcome Normalize(string raw, PromptStyle style, int width, int height)
     {
         string text = StructuredJson.Unwrap(raw);
-        if (!text.StartsWith('{'))
+        if (!IsDraft(text))
         {
             return new TextFormatter().Normalize(text, style);
         }
@@ -513,8 +522,8 @@ public sealed class MossImageFormatter : IPromptFormatter
             return FormatOutcome.Fail(parseError);
         }
         List<string> warnings = [];
-        int w = draft["width"]?.Type == JTokenType.Integer ? (int)draft["width"] : 0;
-        int h = draft["height"]?.Type == JTokenType.Integer ? (int)draft["height"] : 0;
+        int w = StructuredJson.Int(draft["width"]) ?? 0;
+        int h = StructuredJson.Int(draft["height"]) ?? 0;
         if (w <= 0 || h <= 0 || w % 16 != 0 || h % 16 != 0)
         {
             return FormatOutcome.Fail("width and height must be positive whole numbers that are multiples of 16, equal to the image size");
@@ -523,11 +532,11 @@ public sealed class MossImageFormatter : IPromptFormatter
         {
             return FormatOutcome.Fail($"width and height must be the image size, {width} and {height}");
         }
-        if (StructuredJson.Has(draft, "bbox_coord_space") && !string.Equals((string)draft["bbox_coord_space"], "abs", StringComparison.Ordinal))
+        if (!StructuredJson.IsStringOrAbsent(draft, "bbox_coord_space", "abs"))
         {
             return FormatOutcome.Fail("bbox_coord_space must be \"abs\": write boxes in absolute pixels");
         }
-        if (StructuredJson.Has(draft, "bbox_format") && !string.Equals((string)draft["bbox_format"], "xyxy", StringComparison.Ordinal))
+        if (!StructuredJson.IsStringOrAbsent(draft, "bbox_format", "xyxy"))
         {
             return FormatOutcome.Fail("bbox_format must be \"xyxy\": write boxes as [x_min, y_min, x_max, y_max]");
         }
@@ -639,6 +648,16 @@ public sealed class MossImageFormatter : IPromptFormatter
     /// <inheritdoc/>
     public string Wrap(string original) => null;
 
+    /// <summary>Whether an answer is a layout draft: it starts with a JSON object. An answer that starts with a tag placeholder (<c>{{SWARM_TAG_0}}</c>) is a plain caption that happens to begin with a user's tag.</summary>
+    private static bool IsDraft(string text)
+    {
+        string trimmed = text.TrimStart();
+        return trimmed.StartsWith('{') && !trimmed.StartsWith(SwarmTagMask.Open, StringComparison.Ordinal);
+    }
+
     /// <inheritdoc/>
-    public bool EscapesTags(string text) => text.TrimStart().StartsWith('{');
+    public bool EscapesTags(string text) => IsDraft(text);
+
+    /// <inheritdoc/>
+    public bool LeavesBboxAlone => true;
 }

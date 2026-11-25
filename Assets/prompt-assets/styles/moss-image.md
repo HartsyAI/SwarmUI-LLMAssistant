@@ -23,4 +23,4 @@ Boxes mark placement only. Keep every box inside the canvas with x_min less than
 
 Rules:
 - Keep what the user asked for exactly. Do not add people, text or logos they did not ask for.
-- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>, <bbox[...]:...>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting caption. Never invent tags.
+- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting caption. Never invent tags.

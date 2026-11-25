@@ -177,3 +177,21 @@ test('the Prompt styles tab lists the pack styles with the models they match', a
     await expect(image.locator('.llma-resolve-result')).toContainText('MOSS Image');
     await expect(image.locator('.llma-resolve-result')).toContainText('class:moss-image');
 });
+
+test('a JSON or layout family leaves a prompt with a bbox tag as written and never asks the model', async ({ llm }) => {
+    for (let [model, width] of [[FIBO, 1024], [FLUX3, 1024], [MOSS, 1024]] as [string, number][]) {
+        await clearRequests();
+        let reply = await rewrite(llm, { prompt: 'a dog <bbox[0.1,0.1,0.5,0.5]:a brown dog> on a beach', imageModel: model, width: width, height: width });
+        expect(reply.rewritten, model).toBe(false);
+        expect(reply.fellBack, model).toBe(false);
+        expect(reply.text).toBe('a dog <bbox[0.1,0.1,0.5,0.5]:a brown dog> on a beach');
+        expect(reply.skipped).toContain('left as written');
+        expect(reply.warnings.join(' ')).toContain('bbox');
+        expect(await mockRequests()).toHaveLength(0);
+    }
+    // A prose family still rewrites it, and the tag comes back untouched.
+    await setScenarios([{ match: 'chroma dog', rounds: [{ text: 'A brown dog {{SWARM_TAG_0}} on a sunny beach.' }] }]);
+    let prose = await rewrite(llm, { prompt: 'chroma dog <bbox[0.1,0.1,0.5,0.5]:a brown dog>', imageModel: CHROMA });
+    expect(prose.rewritten).toBe(true);
+    expect(prose.text).toBe('A brown dog <bbox[0.1,0.1,0.5,0.5]:a brown dog> on a sunny beach.');
+});

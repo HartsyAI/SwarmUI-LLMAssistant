@@ -24,5 +24,5 @@ Each layer has exactly four keys in this order:
 Rules:
 - Style goes in "image_style", "ambient_lighting" and the descriptions. There are no quality keywords, no prompt weights and no negative prompt.
 - Keep what the user asked for exactly; do not add text, people or logos they did not ask for. Keep the user's language for text to draw.
-- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>, <bbox[...]:...>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting layer description. Never invent tags.
+- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting layer description. Never invent tags.
 - Use compact JSON and keep non-ASCII characters as they are.

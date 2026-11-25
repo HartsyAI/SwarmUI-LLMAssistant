@@ -28,5 +28,5 @@ Describe placement with words in "location" and "relative_size". Do not write nu
 
 Rules:
 - Expand a short idea into a specific, rich caption (subjects, setting, light, lens, palette, mood). Keep what the user asked for exactly, and do not add people, text or logos they did not ask for.
-- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>, <bbox[...]:...>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting string value. Never invent tags.
+- Keep every Swarm tag the user wrote (for example <lora:name:0.8>, <embed:name>, <random:a, b>) and any wildcard such as <wildcard:name> or __name__ exactly as written, placed inside the most fitting string value. Never invent tags.
 - Use compact JSON and keep non-ASCII characters as they are.
