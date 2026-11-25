@@ -2,7 +2,8 @@
  * The one place the extension's front end touches SwarmUI core through something that is not a documented hook.
  * Core's JS offers callback lists for session-ready, backends-revised and parameter-build events (all used directly where needed),
  * but none for "an image was generated". Until it does (see docs/UPSTREAM-PROPOSALS.md), this wraps core's global once and fans
- * the call out to any number of listeners, each failure-isolated so a listener can never break the Generate tab.
+ * the call out to any number of listeners, each failure-isolated so a listener can never break the Generate tab. Opening core's
+ * backends page goes through here too.
  */
 class LLMACoreBridge {
 
@@ -11,6 +12,12 @@ class LLMACoreBridge {
         this.imageListeners = [];
         /** Whether core's gotImageResult has been wrapped. */
         this.imageHooked = false;
+    }
+
+    /** Opens core's Server tab on its Backends page by clicking core's own tab buttons (core has no call for it). Does nothing for a user who is not shown that tab. */
+    openServerBackends() {
+        document.getElementById('servertabbutton')?.click();
+        document.getElementById('serverbackendstabbutton')?.click();
     }
 
     /** Calls the listener whenever core shows a newly generated image. Safe to call early: it retries until core's function exists. */

@@ -11,6 +11,9 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 public sealed class UserStarterTarget(User user) : IStarterTarget
 {
     /// <inheritdoc/>
+    public string UserId => user.UserID;
+
+    /// <inheritdoc/>
     public string Refusal(string kind)
     {
         if (kind == StarterKinds.Chat)
@@ -55,7 +58,7 @@ public sealed class UserStarterTarget(User user) : IStarterTarget
     /// <inheritdoc/>
     public string AddChat(StarterChat chat, string assistantId)
     {
-        JObject thread = chat.ToThread(assistantId, DateTime.UtcNow);
+        JObject thread = chat.ToThread(UserId, assistantId, DateTime.UtcNow);
         // Its title is the one given; the automatic title never replaces it.
         ThreadStorageService.MarkTitleClaimed(thread);
         ThreadStorageService.SaveThread(user, thread);

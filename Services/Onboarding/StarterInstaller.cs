@@ -20,6 +20,9 @@ public static class StarterSkips
 /// <summary>One user's own items, as the starter set sees them. There is no way to replace or remove anything through it.</summary>
 public interface IStarterTarget
 {
+    /// <summary>The user's id, which their example chats' ids are made from.</summary>
+    string UserId { get; }
+
     /// <summary>Why this user may not be given items of <paramref name="kind"/>, or null when they may.</summary>
     string Refusal(string kind);
 
@@ -32,7 +35,7 @@ public interface IStarterTarget
     /// <summary>Adds a personal slash command. Null, or why it could not be saved.</summary>
     string AddSnippet(StarterSnippet snippet);
 
-    /// <summary>Adds a chat that uses <paramref name="assistantId"/>. Null, or why it could not be saved.</summary>
+    /// <summary>Adds a chat that uses <paramref name="assistantId"/>, under the id <see cref="StarterChat.IdFor"/> gives for this user. Null, or why it could not be saved.</summary>
     string AddChat(StarterChat chat, string assistantId);
 }
 
@@ -44,7 +47,7 @@ public static class StarterInstaller
     private static readonly object InstallLock = new();
 
     /// <summary>Every item of the set, in the order installed (assistants first, as the example chats belong to them).</summary>
-    private static IEnumerable<(string Kind, string Id, string Title, Func<IStarterTarget, string> Add)> Items()
+    private static IEnumerable<(string Kind, string Id, string Title, Func<IStarterTarget, string> Add)> Items(string userId)
     {
         foreach (StarterAssistant assistant in StarterContent.Assistants)
         {
@@ -56,7 +59,7 @@ public static class StarterInstaller
         }
         foreach (StarterChat chat in StarterContent.Chats)
         {
-            yield return (StarterKinds.Chat, chat.Id, chat.Title,
+            yield return (StarterKinds.Chat, chat.IdFor(userId), chat.Title,
                 target => target.AddChat(chat, target.Has(StarterKinds.Assistant, chat.AssistantId) ? chat.AssistantId : AssistantConstants.DefaultId));
         }
     }
@@ -66,7 +69,7 @@ public static class StarterInstaller
     {
         JArray items = [];
         int installed = 0;
-        foreach ((string kind, string id, string title, _) in Items())
+        foreach ((string kind, string id, string title, _) in Items(target.UserId))
         {
             bool has = target.Has(kind, id);
             installed += has ? 1 : 0;
@@ -81,7 +84,7 @@ public static class StarterInstaller
         JArray added = [], skipped = [];
         lock (InstallLock)
         {
-            foreach ((string kind, string id, string title, Func<IStarterTarget, string> add) in Items())
+            foreach ((string kind, string id, string title, Func<IStarterTarget, string> add) in Items(target.UserId))
             {
                 string code = null, reason = null;
                 try

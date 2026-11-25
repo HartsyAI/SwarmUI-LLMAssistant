@@ -10,8 +10,10 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 public class OnboardingTests
 {
     /// <summary>One user's items in dictionaries.</summary>
-    private sealed class FakeTarget : IStarterTarget
+    private sealed class FakeTarget(string userId = "local") : IStarterTarget
     {
+        public string UserId => userId;
+
         /// <summary>The items, by kind and id; the value is the stored text.</summary>
         public readonly Dictionary<(string Kind, string Id), string> Items = [];
 
@@ -37,8 +39,8 @@ public class OnboardingTests
 
         public string AddChat(StarterChat chat, string assistantId)
         {
-            ChatAssistants[chat.Id] = assistantId;
-            return Add(StarterKinds.Chat, chat.Id, chat.Title);
+            ChatAssistants[chat.IdFor(UserId)] = assistantId;
+            return Add(StarterKinds.Chat, chat.IdFor(UserId), chat.Title);
         }
 
         private string Add(string kind, string id, string text)
@@ -111,11 +113,13 @@ public class OnboardingTests
     [Fact]
     public void Each_user_gets_their_own_set()
     {
-        FakeTarget one = new(), two = new();
+        FakeTarget one = new("one"), two = new("two");
         StarterInstaller.Install(one);
         Assert.Equal(Total, (int)StarterInstaller.Describe(two)["missing"]);
         StarterInstaller.Install(two);
         Assert.Equal(Total, two.Saves);
+        // Their chats have ids of their own, as every other chat does.
+        Assert.Empty(one.ChatAssistants.Keys.Intersect(two.ChatAssistants.Keys));
         two.Items.Clear();
         Assert.Equal(0, (int)StarterInstaller.Describe(one)["missing"]);
     }
@@ -139,7 +143,7 @@ public class OnboardingTests
         StarterInstaller.Install(user);
         foreach (StarterChat chat in StarterContent.Chats)
         {
-            Assert.Equal(chat.AssistantId, user.ChatAssistants[chat.Id]);
+            Assert.Equal(chat.AssistantId, user.ChatAssistants[chat.IdFor(user.UserId)]);
         }
     }
 
@@ -169,13 +173,16 @@ public class OnboardingTests
     }
 
     [Fact]
-    public void An_example_chat_has_the_same_id_every_time_and_is_one_branch_from_the_users_message()
+    public void An_example_chat_has_one_id_per_user_and_is_one_branch_from_the_users_message()
     {
         foreach (StarterChat chat in StarterContent.Chats)
         {
-            Assert.Matches("^[0-9a-f]{32}$", chat.Id);
-            JObject thread = chat.ToThread("default", DateTime.UtcNow);
-            Assert.Equal(chat.Id, thread["id"].ToString());
+            string id = chat.IdFor("ada");
+            Assert.Matches("^[0-9a-f]{32}$", id);
+            Assert.Equal(id, chat.IdFor("ada"));
+            Assert.NotEqual(id, chat.IdFor("bob"));
+            JObject thread = chat.ToThread("ada", "default", DateTime.UtcNow);
+            Assert.Equal(id, thread["id"].ToString());
             JArray messages = (JArray)thread["messages"];
             Assert.Equal(0, messages.Count % 2);
             Assert.Equal(JTokenType.Null, messages[0]["parentId"].Type);
@@ -189,7 +196,7 @@ public class OnboardingTests
             }
             Assert.Equal(messages[^1]["id"].ToString(), thread["activeLeafId"].ToString());
         }
-        Assert.Equal(StarterContent.Chats.Length, StarterContent.Chats.Select(c => c.Id).Distinct().Count());
+        Assert.Equal(StarterContent.Chats.Length, StarterContent.Chats.Select(c => c.IdFor("ada")).Distinct().Count());
     }
 
     // ---- The state ----

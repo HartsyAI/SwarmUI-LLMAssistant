@@ -134,7 +134,7 @@ class LLMAOnboarding {
         this.wire('llma-onboarding-done', () => this.close('complete'));
         this.wire('llma-onboarding-recheck', () => this.recheck());
         this.wire('llma-onboarding-install', () => this.install());
-        this.wire('llma-onboarding-backends', () => this.openBackends());
+        this.wire('llma-onboarding-backends', () => llmaCoreBridge.openServerBackends());
     }
 
     /** Wires one button, when it was drawn. */
@@ -240,12 +240,6 @@ class LLMAOnboarding {
         await llmaLoadThreads();
         llmaPromptAssets.loadedFor = null;
         llmaRenderWelcomeAssistants();
-    }
-
-    /** Opens core's Server tab on its Backends page. */
-    openBackends() {
-        document.getElementById('servertabbutton')?.click();
-        document.getElementById('serverbackendstabbutton')?.click();
     }
 
     /** From Settings: closes the dialog, records that the guide is wanted, and shows it over a new chat. */

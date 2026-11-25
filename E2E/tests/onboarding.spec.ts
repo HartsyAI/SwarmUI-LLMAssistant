@@ -147,6 +147,12 @@ test('one click adds the starter set as the user\'s own items, without asking an
     expect(general._scope).toBe('personal');
     // The chats are listed, and open with their assistant.
     await expect(llm.locator('#llma-thread-list')).toContainText('Example: shaping an image prompt');
+    // A tool an assistant lists is offered only while it is switched on: the knowledge search starts switched off.
+    let dry = await api(llm, 'LLMAssistantRunTurn', { message: 'look this up', assistantId: 'starter-researcher', dryRun: true });
+    expect(dry.success, JSON.stringify(dry)).toBe(true);
+    let offered = JSON.stringify(dry.tools);
+    expect(offered).toContain('swarm_docs');
+    expect(offered).not.toContain('search_knowledge');
     // Installing in a first run does not close the guide by itself.
     await reopen(llm);
     await llm.locator('#llma-new-thread-btn').click();

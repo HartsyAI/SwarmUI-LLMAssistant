@@ -36,23 +36,24 @@ public sealed record StarterAssistant(string Id, string Name, string Description
 public sealed record StarterSnippet(string Name, string Description, string ArgumentHint, string Body);
 
 /// <summary>A starter example chat. Its text was written for the extension; no model produced it.</summary>
-/// <param name="Key">A fixed name the chat's id is made from.</param>
+/// <param name="Key">A fixed name the chat's id is made from, with the user's id.</param>
 /// <param name="Title">The chat's title.</param>
 /// <param name="AssistantId">The assistant it belongs to when the user has it.</param>
 /// <param name="Messages">The messages in order, starting with the user's.</param>
 public sealed record StarterChat(string Key, string Title, string AssistantId, string[] Messages)
 {
-    /// <summary>The chat's id: the same on every install, so an install can tell that it is already there.</summary>
-    public string Id => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"llmassistant-starter-chat:{Key}")))[..32].ToLowerInvariant();
+    /// <summary>The chat's id for one user: the same on every install, so an install can tell that it is already there, and different for each user, as other chats' ids are.</summary>
+    public string IdFor(string userId) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"llmassistant-starter-chat:{Key}:{userId}")))[..32].ToLowerInvariant();
 
-    /// <summary>The chat as storage keeps it, using <paramref name="assistantId"/>.</summary>
-    public JObject ToThread(string assistantId, DateTime nowUtc)
+    /// <summary>The chat as storage keeps it for <paramref name="userId"/>, using <paramref name="assistantId"/>.</summary>
+    public JObject ToThread(string userId, string assistantId, DateTime nowUtc)
     {
+        string chatId = IdFor(userId);
         JArray messages = [];
         string parent = null;
         for (int i = 0; i < Messages.Length; i++)
         {
-            string id = $"{Id[..24]}{i:x8}";
+            string id = $"{chatId[..24]}{i:x8}";
             messages.Add(new JObject
             {
                 ["id"] = id,
@@ -65,7 +66,7 @@ public sealed record StarterChat(string Key, string Title, string AssistantId, s
         }
         return new JObject
         {
-            ["id"] = Id,
+            ["id"] = chatId,
             ["title"] = Title,
             ["assistantId"] = assistantId,
             ["mode"] = ThreadModes.Chat,
