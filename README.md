@@ -25,6 +25,7 @@ It ships its own LLM runtimes, so there is nothing else to install: a **pure-C# 
 - [The interface](#the-interface)
 - [Assistants](#assistants)
 - [Long chats](#long-chats)
+- [Usage and cost](#usage-and-cost)
 - [Chat library](#chat-library)
 - [Tool calling](#tool-calling)
 - [Hooks](#hooks)
@@ -247,6 +248,17 @@ When a chat reaches **80%** of the window (`Shorten At`), the start of it is rep
 - A summary applies only while the messages it covers are exactly the start of the branch showing. Fork the chat before it, or edit one of those messages, and the summary quietly stops applying (the full history is sent again). A later compaction builds on the earlier summary rather than starting over.
 - If writing the summary fails, the reply goes ahead with the whole chat and the failure is shown. Compare mode applies an existing summary but does not start one.
 - The summary is written by the chat's own model, with no tools, in a request of its own, so it cannot call anything and does not disturb the chat's prompt cache beyond the one time the history changes.
+
+### Usage and cost <a id="usage-and-cost"></a>
+
+Under each reply is its token count, and its cost once you have given that model a price. The bar above the chat shows the same for the whole chat (every branch and compare lane, since each one was billed). Click either figure for the details: input, cached and output tokens, the price used, and the totals for **this session** (since the browser tab first opened the page), **today** and **this week** (from Monday, in your browser's time zone). `Show Token Count` in `Settings > General` hides the figures.
+
+- **Prices are yours to enter**, in `Settings > Usage`: input, output and cached input **per million tokens** for each model id, plus a currency label. No price table ships with the extension. The model id must match the model list exactly, and the table does not tell two backends offering the same id apart. A cached price left empty charges cached input as ordinary input. Premiums some providers charge for *writing* a cache, per-request fees and tiered prices are not modelled, so treat a cost as a close guide rather than your bill.
+- **A model with no price shows tokens only.** A chat or period that mixes priced and unpriced replies shows the cost of the priced ones and says so.
+- **Counts come from the backend** when it reports them (`stream_options.include_usage` on OpenAI-compatible endpoints). A reply with no report (some servers, or a reply you stopped) is estimated at about four characters a token and marked `~` and **estimated**; the estimate leaves out the system prompt, tool definitions and attachments, so it is usually low. A turn stopped after some of its tool rounds reported is marked **incomplete**.
+- **Costs are worked out when shown**, from the saved token counts at today's prices: editing a price changes past figures too.
+- **Soft budget** (off by default): set a daily and/or weekly limit and a warning appears once the day's or week's cost reaches it. It never blocks or delays a request. It can only count priced replies.
+- **What is counted:** every saved reply, including code-mode chats, sub-sessions, scheduled runs and headless turns. **Not counted**, because their usage is not saved with a chat: chat titles, long-chat summaries, memory extraction, prompt rewriting and Generate-tab prompt tags, the voice routes, `LLMAssistantSendMessage`, instruction tests, image captioning tools, the companion, and turns that failed before producing anything. Deleting a chat or a message (including old scheduled runs the extension prunes) removes its usage from the totals, and imported chats bring none.
 
 ### Branching
 
@@ -760,7 +772,7 @@ Example:
 | Vision Image Max Size | `1536` | Long-edge cap in px, clamped to 256–2048. |
 | Markdown Rendering | `true` | |
 | Enter to Send | `true` | Off = `Enter` makes a newline. `Ctrl/Cmd+Enter` always sends either way. |
-| Show Token Count | `true` | |
+| Show Token Count | `true` | Token counts and costs above the chat and under replies. Prices and the soft budget are on the [Usage](#usage-and-cost) tab. |
 | Default Image Model | *(none)* | The image model `generate_image` uses when no preset, `model` or `params.model` names one. Yours; saved through `LLMAssistantSetImageDefaults` (`imageTools.defaultModel`). See [Image workflow tools](#image-tools). |
 | Most Images Per Call | `4` | A server limit on `generate_image`'s `images` (1 to 16). Needs `llm_shared_write` to change. |
 
@@ -858,8 +870,8 @@ Every route is registered with one base permission, which SwarmUI checks before 
 | Base permission | Routes |
 |---|---|
 | `llm_chat` | Chat and turns (`SendMessage`, `SendMessageWS`, `EditMessageWS`, `RegenerateWS`, `VoiceTurn`, `VoiceTurnWS`, `RunTurn`, `Readiness`, `StopGeneration`, `ResolveToolApproval`, `CompactThread`, `CreateThread`, `TestInstruction`, `UploadChatImage`, `UploadChatVideo`, `CountTokens`, `Decide`), `ExecuteTool`, the workspace routes that read or change the files of a chat (`ListWorkspaceFiles`, `ReadWorkspaceFile`, `ListWorkspaceChanges`, `GetWorkspaceChange`, `RevertWorkspaceChange`, `GetWorkspaces`, `CreateWorkspace`; the rows say which of them also need `llm_code_mode`), reading and expanding skills, commands and prompt styles (`GetPromptAssets`, `GetPromptAsset`, `ExpandPromptAsset`, `GetPromptStyles`, `GetPromptStyle`, `ResolvePromptStyle`), `RewritePrompt`, and all the memory routes except `SetMemoryAdmin` and `SetThreadMemory` |
-| `llm_settings` | Settings, assistants, instructions, tools and tool config, hooks, MCP servers, saving or deleting skills, commands and prompt styles, `SetStyleOverrides`, `SetWorkspaceTrust`, the workspace-root routes, `GetImagePresets`, `GetImageDefaults`, `SetImageDefaults` |
-| `llm_threads` | Chats and their messages (`GetThreads`, `GetThread`, `DeleteThread`, `RenameThread`, `EditMessage`, `DeleteMessage`, `SetActiveLeaf`, `SetThread*`, `ArchiveSession`, `ExportThread`, `SearchThreads`, `PinThread`, `ImportThread`), session state, and assets |
+| `llm_settings` | Settings, assistants, instructions, tools and tool config, hooks, MCP servers, saving or deleting skills, commands and prompt styles, `SetStyleOverrides`, `SetWorkspaceTrust`, `GetUsageSettings`, `SaveUsageSettings`, the workspace-root routes, `GetImagePresets`, `GetImageDefaults`, `SetImageDefaults` |
+| `llm_threads` | Chats and their messages (`GetThreads`, `GetThread`, `DeleteThread`, `RenameThread`, `EditMessage`, `DeleteMessage`, `SetActiveLeaf`, `SetThread*`, `ArchiveSession`, `ExportThread`, `SearchThreads`, `PinThread`, `ImportThread`), session state, assets, and usage (`GetThreadUsage`, `GetUsageTotals`) |
 | `llm_models` | `GetModels`, `UnloadModels` |
 | `llm_shared_write` | `GetAuditLog`, `SetAuditLogEnabled`, `DownloadModel`, `SetMemoryAdmin` |
 | `llm_knowledge` | The knowledge routes |
@@ -1036,6 +1048,15 @@ they were sent with.
 | `LLMAssistantSetImageDefaults` | `defaultModel?` (an installed model's name; `""` clears), `maxImages?` (1 to 16), `scope?` (`personal` \| `shared`) | The same as `LLMAssistantGetImageDefaults`. A model that is not installed is refused with the closest names. `maxImages` and a shared model need `llm_shared_write`. Needs `llm_settings` |
 
 `LLMAssistantExecuteTool` still enforces the per-handler `llm_tool_*` permission, so exposing it at the chat permission level is not an escalation.
+
+### Usage and cost
+
+| Route | Request | Returns |
+|---|---|---|
+| `LLMAssistantGetUsageSettings` | none | `{success, usage: {currency, prices: {<model>: {input, output, cached}}, budget: {enabled, daily, weekly}}}`; your own price table (per million tokens) and soft budget. Needs `llm_settings` |
+| `LLMAssistantSaveUsageSettings` | `currency?`, `prices?`, `budget?` | `{success, usage}`. Each part sent replaces that part; `prices` replaces the **whole** table. `input` and `output` are required for a model, `cached` is optional (`null`). `LLMAssistantSaveSettings` never changes these; `LLMAssistantResetSettings` (personal) clears them. Needs `llm_settings` |
+| `LLMAssistantGetThreadUsage` | `threadId`, `timeZone?` (IANA, for the budget; unknown or empty is UTC) | `{success, threadId, currency, replies[{messageId, model, promptTokens, completionTokens, cachedTokens, estimated, partial, cost, price}], totals, budget: {enabled, daily, weekly, warnings[{period, spent, limit, estimated}]}}`. `cost` and `price` are `null` for a model with no price. Needs `llm_threads` |
+| `LLMAssistantGetUsageTotals` | `timeZone?` (IANA; empty is UTC), `since?` (ISO time) | `{success, currency, timeZone, periods: {day, week, session?}, budget}`; `session` (everything from `since`) only when `since` is sent. A period, like `totals` above, is `{replies, promptTokens, completionTokens, cachedTokens, totalTokens, estimatedReplies, partialReplies, pricedReplies, unpricedReplies, unpricedTokens, cost, costEstimated}` (periods add `from`); `cost` covers priced replies only and is `null` when there are none. Needs `llm_threads` |
 
 ### Settings, models, and the rest
 

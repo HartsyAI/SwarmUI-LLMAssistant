@@ -16,6 +16,7 @@ export type MockRound = {
     usage?: { prompt_tokens: number; completion_tokens: number };
     delayMs?: number;
     chunkDelayMs?: number;
+    noUsage?: boolean;
     error?: { status: number; message: string };
 };
 

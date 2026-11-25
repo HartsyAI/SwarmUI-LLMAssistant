@@ -30,7 +30,7 @@ class LLMASettingsForms {
             this.group('llma_general_interface', 'Interface', 'Place LLM model files in Models/llm/. Configure an LLM backend under Server > Backends.', [
                 this.checkbox('llma-s-markdown', 'Markdown Rendering', 'Render replies as formatted text.', true),
                 this.checkbox('llma-s-enter-send', 'Enter to Send', 'Enter sends the message and Shift+Enter makes a new line. Off swaps them. Ctrl+Enter always sends.', true),
-                this.checkbox('llma-s-show-tokens', 'Show Token Count', 'Show the running token count above the chat.', true)
+                this.checkbox('llma-s-show-tokens', 'Show Token Count', 'Show token counts and costs above the chat and under replies.', true)
             ])
         ]);
         this.fill('llma-settings-companion-form', [

@@ -1322,6 +1322,10 @@ function llmaSetupSettingsModal() {
             llmaReadSettingsFromModal();
             await llmaSaveSettings();
             llmaApplySettingsToState();
+            // Prices and budget have their own route too; a refusal shows why and leaves the dialog open.
+            if (!(await llmaUsageSettings.saveIfDirty())) {
+                return;
+            }
             // The image defaults have their own route; a refusal (an unknown model) leaves the dialog open so the name can be fixed.
             if (typeof llmaImageTools != 'undefined' && !(await llmaImageTools.save())) {
                 return;
@@ -1349,6 +1353,10 @@ function llmaSetupSettingsModal() {
                 await llmaLoadSettings();
                 await llmaLoadAssistants();
                 llmaWriteSettingsToModal();
+                llmaUsageSettings.discard();
+                if (document.getElementById('llma-settings-usage').style.display != 'none') {
+                    llmaUsageSettings.load();
+                }
                 llmaRenderAssistantList?.();
                 if (LLMAState.activeAssistantId) {
                     llmaRenderAssistantPanel(LLMAState.activeAssistantId);
@@ -1381,6 +1389,7 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'schedules') llmaSchedulesSettings.load();
             if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
             if (tab.dataset.tab === 'memory') llmaMemorySettings.load();
+            if (tab.dataset.tab === 'usage') llmaUsageSettings.load();
         });
     });
 
@@ -1461,6 +1470,7 @@ function llmaCloseSettings() {
     llmaRemoveFocusTrap(overlay);
     document.getElementById('llma-asst-editor').style.display = 'none';
     document.getElementById('llma-tool-editor').style.display = 'none';
+    llmaUsageSettings.discard();
     return true;
 }
 

@@ -141,7 +141,11 @@
                 <span id="llma-ctx-label">No active chat</span>
                 <div class="llma-ctx-track"><div class="llma-ctx-fill" id="llma-ctx-fill"></div></div>
             </div>
-            <span id="llma-ctx-tokens"></span>
+            <div class="llma-ctx-right">
+                <button type="button" class="badge text-bg-warning llma-usage-warning" id="llma-usage-warning" style="display:none;"></button>
+                <button type="button" class="llma-usage-thread" id="llma-usage-thread" title="Tokens and cost of this chat, today and this week" style="display:none;"></button>
+                <span id="llma-ctx-tokens"></span>
+            </div>
         </div>
 
         <!-- Content -->
@@ -320,6 +324,7 @@
                 <button class="nav-link llma-modal-tab translate" data-tab="schedules" role="tab" aria-selected="false">Schedules</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="knowledge" role="tab" aria-selected="false">Knowledge</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="memory" role="tab" aria-selected="false">Memory</button>
+                <button class="nav-link llma-modal-tab translate" data-tab="usage" role="tab" aria-selected="false">Usage</button>
                 <button class="nav-link llma-modal-tab translate" data-tab="companion" role="tab" aria-selected="false">Companion</button>
             </div>
             <div class="llma-modal-body">
@@ -608,6 +613,12 @@
                     <div id="llma-memory-import-preview"></div>
                     <div id="llma-memory-list"></div>
                     <div id="llma-memory-changes"></div>
+                </div>
+
+                <!-- Usage and cost (usage.js): the day's and week's totals, the user's price table and the soft budget -->
+                <div class="llma-modal-panel" id="llma-settings-usage" style="display:none;">
+                    <div id="llma-usage-totals"></div>
+                    <div id="llma-usage-form"></div>
                 </div>
 
                 <!-- Companion (built from core's input helpers by settings-forms.js) -->

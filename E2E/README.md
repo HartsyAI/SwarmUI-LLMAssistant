@@ -68,7 +68,7 @@ await setScenarios([{
 }]);
 ```
 
-Round fields: `text`, `reasoning`, `toolCalls`, `usage`, `delayMs`, `chunkDelayMs` (slow streaming, for Stop tests), `error` (`{status, message}`). Which round answers is the number of assistant messages after the last user message, so tool loops walk the rounds in order. With no matching rule the reply is `Mock reply: <user text>`.
+Round fields: `text`, `reasoning`, `toolCalls`, `usage`, `delayMs`, `chunkDelayMs` (slow streaming, for Stop tests), `error` (`{status, message}`), `noUsage` (streams no token counts). Which round answers is the number of assistant messages after the last user message, so tool loops walk the rounds in order. With no matching rule the reply is `Mock reply: <user text>`.
 
 `mockRequests()` returns every request body the mock received, so a spec can assert what was actually sent to the model: the system prompt, a compaction summary, the tool list.
 
