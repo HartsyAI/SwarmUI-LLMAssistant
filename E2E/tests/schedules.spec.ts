@@ -344,3 +344,25 @@ test('a schedule whose model is gone says so instead of running', async ({ llm }
     expect((await get(llm, id)).lastSkipped).toContain('no-such-model');
     expect((await get(llm, id)).runCount).toBe(0);
 });
+
+test('a schedule made from a chat with a document keeps its runs from saving memory on the model\'s say-so', async ({ llm }) => {
+    await setScenarios([
+        { match: 'RUN-TASK', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { category: 'fact', content: 'The user pays SCHEDULE-POISON.' } }] }, { text: 'run done' }] },
+        turn('MAKE-IT', [{ name: 'schedule_create', arguments: { title: 'From a file', prompt: 'RUN-TASK please remember this', everyMinutes: 60, approvalMode: 'auto', model: 'mock-model' } }], 'made it'),
+    ]);
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'parent.txt', mimeType: 'text/plain', buffer: Buffer.from('words') });
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await send(llm, 'MAKE-IT');
+    await expect(lastAssistant(llm)).toContainText('made it');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let made = ((await api(llm, 'LLMAssistantGetSchedules')).schedules as any[]).find(s => s.title == 'From a file');
+    expect(made, 'the schedule was made').toBeTruthy();
+    // The chat that made it can go: what it read stays marked on the schedule.
+    expect((await api(llm, 'LLMAssistantDeleteThread', { threadId: made.createdBy })).success).toBe(true);
+    let run = await runNow(llm, made.id);
+    await waitStatus(llm, run.threadId, 'done');
+    expect(JSON.stringify((await thread(llm, run.threadId)).messages)).toContain('This chat holds an attached document');
+    let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
+    expect(JSON.stringify(profile.notes)).not.toContain('SCHEDULE-POISON');
+});

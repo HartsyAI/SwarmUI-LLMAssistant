@@ -1,4 +1,5 @@
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Services.Schedules;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Newtonsoft.Json.Linq;
@@ -118,6 +119,11 @@ public sealed class ScheduleCreateTool : ScheduleToolBase
         if (schedule is null)
         {
             return Task.FromResult(Failed(error));
+        }
+        // The prompt is the model's: written with a document in reach, its runs may save to memory no more freely than this chat.
+        if (ChatDocuments.ReachedByDocuments(user, chat))
+        {
+            schedule[ScheduleFields.FromDocuments] = true;
         }
         if (!ScheduleStore.Save(user, schedule))
         {

@@ -57,6 +57,17 @@ public class ScheduleRulesTests
     }
 
     [Fact]
+    public void The_mark_of_a_schedule_made_with_documents_in_reach_stays_when_the_user_saves_it_and_no_request_sets_or_clears_it()
+    {
+        (JObject made, _) = AsAssistant(Request(r => r[ScheduleFields.FromDocuments] = true));
+        Assert.Null(made[ScheduleFields.FromDocuments]);
+        made[ScheduleFields.FromDocuments] = true;
+        (JObject saved, string error) = AsUser(Request(r => r[ScheduleFields.FromDocuments] = false), made);
+        Assert.Null(error);
+        Assert.True(saved[ScheduleFields.FromDocuments].Value<bool>());
+    }
+
+    [Fact]
     public void A_users_schedule_can_be_saved_off_and_then_has_no_next_run()
     {
         (JObject schedule, _) = AsUser(Request(r => r["enabled"] = false));

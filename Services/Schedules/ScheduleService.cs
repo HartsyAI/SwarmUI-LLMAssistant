@@ -229,6 +229,11 @@ public static class ScheduleService
             thread[ScheduleFields.HostMarker] = scheduleId;
             thread["approvalMode"] = mode;
             PromptRewrite.RewritePolicy.CopyChatSwitch(creator, thread);
+            // Set every time, from the schedule: the chat that made it may be gone. Runs are sessions under this chat, so the memory guard finds the mark.
+            if (schedule[ScheduleFields.FromDocuments] is JValue { Type: JTokenType.Boolean } fromDocuments && fromDocuments.Value<bool>())
+            {
+                thread[Documents.ChatDocuments.ThreadFlag] = true;
+            }
             ThreadStorageService.MarkTitleClaimed(thread);
             return true;
         });
