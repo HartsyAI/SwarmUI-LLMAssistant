@@ -62,6 +62,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/onboarding.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
+        // Tokens and cost under replies and in the context bar, and the Usage settings tab
+        ScriptFiles.Add("Assets/usage.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
         ScriptFiles.Add("Assets/chat/chat-render.js");
@@ -97,6 +99,7 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
         StyleSheetFiles.Add("Assets/llma-backend-cards.css");
         StyleSheetFiles.Add("Assets/llma-code.css");
+        StyleSheetFiles.Add("Assets/llma-usage.css");
         StyleSheetFiles.Add("Assets/llma-onboarding.css");
         // Static asset files (images), served at ExtensionFile/LLMAssistantExtension/Assets/<name>.
         // The SwarmUI logo doubles as Swarmie's avatar on the welcome hero and assistant cards.

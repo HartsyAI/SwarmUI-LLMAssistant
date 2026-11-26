@@ -1326,6 +1326,10 @@ function llmaSetupSettingsModal() {
             llmaReadSettingsFromModal();
             await llmaSaveSettings();
             llmaApplySettingsToState();
+            // Prices and budget have their own route too; a refusal shows why and leaves the dialog open.
+            if (!(await llmaUsageSettings.saveIfDirty())) {
+                return;
+            }
             // The image defaults have their own route; a refusal (an unknown model) leaves the dialog open so the name can be fixed.
             if (typeof llmaImageTools != 'undefined' && !(await llmaImageTools.save())) {
                 return;
@@ -1353,6 +1357,10 @@ function llmaSetupSettingsModal() {
                 await llmaLoadSettings();
                 await llmaLoadAssistants();
                 llmaWriteSettingsToModal();
+                llmaUsageSettings.discard();
+                if (document.getElementById('llma-settings-usage').style.display != 'none') {
+                    llmaUsageSettings.load();
+                }
                 llmaRenderAssistantList?.();
                 if (LLMAState.activeAssistantId) {
                     llmaRenderAssistantPanel(LLMAState.activeAssistantId);
@@ -1385,6 +1393,7 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'schedules') llmaSchedulesSettings.load();
             if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
             if (tab.dataset.tab === 'memory') llmaMemorySettings.load();
+            if (tab.dataset.tab === 'usage') llmaUsageSettings.load();
         });
     });
 
@@ -1434,6 +1443,10 @@ function llmaOpenSettings() {
     if (typeof llmaImageTools != 'undefined') {
         llmaImageTools.load();
     }
+    // The dialog keeps the tab it was left on, so the Usage tab is drawn again when it is the one showing.
+    if (document.getElementById('llma-settings-usage').style.display != 'none') {
+        llmaUsageSettings.load();
+    }
     overlay.style.display = '';
     llmaInstallFocusTrap(overlay);
     setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);
@@ -1457,7 +1470,7 @@ function llmaToolEditorIsOpen() {
 // through here — a single choke point, so the discard guard below covers all of them at once.
 // Returns false if the user backed out of discarding (callers should skip any "saved"/"closed" toast).
 function llmaCloseSettings() {
-    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen()) && !confirm(translate('Discard unsaved changes?'))) {
+    if ((llmaAsstEditorIsOpen() || llmaToolEditorIsOpen() || llmaUsageSettings.dirty) && !confirm(translate('Discard unsaved changes?'))) {
         return false;
     }
     const overlay = document.getElementById('llma-settings-overlay');
@@ -1465,6 +1478,7 @@ function llmaCloseSettings() {
     llmaRemoveFocusTrap(overlay);
     document.getElementById('llma-asst-editor').style.display = 'none';
     document.getElementById('llma-tool-editor').style.display = 'none';
+    llmaUsageSettings.discard();
     return true;
 }
 
