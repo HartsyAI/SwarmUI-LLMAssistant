@@ -240,6 +240,11 @@ public static class LLMAssistantAPI
         // Audit log — admin-only. The endpoint itself re-checks PermSharedWrite for defense-in-depth.
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantGetAuditLog, false, PermSharedWrite);
         API.RegisterAPICall(SettingsEndpoints.LLMAssistantSetAuditLogEnabled, true, PermSharedWrite);
+        // Usage and cost: the price table and budget, one chat's figures, the day's and week's totals
+        API.RegisterAPICall(UsageEndpoints.LLMAssistantGetUsageSettings, false, PermSettings);
+        API.RegisterAPICall(UsageEndpoints.LLMAssistantSaveUsageSettings, true, PermSettings);
+        API.RegisterAPICall(UsageEndpoints.LLMAssistantGetThreadUsage, false, PermThreads);
+        API.RegisterAPICall(UsageEndpoints.LLMAssistantGetUsageTotals, false, PermThreads);
         // Models
         API.RegisterAPICall(ModelEndpoints.LLMAssistantGetModels, false, PermModels);
         API.RegisterAPICall(ModelEndpoints.LLMAssistantDecide, true, PermChat);

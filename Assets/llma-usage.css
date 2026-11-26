@@ -1,0 +1,49 @@
+/* Tokens and cost (usage.js): the figure under a reply, the chat's figure in the context bar, the details popover and the Usage settings tab. Colours are the theme's. */
+
+.llma-usage-chip,
+.llma-usage-thread {
+    background: none;
+    border: 0;
+    padding: 0 2px;
+    color: var(--text-soft);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.llma-usage-chip { display: block; font-size: 10px; opacity: 0.55; }
+.llma-usage-chip:hover,
+.llma-usage-chip:focus-visible,
+.llma-usage-thread:hover,
+.llma-usage-thread:focus-visible { color: var(--text); opacity: 1; text-decoration: underline; }
+
+.llma-ctx-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    column-gap: 10px;
+    min-width: 0;
+}
+.llma-usage-banner { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 3px 14px; }
+.llma-usage-warning { border: 0; cursor: pointer; white-space: normal; }
+/* Beside the extra figures on a narrow screen, the message count keeps to one line. */
+.llma-context-bar .llma-ctx-left { white-space: nowrap; }
+.llma-context-bar { column-gap: 10px; }
+
+.llma-usage-popover {
+    max-width: min(24rem, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
+    font-size: 12px;
+}
+.llma-usage-popover .basic-button { margin-top: 6px; }
+.llma-usage-table { width: 100%; max-width: 36rem; margin: 4px 0; }
+.llma-usage-table th { font-weight: normal; color: var(--text-soft); padding: 1px 10px 1px 0; text-align: left; vertical-align: top; }
+.llma-usage-table td { padding: 1px 0 1px 8px; text-align: right; overflow-wrap: anywhere; }
+.llma-usage-note { color: var(--text-soft); font-size: 11px; margin-top: 2px; }
+
+.llma-usage-currency { max-width: 8rem; }
+.llma-usage-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.llma-usage-row input[data-field="model"] { flex: 3 1 14rem; }
+.llma-usage-row input[type="number"] { flex: 1 1 6rem; width: auto; min-width: 0; }
+.llma-usage-limit { display: flex; flex-direction: column; flex: 1 1 10rem; max-width: 16rem; }

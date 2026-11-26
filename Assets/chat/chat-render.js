@@ -47,6 +47,9 @@
         llmaChatDocuments.renderPending();
         // Where a long chat's start was replaced by a summary.
         llmaContext.renderMarker();
+        // Tokens and cost under each reply, from the figures already fetched; fresh ones follow.
+        llmaUsage.render();
+        llmaUsage.scheduleRefresh();
         // Refresh the empty-chat greeting: it shows when the rendered list is empty and hides otherwise.
         if (typeof llmaRenderEmptyChatGreeting === 'function') {
             llmaRenderEmptyChatGreeting();

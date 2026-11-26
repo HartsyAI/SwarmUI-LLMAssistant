@@ -405,6 +405,7 @@
         // Compare mode persists each lane's partial text and finalizes its columns.
         if (typeof llmaCompareHandleStop === 'function' && llmaCompareHandleStop()) {
             llmaSetStreaming(false);
+            llmaUsage.refreshAfterStop();
             return;
         }
         if (LLMAState._streamingMsgId && LLMAState._streamingText) {
@@ -420,6 +421,7 @@
         LLMAState._streamingMsgId = null;
         LLMAState._streamingText = '';
         llmaSetStreaming(false);
+        llmaUsage.refreshAfterStop();
     }
 
     /** Toggle the generating UI state (send/stop buttons, input disabled). File-private. */
