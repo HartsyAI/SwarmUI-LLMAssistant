@@ -26,7 +26,7 @@
         if (!LLMAState.currentModel) {
             const haveModels = (LLMAState.availableModels || []).length > 0;
             llmaShowToast(haveModels
-                ? translate('Select a model from the dropdown at the top before sending.')
+                ? translate('Select a model before sending.')
                 : translate('No LLM backend is running. Start one under Server > Backends, then refresh the model list.'), 'error');
             if (typeof llmaFlashModelSelect === 'function') llmaFlashModelSelect();
             return;
@@ -112,10 +112,9 @@
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId, undefined, documents);
         // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
-        // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
+        // the context bar shows the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
-        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
 
         // Build payload. The server is authoritative for history; we only send threadId + new message.
         // Send the client-generated message id so the server persists it under the SAME id we rendered
@@ -167,7 +166,6 @@
         llmaRenderMessageHistory(LLMAState.messages);
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
-        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
     }
 
     /** Puts text back into the composer, ahead of anything typed there since, and gives it the keyboard. */
@@ -245,6 +243,7 @@
 
         LLMAState._streamingMsgId = assistantMsgId;
         LLMAState._streamingText  = '';
+        LLMAState._streamingRenderer = renderer;
 
         const takenUp = llmaActions.turnWatcher(payload.threadId);
         try {
@@ -373,6 +372,7 @@
                     }
                     // The completed reply is now the tip of the active branch.
                     LLMAState.activeLeafId = assistantMsgId;
+                    llmaActions.noteFailure(assistantMsg.parentId, null);
                     // Render the final text of this (last) iteration into the current segment
                     // with asset-card swap applied
                     const cleanFinal = llmaStripToolTags(renderer.getRawText());
@@ -434,6 +434,7 @@
                 }
                 if (!partial) {
                     llmaActions.markUnsaved(msg);
+                    llmaActions.noteFailure(assistantMsg.parentId, message);
                 }
                 // No frame came with it: the connection itself failed, and the server may still be writing.
                 if (!data) {
@@ -448,6 +449,7 @@
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);
             llmaActions.markUnsaved(assistantMsg);
+            llmaActions.noteFailure(assistantMsg.parentId, ex);
             llmaA11y.announceFailure(ex);
             llmaSetStreaming(false);
         }
@@ -478,6 +480,9 @@
         }
         const stopped = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
         if (stopped) {
+            // Draws what is waiting to be drawn, as text that has ended, so no render comes after the Stop and nothing stays "thinking".
+            LLMAState._streamingRenderer?.flushRender();
+            llmaActions.noteFailure(stopped.parentId, null);
             const bubble = document.querySelector(`[data-msg-id="${stopped.id}"] .llma-msg-bubble`);
             if (LLMAState._streamingText || (stopped.toolCalls || []).length) {
                 // The server keeps a reply that had text or ran a tool, as the tip of the branch: so does the page.
@@ -517,8 +522,7 @@
         llmaSaveActiveThread();
         llmaUpdateContextBar();
         llmaCodeMode.onTurnFinished();
-        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
-        // Fire-and-forget exact-count refresh: lands async and patches the sidebar/context bar once the server responds.
+        // Fire-and-forget exact-count refresh: lands async and patches the context bar once the server responds.
         if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
     }
 

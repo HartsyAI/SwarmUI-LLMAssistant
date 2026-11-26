@@ -177,13 +177,14 @@ const LLMA_ASSET_MIN_BYTES = 400;
 // Returns { assets: [...], tokenizedMarkdown: "..." }
 // The tokenized markdown has each extracted fence replaced with a bare-line token
 // `LLMA_ASSET_TOKEN_{id}` which survives marked + DOMPurify as plain text.
-function llmaExtractAssetsFromMarkdown(raw, msgId) {
+// `startIdx` numbers the assets from there, for a part of a message that follows others.
+function llmaExtractAssetsFromMarkdown(raw, msgId, startIdx = 0) {
     if (!raw) return { assets: [], tokenizedMarkdown: raw || '' };
     const assets = [];
     // Preserve mermaid — utils.js handles that pipeline separately; we do NOT touch mermaid fences.
     // Pattern: ``` optional-lang \n body \n ```
     const fenceRe = /```([^\s`]*)\s*\n([\s\S]*?)```/g;
-    let idx = 0;
+    let idx = startIdx;
     const tokenized = raw.replace(fenceRe, (match, lang, body) => {
         const langLower = (lang || '').toLowerCase();
         if (langLower === 'mermaid') return match; // leave to mermaid pipeline
@@ -316,9 +317,9 @@ function llmaRebuildAssetsForThread() {
 }
 
 // ── Render assistant content (markdown + inline asset cards) ─────
-function llmaRenderAssistantContent(raw, msgId) {
+function llmaRenderAssistantContent(raw, msgId, startIdx = 0) {
     if (!raw) return '';
-    const { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId);
+    const { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId, startIdx);
     let html = llmaRenderMarkdown(tokenizedMarkdown);
     // Replace token placeholders with asset cards
     for (const asset of assets) {

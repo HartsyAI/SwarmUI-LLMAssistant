@@ -431,7 +431,6 @@ async function llmaRunToolDirect(tool, args) {
     if (!LLMAState.isGenerating) LLMAState.activeLeafId = msgId;
     if (!ran) llmaActions.markUnsaved(node);
     if (typeof llmaRebuildAssetsForThread === 'function') llmaRebuildAssetsForThread();
-    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
     // The chat as saved decides where the call hangs.
     await llmaSaveActiveThread();
 }

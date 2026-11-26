@@ -87,35 +87,6 @@
 }
 .llma-panel-action-btn:hover { opacity: 1; background: var(--background-soft); }
 
-/* Panel stats */
-.llma-panel-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 8px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--light-border);
-}
-.llma-stat-box {
-    background: var(--background-panel-subtle);
-    border: 1px solid var(--light-border);
-    border-radius: 8px;
-    padding: 8px;
-    text-align: center;
-}
-.llma-stat-num {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-strong);
-}
-.llma-stat-lbl {
-    font-size: 10px;
-    color: var(--text-soft);
-    opacity: 0.6;
-    margin-top: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
 /* Capabilities chips. Auto-height so the assets section below sits right under it
    instead of being pushed off the bottom of the panel. The panel itself scrolls if
    the combined content exceeds the visible height. */

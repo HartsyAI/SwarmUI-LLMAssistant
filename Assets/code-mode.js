@@ -1,7 +1,6 @@
 /**
  * Code mode: the Chat / Code switch, the workspace picker in the composer, and the Workspace panel on the right (the workspace's files, what the
- * assistant changed with a way to undo it, a live terminal for its commands, and the chat's task list), plus the "plan ready" card and the Chat / Code
- * filter of the chat list.
+ * assistant changed with a way to undo it, a live terminal for its commands, and the chat's task list), plus the "plan ready" card.
  *
  * A chat in code mode works in a workspace folder and brings the code tools with it (see the README, "Code tools and workspaces"). The panel is built
  * from Bootstrap's nav-tabs, list-group and badge, so it carries almost no styling of its own (llma-code.css only lays out the two areas).
@@ -40,8 +39,6 @@ class LLMACodeMode {
         this.viewing = null;
         /** Whether the model changed something this turn, so the tree needs reloading when it ends. */
         this.dirty = false;
-        /** Which chats the sidebar lists: 'all', 'chat' or 'code'. */
-        this.filter = 'all';
     }
 
     /** Wires the controls and finds out what the user may do. Called once when the tab is set up. */
@@ -50,14 +47,6 @@ class LLMACodeMode {
             radio.addEventListener('change', () => {
                 if (radio.checked) {
                     this.setMode(radio.id == 'llma-mode-code' ? 'code' : 'chat', true);
-                }
-            });
-        }
-        for (let radio of document.querySelectorAll('input[name="llma-mode-filter"]')) {
-            radio.addEventListener('change', () => {
-                if (radio.checked) {
-                    this.filter = radio.dataset.filter;
-                    llmaRenderThreadList(LLMAState.threads);
                 }
             });
         }
@@ -174,7 +163,7 @@ class LLMACodeMode {
         return this.isCode ? 'code' : 'chat';
     }
 
-    /** Shows everything that depends on the mode: the switch, the picker, the panel, the sidebar filter and the page's own marker. */
+    /** Shows everything that depends on the mode: the switch, the picker, the panel and the page's own marker. */
     apply() {
         let code = this.isCode;
         let codeRadio = document.getElementById('llma-mode-code');
@@ -195,10 +184,6 @@ class LLMACodeMode {
         if (picker) {
             picker.style.display = code ? '' : 'none';
             this.fillPicker();
-        }
-        let filter = document.getElementById('llma-thread-mode-filter');
-        if (filter) {
-            filter.style.display = this.canUse ? '' : 'none';
         }
         let label = document.querySelector('.llma-panel-header-label');
         if (label) {
@@ -821,16 +806,6 @@ class LLMACodeMode {
             input.value = translate('The plan is accepted. Carry it out.');
             llmaSendMessage();
         }
-    }
-
-    // ---- chat list -----------------------------------------------------------------------------------------
-
-    /** Whether a chat is listed under the current filter. */
-    showsThread(thread) {
-        if (this.filter == 'all') {
-            return true;
-        }
-        return (thread.mode == 'code' ? 'code' : 'chat') == this.filter;
     }
 }
 

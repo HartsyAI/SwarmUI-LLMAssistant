@@ -64,7 +64,7 @@ test.afterEach(async ({ llm }) => {
 test('the bar shows the tokens the model reported against its window', async ({ llm }) => {
     await setScenarios([exchange('hello', 'Hi there.', 1000, 200)]);
     await exchangeWith(llm, 'hello', 'Hi there.');
-    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('1,200 / 4,000 tokens');
+    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('Context: 1,200 / 4,000 tokens');
     let fill = await llm.locator('#llma-ctx-fill').evaluate(el => (el as HTMLElement).style.width);
     expect(fill).toBe('30%');
 });
@@ -86,14 +86,14 @@ test('the reply is saved with its usage, so a reloaded chat shows the same figur
     await llm.reload();
     await llm.evaluate(() => (document.getElementById('maintab_llmassistant') as HTMLElement).click());
     await llm.locator('.llma-thread-item').first().click();
-    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('1,200 / 4,000 tokens');
+    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('Context: 1,200 / 4,000 tokens');
 });
 
 test('a model that states no window shows the count without a limit', async ({ llm }) => {
     await setScenarios([exchange('hello', 'Hi there.', 700, 50)]);
     await llm.locator('#llma-model-select').selectOption('mock-model-b');
     await exchangeWith(llm, 'hello', 'Hi there.');
-    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('750 tokens');
+    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('Context: 750 tokens');
     expect(await llm.locator('#llma-ctx-fill').evaluate(el => (el as HTMLElement).style.width)).toBe('0%');
 });
 
@@ -101,7 +101,7 @@ test('the Context Window setting overrides what the model states', async ({ llm 
     await setContext(llm, { window: 10000 });
     await setScenarios([exchange('hello', 'Hi there.', 1000, 200)]);
     await exchangeWith(llm, 'hello', 'Hi there.');
-    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('1,200 / 10,000 tokens');
+    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('Context: 1,200 / 10,000 tokens');
 });
 
 test('a chat that nears the window is summarized before the next reply, and the model is sent the summary', async ({ llm }) => {
@@ -141,7 +141,7 @@ test('a chat that nears the window is summarized before the next reply, and the 
     await marker.locator('summary').click();
     await expect(marker.locator('.llma-compaction-text')).toContainText('SUMMARY: the user greeted');
     // The bar now reflects the shorter chat: the last reply reported 700 tokens.
-    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('700 / 4,000 tokens');
+    await expect(llm.locator('#llma-ctx-tokens')).toHaveText('Context: 700 / 4,000 tokens');
 });
 
 test('the marker and the summary come back when the chat is reopened', async ({ llm }) => {

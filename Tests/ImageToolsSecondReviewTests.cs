@@ -1,5 +1,6 @@
 using Hartsy.Extensions.LLMAssistant.Services.ImageTools;
 using Newtonsoft.Json.Linq;
+using SwarmUI.Text2Image;
 using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
@@ -9,6 +10,38 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 public class ImageToolsSecondReviewTests
 {
     private static string FakeId(string key) => new([.. (key ?? "").ToLowerInvariant().Where(c => c is >= 'a' and <= 'z')]);
+
+    // ---- core's parameter lookup ----
+
+    [Fact]
+    public void CoreLookupHandsProvidersOfSpecialNamesOneEmptyRequestToRead()
+    {
+        List<T2IParamInput> seen = [];
+        // As ComfyUI's provider does, this one reads the request it is given: with none it would throw, and ComfyUI logs that for every name.
+        T2IParamType Provider(string name, T2IParamInput context)
+        {
+            seen.Add(context);
+            return null;
+        }
+        T2IParamTypes.FakeTypeProviders.Add(Provider);
+        try
+        {
+            Assert.Equal("someparam", ImageParamKeys.CoreId("Some Param"));
+            Assert.Equal("otherparam", ImageParamKeys.CoreId("other_param"));
+        }
+        finally
+        {
+            T2IParamTypes.FakeTypeProviders.Remove(Provider);
+        }
+        Assert.NotEmpty(seen);
+        Assert.All(seen, context =>
+        {
+            Assert.NotNull(context);
+            Assert.Null(context.SourceSession);
+            Assert.Empty(context.InternalSet.ValuesInput);
+            Assert.Same(seen[0], context);
+        });
+    }
 
     // ---- 1. presets named in params ----
 

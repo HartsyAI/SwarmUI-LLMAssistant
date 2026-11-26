@@ -35,7 +35,7 @@
             llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta, msg.documents);
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
                 const bubble = document.querySelector(`[data-msg-id="${CSS.escape(msg.id)}"] .llma-msg-bubble`);
-                if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
+                if (bubble) llmaReplayReply(bubble, msg);
             }
             if (msg.role === 'user' && typeof llmaCompareSiblings === 'function') {
                 const sibs = llmaCompareSiblings(msg.id);
@@ -407,6 +407,7 @@
             : { title: (typeof llmaShortError === 'function' ? llmaShortError(error) : String(error)) || translate('Something went wrong'), hint: null, detail: '' };
         let body = `<div class="llma-msg-error-title">${llmaEscapeHtml(info.title)}</div>`;
         if (info.hint) body += `<div class="llma-msg-error-hint">${llmaEscapeHtml(info.hint)}</div>`;
+        if (info.showDetail && info.detail !== info.title) body += `<div class="llma-msg-error-detail">${llmaEscapeHtml(info.detail)}</div>`;
         // Keep the raw detail reachable via tooltip when it differs from the shown title.
         const tip = info.detail && info.detail !== info.title ? ` title="${llmaEscapeHtml(info.detail)}"` : '';
         return `<div class="llma-msg-error"${tip}>` +

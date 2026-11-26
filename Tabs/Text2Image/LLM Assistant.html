@@ -6,15 +6,6 @@
             <button class="llma-select-toggle llma-group-toggle translate" id="llma-thread-group-toggle" type="button" title="Switch between grouping chats by date or by assistant">By date</button>
             <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select several chats to delete them" aria-pressed="false">Select</button>
         </div>
-        <!-- Which chats are listed: all of them, ordinary chats, or coding sessions. Shown for a user who can use code mode. -->
-        <div class="btn-group btn-group-sm llma-segmented llma-thread-mode-filter" role="group" aria-label="Chat kind" id="llma-thread-mode-filter" style="display:none;">
-            <input type="radio" class="btn-check" name="llma-mode-filter" id="llma-mode-filter-all" data-filter="all" autocomplete="off" checked>
-            <label class="btn btn-outline-primary translate" for="llma-mode-filter-all">All</label>
-            <input type="radio" class="btn-check" name="llma-mode-filter" id="llma-mode-filter-chat" data-filter="chat" autocomplete="off">
-            <label class="btn btn-outline-primary translate" for="llma-mode-filter-chat">Chats</label>
-            <input type="radio" class="btn-check" name="llma-mode-filter" id="llma-mode-filter-code" data-filter="code" autocomplete="off">
-            <label class="btn btn-outline-primary translate" for="llma-mode-filter-code">Code</label>
-        </div>
         <div class="llma-search-wrap">
             <input class="llma-search translate" id="llma-thread-search" type="text" placeholder="Search chats and messages..." aria-label="Search chats and messages" autocomplete="off">
             <!-- Import a chat from the JSON an export makes (always shown: it is also how a first chat can be made). The preview dialog is below the main area. -->
@@ -60,17 +51,13 @@
                 <span class="llma-thread-title" id="llma-thread-title">LLM Assistant</span>
             </div>
             <div class="llma-topbar-right">
-                <!-- Model select. Collapses into a popover ("model menu") when the top bar gets narrow —
-                     see the container query in llma-topbar.css. The "VS" toggle sits to the LEFT of the pill(s). -->
+                <!-- Model select. When the top bar gets narrow it is hidden here and moved into a popover beside the composer's model chip
+                     (llmaSetupModelMenu). The "VS" toggle sits to the LEFT of the pill(s). -->
                 <div class="llma-popover-anchor llma-model-anchor" id="llma-model-anchor">
-                    <!-- Compact trigger: shown only when the bar is too narrow for the inline selects. -->
-                    <button class="llma-icon-btn llma-model-menu-btn translate" id="llma-model-menu-btn" type="button" title="Model selection" aria-label="Model selection" aria-haspopup="true">
-                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="3" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="9" width="12" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3"/></svg>
-                    </button>
                     <div class="llma-model-select-wrap" id="llma-model-select-wrap">
                         <!-- Compare/VS toggle: splits into a second model pill and fans each prompt out to both
                              models side-by-side. Positioned to the left of the model dropdown. -->
-                        <button class="llma-icon-btn llma-compare-toggle translate" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison">
+                        <button class="llma-icon-btn llma-compare-toggle translate" id="llma-compare-toggle" type="button" title="Compare two models side-by-side" aria-label="Toggle side-by-side model comparison" aria-pressed="false">
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1.5" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/><rect x="9" y="2.5" width="5.5" height="11" rx="1.3" stroke="currentColor" stroke-width="1.2"/></svg>
                         </button>
                         <select class="llma-model-select" id="llma-model-select" autocomplete="off" aria-label="Active LLM model (lane A in compare)">
@@ -252,7 +239,7 @@
                                 </div>
                                 <!-- Tool approval for this chat, in core's segmented-control markup. Ask: anything that changes something asks first.
                                      Auto: everything runs (the default). Plan: read-only, nothing is changed. -->
-                                <div class="btn-group btn-group-sm llma-segmented" role="group" aria-label="Tool approval" id="llma-approval-group">
+                                <div class="btn-group btn-group-sm llma-segmented llma-approval-group" role="group" aria-label="Tool approval" id="llma-approval-group">
                                     <input type="radio" class="btn-check" name="llma-approval" id="llma-approval-ask" value="ask" autocomplete="off">
                                     <label class="btn btn-outline-primary translate" for="llma-approval-ask" title="Ask before any tool that changes something">Ask</label>
                                     <input type="radio" class="btn-check" name="llma-approval" id="llma-approval-auto" value="auto" autocomplete="off" checked>
@@ -268,11 +255,14 @@
                                 </label>
                             </div>
                             <div class="llma-input-actions-right">
-                                <button class="llma-model-chip" id="llma-model-chip" type="button" title="Switch model">
-                                    <span class="llma-model-chip-dot" aria-hidden="true"></span>
-                                    <span class="llma-model-chip-text" id="llma-model-chip-text">No model</span>
-                                    <span class="llma-model-chip-caret" aria-hidden="true">&#9662;</span>
-                                </button>
+                                <!-- The model picker where the top bar is too narrow for its own: the model selects move in here, above the chip. -->
+                                <div class="llma-popover-anchor llma-chip-anchor" id="llma-chip-anchor">
+                                    <button class="llma-model-chip" id="llma-model-chip" type="button" title="Switch model" aria-haspopup="true">
+                                        <span class="llma-model-chip-dot" aria-hidden="true"></span>
+                                        <span class="llma-model-chip-text" id="llma-model-chip-text">No model</span>
+                                        <span class="llma-model-chip-caret" aria-hidden="true">&#9662;</span>
+                                    </button>
+                                </div>
                                 <button class="llma-send-btn translate" id="llma-send-btn" title="Send" aria-label="Send message">
                                     <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 14L14.5 8L2 2V6.5L10 8L2 9.5V14Z" fill="currentColor"/></svg>
                                 </button>
@@ -298,7 +288,7 @@
     <aside class="llma-asst-panel" id="llma-asst-panel" aria-label="Assistant panel">
         <div class="llma-panel-header">
             <span class="llma-panel-header-label translate">Assistant</span>
-            <button class="llma-icon-btn translate" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
+            <button class="llma-icon-btn llma-panel-collapse translate" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><path d="M7 1.5L3.5 5.5L7 9.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
         </div>
@@ -369,7 +359,7 @@
     </div>
 
     <!-- ── Settings Modal ────────────────────────────────────── -->
-    <div class="llma-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="llma-overlay llma-settings-overlay" id="llma-settings-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Settings">
         <div class="llma-modal llma-settings-modal">
             <div class="llma-modal-header">
                 <h3 class="translate">Settings</h3>
@@ -699,9 +689,10 @@
                     <div id="llma-settings-companion-form"></div>
                 </div>
             </div>
-            <div class="llma-modal-footer">
+            <!-- Each button shows only where it applies (llmaUpdateSettingsFooter); the footer goes when neither does. -->
+            <div class="llma-modal-footer llma-settings-footer">
                 <button class="basic-button translate" id="llma-settings-save">Save &amp; Close</button>
-                <button class="basic-button translate" id="llma-settings-reset">Reset Defaults</button>
+                <button class="basic-button translate" id="llma-settings-reset" title="Reset every tab's settings, assistants, tools, hooks and prices to their defaults. Chats, memory, knowledge and schedules are kept.">Reset All Defaults</button>
             </div>
         </div>
     </div>

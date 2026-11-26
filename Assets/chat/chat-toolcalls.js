@@ -21,34 +21,63 @@
         return name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
     }
 
-    /** Verb phrases per tool: [singular activity, plural noun used in the group summary]. */
+    /** Verb phrases per tool: [singular activity done, plural of it used in the group summary, the activity while it runs]. */
     const LLMA_TOOL_PHRASES = {
-        generate_image: ['Generated an image', 'generated {n} images'],
-        web_search: ['Searched the web', 'searched the web {n} times'],
-        file_read: ['Read a file', 'read {n} files'],
-        file_write: ['Wrote a file', 'wrote {n} files'],
-        shell_exec: ['Ran a command', 'ran {n} commands'],
-        http_request: ['Made a request', 'made {n} requests'],
-        code_read: ['Read a file', 'read {n} files'],
-        code_write: ['Wrote a file', 'wrote {n} files'],
-        code_edit: ['Edited a file', 'edited {n} files'],
-        code_glob: ['Listed files', 'listed files {n} times'],
-        code_grep: ['Searched the files', 'searched the files {n} times'],
-        code_bash: ['Ran a command', 'ran {n} commands'],
-        code_todo: ['Updated the task list', 'updated the task list {n} times'],
-        session_start: ['Started a session', 'started {n} sessions'],
-        session_send: ['Messaged a session', 'messaged sessions {n} times'],
-        session_list: ['Listed the sessions', 'listed the sessions {n} times'],
-        session_read: ['Read a session', 'read sessions {n} times'],
-        session_wait: ['Waited for a session', 'waited for sessions {n} times'],
-        session_stop: ['Stopped a session', 'stopped {n} sessions'],
-        session_archive: ['Archived a session', 'archived {n} sessions'],
+        generate_image: ['Generated an image', 'generated {n} images', 'Generating an image'],
+        web_search: ['Searched the web', 'searched the web {n} times', 'Searching the web'],
+        file_read: ['Read a file', 'read {n} files', 'Reading a file'],
+        file_write: ['Wrote a file', 'wrote {n} files', 'Writing a file'],
+        shell_exec: ['Ran a command', 'ran {n} commands', 'Running a command'],
+        http_request: ['Made a request', 'made {n} requests', 'Making a request'],
+        code_read: ['Read a file', 'read {n} files', 'Reading a file'],
+        code_write: ['Wrote a file', 'wrote {n} files', 'Writing a file'],
+        code_edit: ['Edited a file', 'edited {n} files', 'Editing a file'],
+        code_glob: ['Listed files', 'listed files {n} times', 'Listing files'],
+        code_grep: ['Searched the files', 'searched the files {n} times', 'Searching the files'],
+        code_bash: ['Ran a command', 'ran {n} commands', 'Running a command'],
+        code_todo: ['Updated the task list', 'updated the task list {n} times', 'Updating the task list'],
+        session_start: ['Started a session', 'started {n} sessions', 'Starting a session'],
+        session_send: ['Messaged a session', 'messaged sessions {n} times', 'Messaging a session'],
+        session_list: ['Listed the sessions', 'listed the sessions {n} times', 'Listing the sessions'],
+        session_read: ['Read a session', 'read sessions {n} times', 'Reading a session'],
+        session_wait: ['Waited for a session', 'waited for sessions {n} times', 'Waiting for a session'],
+        session_stop: ['Stopped a session', 'stopped {n} sessions', 'Stopping a session'],
+        session_archive: ['Archived a session', 'archived {n} sessions', 'Archiving a session'],
     };
 
-    /** Short activity title for one tool call ("Ran a command", or "Used Foo Bar" for unknown tools). */
-    function llmaToolActivity(name) {
-        const p = LLMA_TOOL_PHRASES[name];
-        return p ? translate(p[0]) : `${translate('Used')} ${llmaFormatToolName(name)}`;
+    /** What a call that did not succeed, or has not run yet, says after its tool's name. */
+    const LLMA_TOOL_OUTCOMES = { waiting: 'needs permission', declined: 'declined', failed: 'failed' };
+
+    /** Where a call's step stands: 'waiting' (for the user's permission), 'running', 'done', 'declined' or 'failed'. */
+    function llmaToolState(callBubble) {
+        if (callBubble.classList.contains('pending')) {
+            return callBubble.classList.contains('waiting') ? 'waiting' : 'running';
+        }
+        if (callBubble.classList.contains('error')) {
+            return callBubble.classList.contains('declined') ? 'declined' : 'failed';
+        }
+        return 'done';
+    }
+
+    /** One or more calls of a tool in one state, as words: "Generating an image", "generated 2 images", "Generate Image needs permission". */
+    function llmaToolPhrase(name, state, count) {
+        let phrases = LLMA_TOOL_PHRASES[name];
+        let times = count > 1 ? ` ×${count}` : '';
+        if (LLMA_TOOL_OUTCOMES[state]) {
+            return `${llmaFormatToolName(name)} ${translate(LLMA_TOOL_OUTCOMES[state])}${times}`;
+        }
+        if (!phrases) {
+            return `${translate(state == 'running' ? 'Using' : 'Used')} ${llmaFormatToolName(name)}${times}`;
+        }
+        if (state == 'running') {
+            return `${translate(phrases[2])}${times}`;
+        }
+        return count > 1 ? translate(phrases[1]).replace('{n}', count) : translate(phrases[0]);
+    }
+
+    /** A call's own title ("Ran a command", or "Used Foo Bar" for unknown tools), saying where it stands. */
+    function llmaToolActivity(name, state) {
+        return llmaToolPhrase(name, state, 1);
     }
 
     /**
@@ -86,45 +115,45 @@
         return group;
     }
 
-    /** Refresh a group's summary line ("Ran 2 commands, read a file"), and running state. */
+    /** Refresh a group's summary line ("Ran 2 commands, read a file") and its calls' titles, and its running state. Only a call that succeeded is told as done. */
     function llmaUpdateToolGroup(group) {
         if (!group) {
             return;
         }
         let calls = Array.from(group.querySelectorAll('.llma-tool-call-bubble'));
-        let counts = {};
-        let order = [];
+        let kinds = new Map();
         for (let c of calls) {
-            let n = c.getAttribute('data-tool-name') || '';
-            if (!(n in counts)) {
-                counts[n] = 0;
-                order.push(n);
+            let name = c.getAttribute('data-tool-name') || '';
+            let state = llmaToolState(c);
+            let key = `${name} ${state}`;
+            if (!kinds.has(key)) {
+                kinds.set(key, { name: name, state: state, count: 0 });
             }
-            counts[n]++;
+            kinds.get(key).count++;
+            c.querySelector('.llma-tool-call-title').textContent = llmaToolActivity(name, state);
         }
-        let parts = [];
-        for (let n of order) {
-            let p = LLMA_TOOL_PHRASES[n];
-            if (!p) {
-                parts.push(counts[n] == 1 ? `${translate('used')} ${llmaFormatToolName(n)}` : `${translate('used')} ${llmaFormatToolName(n)} ×${counts[n]}`);
-            }
-            else if (counts[n] == 1) {
-                parts.push(translate(p[0]).charAt(0).toLowerCase() + translate(p[0]).slice(1));
-            }
-            else {
-                parts.push(translate(p[1]).replace('{n}', counts[n]));
-            }
-        }
+        let parts = Array.from(kinds.values(), (kind, i) => {
+            let part = llmaToolPhrase(kind.name, kind.state, kind.count);
+            // Later parts run on in the sentence; a part that starts with a tool's name keeps its capital.
+            return i > 0 && !LLMA_TOOL_OUTCOMES[kind.state] ? part.charAt(0).toLowerCase() + part.slice(1) : part;
+        });
         let text = parts.join(', ');
         text = text.charAt(0).toUpperCase() + text.slice(1);
+        let running = calls.some(c => llmaToolState(c) == 'running');
         let pending = group.querySelector('.llma-tool-call-bubble.pending');
         let failed = group.querySelector('.llma-tool-call-bubble.error');
         let summary = group.querySelector('.llma-tool-group-summary');
-        summary.textContent = pending ? `${text}…` : text;
+        summary.textContent = running ? `${text}…` : text;
         // A lone step needs no row of its own: its details show straight under the summary line.
         group.classList.toggle('single', calls.length == 1);
-        group.classList.toggle('running', !!pending);
+        // A call waiting for the user is not at work: no spinner for it.
+        group.classList.toggle('running', running);
         group.classList.toggle('has-error', !!failed && !pending);
+    }
+
+    /** The status of a call at work: a spinner and "running…". */
+    function llmaToolRunningStatus(status) {
+        status.innerHTML = `<span class="llma-spinner" aria-hidden="true"></span><span>${translate('running…')}</span>`;
     }
 
     /** Append a pending tool-call bubble (header + args, collapsible) under an assistant bubble. */
@@ -144,7 +173,6 @@
 
         const title = document.createElement('span');
         title.className = 'llma-tool-call-title';
-        title.textContent = llmaToolActivity(call.name);
         header.appendChild(title);
 
         const status = document.createElement('span');
@@ -152,7 +180,7 @@
         // Spinner stays in the DOM next to the status text while the call is pending.
         // The tool-result handler swaps the bubble class from .pending to .success/.error,
         // which hides the spinner via a CSS rule keyed on the parent .pending state.
-        status.innerHTML = `<span class="llma-spinner" aria-hidden="true"></span><span>${translate('running…')}</span>`;
+        llmaToolRunningStatus(status);
         header.appendChild(status);
 
         const toggle = document.createElement('button');
@@ -218,6 +246,8 @@
         const status = callBubble.querySelector('.llma-tool-call-status');
         if (status) status.textContent = translate('needs approval');
         callBubble.querySelector('.llma-tool-approval')?.remove();
+        callBubble.classList.add('waiting');
+        llmaUpdateToolGroup(callBubble.closest('.llma-tool-group'));
 
         const row = document.createElement('div');
         row.className = 'llma-tool-approval d-flex flex-wrap align-items-center gap-2 mt-2';
@@ -253,6 +283,13 @@
         );
         if (reply && reply.resolved) {
             row.textContent = decision == 'deny' ? translate('Declined.') : translate('Allowed.');
+            // Allowed: the call is at work from here. A declined one gets its result straight away.
+            const callBubble = row.closest('.llma-tool-call-bubble.pending.waiting');
+            if (callBubble && decision != 'deny') {
+                callBubble.classList.remove('waiting');
+                llmaToolRunningStatus(callBubble.querySelector('.llma-tool-call-status'));
+                llmaUpdateToolGroup(callBubble.closest('.llma-tool-group'));
+            }
         }
         else {
             // The turn ended (Stop, or the tab was closed) before the answer arrived: nothing is waiting any more.
@@ -393,8 +430,9 @@
 
         const target = callBubble || bubble;
         if (callBubble) {
-            callBubble.classList.remove('pending');
+            callBubble.classList.remove('pending', 'waiting');
             callBubble.classList.add(success ? 'success' : 'error');
+            callBubble.classList.toggle('declined', !success && !!result.denied);
             callBubble.querySelector('.llma-tool-approval')?.remove();
             const status = callBubble.querySelector('.llma-tool-call-status');
             if (status) status.textContent = success ? translate('done') : (result.denied ? translate('declined') : translate('error'));
@@ -669,17 +707,78 @@
         }
     }
 
-    /** Replay stored tool calls + results for an assistant message (used on thread reload). */
+    /** Draws one stored call, with its result when it has one. */
+    function llmaRenderStoredCall(bubble, tc) {
+        llmaRenderToolCall(bubble, { id: tc.id, name: tc.name, arguments: tc.arguments });
+        if (tc.result !== null && tc.result !== undefined) {
+            llmaRenderToolResult(bubble, { id: tc.id, name: tc.name, result: tc.result });
+        }
+    }
+
+    /**
+     * A stored reply round by round, as the model wrote it: [{text, calls}], each round's calls following its text. Null when the saved rounds
+     * cannot give the order: none saved (an older or imported chat), a call that is in none of them, or text that is no longer the message's (an edit).
+     * @param {object} message - A stored assistant message.
+     * @returns {?Array<{text: string, calls: Array<object>}>} The rounds.
+     */
+    function llmaReplyRounds(message) {
+        let rounds = message?.rounds;
+        let calls = message?.toolCalls || [];
+        if (!Array.isArray(rounds) || rounds.length == 0 || calls.length == 0) {
+            return null;
+        }
+        if (llmaStripToolTags(rounds.map(round => round?.text || '').join('')) != llmaStripToolTags(message.content || '')) {
+            return null;
+        }
+        // Ids are matched in order and each call used once: a provider may repeat an id from one round to the next.
+        let left = [...calls];
+        let ordered = rounds.map(round => ({
+            text: llmaStripToolTags(round?.text || ''),
+            calls: (round?.toolCallIds || []).flatMap(id => {
+                let at = left.findIndex(call => call.id == id);
+                return at < 0 ? [] : left.splice(at, 1);
+            })
+        }));
+        return left.length == 0 ? ordered : null;
+    }
+
+    /**
+     * Draws a stored assistant message that made tool calls into its bubble: in the order it streamed when the saved rounds give it, else the
+     * calls ahead of the text.
+     * @param {HTMLElement} bubble - The message's bubble, already holding its text.
+     * @param {object} message - The stored message.
+     */
+    function llmaReplayReply(bubble, message) {
+        let rounds = llmaReplyRounds(message);
+        if (!rounds) {
+            llmaReplayToolCalls(bubble, message.toolCalls);
+            return;
+        }
+        bubble.innerHTML = '';
+        // Asset cards are numbered through the whole message, so each round carries on from the one before.
+        let assets = 0;
+        for (let round of rounds) {
+            if (round.text) {
+                let segment = createDiv(null, 'llma-msg-text-segment');
+                segment.innerHTML = llmaRenderAssistantContent(round.text, message.id, assets);
+                assets += llmaExtractAssetsFromMarkdown(round.text, message.id).assets.length;
+                bubble.appendChild(segment);
+                llmaPostRenderMermaid(segment);
+            }
+            for (let tc of round.calls) {
+                llmaRenderStoredCall(bubble, tc);
+            }
+        }
+    }
+
+    /** Replay stored tool calls + results for an assistant message whose order is not known (an older chat). */
     function llmaReplayToolCalls(bubble, toolCalls) {
         if (!bubble || !Array.isArray(toolCalls)) return;
         for (const tc of toolCalls) {
-            llmaRenderToolCall(bubble, { id: tc.id, name: tc.name, arguments: tc.arguments });
-            if (tc.result !== null && tc.result !== undefined) {
-                llmaRenderToolResult(bubble, { id: tc.id, name: tc.name, result: tc.result });
-            }
+            llmaRenderStoredCall(bubble, tc);
         }
-        // History keeps the reply text and the calls separately, so replay can't know where they
-        // interleaved. Activity happens before the answer: put the groups ahead of the text.
+        // Without the rounds, replay can't know where the text and the calls interleaved.
+        // Activity happens before the answer: put the groups ahead of the text.
         const moving = [];
         for (const g of bubble.querySelectorAll(':scope > .llma-tool-group')) {
             moving.push(g);
@@ -700,5 +799,5 @@
     window.llmaRenderToolResult = llmaRenderToolResult;
     window.llmaRenderToolApproval = llmaRenderToolApproval;
     window.llmaRenderDiff       = llmaRenderDiff;
-    window.llmaReplayToolCalls  = llmaReplayToolCalls;
+    window.llmaReplayReply      = llmaReplayReply;
 })();

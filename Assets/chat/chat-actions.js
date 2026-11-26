@@ -11,6 +11,9 @@
 /** Matches a fenced code block or a code span in Markdown: what is inside is text to keep, whatever it looks like. Its two groups are the fence and the span's backticks. */
 const LLMA_CODE_PATTERN = '(?:^|(?<=\\n))[ \\t]*(`{3,}|~{3,})[\\s\\S]*?(?:\\n[ \\t]*\\1[`~]*[ \\t]*(?=\\n|$)|$)|(`+)(?:(?!\\n[ \\t]*\\n)[\\s\\S])*?\\2';
 
+/** Where this browser keeps why a message was left without a reply, as [messageId, error] pairs, newest last. */
+const LLMA_REPLY_FAILURES_KEY = 'llma.replyFailures';
+
 /** The actions a user takes on one message of the chat. */
 class LLMAMessageActions {
     constructor() {
@@ -166,6 +169,60 @@ class LLMAMessageActions {
         }
     }
 
+    /** The failures kept by <c>noteFailure</c>, by the id of the message that got no reply. Empty when storage is blocked. */
+    failures() {
+        try {
+            return new Map(JSON.parse(localStorage.getItem(LLMA_REPLY_FAILURES_KEY)) || []);
+        }
+        catch {
+            return new Map();
+        }
+    }
+
+    /**
+     * Keeps why a message got no reply, so the page can still say it after a reload (the server saves nothing for such a reply). The newest 50
+     * are kept. With no error (a reply arrived, or the user stopped it) what was kept for the message is forgotten.
+     */
+    noteFailure(messageId, error) {
+        let kept = this.failures();
+        if (!kept.delete(messageId) && !error) {
+            return;
+        }
+        if (error) {
+            kept.set(messageId, String(llmaShortError(error) || '').slice(0, 2000));
+        }
+        try {
+            localStorage.setItem(LLMA_REPLY_FAILURES_KEY, JSON.stringify(Array.from(kept).slice(-50)));
+        }
+        catch {
+            // Blocked or full storage: after a reload the page only says there is no reply.
+        }
+    }
+
+    /** Whether something under this message already says on screen why it has no reply: the failed or stopped reply, still there until a reload. */
+    saidBelow(container, messageId) {
+        let next = container.querySelector(`[data-msg-id="${CSS.escape(messageId)}"]`)?.nextElementSibling;
+        for (; next; next = next.nextElementSibling) {
+            if (next.querySelector('.llma-msg-error, .llma-msg-stopped')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** What stands beside Retry under a message with no reply: the failure this browser saw, else that there is no reply. */
+    noReplyNote(messageId) {
+        let note = createDiv(null, 'llma-msg-tail-note');
+        let error = this.failures().get(messageId);
+        if (error) {
+            note.innerHTML = llmaErrorBlockHtml(error);
+        }
+        else {
+            note.textContent = translate('This message has no reply.');
+        }
+        return note;
+    }
+
     /** The ids of this message and of every message under it, among these. */
     subtreeIds(msgId, nodes) {
         let found = new Set([msgId]);
@@ -286,6 +343,9 @@ class LLMAMessageActions {
             return;
         }
         let row = createDiv(null, 'llma-msg-tail');
+        if (canRetry && !canContinue && !this.saidBelow(container, last.id)) {
+            row.appendChild(this.noReplyNote(last.id));
+        }
         if (canRetry) {
             let retry = llmaCreateActionBtn(translate('Retry'), () => llmaRegenerateMessage(last.id), 'basic-button llma-msg-retry');
             retry.type = 'button';

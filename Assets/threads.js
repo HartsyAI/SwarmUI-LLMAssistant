@@ -119,7 +119,6 @@ async function llmaSetActiveLeaf(leafId, opts = {}) {
     LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaUpdateContextBar();
-    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
     try {
         const res = await llmaRequest('LLMAssistantSetActiveLeaf', { threadId: LLMAState.activeThreadId, messageId: leafId });
         if (res?.success && res.thread) {
@@ -294,7 +293,7 @@ function llmaRenderThreadList(threads) {
     let searching = llmaLibrary.searching;
     let split = searching
         ? { roots: llmaLibrary.visibleThreads(threads), kids: new Map() }
-        : llmaSessions.split(threads.filter(t => llmaCodeMode.showsThread(t)));
+        : llmaSessions.split(threads);
     let roots = split.roots;
     let kids = split.kids;
     let entries;
@@ -885,7 +884,6 @@ async function llmaReloadActiveThread() {
     llmaRewriteControls.onThreadLoaded(thread);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
-    if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
     // Update sidebar metadata too.
     const meta = LLMAState.threads.find(t => t.id === LLMAState.activeThreadId);
     if (meta) {
