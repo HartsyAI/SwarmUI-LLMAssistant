@@ -1313,10 +1313,10 @@ function llmaRevealSettingsTab() {
         return;
     }
     let strip = tab.parentElement;
-    let box = tab.getBoundingClientRect();
-    let frame = strip.getBoundingClientRect();
-    if (box.left < frame.left || box.right > frame.right) {
-        strip.scrollLeft += box.left - frame.left - (frame.width - box.width) / 2;
+    // Layout positions rather than on-screen boxes: the dialog's opening animation scales those.
+    let left = tab.offsetLeft - strip.offsetLeft;
+    if (left < strip.scrollLeft || left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+        strip.scrollLeft = left - (strip.clientWidth - tab.offsetWidth) / 2;
     }
 }
 

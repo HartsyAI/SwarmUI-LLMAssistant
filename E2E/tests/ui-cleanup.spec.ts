@@ -53,7 +53,7 @@ for (let size of [{ width: 1366, height: 768 }, { width: 1440, height: 900 }, { 
         expect(box.y + box.height).toBeLessThanOrEqual(size.height + 0.5);
         // The content is what scrolls.
         await tab(llm, 'general').click();
-        expect(await llm.locator('.llma-modal-body').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
+        expect(await llm.locator('.llma-settings-modal .llma-modal-body').evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
     });
 }
 
@@ -63,6 +63,11 @@ test('on a phone the settings tabs are one row that scrolls, and the tab showing
     let tops = await llm.locator('.llma-modal-tab').evaluateAll(tabs => [...new Set(tabs.map(t => Math.round(t.getBoundingClientRect().top)))]);
     expect(tops).toHaveLength(1);
     expect((await llm.locator('.llma-modal-tabs').boundingBox())!.height).toBeLessThan(70);
+    // The tool cards are one column, not two with the second cut off.
+    await tab(llm, 'tools').click();
+    await expect(llm.locator('.llma-tool-list-item').nth(1)).toBeAttached();
+    expect(await llm.locator('.llma-settings-modal .llma-modal-body').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    expect(await llm.locator('.llma-tool-list-item').evaluateAll(cards => new Set(cards.map(c => Math.round(c.getBoundingClientRect().left))).size)).toBe(1);
     await tab(llm, 'companion').click();
     await expect(tab(llm, 'companion')).toBeInViewport({ ratio: 1 });
     await llm.locator('#llma-settings-close').click();
@@ -81,7 +86,8 @@ const TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp', 'skills', 'promp
 for (let layer of ['shared', 'own'] as const) {
     test(`each footer button shows only where it applies, resetting the ${layer} settings`, async ({ llm }) => {
         if (layer == 'own') {
-            await llm.route('**/API/LLMAssistantGetAssistants', async route => {
+            // Both lists say whether the user may write the shared settings.
+            await llm.route(/API\/LLMAssistant(GetAssistants|GetTools)$/, async route => {
                 let response = await route.fetch();
                 await route.fulfill({ response, json: { ...await response.json(), canWriteShared: false } });
             });
