@@ -152,7 +152,7 @@ public static class PromptTagHandler
 
         paramAutoEnhance = T2IParamTypes.Register<string>(new(
             "LLM Auto-Enhance Prompt",
-            "Rewrite the prompt for the selected image or video model before generating (see Settings > Prompt styles). Default follows the setting there, which is off until you turn it on.",
+            "Rewrite the prompt for the selected image or video model before generating. Default follows the switches: for images an assistant makes, the chat's and the assistant's, then your model rules and the switches in Settings > Prompt styles (the main one is off until you turn it on).",
             PromptAutoEnhance.ModeDefault,
             IgnoreIf: PromptAutoEnhance.ModeDefault,
             Group: paramGroup,

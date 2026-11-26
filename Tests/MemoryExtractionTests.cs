@@ -8,7 +8,9 @@ using Xunit;
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>The automatic after-turn memory extractor: what it reads (only the user's words and the assistant's replies), what it may write (checked in code), how its changes are applied and undone, and
-/// how it is bounded (trivial turns, hourly cap, back-off, one retry on bad JSON, Stop).</summary>
+/// how it is bounded (trivial turns, hourly cap, back-off, one retry on bad JSON, Stop). Shares a collection with the
+/// other classes that reset the memory services' shared state, so they never run at once.</summary>
+[Collection("MemoryService")]
 public class MemoryExtractionTests : IDisposable
 {
     private sealed class FakeStorage : IMemoryStorage

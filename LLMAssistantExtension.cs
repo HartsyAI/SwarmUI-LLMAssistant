@@ -50,6 +50,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/skills.js");
         // The Prompt styles tab of the settings dialog: how prompts are written for each image or video model, and for each chat model.
         ScriptFiles.Add("Assets/prompt-styles.js");
+        // The composer's prompt rewrite switch and preview (needs prompt-styles.js for how a result is shown).
+        ScriptFiles.Add("Assets/rewrite-controls.js");
         // The Schedules tab of the settings dialog (needs sessions.js for the status dots).
         ScriptFiles.Add("Assets/schedules.js");
         // The Knowledge tab of the settings dialog: the user's documents, and the embedding model.

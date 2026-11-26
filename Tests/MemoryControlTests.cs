@@ -6,7 +6,8 @@ using Xunit;
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
 /// <summary>What the user does to their own notes in Settings (edit, pin, delete, export, import), retention and its undo, the pause and admin controls, and that one user's notes are never
-/// touched by another's.</summary>
+/// touched by another's. Shares a collection with the other classes that reset the memory services' shared state, so they never run at once.</summary>
+[Collection("MemoryService")]
 public class MemoryControlTests
 {
     private sealed class Storage : IMemoryStorage

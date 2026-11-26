@@ -268,9 +268,10 @@
    collapse (SwarmUI's native pattern). Keep it only at mobile width, where it opens the drawer. */
 #llma-sidebar-toggle { display: none; }
 
-/* Shared popover base (params, export) */
+/* Shared popover base (params, export, and the composer's auto-enhance popover) */
 .llma-params-popover,
-.llma-export-menu {
+.llma-export-menu,
+.llma-enhance-popover {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
