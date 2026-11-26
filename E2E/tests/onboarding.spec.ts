@@ -205,6 +205,28 @@ test('with no backend it says how to set one up, links to the backend page, and 
     await expect(llm.locator('#llma-onboarding-backends')).toHaveCount(0);
 });
 
+for (let way of ['Regenerate', 'Edit']) {
+    test(`${way} ends the first run too`, async ({ llm }) => {
+        await send(llm, 'before the guide');
+        await expect(lastAssistant(llm)).toContainText('Mock reply');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        expect((await api(llm, 'LLMAssistantSetOnboarding', { action: 'run' })).success).toBe(true);
+        // The chat with messages comes back, with the guide open but out of sight.
+        await reopen(llm);
+        let row = llm.locator(way == 'Edit' ? '.llma-msg-row.user' : '.llma-msg-row.assistant').first();
+        await row.hover();
+        await row.locator('.llma-msg-actions').getByRole('button', { name: way, exact: true }).click();
+        if (way == 'Edit') {
+            await row.locator('textarea').press('Control+Enter');
+        }
+        await expect.poll(async () => (await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).status).toBe('completed');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        await llm.locator('#llma-new-thread-btn').click();
+        await expect(llm.locator('#llma-empty-greeting')).toBeVisible();
+        await expect(llm.locator('#llma-onboarding')).toBeHidden();
+    });
+}
+
 test('skipping is remembered over a reload, and Settings runs it again', async ({ llm }) => {
     await asNewUser(llm);
     await llm.locator('#llma-onboarding-skip').click();

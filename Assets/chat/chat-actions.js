@@ -16,6 +16,8 @@ class LLMAMessageActions {
     constructor() {
         /** Set while a delete is being asked about or carried out, so a second click does not ask twice. */
         this.deleting = false;
+        /** Replies whose connection dropped while they were on their way, by id: { id, parentId, threadId }. The server may still be writing them. */
+        this.lost = new Map();
     }
 
     /** The node with this id on any branch of the open chat, or null. */
@@ -183,27 +185,45 @@ class LLMAMessageActions {
         return this.subtreeIds(msgId, nodes).size - 1;
     }
 
-    /**
-     * The stored chat to delete a message from, once nothing is still being written there. A reply the page gave up on (its connection dropped) goes on being written
-     * when its turn runs no tools, and would come back after the delete. So when the page has the message, or one under it, that the chat does not store, the server
-     * is told to stop and what it then saves is waited for. `stopped` says a turn was ended.
-     */
-    async settledThread(threadId, msgId) {
-        let shown = Array.from(this.subtreeIds(msgId, LLMAState.allNodes || []));
-        let thread = await this.fetchThread(threadId);
-        let missing = () => shown.some(id => !thread.messages.some(m => m.id == id));
-        if (!missing()) {
-            return { thread: thread, stopped: false };
+    /** Notes a reply of the open chat whose connection dropped: the server may still be writing it. */
+    markLost(node) {
+        if (node) {
+            this.lost.set(node.id, { id: node.id, parentId: node.parentId, threadId: LLMAState.activeThreadId });
         }
-        let reply = await llmaRequest('LLMAssistantStopGeneration', { threadId: threadId });
-        // Read again either way: a turn may have ended between the first read and the stop.
-        thread = await this.fetchThread(threadId);
+    }
+
+    /** Forgets a chat's lost replies: a new turn there ends whatever was still being written. */
+    forgetLost(threadId) {
+        for (let reply of Array.from(this.lost.values())) {
+            if (reply.threadId == threadId) {
+                this.lost.delete(reply.id);
+            }
+        }
+    }
+
+    /** The lost replies at or under a message that the chat, as just read, does not store: a turn without tools goes on writing after its connection drops. */
+    stillWriting(msgId, thread) {
+        let stored = new Set(thread.messages.map(m => m.id));
+        let lost = Array.from(this.lost.values()).filter(r => r.threadId == thread.id && !stored.has(r.id));
+        let under = this.subtreeIds(msgId, thread.messages.concat(lost));
+        return lost.filter(r => under.has(r.id));
+    }
+
+    /** Stops the turn still writing these replies and gives the chat once what it saves is there, so a delete takes it too. `stopped` says a turn was ended. */
+    async stopWriting(threadId, replies) {
+        let result = await llmaRequest('LLMAssistantStopGeneration', { threadId: threadId });
+        // Read again either way: the turn may have ended on its own meanwhile.
+        let thread = await this.fetchThread(threadId);
+        let missing = () => replies.some(r => !thread.messages.some(m => m.id == r.id));
         // A stopped turn saves what it had a moment later. One with nothing to save never does, so the wait is short.
-        for (let attempt = 0; reply?.cancelled && attempt < 8 && missing(); attempt++) {
+        for (let attempt = 0; result?.cancelled && attempt < 8 && missing(); attempt++) {
             await new Promise(resolve => setTimeout(resolve, 300));
             thread = await this.fetchThread(threadId);
         }
-        return { thread: thread, stopped: !!reply?.cancelled };
+        for (let reply of replies) {
+            this.lost.delete(reply.id);
+        }
+        return { thread: thread, stopped: !!result?.cancelled };
     }
 
     /** The question asked before a delete that takes other messages with it. */

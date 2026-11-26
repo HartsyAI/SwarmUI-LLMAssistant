@@ -179,9 +179,8 @@
         const focusAt = row?.contains(document.activeElement) ? llmaA11y.messageRows().indexOf(row) : -1;
         // The stored chat decides what the delete takes with it, and whether the message was saved at all: the page's own idea of both can be behind.
         let saved;
-        let stopped;
         try {
-            ({ thread: saved, stopped } = await llmaActions.settledThread(threadId, msgId));
+            saved = await llmaActions.fetchThread(threadId);
         }
         catch (error) {
             console.error('[LLMAssistant] Could not read the chat before a delete:', error);
@@ -189,13 +188,32 @@
             return;
         }
         if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
-        if (!saved.messages.some(m => m.id === msgId)) {
+        // A reply whose connection dropped may still be being written, as this message or under it.
+        const writing = llmaActions.stillWriting(msgId, saved);
+        if (!writing.length && !saved.messages.some(m => m.id === msgId)) {
             // Never saved (a reply that failed or was stopped before anything), or already gone: show the chat as it is stored.
-            llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : 'Message deleted');
+            llmaShowStoredThread(saved, focusAt);
             return;
         }
-        const below = llmaActions.countBelow(msgId, saved.messages);
+        // Asked before anything is stopped, so saying no changes nothing.
+        const below = llmaActions.countBelow(msgId, saved.messages.concat(writing));
         if (below > 0 && !confirm(llmaActions.deleteQuestion(below))) return;
+        if (writing.length) {
+            let stopped;
+            try {
+                ({ thread: saved, stopped } = await llmaActions.stopWriting(threadId, writing));
+            }
+            catch (error) {
+                console.error('[LLMAssistant] Could not stop a reply before a delete:', error);
+                llmaShowToast('Failed to delete message', 'error');
+                return;
+            }
+            if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
+            if (!saved.messages.some(m => m.id === msgId)) {
+                llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : 'Message deleted');
+                return;
+            }
+        }
         // Optimistic local removal so the UI feels snappy; if the server rejects we re-fetch to recover.
         const prevMessages = LLMAState.messages;
         LLMAState.messages = prevMessages.filter(m => m.id !== msgId);

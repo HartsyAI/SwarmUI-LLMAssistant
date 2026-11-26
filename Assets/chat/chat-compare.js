@@ -342,7 +342,12 @@
                     }
                     return;
                 }
-                // A failure of the socket or of the whole request ends every lane still open.
+                // A failure of the socket or of the whole request ends every lane still open. With no frame, the server may still be writing them.
+                for (let i = 0; !data && i < ctls.length; i++) {
+                    if (!ctls[i].isDone()) {
+                        llmaActions.markLost(lanes[i].node);
+                    }
+                }
                 ctls.forEach(c => { if (!c.isDone()) c.fail(err || 'WebSocket error'); });
                 finalizeGroup();
             });

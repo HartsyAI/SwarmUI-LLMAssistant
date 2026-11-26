@@ -440,10 +440,13 @@ test('deleting a question whose reply never reached the page stops that reply', 
     await send(llm, 'silent start');
     await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
     await loseConnection(llm);
+    let questions = questionsAsked(llm, true);
     let question = userRows(llm).first();
     await question.hover();
     await action(llm, question, 'Delete').click();
     await expect(userRows(llm)).toHaveCount(0);
+    // The reply on its way counts as a message under the question.
+    expect(questions).toHaveLength(1);
     await expect(llm.locator('#llma-announcer')).toContainText('Message deleted');
     await llm.waitForTimeout(9000);
     expect(await stored(llm)).toHaveLength(0);
@@ -473,6 +476,51 @@ for (let lost of [
         await expectSameTree(llm);
     });
 }
+
+test('a delete stops nothing for a reply that failed, nor when the answer is no', async ({ llm }) => {
+    test.slow();
+    let stops = 0;
+    llm.on('request', request => request.url().endsWith('/API/LLMAssistantStopGeneration') && stops++);
+    await setScenarios([{ match: 'stumble', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }, { match: 'silent start', rounds: [{ delayMs: 6000, text: 'kept after all' }] }]);
+    await send(llm, 'stumble');
+    await expect(llm.locator('.llma-msg-error')).toBeVisible({ timeout: 20_000 });
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let question = userRows(llm).first();
+    await question.hover();
+    await action(llm, question, 'Delete').click();
+    await expect(userRows(llm)).toHaveCount(0);
+    expect(stops).toBe(0);
+    await clearRequests();
+    await send(llm, 'silent start');
+    await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+    await loseConnection(llm);
+    let questions = questionsAsked(llm, false);
+    await question.hover();
+    await action(llm, question, 'Delete').click();
+    await expect.poll(() => questions.length).toBe(1);
+    // The reply goes on being written, and arrives.
+    await expect.poll(async () => (await stored(llm)).map(m => m.content), { timeout: 30_000 }).toEqual(['silent start', 'kept after all']);
+    expect(stops).toBe(0);
+});
+
+test('catching up with a late reply leaves a reader who scrolled away where they are', async ({ llm }) => {
+    test.slow();
+    await clearRequests();
+    let tall = Array.from({ length: 60 }, (_, i) => `line ${i}`).join('\n\n');
+    await setScenarios([{ match: 'tall one', rounds: [{ text: tall }] }, { match: 'late one', rounds: [{ delayMs: 3000, text: 'arrived late' }] }]);
+    await exchange(llm, 'tall one', 'line 59');
+    await clearRequests();
+    await send(llm, 'late one');
+    await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+    await loseConnection(llm);
+    await expect.poll(async () => (await stored(llm)).length, { timeout: 30_000 }).toBe(4);
+    let list = llm.locator('#llma-messages');
+    await list.evaluate(e => e.scrollTo({ top: 40, behavior: 'instant' }));
+    await llm.evaluate(() => (0, eval)('llmaSaveActiveThread')());
+    await expect(lastAssistant(llm)).toContainText('arrived late');
+    await llm.waitForTimeout(1000);
+    expect(await list.evaluate(e => e.scrollTop)).toBeLessThan(100);
+});
 
 test('reading a chat takes its status as read, not what the list last said', async ({ llm }) => {
     await exchange(llm, 'status', 'Mock reply');

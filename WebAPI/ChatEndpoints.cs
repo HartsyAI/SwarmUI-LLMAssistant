@@ -845,6 +845,7 @@ public static class ChatEndpoints
             {
                 return Fail("Failed to create edit branch.");
             }
+            OnboardingService.NoteMessage(session.User);
             await StreamReplyForThread(socket, session, threadId, rawInput);
             return null;
         }
@@ -877,6 +878,7 @@ public static class ChatEndpoints
             {
                 return Fail("Failed to set branch point.");
             }
+            OnboardingService.NoteMessage(session.User);
             await StreamReplyForThread(socket, session, threadId, rawInput);
             return null;
         }

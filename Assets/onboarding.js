@@ -271,7 +271,7 @@ class LLMAOnboarding {
                 this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
                     + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
                     + '</div>';
-                llmaA11y.announce(`${translate('Added')}: ${reply.added.length}`);
+                llmaA11y.announce([`${translate('Added')}: ${reply.added.length}`, ...problems.map(s => `${s.title}: ${s.reason}`)].join('. '));
                 // The guide may have been run again meanwhile, and have no report yet.
                 if (this.report) {
                     this.report.starter = reply.starter;

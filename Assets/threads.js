@@ -74,7 +74,7 @@ function llmaAdoptServerTree(thread) {
     let changed = finishedLate || drawn != LLMAState.messages.map(n => n.id).join();
     // A message being edited is not drawn over.
     if (changed && !document.querySelector('#llma-messages textarea')) {
-        llmaRenderMessageHistory(LLMAState.messages);
+        llmaRenderMessageHistory(LLMAState.messages, true);
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
     }

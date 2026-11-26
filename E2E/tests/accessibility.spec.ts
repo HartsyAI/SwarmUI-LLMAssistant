@@ -501,9 +501,9 @@ test('the first-run guide keeps keyboard focus when it redraws, and says what ha
     await expect(llm.locator('#llma-announcer')).toContainText('No room for it.');
     await expect(install).toBeFocused();
     // Nothing left to add: the button is disabled, and the way on has the keyboard.
-    answer = { success: true, added: [{ id: 'x' }], skipped: [], starter: { ...starter, missing: 0 } };
+    answer = { success: true, added: [{ id: 'x' }], skipped: [{ id: 'y', code: 'error', title: 'Researcher', reason: 'It could not be saved.' }], starter: { ...starter, missing: 0 } };
     await llm.keyboard.press('Enter');
-    await expect(llm.locator('#llma-announcer')).toContainText('Added: 1');
+    await expect(llm.locator('#llma-announcer')).toContainText('Added: 1. Researcher: It could not be saved.');
     await expect(install).toBeDisabled();
     await expect(llm.locator('#llma-onboarding-done')).toBeFocused();
     // One polite live region: the guide has none of its own.

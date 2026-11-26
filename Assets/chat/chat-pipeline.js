@@ -94,7 +94,6 @@
         (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
         LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId);
-        llmaOnboarding.onSend();
         // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
@@ -350,7 +349,7 @@
                     llmaFinishStreamState();
                     if (onComplete) onComplete(cleanFinal);
                 }
-            }, 0, err => {
+            }, 0, (err, data) => {
                 // An error frame from the server and a failed socket both come here (core's helper never hands an error frame to the callback above).
                 // err is a string; pass it straight through so the humanizer can recognize it instead of collapsing to "WebSocket error".
                 // A failure after some text keeps the text: text still waiting for its render is drawn first.
@@ -372,6 +371,10 @@
                 }
                 if (!partial) {
                     llmaActions.markUnsaved(msg);
+                }
+                // No frame came with it: the connection itself failed, and the server may still be writing.
+                if (!data) {
+                    llmaActions.markLost(msg);
                 }
                 llmaA11y.announceFailure(message);
                 llmaFinishStreamState();
@@ -467,6 +470,11 @@
             document.querySelectorAll('.llma-tool-approval').forEach(row => row.remove());
         }
         llmaA11y.setBusy(active);
+        // A new turn, however it was started, ends the first run, and whatever an earlier turn of this chat was still writing.
+        if (active) {
+            llmaOnboarding.onSend();
+            llmaActions.forgetLost(LLMAState.activeThreadId);
+        }
         // Greys out the actions that change the chat, and shows or removes the Retry row.
         llmaActions.syncTail();
     }

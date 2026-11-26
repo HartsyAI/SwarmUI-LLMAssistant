@@ -7,9 +7,11 @@
     'use strict';
 
     /** Render a full message list into the thread container (used on thread load/switch). */
-    function llmaRenderMessageHistory(messages) {
+    function llmaRenderMessageHistory(messages, keepScroll = false) {
         const container = document.getElementById('llma-messages');
         if (!container) return;
+        // With keepScroll, a reader who has scrolled away from the end stays there.
+        const heldTop = keepScroll && !llmaIsAtBottom(container) ? container.scrollTop : null;
         const restoreFocus = llmaA11y.rememberMessageFocus();
         container.innerHTML = '';
         // Compare groups: a user turn with 2+ sibling replies (shared groupId) renders as side-by-side
@@ -56,10 +58,13 @@
             llmaRenderEmptyChatGreeting();
         }
         // Loading/switching a thread always lands at the latest message with follow re-enabled.
-        LLMAState._autoFollow = true;
-        llmaToggleScrollButton(false);
-        llmaScrollToBottom(true);
+        LLMAState._autoFollow = heldTop === null;
+        llmaToggleScrollButton(heldTop !== null);
+        llmaScrollToBottom();
         restoreFocus();
+        if (heldTop !== null) {
+            container.scrollTo({ top: heldTop, behavior: 'instant' });
+        }
     }
 
     /**
