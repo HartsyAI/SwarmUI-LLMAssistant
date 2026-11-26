@@ -1054,4 +1054,5 @@ function llmaShowChatPanel() {
 
 function llmaUpdateContextBar() {
     llmaContext.updateBar();
+    llmaUsage.scheduleRefresh();
 }

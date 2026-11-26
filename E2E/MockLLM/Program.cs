@@ -20,7 +20,7 @@ using System.Text.Json.Nodes;
 // A rule applies when the LAST USER message contains `match` (or matches `regex`) and the request's model equals `model`
 // (each field optional; a rule with none matches everything). The first matching rule wins.
 // A round is { "text", "reasoning", "toolCalls": [ { "name", "arguments", "id" } ], "usage": { "prompt_tokens", "completion_tokens" },
-//              "delayMs", "chunkDelayMs", "error": { "status", "message" } }.
+//              "delayMs", "chunkDelayMs", "error": { "status", "message" }, "noUsage" }. "noUsage": true streams no token counts, as a server that reports none.
 // Which round answers a request is the number of assistant messages after the last user message, so a tool-call loop walks
 // the rounds in order and the mock keeps no state between requests. Past the last round the last round repeats.
 // With no matching rule the reply is "Mock reply: <last user text>".
@@ -273,7 +273,7 @@ app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
         await Send(new JsonObject { ["tool_calls"] = second }, null);
     }
     await Send([], finish);
-    if (includeUsage)
+    if (includeUsage && round["noUsage"]?.GetValue<bool>() != true)
     {
         await Send([], null, new JsonObject { ["prompt_tokens"] = promptTokens, ["completion_tokens"] = completionTokens, ["total_tokens"] = promptTokens + completionTokens });
     }

@@ -55,7 +55,7 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 10 | **Custom slash commands** (done in Phase 7) | `commands/*.md`, `/` palette of commands + skills | `/` opens a tool picker only | `tool-picker.js` |
 | 11 | **RAG / file search** (done in Phase 9 as the knowledge library, see the README, "Knowledge library") | Knowledge bases, file search (Open WebUI, LibreChat) | None. Attachments are images/video. | New service plus a tool |
 | 12 | **Scheduling and background tasks** (done in Phase 10 as schedules that start sessions, see the README, "Schedules") | Cron create/list/delete, remote trigger (OpenHarness), recipes (Goose) | None | Hosted service |
-| 13 | **Cost and usage tracking** (tokens per reply and per turn done in Phase 3, see the README, "Long chats"; there is no price table) | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
+| 13 | **Cost and usage tracking** (tokens per reply and per turn done in Phase 3; costs from a user-entered price table, totals and a soft budget since, see the README, "Usage and cost") | Token + cost per session (OpenHarness) | Token counter in the context bar only | Provider results |
 | 14 | **Run non-interactively / dry run** (done in Phase 11: `LLMAssistantRunTurn`, its `dryRun`, and the setup check, see the README, "Setup check and headless turns") | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
 | 15 | **Artifacts and code interpreter** (not built; `code_bash` in code mode runs commands in a workspace, which is not a sandboxed interpreter) | React/HTML/Mermaid artifacts, sandboxed code exec (LibreChat) | Asset index with HTML/SVG/Mermaid preview; no code execution | Part of Code mode |
 
@@ -104,7 +104,7 @@ Each step shipped on its own and is useful without the next.
 6. **Code mode UI** (section 3): mode switch live, Workspace panel, diff view, inline approvals, plan mode, todo card.
 7. **Skills** (gap 5) and **custom slash commands** (gap 10), sharing one loader.
 8. **Subagents** (gap 6, done in Phase 8 as sessions) once compaction exists, since each subagent needs its own context budget.
-9. **RAG, scheduling, cost tracking, dry run** (gaps 11-14): built as Phases 9, 10 and 11 (cost tracking is token counts only, with no price table).
+9. **RAG, scheduling, cost tracking, dry run** (gaps 11-14): built as Phases 9, 10 and 11 (cost tracking: token counts in Phase 3, then prices, totals and a soft budget).
 
 ## 5. Risks that were to be settled before step 5 (status as of 2026-11-24)
 
@@ -114,6 +114,6 @@ Each step shipped on its own and is useful without the next.
 
 ## 6. What is not built, and what is not verified
 
-Not built (from this roadmap): artifacts and a sandboxed code interpreter (gap 15); LSP and notebook tools; a price table for cost tracking; MCP resources, prompts and sampling (the client is tools-only); per-user MCP servers; skills that restrict tools, and skills from a URL or marketplace; a webhook trigger for schedules; a warning for models that cannot call tools; the chat-model addendum on the voice, one-shot and image-rewrite paths.
+Not built (from this roadmap): artifacts and a sandboxed code interpreter (gap 15); LSP and notebook tools; MCP resources, prompts and sampling (the client is tools-only); per-user MCP servers; skills that restrict tools, and skills from a URL or marketplace; a webhook trigger for schedules; a warning for models that cannot call tools; the chat-model addendum on the voice, one-shot and image-rewrite paths.
 
 Not verified on real hardware or real services: the local GGUF engine is not covered by the e2e suite (it needs a GPU), and CUDA has not been run for MOSS-VL; the knowledge library and memory recall have been exercised against a scripted mock, not a real embedding model; no prompt style (Ideogram 4 included) has been tried with a real image model and a real chat model, only with the mock LLM and header-only model files. See "What is not built / not verified" in `NEXT-PHASES.md`.

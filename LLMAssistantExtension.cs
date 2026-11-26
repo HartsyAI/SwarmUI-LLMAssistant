@@ -64,6 +64,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/onboarding.js");
         // The context bar, the marker where a long chat was summarized, and /compact.
         ScriptFiles.Add("Assets/context.js");
+        // Tokens and cost under replies and in the context bar, and the Usage settings tab
+        ScriptFiles.Add("Assets/usage.js");
         ScriptFiles.Add("Assets/assets.js");
         // chat.js was split into focused modules (each an IIFE; public fns exposed on window).
         ScriptFiles.Add("Assets/chat/chat-actions.js");
@@ -100,6 +102,7 @@ public class LLMAssistantExtension : Extension
         StyleSheetFiles.Add("Assets/llma-tool-picker.css");
         StyleSheetFiles.Add("Assets/llma-backend-cards.css");
         StyleSheetFiles.Add("Assets/llma-code.css");
+        StyleSheetFiles.Add("Assets/llma-usage.css");
         StyleSheetFiles.Add("Assets/llma-onboarding.css");
         // Last, so its focus rings, touch sizes and contrast fixes win over the sheets above.
         StyleSheetFiles.Add("Assets/llma-a11y.css");
