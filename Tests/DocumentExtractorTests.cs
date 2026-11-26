@@ -417,6 +417,136 @@ public sealed class DocumentExtractorTests
         Assert.Equal(DocumentStatus.Ok, Read("font.pdf", BigFontPrograms(2, 12)).Status);
     }
 
+    private static readonly (string, byte[]) Descriptor = ("<< /Type /FontDescriptor /FontName /X /Flags 4 /FontBBox [0 0 1000 1000] >>", null);
+
+    /// <summary>A composite font naming this object as its descendant.</summary>
+    private static (string, byte[]) Type0(int descendant) => ($"<< /Type /Font /Subtype /Type0 /BaseFont /X /Encoding /Identity-H /DescendantFonts [{descendant} 0 R] >>", null);
+
+    /// <summary>A descendant font with these width entries.</summary>
+    private static (string, byte[]) Descendant(int descriptor, string widths)
+        => ($"<< /Type /Font /Subtype /CIDFontType2 /BaseFont /X /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /FontDescriptor {descriptor} 0 R {widths} >>", null);
+
+    private static byte[] ShowText(string font) => Ascii($"BT /{font} 12 Tf 10 10 Td <0041> Tj ET");
+
+    [Theory]
+    [InlineData("W")]
+    [InlineData("W2")]
+    public Task A_font_resource_named_like_a_width_list_is_still_checked(string name)
+        => AssertRefusedSoon(DocumentFixtures.Objects($"/Resources << /Font << /{name} 5 0 R >> >> /Contents 4 0 R", ("", ShowText(name)),
+            Type0(6), Descendant(7, "/W [0 3000000 500]"), Descriptor));
+
+    [Theory]
+    [InlineData("W")]
+    [InlineData("W2")]
+    public Task A_form_named_like_a_width_list_does_not_hide_its_fonts(string name)
+        => AssertRefusedSoon(DocumentFixtures.Objects($"/Resources << /XObject << /{name} 5 0 R >> >> /Contents 4 0 R", ("", Ascii($"/{name} Do")),
+            ("/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << /Font << /F1 6 0 R >> >>", ShowText("F1")),
+            Type0(7), Descendant(8, "/W [0 3000000 500]"), Descriptor));
+
+    /// <summary>A page with many font entries that all end at one descendant with widths for every 16-bit character: each entry its own composite font, another name for one font
+    /// (an object that only refers to it), or a font written into the resources.</summary>
+    private static byte[] OneDescendant(int entries, string how)
+    {
+        // Object 4 is the content, 5 the descriptor, 6 the descendant, 7 the first composite font; the others follow.
+        List<(string, byte[])> objects = [("", ShowText("F0")), Descriptor, Descendant(5, "/W [0 65535 500]"), Type0(6)];
+        List<string> names = [];
+        for (int i = 0; i < entries; i++)
+        {
+            if (how == "direct")
+            {
+                names.Add($"/F{i} {Type0(6).Item1}");
+                continue;
+            }
+            objects.Add(how == "alias" ? ("7 0 R", null) : Type0(6));
+            names.Add($"/F{i} {7 + objects.Count - 4} 0 R");
+        }
+        return DocumentFixtures.Objects($"/Resources << /Font << {string.Join(' ', names)} >> >> /Contents 4 0 R", [.. objects]);
+    }
+
+    [Theory]
+    [InlineData("fonts")]
+    [InlineData("alias")]
+    [InlineData("direct")]
+    public Task A_descendant_font_is_counted_for_every_font_that_loads_it(string how) => AssertRefusedSoon(OneDescendant(100, how));
+
+    [Fact]
+    public void One_font_under_many_names_is_counted_once()
+    {
+        string names = string.Join(' ', Enumerable.Range(0, 100).Select(i => $"/F{i} 5 0 R"));
+        ExtractedDocument doc = Read("names.pdf", DocumentFixtures.Objects($"/Resources << /Font << {names} >> >> /Contents 4 0 R", ("", ShowText("F0")),
+            Type0(6), Descendant(7, "/W [0 65535 500]"), Descriptor));
+        Assert.NotEqual(DocumentStatus.TooLarge, doc.Status);
+    }
+
+    /// <summary>A page that sets a font through a graphics state this many times.</summary>
+    private static byte[] StateFont(int times)
+        => DocumentFixtures.Objects("/Resources << /Font << /F1 5 0 R >> /ExtGState << /G 6 0 R >> >> /Contents 4 0 R",
+            ("", Ascii(string.Concat(Enumerable.Repeat("q /G gs Q ", times)) + "BT /F1 12 Tf 10 700 Td (state words) Tj ET")), Helvetica,
+            ("<< /Type /ExtGState /Font [7 0 R 12] >>", null), Type0(8), Descendant(9, "/W [0 3999 500]"), Descriptor);
+
+    [Fact]
+    public Task A_font_set_through_a_graphics_state_over_and_over_is_refused() => AssertRefusedSoon(StateFont(2000));
+
+    [Fact]
+    public void A_font_set_through_a_graphics_state_a_few_times_is_read()
+    {
+        ExtractedDocument doc = Read("state.pdf", StateFont(5));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("state words", doc.Text);
+    }
+
+    // References that never end. PdfPig follows many of them by calling itself, and an overflowing stack ends the whole process, test run included.
+
+    private static void AssertDamaged(byte[] pdf)
+    {
+        ExtractedDocument doc = Read("loop.pdf", pdf);
+        Assert.True(doc.Status == DocumentStatus.Malformed, $"{doc.Status}: {doc.Error}");
+    }
+
+    /// <summary>A page of words with these entries added to it and these objects as 6 onward.</summary>
+    private static byte[] Looping(string page, params string[] objects)
+        => DocumentFixtures.Objects($"/Contents 4 0 R {page}", [("", Ascii("BT /F1 12 Tf 10 700 Td (looped words) Tj ET")), Helvetica, .. objects.Select(o => (o, (byte[])null))]);
+
+    [Fact]
+    public void A_page_rotation_that_refers_to_itself_is_refused() => AssertDamaged(Looping($"{FontResource} /Rotate 6 0 R", "6 0 R"));
+
+    [Fact]
+    public void A_page_tree_entry_that_loops_through_two_objects_is_refused()
+        => AssertDamaged(DocumentFixtures.Document("/Contents 4 0 R", "", "/Resources 6 0 R", ("", Ascii("BT ET")), Helvetica, ("7 0 R", null), ("6 0 R", null)));
+
+    [Fact]
+    public void A_resource_that_refers_to_itself_is_refused()
+        => AssertDamaged(Looping("/Resources << /Font << /F1 5 0 R >> /Properties << /P 6 0 R >> >>", "6 0 R"));
+
+    [Fact]
+    public void A_content_list_that_holds_only_itself_is_refused() => AssertDamaged(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ("[4 0 R]", null), Helvetica));
+
+    [Fact]
+    public void A_media_box_number_that_refers_to_itself_is_refused() => AssertDamaged(Looping($"{FontResource} /CropBox [0 0 6 0 R 800]", "6 0 R"));
+
+    /// <summary>A rotation reached through this many objects that each only refer to the next.</summary>
+    private static byte[] Chain(int length)
+        => Looping($"{FontResource} /Rotate 6 0 R", [.. Enumerable.Range(7, length).Select(next => $"{next} 0 R"), "0"]);
+
+    [Fact]
+    public void A_very_long_chain_of_references_is_refused() => AssertDamaged(Chain(100_000));
+
+    [Fact]
+    public void A_short_chain_of_references_is_read()
+    {
+        ExtractedDocument doc = Read("chain.pdf", Chain(30));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("looped words", doc.Text);
+    }
+
+    [Theory]
+    // The decoder keeps the sign, and two negative numbers make a long row.
+    [InlineData("/Predictor 12 /Colors -400000 /Columns -1000")]
+    [InlineData("/Predictor 12 /Colors 32 /Columns -2000000 /BitsPerComponent -8")]
+    [InlineData("/Predictor 12 /Columns 1000 /BitsPerComponent -8")]
+    public Task Negative_predictor_numbers_are_refused(string parameters)
+        => AssertRefusedSoon(DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ($"/Filter /FlateDecode /DecodeParms << {parameters} >>", DocumentFixtures.Deflate(Ascii("BT ET"))), Helvetica));
+
     // Pictures are never unpacked to read text, so how one is packed does not matter.
 
     [Theory]

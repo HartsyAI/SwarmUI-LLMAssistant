@@ -51,8 +51,11 @@ internal static class PdfLimits
     /// <summary>The most objects the resources of a file's pages may lead to.</summary>
     private const int MaxResourceObjects = 300_000;
 
-    /// <summary>The most references (and arrays of one) followed to reach one thing.</summary>
-    private const int MaxReferenceSteps = 1000;
+    /// <summary>The most references (and arrays of one) followed to reach one thing. Real files use one or two; the parser calls itself for each.</summary>
+    private const int MaxReferenceSteps = 32;
+
+    /// <summary>The most times the pages of a file may set a font through a graphics state, which the parser answers by loading the font again every time. Hardly any program writes one.</summary>
+    private const int MaxStateFonts = 64;
 
     /// <summary>The most bytes one row of a predicted (PNG or TIFF filtered) stream may be.</summary>
     private const long MaxPredictorRowBytes = 1024 * 1024;
@@ -190,9 +193,14 @@ internal static class PdfLimits
             private static double PredictorRowBytes(DictionaryToken dictionary, int filterIndex)
             {
                 DictionaryToken parameters = DecodeParameterResolver.GetFilterParameters(dictionary, filterIndex);
-                double Number(NameToken name, double fallback) => parameters.TryGet(name, out IToken value) && value is NumericToken number ? Math.Abs(number.Double) : fallback;
-                return Number(NameToken.Predictor, 1) <= 1 ? 0
-                    : Math.Min(Number(NameToken.Colors, 1), 32) * Number(NameToken.BitsPerComponent, 8) * Number(NameToken.Columns, 1) / 8;
+                double Number(NameToken name, double fallback) => parameters.TryGet(name, out IToken value) && value is NumericToken number ? number.Double : fallback;
+                if (Number(NameToken.Predictor, 1) <= 1)
+                {
+                    return 0;
+                }
+                double colors = Number(NameToken.Colors, 1), bits = Number(NameToken.BitsPerComponent, 8), columns = Number(NameToken.Columns, 1);
+                // The decoder keeps the signs, and caps only a large number of colours: negative ones give rows of any length.
+                return colors < 0 || bits < 0 || columns < 0 ? double.PositiveInfinity : Math.Min(colors, 32) * bits * columns / 8;
             }
 
             /// <summary>How many bytes a flate stream unpacks to, counting no further than just past the limit and keeping none of them. Damaged data counts as far as it reads.</summary>
@@ -269,6 +277,105 @@ internal static class PdfLimits
         return total;
     }
 
+    /// <summary>What following a file's references found.</summary>
+    public enum ReferenceCheck
+    {
+        /// <summary>Every one comes to an end.</summary>
+        End,
+        /// <summary>One leads round in a circle, or further than a real file would.</summary>
+        Endless,
+        /// <summary>The pages lead to too many objects to look at.</summary>
+        TooManyObjects,
+    }
+
+    /// <summary>Whether every reference the page tree leads to comes to an end. The parser follows an object that only refers to another (or holds an array of one reference) by calling
+    /// itself, in places with nothing to stop it, so <c>5 0 obj 5 0 R endobj</c> overflows the stack, which ends the whole server and cannot be caught. To be looked over before any page
+    /// is asked for, since asking already follows some. What opening a file follows by itself is not covered.</summary>
+    public static ReferenceCheck CheckReferences(DictionaryToken catalog, IPdfTokenScanner scanner, CancellationToken ct)
+    {
+        Stack<IToken> waiting = new();
+        if (catalog.Data.TryGetValue("Pages", out IToken pages))
+        {
+            waiting.Push(pages);
+        }
+        HashSet<IndirectReference> seen = [];
+        int looked = 0;
+        // An object that cannot be read leads nowhere: the reader reports it if a page needs it.
+        IToken Object(IndirectReference reference)
+        {
+            IToken found = null;
+            Try(() => found = scanner.Get(reference)?.Data);
+            return found;
+        }
+        while (waiting.Count > 0)
+        {
+            if ((++looked & 1023) == 0)
+            {
+                ct.ThrowIfCancellationRequested();
+            }
+            IToken token = waiting.Pop();
+            if (token is IndirectReferenceToken reference && seen.Add(reference.Data))
+            {
+                if (seen.Count > MaxResourceObjects)
+                {
+                    return ReferenceCheck.TooManyObjects;
+                }
+                IToken target = Object(reference.Data), end = target;
+                for (int step = 0; (end is ArrayToken { Length: 1 } single ? single.Data[0] : end) is IndirectReferenceToken next; step++)
+                {
+                    if (step >= MaxReferenceSteps)
+                    {
+                        return ReferenceCheck.Endless;
+                    }
+                    end = Object(next.Data);
+                }
+                Push(waiting, target);
+            }
+            else
+            {
+                PushHeld(waiting, token);
+            }
+        }
+        return ReferenceCheck.End;
+    }
+
+    /// <summary>Adds what may lead further to what is waiting to be looked at.</summary>
+    private static void Push(Stack<IToken> waiting, IToken token)
+    {
+        if (token is IndirectReferenceToken or ArrayToken or DictionaryToken or StreamToken)
+        {
+            waiting.Push(token);
+        }
+    }
+
+    /// <summary>Adds what an array or a dictionary holds, or the dictionary of a stream.</summary>
+    private static void PushHeld(Stack<IToken> waiting, IToken token)
+    {
+        IEnumerable<IToken> held = token switch
+        {
+            ArrayToken array => array.Data,
+            DictionaryToken dictionary => dictionary.Data.Values,
+            StreamToken stream => [stream.StreamDictionary],
+            _ => [],
+        };
+        foreach (IToken item in held)
+        {
+            Push(waiting, item);
+        }
+    }
+
+    /// <summary>Runs one look at one thing: a broken object is the reader's to report, if the page needs it, and must not stop the rest being looked at.</summary>
+    private static void Try(Action look)
+    {
+        try
+        {
+            look();
+        }
+        catch (Exception ex) when (ex is not (OperationCanceledException or DocumentTooLargeException))
+        {
+        }
+    }
+
     /// <summary>What looking over a page's font maps found.</summary>
     public enum FontCheck
     {
@@ -281,11 +388,15 @@ internal static class PdfLimits
     }
 
     /// <summary>Looks over the font maps a page's resources lead to (the width lists of composite fonts, and Unicode and character maps) before the page is loaded, since loading its fonts is
-    /// what expands them. It is kept for a whole file: what one page shares with another is counted once, as the parser loads it once. Anything but <see cref="FontCheck.Fit"/> ends the
-    /// file, because what was passed over then is not looked at again.</summary>
+    /// what expands them. Maps are counted for every font the parser will load: it keeps one by the reference that names it, so what many fonts share is built again for each. It is kept for a
+    /// whole file: what one page shares with another is counted once, as the parser loads it once. Anything but <see cref="FontCheck.Fit"/> ends the file, because what was passed over then
+    /// is not looked at again.</summary>
     public sealed class FontMaps(IPdfTokenScanner scanner, ILookupFilterProvider decoders)
     {
-        private readonly HashSet<IndirectReference> Seen = [];
+        private readonly HashSet<IndirectReference> Seen = [], Loaded = [];
+
+        /// <summary>The resource dictionaries whose fonts have been counted (ones handed down the page tree come round with every page).</summary>
+        private readonly HashSet<DictionaryToken> Counted = new(ReferenceEqualityComparer.Instance);
 
         /// <summary>What each character map covers, so one that many fonts use is read once.</summary>
         private readonly Dictionary<object, long> Maps = [];
@@ -307,72 +418,83 @@ internal static class PdfLimits
                 {
                     ct.ThrowIfCancellationRequested();
                 }
-                switch (waiting.Pop())
+                IToken token = waiting.Pop();
+                if (token is IndirectReferenceToken reference)
                 {
-                    case IndirectReferenceToken reference when Seen.Add(reference.Data):
-                        if (Seen.Count > MaxResourceObjects)
-                        {
-                            return FontCheck.TooManyObjects;
-                        }
-                        Try(() => Push(waiting, scanner.Get(reference.Data)?.Data));
-                        break;
-                    case ArrayToken array:
-                        foreach (IToken item in array.Data)
-                        {
-                            Push(waiting, item);
-                        }
-                        break;
-                    case StreamToken stream:
-                        waiting.Push(stream.StreamDictionary);
-                        break;
-                    case DictionaryToken dictionary:
-                        foreach (KeyValuePair<string, IToken> entry in dictionary.Data)
-                        {
-                            long covered = 0;
-                            // Every other entry is followed, whatever its name: a resource may be called anything.
-                            if (entry.Key is "W" or "W2")
-                            {
-                                Try(() => covered = Find<ArrayToken>(entry.Value, scanner, false) is ArrayToken widths ? WidthEntries(widths, entry.Key == "W2") : 0);
-                            }
-                            else if (entry.Key is "ToUnicode" or "Encoding")
-                            {
-                                Try(() => covered = MapEntries(entry.Value));
-                            }
-                            if (covered > MaxFontMapEntries || (Entries += covered) > MaxFileFontMapEntries)
-                            {
-                                return FontCheck.TooManyCharacters;
-                            }
-                            // A width list holds numbers (and lists of them), with no font further in.
-                            if (entry.Key is not ("W" or "W2"))
-                            {
-                                Push(waiting, entry.Value);
-                            }
-                        }
-                        break;
+                    if (!Seen.Add(reference.Data))
+                    {
+                        continue;
+                    }
+                    if (Seen.Count > MaxResourceObjects)
+                    {
+                        return FontCheck.TooManyObjects;
+                    }
+                    Try(() => Push(waiting, scanner.Get(reference.Data)?.Data));
+                    continue;
                 }
+                // Whatever holds fonts does so under "Font": resources, and a graphics state that sets one.
+                if (token is DictionaryToken dictionary && dictionary.Data.TryGetValue("Font", out IToken fonts) && Counted.Add(dictionary) && !CountFonts(fonts))
+                {
+                    return FontCheck.TooManyCharacters;
+                }
+                // Everything is followed, whatever its name: a resource may be called anything.
+                PushHeld(waiting, token);
             }
             return FontCheck.Fit;
         }
 
-        /// <summary>Adds what may lead further to what is waiting to be looked at.</summary>
-        private static void Push(Stack<IToken> waiting, IToken token)
+        /// <summary>Counts what loading the fonts a "Font" entry names will build: those of a font dictionary, or the one a graphics state sets (<c>[font size]</c>). False when that is
+        /// too much.</summary>
+        private bool CountFonts(IToken value)
         {
-            if (token is IndirectReferenceToken or ArrayToken or DictionaryToken or StreamToken)
+            IEnumerable<IToken> named = [];
+            Try(() => named = Find<ArrayToken>(value, scanner, false) is { Length: 2 } state ? [state.Data[0]] : Find<DictionaryToken>(value, scanner)?.Data.Values ?? named);
+            foreach (IToken entry in named)
             {
-                waiting.Push(token);
+                // The same reference again costs nothing; another one to the same font, or a font written in place, is loaded anew.
+                if (entry is IndirectReferenceToken reference && !Loaded.Add(reference.Data))
+                {
+                    continue;
+                }
+                DictionaryToken font = null, descendant = null;
+                Try(() => font = Find<DictionaryToken>(entry, scanner));
+                if (font is null)
+                {
+                    continue;
+                }
+                // A composite font's widths are in its first descendant, found as the parser finds it.
+                if (font.Data.TryGetValue("DescendantFonts", out IToken kids))
+                {
+                    Try(() => descendant = Find<DictionaryToken>(kids is ArrayToken { Length: > 0 } list ? list.Data[0] : kids, scanner));
+                }
+                if (!CountMaps(font) || (descendant is not null && !CountMaps(descendant)))
+                {
+                    return false;
+                }
             }
+            return true;
         }
 
-        /// <summary>Runs one look at one thing: a broken object is the reader's to report, if the page needs it, and must not stop the rest being looked at.</summary>
-        private static void Try(Action look)
+        /// <summary>Adds the characters one font dictionary's width lists and maps describe. False when one of them, or the file so far, describes too many.</summary>
+        private bool CountMaps(DictionaryToken font)
         {
-            try
+            foreach (KeyValuePair<string, IToken> entry in font.Data)
             {
-                look();
+                long covered = 0;
+                if (entry.Key is "W" or "W2")
+                {
+                    Try(() => covered = Find<ArrayToken>(entry.Value, scanner, false) is ArrayToken widths ? WidthEntries(widths, entry.Key == "W2") : 0);
+                }
+                else if (entry.Key is "ToUnicode" or "Encoding")
+                {
+                    Try(() => covered = MapEntries(entry.Value));
+                }
+                if (covered > MaxFontMapEntries || (Entries += covered) > MaxFileFontMapEntries)
+                {
+                    return false;
+                }
             }
-            catch (Exception ex) when (ex is not (OperationCanceledException or DocumentTooLargeException))
-            {
-            }
+            return true;
         }
 
         /// <summary>The characters a composite font's width list covers: "first [widths]" as many as the list holds, "first last values" all from the first code to the last (three items for
@@ -393,7 +515,8 @@ internal static class PdfLimits
                     {
                         return MaxFontMapEntries + 1;
                     }
-                    entries += vertical ? list.Length / 3 + 1 : list.Length;
+                    // Each item counts for something: the parser goes through it for every font that uses the list.
+                    entries += Math.Max(1, vertical ? list.Length / 3 + 1 : list.Length);
                     i += 2;
                     continue;
                 }
@@ -405,7 +528,7 @@ internal static class PdfLimits
                 {
                     return MaxFontMapEntries + 1;
                 }
-                entries += (long)Math.Max(0, last.Double - first.Double + 1);
+                entries += (long)Math.Max(1, last.Double - first.Double + 1);
                 i += vertical ? 5 : 3;
             }
             return entries;
@@ -495,21 +618,24 @@ internal static class PdfLimits
     /// <summary>Whether drawing a page stays within the limits.</summary>
     public sealed record PageMeasure(bool Within);
 
-    /// <summary>Goes through a page's instructions as reading it would, forms included, counting and keeping nothing.</summary>
+    /// <summary>Goes through a page's instructions as reading it would, forms included, counting and keeping nothing. One is made for each file.</summary>
     public sealed class MeasureFactory(IPdfTokenScanner pdfScanner, IResourceStore resourceStore, ILookupFilterProvider filterProvider, IPageContentParser pageContentParser, ParsingOptions parsingOptions)
         : BasePageFactory<PageMeasure>(pdfScanner, resourceStore, filterProvider, pageContentParser, parsingOptions)
     {
+        /// <summary>The fonts the pages measured so far set through a graphics state.</summary>
+        internal int StateFonts;
+
         /// <inheritdoc/>
         protected override PageMeasure ProcessPage(int pageNumber, DictionaryToken dictionary, NamedDestinations namedDestinations, MediaBox mediaBox, CropBox cropBox,
             UserSpaceUnit userSpaceUnit, PageRotationDegrees rotation, TransformationMatrix initialMatrix, IReadOnlyList<IGraphicsStateOperation> operations)
         {
-            Meter meter = new(pageNumber, ResourceStore, PdfScanner, PageContentParser, FilterProvider, cropBox, userSpaceUnit, rotation, initialMatrix, ParsingOptions);
+            Meter meter = new(this, pageNumber, ResourceStore, PdfScanner, PageContentParser, FilterProvider, cropBox, userSpaceUnit, rotation, initialMatrix, ParsingOptions);
             return meter.Process(pageNumber, operations);
         }
     }
 
     /// <summary>The processor behind <see cref="MeasureFactory"/>.</summary>
-    private sealed class Meter(int pageNumber, IResourceStore resourceStore, IPdfTokenScanner pdfScanner, IPageContentParser pageContentParser, ILookupFilterProvider filterProvider,
+    private sealed class Meter(MeasureFactory file, int pageNumber, IResourceStore resourceStore, IPdfTokenScanner pdfScanner, IPageContentParser pageContentParser, ILookupFilterProvider filterProvider,
         CropBox cropBox, UserSpaceUnit userSpaceUnit, PageRotationDegrees rotation, TransformationMatrix initialMatrix, ParsingOptions parsingOptions)
         : BaseStreamProcessor<PageMeasure>(pageNumber, resourceStore, pdfScanner, pageContentParser, filterProvider, cropBox, userSpaceUnit, rotation, in initialMatrix, parsingOptions)
     {
@@ -540,6 +666,15 @@ internal static class PdfLimits
             {
                 throw Stop();
             }
+        }
+
+        public override void SetNamedGraphicsState(NameToken stateName)
+        {
+            if (ResourceStore.GetExtendedGraphicsStateDictionary(stateName)?.Data.ContainsKey("Font") == true && (Over || ++file.StateFonts > MaxStateFonts))
+            {
+                throw Stop();
+            }
+            base.SetNamedGraphicsState(stateName);
         }
 
         protected override void ProcessFormXObject(StreamToken formStream, NameToken xObjectName)

@@ -33,7 +33,7 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 
 Not built:
 
-- **A hard bound on PDF reading.** The limits in `Services/Documents/PdfLimits.cs` are best effort against known ways to make a small file expensive. A guarantee needs extraction in a separate process with a memory and time limit.
+- **A hard bound on PDF reading.** The limits in `Services/Documents/PdfLimits.cs` are best effort against known ways to make a small file expensive, and a tiny crafted file may still crash the server (the parser can be made to overflow its stack, which nothing in the process can catch). A guarantee needs extraction in a separate process with a memory and time limit.
 - Anything that reads `style` memory notes (the image rewrite does not use them yet).
 - The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
 - A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).

@@ -107,6 +107,22 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         List<string> pages = [];
         int chars = 0, blank = 0, failed = 0, unreadable = 0, large = 0;
         bool cut = false;
+        // First of all, before a page is asked for: a reference that never ends would take the server down with it.
+        filters.StartChecking();
+        PdfLimits.ReferenceCheck references = PdfLimits.CheckReferences(pdf.Structure.Catalog.CatalogDictionary, pdf.Structure.TokenScanner, ct);
+        filters.StartReading();
+        if (Stopped(filters) is ExtractedDocument unreadableObjects)
+        {
+            return unreadableObjects;
+        }
+        if (references == PdfLimits.ReferenceCheck.Endless)
+        {
+            return ExtractedDocument.Failed(DocumentStatus.Malformed, Kind, "That PDF is damaged: it has references that lead round in circles or too far to follow.", total);
+        }
+        if (references == PdfLimits.ReferenceCheck.TooManyObjects)
+        {
+            return ExtractedDocument.Failed(DocumentStatus.TooLarge, Kind, "The pages of that PDF use too many objects to check.", total);
+        }
         PdfLimits.FontMaps fonts = new(pdf.Structure.TokenScanner, pdf.Structure.FilterProvider);
         for (int number = 1; number <= wanted; number++)
         {
