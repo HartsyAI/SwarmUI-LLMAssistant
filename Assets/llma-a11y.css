@@ -129,6 +129,12 @@
 .llma-container .badge.text-bg-warning:not(.rounded-pill) { border: 2px solid var(--bs-warning); }
 .llma-container .badge.text-bg-danger:not(.rounded-pill) { border: 2px solid var(--bs-danger); }
 .llma-container .badge:is(.text-bg-primary, .text-bg-info):not(.rounded-pill) { border: 2px solid var(--emphasis); }
+/* Bootstrap's status alerts put white text on those colours too: an alert keeps its colour as a border, like a badge. */
+.llma-container .alert:is(.alert-success, .alert-warning, .alert-danger) { background-color: var(--background) !important; color: var(--text) !important; border: 2px solid var(--bs-success); }
+.llma-container .alert.alert-warning { border-color: var(--bs-warning); }
+.llma-container .alert.alert-danger { border-color: var(--bs-danger); }
+/* Core lightens a hovered button until its text is under 4.5:1 in the dark theme: a smaller step toward the text colour. */
+.llma-container .basic-button:not(.btn-primary):hover:not(:disabled) { background-color: color-mix(in srgb, var(--button-background) 85%, var(--button-text)); }
 .llma-container .text-success { color: color-mix(in srgb, var(--bs-success) 35%, var(--text-strong)) !important; }
 .llma-container .text-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)) !important; }
 .llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }

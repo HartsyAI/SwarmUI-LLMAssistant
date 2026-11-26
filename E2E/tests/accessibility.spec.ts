@@ -42,6 +42,18 @@ async function richChat(page: Page) {
     await expect(page.locator('#llma-send-btn')).toBeVisible();
 }
 
+/** Opens the first-run guide over an empty chat, which the llm fixture skips, and waits for its checks. */
+async function openGuide(page: Page) {
+    expect((await api(page, 'LLMAssistantSetOnboarding', { action: 'run' })).success).toBe(true);
+    await reopen(page);
+    await expect(page.locator('#llma-onboarding li[data-check]')).toHaveCount(4);
+}
+
+/** Answers the starter set install without adding anything. */
+async function fakeInstall(page: Page, answer: () => object) {
+    await page.route('**/API/LLMAssistantInstallStarterSet', route => route.fulfill({ json: answer() }));
+}
+
 for (let theme of ['modern_dark', 'modern_light']) {
     test.describe(`axe in ${theme}`, () => {
         // An axe pass over a view takes seconds, and each test makes several.
@@ -181,6 +193,44 @@ for (let theme of ['modern_dark', 'modern_light']) {
             finally {
                 await resetCodeTools(llm);
             }
+        });
+
+        test('the first-run guide has no violations', async ({ llm }) => {
+            // Every status a check can have, and no backend, so each badge and the warning are on screen.
+            let starter: any;
+            await llm.route('**/API/LLMAssistantGetOnboarding', async route => {
+                let response = await route.fetch();
+                let body = await response.json();
+                if (body.checks) {
+                    starter = body.starter;
+                    body.canChat = false;
+                    ['fail', 'warn', 'ok', 'info'].forEach((status, i) => Object.assign(body.checks[i], { status, fix: 'Add one under Server > Backends.' }));
+                    body.setup.canView = true;
+                    body.starter.items[0].installed = true;
+                }
+                await route.fulfill({ response, json: body });
+            });
+            await openGuide(llm);
+            await expect(llm.locator('#llma-onboarding-nobackend')).toBeVisible();
+            await audit(llm, 'first-run guide without a backend');
+            let answer: object = { error: 'The starter set could not be added.' };
+            await fakeInstall(llm, () => answer);
+            await llm.locator('#llma-onboarding-install').click();
+            await expect(llm.locator('#llma-onboarding-result .alert-danger')).toBeVisible();
+            await audit(llm, 'first-run guide: a failed install');
+            answer = { success: true, added: [], skipped: [{ id: 'x', code: 'error', title: 'Researcher', reason: 'It could not be saved.' }], starter };
+            await llm.locator('#llma-onboarding-install').click();
+            await expect(llm.locator('#llma-onboarding-result .alert-warning')).toBeVisible();
+            await audit(llm, 'first-run guide: part of the starter set skipped');
+            await llm.unroute('**/API/LLMAssistantGetOnboarding');
+            answer = { success: true, added: [{ id: 'x' }], skipped: [], starter: { ...starter, missing: 0 } };
+            await openGuide(llm);
+            await llm.locator('#llma-onboarding-install').click();
+            await expect(llm.locator('#llma-onboarding-result .alert-success')).toBeVisible();
+            await llm.mouse.move(0, 0);
+            await audit(llm, 'first-run guide: ready, starter set added');
+            await llm.setViewportSize({ width: 375, height: 740 });
+            await audit(llm, 'phone: first-run guide');
         });
 
         test('the phone layout has no violations', async ({ llm }) => {
@@ -391,6 +441,34 @@ test('a dialog keeps Tab inside, and closing it returns focus to what opened it'
     await expect(llm.locator('#llma-settings-btn')).toBeFocused();
 });
 
+test('the first-run guide keeps keyboard focus when it redraws, and says what happened', async ({ llm }) => {
+    await openGuide(llm);
+    let recheck = llm.locator('#llma-onboarding-recheck');
+    await recheck.focus();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-announcer')).toContainText('Check finished', { timeout: 30_000 });
+    await expect(recheck).toBeFocused();
+    let starter = (await api(llm, 'LLMAssistantGetOnboarding')).starter;
+    let answer: object = { error: 'No room for it.' };
+    await fakeInstall(llm, () => answer);
+    let install = llm.locator('#llma-onboarding-install');
+    await install.focus();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-announcer')).toContainText('No room for it.');
+    await expect(install).toBeFocused();
+    // Nothing left to add: the button is disabled, and the way on has the keyboard.
+    answer = { success: true, added: [{ id: 'x' }], skipped: [], starter: { ...starter, missing: 0 } };
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-announcer')).toContainText('Added: 1');
+    await expect(install).toBeDisabled();
+    await expect(llm.locator('#llma-onboarding-done')).toBeFocused();
+    // One polite live region: the guide has none of its own.
+    await expect(llm.locator('#llma-onboarding [aria-live], #llma-onboarding [role="status"]')).toHaveCount(0);
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-onboarding')).toBeHidden();
+    await expect(llm.locator('#llma-input')).toBeFocused();
+});
+
 test('the live region says when a reply starts, ends or fails, and not once per token', async ({ llm }) => {
     await llm.evaluate(() => {
         (window as any).heard = [];
@@ -430,6 +508,14 @@ test('reduced motion stops the animations', async ({ llm }) => {
 
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 375, height: 740 }, hasTouch: true });
+
+    test('the first-run guide has controls at least 44 pixels each way', async ({ llm }) => {
+        await openGuide(llm);
+        let sizes = await llm.locator('#llma-onboarding button').evaluateAll(buttons => buttons.map(b => ({ id: b.id, box: b.getBoundingClientRect() }))
+            .map(({ id, box }) => ({ id, width: Math.round(box.width), height: Math.round(box.height) })));
+        expect(sizes.length).toBeGreaterThanOrEqual(3);
+        expect(sizes.filter(s => s.width < 44 || s.height < 44)).toEqual([]);
+    });
 
     test('controls are at least 44 pixels each way and the page does not scroll sideways', async ({ llm }) => {
         await richChat(llm);
