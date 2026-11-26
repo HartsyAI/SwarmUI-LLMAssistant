@@ -35,7 +35,7 @@ Not built:
 - Anything that reads `style` memory notes (the image rewrite does not use them yet).
 - The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
 - A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).
-- Per-chat and per-assistant overrides for the automatic prompt rewrite, and a composer toggle for it; video styles for image-to-video workflows.
+- Video styles for image-to-video workflows.
 - Documents in chats and the library (PDF, Word), a streaming headless route, and the rest of the later work below.
 - A gap analysis against Hermes (as was done for OpenHarness in `HARNESS-ROADMAP.md`) to choose later slices from evidence. Which Hermes is meant was never confirmed (Nous Research's Hermes Agent is an unverified guess), so confirm it before researching.
 

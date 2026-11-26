@@ -4,34 +4,18 @@ using Xunit;
 
 namespace Hartsy.Extensions.LLMAssistant.Tests;
 
-/// <summary>The parts of the generation hook that need no running core: when it runs, what it writes to the metadata, and the memory that stops a prompt being rewritten twice.</summary>
+/// <summary>The parts of the generation hook that need no running core: what it writes to the metadata, and the memory that stops a prompt being rewritten twice.</summary>
 public class PromptAutoEnhanceTests
 {
-    [Theory]
-    [InlineData("default", false, false)]
-    [InlineData("default", true, true)]
-    [InlineData("on", false, true)]
-    [InlineData("on", true, true)]
-    [InlineData("off", true, false)]
-    [InlineData("off", false, false)]
-    [InlineData("ON", false, true)]
-    [InlineData(" Off ", true, false)]
-    [InlineData(null, true, true)]
-    [InlineData("nonsense", true, true)]
-    [InlineData("nonsense", false, false)]
-    public void AGenerationsOwnChoiceWinsOverTheSetting(string mode, bool setting, bool expected)
-    {
-        Assert.Equal(expected, PromptAutoEnhance.ShouldRun(mode, setting));
-    }
-
     [Fact]
-    public void TheAutomaticSettingIsOffUnlessTheUserTurnsItOn()
+    public void TheAutomaticSettingTakesTheDefaultUnlessTheUserSetsIt()
     {
-        Assert.False(RewriteSettings.Default.Auto);
-        Assert.False(RewriteSettings.From(null).Auto);
-        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"model":"x"}}""")).Auto);
-        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":"yes"}}""")).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.Default.Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(null).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"model":"x"}}""")).Auto);
+        Assert.Equal(RewriteSettings.DefaultAuto, RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":"yes"}}""")).Auto);
         Assert.True(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":true}}""")).Auto);
+        Assert.False(RewriteSettings.From(JObject.Parse("""{"promptRewrite":{"auto":false}}""")).Auto);
     }
 
     private static RewriteResult Result(bool rewritten = true, bool fellBack = false, string style = "ideogram-4", List<string> warnings = null)

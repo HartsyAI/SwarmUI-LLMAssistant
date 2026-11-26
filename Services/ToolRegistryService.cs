@@ -322,7 +322,7 @@ public static class ToolRegistryService
                     {
                         ["type"] = "string",
                         ["enum"] = new JArray("auto", "off"),
-                        ["description"] = "Prompt adaptation. `auto` (default) follows the user's setting: when it is on, the prompt is rewritten for the selected image model's format and the result says what was used, so a plain description is enough. `off` sends the prompt exactly as written."
+                        ["description"] = "Prompt adaptation. `auto` (default) follows the user's switches (for this chat, the assistant, the image model and in Settings): when they say on, the prompt is rewritten for the selected image model's format and the result says what was used, so a plain description is enough. `off` sends the prompt exactly as written."
                     }
                 },
                 ["required"] = new JArray("prompt")

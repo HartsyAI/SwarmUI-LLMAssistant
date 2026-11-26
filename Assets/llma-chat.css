@@ -908,6 +908,22 @@ video.llma-msg-image {
     color: var(--bs-warning);
     border-color: color-mix(in srgb, var(--bs-warning) 60%, transparent);
 }
+/* The auto-enhance popover sits in the composer, so the shared popover look opens upward and from the button's left edge. */
+.llma-enhance-popover {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: 0;
+    right: auto;
+    width: 280px;
+    font-size: 12.5px;
+    color: var(--text);
+}
+/* On a phone the button can sit anywhere along the row, so the popover spans the composer instead. */
+@media (max-width: 680px) {
+    .llma-input-wrap { position: relative; }
+    .llma-enhance-anchor { position: static; }
+    .llma-enhance-popover { right: 0; width: auto; }
+}
 .llma-input-actions .llma-icon-btn {
     width: 32px;
     height: 32px;
