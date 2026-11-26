@@ -325,6 +325,9 @@ test.describe('workspace skills and commands', () => {
         await setScenarios([turn('use the workspace skill', [{ name: 'skill', arguments: { name: 'ws-skill' } }], 'Done.')]);
         await send(llm, 'use the workspace skill');
         await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(3);
+        // The row is there as soon as the reply starts: the tool's result is sent, and answered, after that.
+        await expect(lastAssistant(llm)).toContainText('Done.');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
         let request = (await mockRequests())[0];
         expect(request.messages.map((m: any) => JSON.stringify(m.content)).join('\n')).toContain('ws-skill: A workspace skill');
         expect((await toolResults())[0]).toMatchObject({ success: true, instructions: 'Workspace steps.' });
