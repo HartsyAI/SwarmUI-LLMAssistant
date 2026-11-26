@@ -396,3 +396,31 @@ test('a schedule with no mark is held to its chat\'s documents once that chat ha
     let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
     expect(JSON.stringify(profile.notes)).not.toContain('LATER-POISON');
 });
+
+test('a run that is skipped marks a schedule too, so deleting its chat before the next run loses nothing', async ({ llm }) => {
+    // Made before the chat had a document, with a model no backend has, so the first run is skipped.
+    await setScenarios([
+        { match: 'RUN-TASK', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { category: 'fact', content: 'The user pays SKIPPED-POISON.' } }] }, { text: 'run done' }] },
+        turn('MAKE-IT', [{ name: 'schedule_create', arguments: { title: 'Skipped first', prompt: 'RUN-TASK please remember this', everyMinutes: 60, approvalMode: 'auto', model: 'no-such-model' } }], 'made it'),
+        { regex: '.*', rounds: [{ text: 'read it' }] },
+    ]);
+    await send(llm, 'MAKE-IT');
+    await expect(lastAssistant(llm)).toContainText('made it');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let made = ((await api(llm, 'LLMAssistantGetSchedules')).schedules as any[]).find(s => s.title == 'Skipped first');
+    expect(made, 'the schedule was made').toBeTruthy();
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'later.txt', mimeType: 'text/plain', buffer: Buffer.from('words') });
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await send(llm, 'here is a file');
+    await expect(lastAssistant(llm)).toContainText('read it');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    expect(await runNow(llm, made.id)).toMatchObject({ started: false, reason: expect.stringContaining('not available') });
+    expect((await api(llm, 'LLMAssistantDeleteThread', { threadId: made.createdBy })).success).toBe(true);
+    await save(llm, { ...schedule('Skipped first', 'RUN-TASK please remember this', { enabled: false }), id: made.id });
+    let run = await runNow(llm, made.id);
+    await waitStatus(llm, run.threadId, 'done');
+    expect(JSON.stringify((await thread(llm, run.threadId)).messages)).toContain('This chat holds an attached document');
+    let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
+    expect(JSON.stringify(profile.notes)).not.toContain('SKIPPED-POISON');
+});

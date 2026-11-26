@@ -111,6 +111,7 @@ public static class ScheduleService
                 continue;
             }
             string id = schedule[ScheduleFields.Id].ToString();
+            MarkIfCreatorHasDocuments(user, schedule);
             // Move on before running: the next time is saved first, so this one is not repeated whatever happens to the run.
             ScheduleStore.Mutate(user, id, s =>
             {
@@ -141,6 +142,8 @@ public static class ScheduleService
         {
             return new ScheduleRunResult(false, null, null, "There is no such schedule.");
         }
+        // Before anything can skip the run: the chat that made the schedule may be deleted before one starts.
+        MarkIfCreatorHasDocuments(user, schedule);
         if (!user.HasPermission(LLMAssistantAPI.PermSchedules))
         {
             return Skipped(user, scheduleId, "The user no longer has permission to run schedules.", nowUtc);
@@ -169,7 +172,6 @@ public static class ScheduleService
             return Skipped(user, scheduleId, string.IsNullOrWhiteSpace(model) ? "No model is set for this schedule." : $"The model '{model}' is not available.", nowUtc);
         }
         SessionLimits limits = SessionLimits.From(settings);
-        MarkIfCreatorHasDocuments(user, schedule);
         JObject host = EnsureHost(user, schedule, settings);
         string hostId = host["id"].ToString();
         int keep = Math.Min(ScheduleLimits.KeepRuns, limits.MaxChildrenPerParent);

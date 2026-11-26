@@ -858,17 +858,19 @@ async function llmaSwitchThread(threadId) {
 // Used to recover after a server-side mutation (eg edit/delete message) fails or returns
 // an authoritative thread state we should adopt.
 async function llmaReloadActiveThread() {
-    if (!LLMAState.activeThreadId) return;
+    const threadId = LLMAState.activeThreadId;
+    if (!threadId) return;
     let thread = null;
     let compaction = null;
     try {
-        const result = await llmaRequest('LLMAssistantGetThread', { threadId: LLMAState.activeThreadId });
+        const result = await llmaRequest('LLMAssistantGetThread', { threadId });
         if (result?.thread) {
             thread = typeof result.thread === 'string' ? JSON.parse(result.thread) : result.thread;
             compaction = result.activeCompaction || null;
         }
     } catch { /* fall through */ }
-    if (!thread) return;
+    // Another chat may have been opened while this one was read: its screen is not drawn over.
+    if (!thread || LLMAState.activeThreadId !== threadId) return;
     llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
     llmaContext.activeCompaction = compaction;
     LLMAState.activeThreadToolsEnabled = typeof thread.toolsEnabled === 'boolean' ? thread.toolsEnabled : null;

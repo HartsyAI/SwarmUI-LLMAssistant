@@ -895,3 +895,43 @@ test('a refused regenerate leaves the chat as it is stored', async ({ llm }) => 
     await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
     await expectSameTree(llm);
 });
+
+test('a chat read late is not drawn over the chat opened meanwhile', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'the reply' }] }]);
+    await llm.routeWebSocket(/LLMAssistantRegenerateWS/, socket => socket.onMessage(() => socket.send(JSON.stringify({ success: false, error: 'REGENERATE-REFUSED', refused: true }))));
+    await reopen(llm);
+    await exchange(llm, 'in the other chat', 'the reply');
+    let other = (await api(llm, 'LLMAssistantGetThreads')).threads[0].id;
+    await llm.locator('#llma-new-thread-btn').click();
+    await exchange(llm, 'in the first chat', 'the reply');
+    let first = (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => t.id != other).id;
+    // Reads of the first chat wait until the other one is on screen.
+    let release: () => void = () => {};
+    let released = new Promise<void>(resolve => release = resolve);
+    let held = 0;
+    let answered = 0;
+    await llm.route('**/API/LLMAssistantGetThread', async route => {
+        if (route.request().postDataJSON().threadId != first) {
+            await route.continue();
+            return;
+        }
+        held++;
+        await released;
+        let response = await route.fetch();
+        await route.fulfill({ response });
+        answered++;
+    });
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Regenerate').click();
+    // The read after the turn, and the one the refusal asks for.
+    await expect.poll(() => held).toBe(2);
+    await llm.locator(`#llma-thread-list .llma-thread-item[data-id="${other}"] .llma-thread-name`).click();
+    await expect(userRows(llm)).toContainText('in the other chat');
+    release();
+    await expect.poll(() => answered).toBe(2);
+    await llm.waitForTimeout(1000);
+    await expect(userRows(llm)).toHaveCount(1);
+    await expect(userRows(llm)).toContainText('in the other chat');
+    expect(await llm.evaluate(() => (0, eval)('LLMAState').allNodes.map((n: any) => n.content))).not.toContain('in the first chat');
+});

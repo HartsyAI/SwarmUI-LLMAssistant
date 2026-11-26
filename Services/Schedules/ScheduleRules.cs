@@ -19,7 +19,7 @@ public static class ScheduleFields
     public const string Source = "source";
     /// <summary>For one made by the assistant, the chat it was made in.</summary>
     public const string CreatedBy = "createdBy";
-    /// <summary>True for one the assistant made in a chat with a document within reach, when it was made or by a later run: its prompt may carry what a file said. Kept through later saves,
+    /// <summary>True for one the assistant made in a chat with a document within reach, when it was made or when a run of it later came up: its prompt may carry what a file said. Kept through later saves,
     /// and given to the host chat.</summary>
     public const string FromDocuments = "fromDocuments";
     /// <summary>The assistant a run is made as ("" for the user's active one).</summary>
