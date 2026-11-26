@@ -479,13 +479,16 @@ public sealed class DocumentExtractorTests
     }
 
     /// <summary>A page that sets a font through a graphics state this many times.</summary>
-    private static byte[] StateFont(int times)
+    private static byte[] StateFont(int times, int widths = 4000)
         => DocumentFixtures.Objects("/Resources << /Font << /F1 5 0 R >> /ExtGState << /G 6 0 R >> >> /Contents 4 0 R",
             ("", Ascii(string.Concat(Enumerable.Repeat("q /G gs Q ", times)) + "BT /F1 12 Tf 10 700 Td (state words) Tj ET")), Helvetica,
-            ("<< /Type /ExtGState /Font [7 0 R 12] >>", null), Type0(8), Descendant(9, "/W [0 3999 500]"), Descriptor);
+            ("<< /Type /ExtGState /Font [7 0 R 12] >>", null), Type0(8), Descendant(9, $"/W [0 {widths - 1} 500]"), Descriptor);
 
     [Fact]
     public Task A_font_set_through_a_graphics_state_over_and_over_is_refused() => AssertRefusedSoon(StateFont(2000));
+
+    [Fact]
+    public Task The_largest_font_a_graphics_state_may_set_is_loaded_only_a_few_times() => AssertRefusedSoon(StateFont(17, 150_000));
 
     [Fact]
     public void A_font_set_through_a_graphics_state_a_few_times_is_read()

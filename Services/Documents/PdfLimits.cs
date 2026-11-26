@@ -55,7 +55,7 @@ internal static class PdfLimits
     private const int MaxReferenceSteps = 32;
 
     /// <summary>The most times the pages of a file may set a font through a graphics state, which the parser answers by loading the font again every time. Hardly any program writes one.</summary>
-    private const int MaxStateFonts = 64;
+    private const int MaxStateFonts = 16;
 
     /// <summary>The most bytes one row of a predicted (PNG or TIFF filtered) stream may be.</summary>
     private const long MaxPredictorRowBytes = 1024 * 1024;
