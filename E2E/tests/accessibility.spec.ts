@@ -42,6 +42,18 @@ async function richChat(page: Page) {
     await expect(page.locator('#llma-send-btn')).toBeVisible();
 }
 
+/** Records everything the live region says from now on, so a message that the next one replaces is still seen. */
+async function listen(page: Page) {
+    await page.evaluate(() => {
+        (window as any).heard = [];
+        let region = document.getElementById('llma-announcer')!;
+        new MutationObserver(() => region.textContent && (window as any).heard.push(region.textContent)).observe(region, { childList: true, characterData: true, subtree: true });
+    });
+}
+
+/** What the live region has said since listen(). */
+const heard = (page: Page): Promise<string[]> => page.evaluate(() => (window as any).heard);
+
 /** Prices the mock model, with a daily budget that one reply passes: the figures, the warning and their popovers all show. */
 async function priceReplies(page: Page) {
     let saved = await api(page, 'LLMAssistantSaveUsageSettings', { currency: 'USD', prices: { 'mock-model': { input: 2, output: 10 } }, budget: { enabled: true, daily: 0.001, weekly: 0 } });
@@ -549,8 +561,10 @@ test('usage figures work from the keyboard, and their popover gives focus back',
         await expect(llm.locator('#llma-usage-rows .llma-usage-row')).toHaveCount(1);
         await llm.waitForLoadState('networkidle');
         await llm.locator('#llma-usage-save').focus();
+        await listen(llm);
         await llm.keyboard.press('Enter');
-        await expect(llm.locator('#llma-announcer')).toContainText('Saved.');
+        // The budget warning follows and replaces it in the region.
+        await expect.poll(async () => (await heard(llm)).join(' ')).toContain('Saved.');
         await expect(llm.locator('#llma-usage-save')).toBeFocused();
         await llm.locator('.llma-usage-remove').focus();
         await llm.keyboard.press('Enter');
@@ -566,21 +580,17 @@ test('usage figures work from the keyboard, and their popover gives focus back',
 });
 
 test('the live region says when a reply starts, ends or fails, and not once per token', async ({ llm }) => {
-    await llm.evaluate(() => {
-        (window as any).heard = [];
-        let region = document.getElementById('llma-announcer')!;
-        new MutationObserver(() => region.textContent && (window as any).heard.push(region.textContent)).observe(region, { childList: true, characterData: true, subtree: true });
-    });
+    await listen(llm);
     let words = Array.from({ length: 40 }, (_, i) => `token${i}`).join(' ');
     await setScenarios([{ match: 'speak', rounds: [{ text: words, chunkDelayMs: 50 }] }, { match: 'break', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }]);
     await send(llm, 'speak');
     await expect(llm.locator('#llma-messages')).toHaveAttribute('aria-busy', 'true');
     await expect(llm.locator('#llma-announcer')).toContainText('Reply complete', { timeout: 20_000 });
     await expect(llm.locator('#llma-messages')).toHaveAttribute('aria-busy', 'false');
-    let heard: string[] = await llm.evaluate(() => (window as any).heard);
-    expect(heard.length).toBeLessThanOrEqual(3);
-    expect(heard.join(' ')).toContain('Assistant is replying');
-    expect(heard.join(' ')).not.toContain('token1');
+    let said = await heard(llm);
+    expect(said.length).toBeLessThanOrEqual(3);
+    expect(said.join(' ')).toContain('Assistant is replying');
+    expect(said.join(' ')).not.toContain('token1');
     // Nothing else in the message list is a live region.
     await expect(llm.locator('#llma-messages [aria-live], #llma-messages[aria-live], #llma-messages[role="log"]')).toHaveCount(0);
     await send(llm, 'break');
