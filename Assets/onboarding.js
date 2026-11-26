@@ -14,6 +14,8 @@ class LLMAOnboarding {
         this.result = '';
         /** Whether a request made by a button is running. */
         this.busy = false;
+        /** The id of the button that had the keyboard when the running request started, or null. */
+        this.pressed = null;
     }
 
     /** The guide's element. */
@@ -88,7 +90,9 @@ class LLMAOnboarding {
             reply = { error: llmaShortError(err) };
         }
         if (!reply?.success) {
-            this.result = `<div class="alert alert-danger py-2">${escapeHtml(reply?.error || translate('The check could not run.'))}</div>`;
+            let error = reply?.error || translate('The check could not run.');
+            this.result = `<div class="alert alert-danger py-2">${escapeHtml(error)}</div>`;
+            llmaA11y.announce(error);
         }
         else {
             this.report = reply;
@@ -121,6 +125,8 @@ class LLMAOnboarding {
             return;
         }
         let report = this.report;
+        // Every button is replaced: the one with the keyboard gets it back. A button disabled for its own request may have lost it to the page already.
+        let held = box.contains(document.activeElement) ? document.activeElement.id : (document.activeElement == document.body ? this.pressed : null);
         let html = `<h2 class="llma-onboarding-title" id="llma-onboarding-title">${translate('Getting started')}</h2>`
             + `<p class="text-muted">${translate('A quick look at what is ready. You can skip this and look around at any time; Settings > General brings it back.')}</p>`;
         if (!report) {
@@ -129,7 +135,7 @@ class LLMAOnboarding {
                 : `<div class="small text-muted mb-3">${translate('Checking...')}</div>`;
         }
         else {
-            html += this.checksHtml(report) + this.starterHtml(report) + `<div role="status" aria-live="polite" id="llma-onboarding-result">${this.result}</div>`;
+            html += this.checksHtml(report) + this.starterHtml(report) + `<div id="llma-onboarding-result">${this.result}</div>`;
         }
         html += '<div class="llma-onboarding-actions">'
             + `<button type="button" class="basic-button" id="llma-onboarding-skip">${translate('Skip for now')}</button>`
@@ -141,6 +147,25 @@ class LLMAOnboarding {
         this.wire('llma-onboarding-recheck', () => this.recheck());
         this.wire('llma-onboarding-install', () => this.install());
         this.wire('llma-onboarding-backends', () => llmaCoreBridge.openServerBackends());
+        if (held) {
+            this.focusButton(held);
+        }
+    }
+
+    /** Gives a button the keyboard, or the way on when that button is gone or can no longer be pressed. */
+    focusButton(id) {
+        let target = document.getElementById(id);
+        if (!target || target.disabled) {
+            target = document.getElementById('llma-onboarding-done') || document.getElementById('llma-onboarding-skip');
+        }
+        target?.focus({ preventScroll: true });
+    }
+
+    /** Disables the button a request started from, remembering whether it had the keyboard. */
+    hold(id) {
+        let button = document.getElementById(id);
+        this.pressed = document.activeElement == button ? id : null;
+        button.disabled = true;
     }
 
     /** Wires one button, when it was drawn. */
@@ -206,12 +231,17 @@ class LLMAOnboarding {
         this.busy = true;
         try {
             this.result = '';
-            document.getElementById('llma-onboarding-recheck').disabled = true;
+            this.hold('llma-onboarding-recheck');
             await llmaLoadModels();
             await this.load(true);
+            // A failure was already said.
+            if (!this.result) {
+                llmaA11y.announce(translate('Check finished'));
+            }
         }
         finally {
             this.busy = false;
+            this.pressed = null;
         }
     }
 
@@ -222,7 +252,7 @@ class LLMAOnboarding {
         }
         this.busy = true;
         try {
-            document.getElementById('llma-onboarding-install').disabled = true;
+            this.hold('llma-onboarding-install');
             let reply = null;
             try {
                 reply = await llmaRequest('LLMAssistantInstallStarterSet', {});
@@ -231,7 +261,9 @@ class LLMAOnboarding {
                 reply = { error: llmaShortError(err) };
             }
             if (!reply?.success) {
-                this.result = `<div class="alert alert-danger py-2">${escapeHtml(reply?.error || translate('The starter set could not be added.'))}</div>`;
+                let error = reply?.error || translate('The starter set could not be added.');
+                this.result = `<div class="alert alert-danger py-2">${escapeHtml(error)}</div>`;
+                llmaA11y.announce(error);
             }
             else {
                 await this.reloadLists();
@@ -239,6 +271,7 @@ class LLMAOnboarding {
                 this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
                     + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
                     + '</div>';
+                llmaA11y.announce([`${translate('Added')}: ${reply.added.length}`, ...problems.map(s => `${s.title}: ${s.reason}`)].join('. '));
                 // The guide may have been run again meanwhile, and have no report yet.
                 if (this.report) {
                     this.report.starter = reply.starter;
@@ -251,6 +284,7 @@ class LLMAOnboarding {
         finally {
             this.busy = false;
             this.render();
+            this.pressed = null;
         }
     }
 

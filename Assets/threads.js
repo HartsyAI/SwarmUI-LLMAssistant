@@ -43,6 +43,7 @@ function llmaComputeActivePath(allNodes, leafId) {
 
 // Ingest a server thread blob into branch state: full node set, active leaf, and the active path.
 function llmaIngestThread(thread) {
+    llmaActions.noteStored(thread);
     LLMAState.allNodes = Array.isArray(thread.messages) ? thread.messages : [];
     LLMAState.activeLeafId = thread.activeLeafId
         || (LLMAState.allNodes.length ? LLMAState.allNodes[LLMAState.allNodes.length - 1].id : null);
@@ -50,15 +51,49 @@ function llmaIngestThread(thread) {
     return LLMAState.messages;
 }
 
+// After a turn, the server's tree is the truth about each message's parent and about which one is the tip, so the next message is shown where the server puts it.
+// A reply the page shows that the server did not save (failed, or stopped before anything arrived) stays on screen, marked unsaved.
+function llmaAdoptServerTree(thread) {
+    llmaActions.noteStored(thread);
+    let saved = Array.isArray(thread.messages) ? thread.messages : [];
+    let ids = new Set(saved.map(n => n.id));
+    let leaf = llmaActions.node(LLMAState.activeLeafId);
+    // A tip the page expects to be stored and is not there yet (a stopped reply still being saved): keep what the page has until it is.
+    if (saved.length == 0 || (leaf && !leaf.unsaved && !ids.has(leaf.id))) {
+        return;
+    }
+    // What is on screen: the branch showing, less the replies the page already knows were never saved.
+    let drawn = LLMAState.messages.filter(n => !n.unsaved).map(n => n.id).join();
+    // A reply the page gave up on (taken for unsaved, or ended with an error) that the server went on to finish.
+    let finishedLate = (LLMAState.allNodes || []).some(n => ids.has(n.id) && (n.unsaved || (n.meta?.error && !saved.find(s => s.id == n.id).meta?.error)));
+    let local = (LLMAState.allNodes || []).filter(n => !ids.has(n.id));
+    for (let node of local) {
+        llmaActions.markUnsaved(node);
+    }
+    LLMAState.allNodes = saved.concat(local);
+    LLMAState.activeLeafId = thread.activeLeafId || saved[saved.length - 1].id;
+    LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
+    let changed = finishedLate || drawn != LLMAState.messages.map(n => n.id).join();
+    // A message being edited is not drawn over.
+    if (changed && !document.querySelector('#llma-messages textarea')) {
+        llmaRenderMessageHistory(LLMAState.messages, true);
+        llmaRebuildAssetsForThread();
+        llmaUpdateContextBar();
+    }
+    else {
+        llmaActions.syncTail();
+    }
+}
+
 function llmaChildrenOf(nodeId) {
-    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === (nodeId ?? null));
+    return (LLMAState.allNodes || []).filter(n => !n.unsaved && llmaParentId(n) === (nodeId ?? null));
 }
 
 // All nodes sharing a parent with `node` (in creation order) — the set of branches at that point.
 function llmaSiblingsOf(node) {
     if (!node) return [];
     const pid = llmaParentId(node);
-    return (LLMAState.allNodes || []).filter(n => llmaParentId(n) === pid);
+    return (LLMAState.allNodes || []).filter(n => !n.unsaved && llmaParentId(n) === pid);
 }
 
 // Follow the most-recent child chain down to a leaf (a node with no children).
@@ -78,6 +113,8 @@ function llmaDescendToLeaf(nodeId) {
 // persist server-side and adopt the authoritative thread.
 async function llmaSetActiveLeaf(leafId, opts = {}) {
     if (!LLMAState.activeThreadId || !leafId) return;
+    // Every way of changing the branch comes through here (pager, sidebar, search result, Show later messages, Keep this one).
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     LLMAState.activeLeafId = leafId;
     LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
     llmaRenderMessageHistory(LLMAState.messages);
@@ -105,7 +142,7 @@ async function llmaSetActiveLeaf(leafId, opts = {}) {
 // Switch the active branch at a divergence point: pick the prev/next sibling of `node`, descend to its
 // leaf, and make that the active path.
 async function llmaSwitchBranch(nodeId, dir) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     const node = (LLMAState.allNodes || []).find(n => n.id === nodeId);
     if (!node) return;
     const sibs = llmaSiblingsOf(node);
@@ -118,16 +155,19 @@ async function llmaSwitchBranch(nodeId, dir) {
 
 // Jump directly to a specific sibling branch (from the branch-picker dropdown).
 async function llmaSwitchToBranch(targetNodeId) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before switching branches', 'info'); return; }
+    if (llmaActions.refuseIfBusy('Stop generation before switching branches')) return;
     if (!targetNodeId) return;
     await llmaSetActiveLeaf(llmaDescendToLeaf(targetNodeId));
 }
 
-// Fork: make this message the tip of the active branch; the next message sent branches from here.
+// Branch from here: make this message the tip of the active branch; the next message sent branches from it.
 async function llmaForkFromMessage(msgId) {
-    if (LLMAState.isGenerating) { llmaShowToast('Stop generation before forking', 'info'); return; }
-    await llmaSetActiveLeaf(msgId, { focusInput: true });
-    llmaShowToast('Forked — your next message starts a new branch', 'info');
+    if (llmaActions.refuseIfBusy('Stop generation before branching')) return;
+    const node = llmaActions.node(msgId);
+    if (!node) return;
+    // A reply that was never saved is not a place to branch from: the message before it is.
+    await llmaSetActiveLeaf(node.unsaved ? node.parentId : msgId, { focusInput: true });
+    llmaShowToast('Your next message starts a new branch from here', 'info');
 }
 
 // -- Load / Fetch --
@@ -145,6 +185,8 @@ async function llmaLoadThreads() {
     llmaRenderThreadList(LLMAState.threads);
     llmaSessions.onThreadsLoaded(LLMAState.threads);
     llmaLibrary.refresh();
+    // The open chat may have started or finished working in the background.
+    llmaActions.syncTail();
 }
 
 // -- Branch picker (sidebar) --
@@ -302,6 +344,7 @@ function llmaRenderThreadList(threads) {
                         title="${expanded ? llmaEscapeHtml(translate('Hide branches')) : llmaEscapeHtml(translate('Show branches'))}" aria-label="${llmaEscapeHtml(translate('Toggle branches'))}">&#9656;</button>`
                 : '';
             const displayTitle = thread.title || translate('Untitled');
+            const current = isActive ? ' aria-current="true"' : '';
             let pinLabel = llmaEscapeHtml(thread.pinned ? translate('Unpin chat') : translate('Pin chat'));
             let pinButton = llmaLibrary.canPin(thread)
                 ? `<button class="llma-thread-pin${thread.pinned ? ' pinned' : ''}" data-id="${llmaEscapeHtml(thread.id)}"
@@ -311,11 +354,10 @@ function llmaRenderThreadList(threads) {
                 <div class="llma-thread-item${isActive ? ' active' : ''}${llmaThreadSelectMode ? ' select-mode' : ''}${depth > 0 ? ' llma-thread-child' : ''}${thread.pinned ? ' pinned' : ''}"
                      data-id="${llmaEscapeHtml(thread.id)}"
                      data-depth="${depth}"
-                     title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}"
-                     role="button" tabindex="0">
+                     title="${llmaEscapeHtml(displayTitle)} \u2014 ${llmaEscapeHtml(llmaRelativeTime(thread.updatedAt || thread.createdAt))}">
                     ${checkbox}
                     ${llmaSessions.isSession(thread) ? llmaSessions.dotHtml(thread.sessionStatus) : badge}
-                    <span class="llma-thread-name">${llmaEscapeHtml(displayTitle)}</span>
+                    <button type="button" class="llma-thread-name"${current}>${llmaEscapeHtml(displayTitle)}</button>
                     ${llmaSessions.parentAddonsHtml(thread, kids)}
                     ${thread.mode == 'code' ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('code')}</span>` : ''}
                     ${thread.scheduleId ? `<span class="badge text-bg-secondary llma-thread-mode-badge">${translate('schedule')}</span>` : ''}
@@ -334,7 +376,7 @@ function llmaRenderThreadList(threads) {
         html += llmaLibrary.moreHtml();
     }
 
-    list.innerHTML = html;
+    llmaA11y.keepFocus(list, () => list.innerHTML = html);
     llmaBindThreadListEvents(list);
     if (llmaThreadSelectMode) {
         llmaUpdateBulkCount(); // the visible set changed (search, new chat): refresh Select-all state
@@ -369,19 +411,10 @@ function llmaBindThreadListEvents(list) {
             llmaSwitchThread(item.dataset.id);
         });
         item.addEventListener('keydown', (e) => {
-            // F2 starts rename on the focused item (matches OS file-manager convention).
+            // F2 starts rename on the focused item (matches OS file-manager convention). Enter and Space need nothing here: the title is a button.
             if (e.key === 'F2') {
                 e.preventDefault();
                 llmaBeginRenameThread(item);
-                return;
-            }
-            if (e.key === 'Enter' || e.key === ' ') {
-                // Ignore Enter when the user is typing in the inline rename input.
-                if (e.target.classList?.contains('llma-thread-rename-input') || e.target.closest?.('.llma-thread-pin')) {
-                    return;
-                }
-                e.preventDefault();
-                llmaSwitchThread(item.dataset.id);
             }
         });
     });
@@ -611,12 +644,18 @@ function llmaBeginRenameThread(itemEl) {
     input.select();
 
     let committed = false;
-    const restore = (newTitle) => {
-        const span = document.createElement('span');
-        span.className = 'llma-thread-name';
-        span.textContent = newTitle;
+    // Set when Enter ends the edit, so the keyboard stays on the row.
+    let enterPressed = false;
+    const restore = (newTitle, refocus = enterPressed) => {
+        const name = document.createElement('button');
+        name.type = 'button';
+        name.className = 'llma-thread-name';
+        name.textContent = newTitle;
         // Guard against the input already being detached (re-render mid-commit).
-        if (input.parentNode) input.replaceWith(span);
+        if (input.parentNode) input.replaceWith(name);
+        if (refocus) {
+            name.focus();
+        }
     };
     const commit = async () => {
         if (committed) return;
@@ -649,8 +688,8 @@ function llmaBeginRenameThread(itemEl) {
         }
     };
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        else if (e.key === 'Escape') { e.preventDefault(); committed = true; restore(original); }
+        if (e.key === 'Enter') { e.preventDefault(); enterPressed = true; commit(); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); committed = true; restore(original, true); }
     });
     input.addEventListener('blur', commit);
     input.addEventListener('click', (e) => e.stopPropagation());
@@ -762,6 +801,7 @@ async function llmaSwitchThread(threadId) {
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         llmaCodeMode.onThreadLoaded(thread);
         llmaSessions.onThreadLoaded(thread);
+        llmaSessions.adoptStatus(thread);
         llmaRewriteControls.onThreadLoaded(thread);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
@@ -839,6 +879,7 @@ async function llmaReloadActiveThread() {
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaSessions.onThreadLoaded(thread);
+    llmaSessions.adoptStatus(thread);
     llmaRewriteControls.onThreadLoaded(thread);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
@@ -940,6 +981,10 @@ async function llmaSaveActiveThread() {
         llmaReloadActiveThread();
     }
     // Trust the server's view of the thread.
+    if (!LLMAState.isGenerating && saved.id == LLMAState.activeThreadId) {
+        llmaSessions.adoptStatus(saved);
+        llmaAdoptServerTree(saved);
+    }
     meta.title        = saved.title || meta.title;
     meta.updatedAt    = saved.updatedAt || meta.updatedAt;
     meta.messageCount = Array.isArray(saved.messages) ? saved.messages.length : meta.messageCount;

@@ -99,7 +99,7 @@
         if (!m) return;
         for (const other of llmaFindState.matches) other.classList.remove('active');
         m.classList.add('active');
-        m.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        m.scrollIntoView({ block: 'center', behavior: llmaA11y.scrollBehavior() });
     }
 
     /** Move to the next (dir=+1) / previous (dir=-1) match, wrapping. File-private. */

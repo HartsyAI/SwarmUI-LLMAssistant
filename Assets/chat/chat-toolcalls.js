@@ -173,6 +173,8 @@
 
         const argsPre = document.createElement('pre');
         argsPre.className = 'llma-tool-call-args';
+        // It scrolls when long, so the keyboard must be able to reach it.
+        argsPre.tabIndex = 0;
         try {
             argsPre.textContent = JSON.stringify(call.arguments ?? {}, null, 2);
         } catch (_) {
@@ -591,6 +593,7 @@
             // Generic JSON fallback
             const pre = document.createElement('pre');
             pre.className = 'llma-tool-result-json';
+            pre.tabIndex = 0;
             try {
                 pre.textContent = JSON.stringify(result, null, 2);
             } catch (_) {

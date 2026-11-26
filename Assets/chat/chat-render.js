@@ -7,9 +7,12 @@
     'use strict';
 
     /** Render a full message list into the thread container (used on thread load/switch). */
-    function llmaRenderMessageHistory(messages) {
+    function llmaRenderMessageHistory(messages, keepScroll = false) {
         const container = document.getElementById('llma-messages');
         if (!container) return;
+        // With keepScroll, a reader who has scrolled away from the end stays there.
+        const heldTop = keepScroll && !llmaIsAtBottom(container) ? container.scrollTop : null;
+        const restoreFocus = llmaA11y.rememberMessageFocus();
         container.innerHTML = '';
         // Compare groups: a user turn with 2+ sibling replies (shared groupId) renders as side-by-side
         // columns instead of the single active reply. We render the columns once at the user message and
@@ -45,6 +48,8 @@
         llmaRebuildAssetsForThread();
         // Files waiting in the composer belong to the chat they were attached in.
         llmaChatDocuments.renderPending();
+        // Retry, or the way to the rest of a branch that stops short.
+        llmaActions.syncTail();
         // Where a long chat's start was replaced by a summary.
         llmaContext.renderMarker();
         // Tokens and cost under each reply, from the figures already fetched; fresh ones follow.
@@ -55,9 +60,13 @@
             llmaRenderEmptyChatGreeting();
         }
         // Loading/switching a thread always lands at the latest message with follow re-enabled.
-        LLMAState._autoFollow = true;
-        llmaToggleScrollButton(false);
-        llmaScrollToBottom(true);
+        LLMAState._autoFollow = heldTop === null;
+        llmaToggleScrollButton(heldTop !== null);
+        llmaScrollToBottom();
+        restoreFocus();
+        if (heldTop !== null) {
+            container.scrollTo({ top: heldTop, behavior: 'instant' });
+        }
     }
 
     /**
@@ -69,7 +78,7 @@
     function llmaBuildBranchPager(nodeId) {
         if (typeof llmaSiblingsOf !== 'function') return null;
         const node = (LLMAState.allNodes || []).find(n => n.id === nodeId);
-        if (!node) return null;
+        if (!node || node.unsaved) return null;
         const sibs = llmaSiblingsOf(node);
         if (!sibs || sibs.length < 2) return null;
         const idx = sibs.findIndex(n => n.id === nodeId);
@@ -90,6 +99,7 @@
         prev.type = 'button';
         prev.textContent = '‹';
         prev.title = translate('Previous branch');
+        prev.setAttribute('aria-label', prev.title);
         prev.disabled = idx <= 0;
         prev.addEventListener('click', (e) => { e.stopPropagation(); llmaSwitchBranch(nodeId, -1); });
 
@@ -97,6 +107,8 @@
         label.className = 'llma-branch-label';
         label.type = 'button';
         label.title = translate('Show all branches');
+        label.setAttribute('aria-haspopup', 'dialog');
+        label.setAttribute('aria-expanded', 'false');
         label.innerHTML = `${translate('Branch')} ${idx + 1} <span class="llma-branch-sep">/</span> ${sibs.length} <span class="llma-branch-caret">▾</span>`;
 
         const next = document.createElement('button');
@@ -104,6 +116,7 @@
         next.type = 'button';
         next.textContent = '›';
         next.title = translate('Next branch');
+        next.setAttribute('aria-label', next.title);
         next.disabled = idx >= sibs.length - 1;
         next.addEventListener('click', (e) => { e.stopPropagation(); llmaSwitchBranch(nodeId, +1); });
 
@@ -114,24 +127,35 @@
         label.addEventListener('click', (e) => {
             e.stopPropagation();
             const existing = pager.querySelector('.llma-branch-menu');
-            if (existing) { existing.remove(); return; }
-            llmaOpenBranchMenu(pager, sibs, nodeId);
+            if (existing) {
+                existing.remove();
+                label.setAttribute('aria-expanded', 'false');
+                return;
+            }
+            // A click made with Enter or Space reports no click count: focus then moves into the list.
+            llmaOpenBranchMenu(pager, sibs, nodeId, label, e.detail === 0);
         });
 
         return pager;
     }
 
-    /** Open the branch-picker dropdown under `pager`, one row per sibling branch. */
-    function llmaOpenBranchMenu(pager, sibs, activeId) {
+    /** Open the branch-picker dropdown under `pager`, one row per sibling branch. `trigger` is the button that opened it. */
+    function llmaOpenBranchMenu(pager, sibs, activeId, trigger, byKeyboard) {
         // Close any other open branch menus first.
         document.querySelectorAll('.llma-branch-menu').forEach(m => m.remove());
 
         const menu = document.createElement('div');
         menu.className = 'llma-branch-menu';
+        menu.setAttribute('role', 'dialog');
+        menu.setAttribute('aria-label', translate('Branches'));
+        menu.addEventListener('keydown', e => llmaA11y.moveWithArrows(e, Array.from(menu.children)));
         sibs.forEach((sib, i) => {
             const row = document.createElement('button');
             row.type = 'button';
             row.className = 'llma-branch-menu-row' + (sib.id === activeId ? ' active' : '');
+            if (sib.id === activeId) {
+                row.setAttribute('aria-current', 'true');
+            }
 
             const num = document.createElement('span');
             num.className = 'llma-branch-menu-num';
@@ -149,21 +173,39 @@
             row.append(num, text, time);
             row.addEventListener('click', (e) => {
                 e.stopPropagation();
+                const hadFocus = menu.contains(document.activeElement);
                 menu.remove();
+                trigger.setAttribute('aria-expanded', 'false');
+                if (hadFocus) {
+                    trigger.focus();
+                }
                 if (sib.id !== activeId) llmaSwitchToBranch(sib.id);
             });
             menu.appendChild(row);
         });
         pager.appendChild(menu);
+        trigger.setAttribute('aria-expanded', 'true');
+        if (byKeyboard) {
+            (menu.querySelector('.active') || menu.firstElementChild)?.focus();
+        }
 
         // Dismiss on outside click / Escape (bound on the next tick so this very click doesn't close it).
         setTimeout(() => {
             const onAway = (ev) => {
                 if (!menu.contains(ev.target)) { cleanup(); }
             };
-            const onKey = (ev) => { if (ev.key === 'Escape') cleanup(); };
+            const onKey = (ev) => {
+                if (ev.key !== 'Escape' || !menu.isConnected) {
+                    return;
+                }
+                ev.preventDefault();
+                ev.stopPropagation();
+                cleanup();
+                trigger.focus();
+            };
             const cleanup = () => {
                 menu.remove();
+                trigger.setAttribute('aria-expanded', 'false');
                 document.removeEventListener('mousedown', onAway, true);
                 document.removeEventListener('keydown', onKey, true);
             };
@@ -189,6 +231,7 @@
         }
         el.src = url;
         el.className = 'llma-msg-image';
+        el.setAttribute(isVideo ? 'aria-label' : 'alt', translate(isVideo ? 'Attached video' : 'Attached image'));
         return el;
     }
 
@@ -226,12 +269,7 @@
             if (content) bubble.appendChild(document.createTextNode(content));
             llmaChatDocuments.showInBubble(bubble, documents);
 
-            const actions = document.createElement('div');
-            actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateIconBtn('copy', translate('Copy'), () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateIconBtn('fork', translate('Fork'), () => llmaForkFromMessage(id)));
-            actions.appendChild(llmaCreateIconBtn('edit', translate('Edit'), () => llmaStartEdit(id)));
-            actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
+            const actions = llmaActions.buildBar(id, 'user');
 
             row.appendChild(bubble);
             row.appendChild(actions);
@@ -248,6 +286,8 @@
             avatar.className = 'llma-msg-avatar ai-avatar';
             if (assistant?.avatar) {
                 const img = document.createElement('img');
+                // The name is written beside it.
+                img.alt = '';
                 img.src = assistant.avatar;
                 avatar.appendChild(img);
             } else {
@@ -285,15 +325,7 @@
                 metaDiv.textContent = parts.join(' · ');
             }
 
-            const actions = document.createElement('div');
-            actions.className = 'llma-msg-actions';
-            actions.appendChild(llmaCreateIconBtn('copy', translate('Copy'), () => llmaCopyMessage(id)));
-            actions.appendChild(llmaCreateIconBtn('regen', translate('Regenerate'), () => llmaRegenerateMessage(id)));
-            actions.appendChild(llmaCreateIconBtn('prompt', translate('Use as Prompt'), () => {
-                const msg = LLMAState.messages.find(m => m.id === id);
-                if (msg) llmaSendToPromptBox(msg.content);
-            }));
-            actions.appendChild(llmaCreateIconBtn('trash', translate('Delete'), () => llmaDeleteMessage(id)));
+            const actions = llmaActions.buildBar(id, 'assistant');
 
             body.appendChild(bubble);
             // A reply that failed keeps its text, and the message goes under it.

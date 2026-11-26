@@ -103,7 +103,6 @@
         (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
         LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId, undefined, documents);
-        llmaOnboarding.onSend();
         // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
@@ -175,6 +174,7 @@
         // server-side first); a normal send uses the default.
         const wsEndpoint = opts.endpoint || 'LLMAssistantSendMessageWS';
         llmaSetStreaming(true);
+        llmaA11y.announce(translate('Assistant is replying'));
         const assistantMsgId = llmaGenerateId();
         // Persist the assistant reply under the same id we render with (see userMessageId note in
         // llmaSendMessage) so message ops on the reply resolve server-side.
@@ -201,16 +201,16 @@
         LLMAState._streamingMsgId = assistantMsgId;
         LLMAState._streamingText  = '';
 
+        let accepted = false;
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
+                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
+                if (!accepted) {
+                    accepted = true;
+                    llmaActions.forgetLost(payload.threadId);
+                }
                 // Before the reply starts, a long chat may be summarized (compacting / compaction / compactionFailed).
                 if (llmaContext.onFrame(data)) {
-                    return;
-                }
-                if (data.error) {
-                    renderer.cancelPendingRender();
-                    llmaShowErrorInBubble(bubble, data.error);
-                    llmaFinishStreamState();
                     return;
                 }
                 // Backend status events, eg LlamaSharp's "loading_model" before the disk read kicks
@@ -288,6 +288,7 @@
                     llmaCodeMode.onToolOutput(data.tool_output);
                 }
                 if (data.tool_approval) {
+                    llmaA11y.announce(`${translate('A tool is waiting for your approval')}: ${data.tool_approval.name}`);
                     // A tool call is waiting for the user: show Allow / Deny on its step.
                     if (bubble) {
                         llmaRenderToolApproval(bubble, data.tool_approval);
@@ -359,12 +360,18 @@
                         llmaShowToast('Reply cut off at the max token limit. Raise Max Tokens in Settings for longer replies.', 'info');
                     }
 
+                    if (data.failure) {
+                        llmaA11y.announceFailure(data.failure);
+                    }
+                    else {
+                        llmaA11y.announce(data.stopReason === 'length' ? translate('Reply cut off at the max token limit') : translate('Reply complete'));
+                    }
                     llmaFinishStreamState();
                     if (onComplete) onComplete(cleanFinal);
                 }
-            }, 0, err => {
-                // err here is the string from makeWSRequest's onerror (NOT an object); pass it straight
-                // through so the humanizer can recognize it instead of collapsing to "WebSocket error".
+            }, 0, (err, data) => {
+                // An error frame from the server and a failed socket both come here (core's helper never hands an error frame to the callback above).
+                // err is a string; pass it straight through so the humanizer can recognize it instead of collapsing to "WebSocket error".
                 // A failure after some text keeps the text: text still waiting for its render is drawn first.
                 renderer.flushRender();
                 bubble?.querySelector('.llma-typing')?.remove();
@@ -382,10 +389,20 @@
                     msg.meta = Object.assign({}, msg.meta, { error: message });
                     LLMAState.activeLeafId = assistantMsgId;
                 }
+                if (!partial) {
+                    llmaActions.markUnsaved(msg);
+                }
+                // No frame came with it: the connection itself failed, and the server may still be writing.
+                if (!data) {
+                    llmaActions.markLost(msg);
+                }
+                llmaA11y.announceFailure(message);
                 llmaFinishStreamState();
             });
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);
+            llmaActions.markUnsaved(assistantMsg);
+            llmaA11y.announceFailure(ex);
             llmaSetStreaming(false);
         }
     }
@@ -394,13 +411,18 @@
     function llmaStopGeneration() {
         // Tell the server to actually cancel generation; closing the socket below only detaches this
         // client from it; the model would otherwise keep running to completion in the background.
-        // Fire-and-forget: the local UI reset happens immediately regardless of whether this round-trips.
+        // The local UI reset happens immediately regardless of whether this round-trips. The server saves what it had a moment
+        // later, so the chat is read again then: the page and the server agree on where the next message goes.
         if (LLMAState.activeThreadId) {
-            llmaRequest('LLMAssistantStopGeneration', { threadId: LLMAState.activeThreadId }).catch(() => {});
+            llmaRequest('LLMAssistantStopGeneration', { threadId: LLMAState.activeThreadId }).catch(() => {})
+                .finally(() => setTimeout(llmaSaveActiveThread, 750));
         }
         if (LLMAState._activeSocket) {
             try { LLMAState._activeSocket.close(); } catch (_) {}
             LLMAState._activeSocket = null;
+        }
+        if (LLMAState.isGenerating) {
+            llmaA11y.announce(translate('Reply stopped'));
         }
         // Compare mode persists each lane's partial text and finalizes its columns.
         if (typeof llmaCompareHandleStop === 'function' && llmaCompareHandleStop()) {
@@ -408,15 +430,27 @@
             llmaUsage.refreshAfterStop();
             return;
         }
-        if (LLMAState._streamingMsgId && LLMAState._streamingText) {
-            const msg = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
-            if (msg) msg.content = LLMAState._streamingText;
-            const bubble = document.querySelector(`[data-msg-id="${LLMAState._streamingMsgId}"] .llma-msg-bubble`);
-            if (bubble) {
-                llmaSetRenderedHtml(bubble, llmaRenderMarkdown(LLMAState._streamingText));
-                llmaPostRenderMermaid(bubble);
+        const stopped = LLMAState.messages.find(m => m.id === LLMAState._streamingMsgId);
+        if (stopped) {
+            const bubble = document.querySelector(`[data-msg-id="${stopped.id}"] .llma-msg-bubble`);
+            if (LLMAState._streamingText || (stopped.toolCalls || []).length) {
+                // The server keeps a reply that had text or ran a tool, as the tip of the branch: so does the page.
+                LLMAState.activeLeafId = stopped.id;
+                if (LLMAState._streamingText) {
+                    stopped.content = LLMAState._streamingText;
+                    if (bubble && !(stopped.toolCalls || []).length) {
+                        llmaSetRenderedHtml(bubble, llmaRenderMarkdown(LLMAState._streamingText));
+                        llmaPostRenderMermaid(bubble);
+                    }
+                }
             }
-            llmaSaveActiveThread();
+            else {
+                // Stopped before anything arrived: nothing is saved, so the row says so instead of showing dots for good.
+                llmaActions.markUnsaved(stopped);
+                if (bubble) {
+                    bubble.innerHTML = `<div class="llma-msg-stopped">${llmaEscapeHtml(translate('Stopped before a reply arrived.'))}</div>`;
+                }
+            }
         }
         LLMAState._streamingMsgId = null;
         LLMAState._streamingText = '';
@@ -455,6 +489,13 @@
         if (!active) {
             document.querySelectorAll('.llma-tool-approval').forEach(row => row.remove());
         }
+        llmaA11y.setBusy(active);
+        // A new turn, however it was started, ends the first run.
+        if (active) {
+            llmaOnboarding.onSend();
+        }
+        // Greys out the actions that change the chat, and shows or removes the Retry row.
+        llmaActions.syncTail();
     }
 
     // --- Public API (called by sibling files + other chat/ modules) ---

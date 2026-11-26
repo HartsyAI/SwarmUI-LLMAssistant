@@ -102,15 +102,22 @@ class LLMAChatDocuments {
         }
         entry.reference = reply.document;
         this.renderPending();
+        llmaA11y.announce(`${file.name}: ${translate('attached')}`);
         if (reply.document.warnings?.length > 0) {
             llmaShowToast(`${file.name}: ${reply.document.warnings.join(' ')}`, 'info');
         }
     }
 
-    /** Removes a file from the composer. */
+    /** Removes a file from the composer. A remove button that had the keyboard passes it to the one now in its place, or to the attach button. */
     remove(key) {
+        let buttons = () => Array.from(document.querySelectorAll('#llma-document-chips .llma-doc-chip-remove'));
+        let held = buttons().indexOf(document.activeElement);
         this.pending = this.pending.filter(e => e.key != key);
         this.renderPending();
+        if (held >= 0) {
+            let left = buttons();
+            (left[Math.min(held, left.length - 1)] || document.getElementById('llma-attach-label'))?.focus();
+        }
     }
 
     /** Whether anything is attached to the composer of the chat open now. */
@@ -138,18 +145,22 @@ class LLMAChatDocuments {
             return;
         }
         let waiting = this.waiting();
-        box.innerHTML = '';
-        box.style.display = waiting.length > 0 ? '' : 'none';
-        for (let entry of waiting) {
-            let chip = this.chip(entry.reference || { name: entry.name }, entry.reference ? this.describe(entry.reference) : translate('Reading…'));
-            chip.classList.toggle('llma-doc-chip-reading', !entry.reference);
-            let remove = llmaCreateActionBtn('×', () => this.remove(entry.key), 'llma-doc-chip-remove');
-            remove.type = 'button';
-            remove.title = translate('Remove');
-            remove.setAttribute('aria-label', `${translate('Remove')} ${entry.name}`);
-            chip.appendChild(remove);
-            box.appendChild(chip);
-        }
+        // Drawn again as each file is read: a remove button with the keyboard keeps it.
+        llmaA11y.keepFocus(box, () => {
+            box.innerHTML = '';
+            box.style.display = waiting.length > 0 ? '' : 'none';
+            for (let entry of waiting) {
+                let chip = this.chip(entry.reference || { name: entry.name }, entry.reference ? this.describe(entry.reference) : translate('Reading…'));
+                chip.dataset.id = entry.key;
+                chip.classList.toggle('llma-doc-chip-reading', !entry.reference);
+                let remove = llmaCreateActionBtn('×', () => this.remove(entry.key), 'llma-doc-chip-remove');
+                remove.type = 'button';
+                remove.title = translate('Remove');
+                remove.setAttribute('aria-label', `${translate('Remove')} ${entry.name}`);
+                chip.appendChild(remove);
+                box.appendChild(chip);
+            }
+        });
     }
 
     /** A chip showing a document's name and a line about it. */

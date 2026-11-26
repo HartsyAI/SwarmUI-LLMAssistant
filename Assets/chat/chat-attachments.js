@@ -171,6 +171,7 @@
 
         const img = document.createElement('img');
         img.src = dataUrl;
+        img.alt = translate('Attached image');
         preview.appendChild(img);
 
         // Nudge if the image is big enough that it'll cost real vision tokens. It gets downscaled to the
@@ -238,14 +239,17 @@
     function llmaToggleQuickCaption(wrap) {
         if (!LLMAState.attachedImage) return;
         let panel = wrap.querySelector('.llma-quick-caption-panel');
+        const trigger = wrap.querySelector('button');
         if (panel) {
             panel.remove();
+            trigger?.setAttribute('aria-expanded', 'false');
             return;
         }
+        trigger?.setAttribute('aria-expanded', 'true');
         panel = document.createElement('div');
         panel.className = 'llma-quick-caption-panel';
         panel.innerHTML = `
-            <select class="llma-quick-caption-style">
+            <select class="llma-quick-caption-style" aria-label="${llmaEscapeHtml(translate('Caption style'))}">
                 ${LLMA_CAPTION_STYLES.map(([k, label]) => `<option value="${llmaEscapeHtml(k)}">${llmaEscapeHtml(translate(label))}</option>`).join('')}
             </select>
             <button class="basic-button llma-quick-caption-run">${llmaEscapeHtml(translate('Run'))}</button>
@@ -288,7 +292,7 @@
         const actions = document.createElement('div');
         actions.className = 'llma-quick-caption-actions';
         const copyBtn = llmaCreateActionBtn(translate('Copy'), () => {
-            navigator.clipboard.writeText(caption).then(() => llmaShowToast('Copied', 'success'));
+            llmaActions.copy(caption);
         }, 'basic-button');
         const chatBtn = llmaCreateActionBtn(translate('Send to chat'), () => {
             const input = document.getElementById('llma-input');

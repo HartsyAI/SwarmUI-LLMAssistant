@@ -23,6 +23,8 @@ npx playwright install chromium
 npm test
 ```
 
+`npm test` runs the whole suite in Chromium. `npm run test:smoke` runs the specs tagged `@smoke` (load, send a message, open settings) in Firefox and WebKit; install those once with `npm run install-browsers`. A bare `npx playwright test` runs both, so it needs all three browsers.
+
 Or `E2E/run-e2e.ps1` / `E2E/run-e2e.sh` from anywhere.
 
 Each start takes a minute or two, because the extension is built from your working tree. SwarmUI runs from a **private root** in your system temp folder (links to the real SwarmUI folders, with its own `src/bin`, `src/obj` and `src/Extensions` holding only this extension). Core caches an extension's build keyed on its git HEAD and ignores uncommitted changes, and a SwarmUI you run yourself from the same checkout holds that cache locked; the private root avoids both, so the test instance never touches or waits on yours, and loads no other extension.
@@ -31,7 +33,7 @@ To poke at the stack by hand, or to iterate on specs without restarting SwarmUI 
 
 ```bash
 npm run stack                       # terminal 1: MockLLM on :17802, SwarmUI on :17801 (Ctrl+C to stop)
-E2E_REUSE_STACK=1 npx playwright test   # terminal 2
+E2E_REUSE_STACK=1 npm test              # terminal 2
 ```
 
 Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT` (the SwarmUI checkout; defaults to the one this extension sits in), `E2E_REUSE_STACK` (use an already-running stack).
@@ -49,8 +51,9 @@ Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT`
 `.github/workflows/e2e.yml` runs on every pull request and every push to `main`. It checks out SwarmUI and this extension, builds SwarmUI, and runs:
 
 - the unit tests (`dotnet test Tests/LLMAssistant.Tests.csproj`), once, in shard 1;
-- the browser suite split over **3 shards** (`npx playwright test --shard=N/3`, Playwright splits by spec file), each on its own runner with its own throwaway SwarmUI, with a **120-minute limit per shard** (`fail-fast` is off, so one failing shard does not cancel the others);
-- one aggregate job named **`e2e`**, the single check name to require: it passes only when every shard passed (a cancelled or skipped shard fails it).
+- the browser suite in Chromium split over **3 shards** (`npx playwright test --project=chromium --shard=N/3`, Playwright splits by spec file), each on its own runner with its own throwaway SwarmUI, with a **120-minute limit per shard** (`fail-fast` is off, so one failing shard does not cancel the others);
+- an **`e2e-smoke`** job: the `@smoke` specs in Firefox and WebKit, on a runner of its own beside the shards;
+- one aggregate job named **`e2e`**, the single check name to require: it passes only when every shard and the smoke job passed (a cancelled or skipped one fails it).
 
 Each shard uploads its Playwright report and server logs as the `e2e-report-N` artifact. Specs inside one shard still run serially against one server (`workers: 1`), so a spec must not depend on another shard's state. No test counts are quoted in the docs: count them with `npx playwright test --list` and `dotnet test`.
 
@@ -76,4 +79,6 @@ Round fields: `text`, `reasoning`, `toolCalls`, `usage`, `delayMs`, `chunkDelayM
 
 - The local GGUF engine, CUDA and real embedding models are not exercised (see above): a change that touches them needs a manual check on real hardware.
 - The harness has no text-to-image backend, so nothing here generates an image. `<llmprompt:...>` expansion is covered through core's `TestPromptFill` route, which runs the same prompt preparation without one. Image-bound features (the companion's reactions to a finished generation, `generate_image`) are not exercised end to end.
+- Firefox and WebKit get the smoke specs only, so a browser-specific fault outside loading, sending and settings is not caught.
+- `accessibility.spec.ts` runs axe on the tab's own elements in `modern_dark` and `modern_light`; other themes, core's page and real screen readers are not checked.
 - The Playwright suite checks behaviour, not looks. Each PR also gets a manual pass in a browser at desktop and mobile widths and in light and dark themes.

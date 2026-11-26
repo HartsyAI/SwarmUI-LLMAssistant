@@ -296,6 +296,31 @@ function llmaMakeStreamRenderer(getBubble) {
 // -- Markdown Renderer --
 let llmaMermaidCounter = 0;
 
+// The hardened allowlist for HTML made from model output, wherever it is parsed. Deliberately excludes:
+//   - `style`  → blocks CSS-based UI redressing / clickjacking / data-exfil via url() in model output
+//   - `id`     → blocks DOM clobbering (attacker-chosen ids colliding with getElementById/globals)
+//   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
+// KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
+// so dropping these does not affect their (app-generated) markup.
+const LLMA_SANITIZE_CONFIG = {
+    ALLOWED_TAGS: [
+        'p','br','strong','em','del','code','pre','ul','ol','li',
+        'h1','h2','h3','h4','h5','h6','blockquote','hr',
+        'table','thead','tbody','tr','td','th','a','img',
+        'span','div','svg','path','g','rect','line','circle','text',
+        'polygon','polyline','ellipse','marker','defs','clipPath','use',
+        'tspan',
+    ],
+    ALLOWED_ATTR: [
+        'href','class','target','rel','src','alt','title',
+        'd','fill','stroke','stroke-width','transform',
+        'viewBox','xmlns','width','height','x','y','cx','cy','r',
+        'rx','ry','x1','y1','x2','y2','points','marker-end',
+        'text-anchor','dominant-baseline','font-size',
+        'clip-path','aria-label','role','tabindex',
+    ],
+};
+
 /**
  * Renders model markdown to sanitized HTML, with reasoning, LaTeX and Mermaid blocks pulled out first.
  * @param {string} text - The markdown to render.
@@ -342,31 +367,7 @@ function llmaRenderMarkdown(text, options) {
     });
 
     const rawHtml = window.marked.parse(processed);
-    // Hardened allowlist. Deliberately excludes:
-    //   - `style`  → blocks CSS-based UI redressing / clickjacking / data-exfil via url() in model output
-    //   - `id`     → blocks DOM clobbering (attacker-chosen ids colliding with getElementById/globals)
-    //   - `foreignObject` → classic SVG sanitizer-bypass / mutation-XSS vector
-    // KaTeX math, Mermaid blocks, and the code "Copy" button are injected AFTER this sanitize pass,
-    // so dropping these does not affect their (app-generated) markup.
-    const sanitizeConfig = {
-        ALLOWED_TAGS: [
-            'p','br','strong','em','del','code','pre','ul','ol','li',
-            'h1','h2','h3','h4','h5','h6','blockquote','hr',
-            'table','thead','tbody','tr','td','th','a','img',
-            'span','div','svg','path','g','rect','line','circle','text',
-            'polygon','polyline','ellipse','marker','defs','clipPath','use',
-            'tspan',
-        ],
-        ALLOWED_ATTR: [
-            'href','class','target','rel','src','alt','title',
-            'd','fill','stroke','stroke-width','transform',
-            'viewBox','xmlns','width','height','x','y','cx','cy','r',
-            'rx','ry','x1','y1','x2','y2','points','marker-end',
-            'text-anchor','dominant-baseline','font-size',
-            'clip-path','aria-label','role','tabindex',
-        ],
-    };
-    const clean   = window.DOMPurify.sanitize(rawHtml, sanitizeConfig);
+    const clean   = window.DOMPurify.sanitize(rawHtml, LLMA_SANITIZE_CONFIG);
 
     // Restore LaTeX placeholders
     let result = clean;
@@ -404,7 +405,7 @@ function llmaRenderMarkdown(text, options) {
     // sanitize pass, so the <details>/<summary> shell survives without widening the allowlist for model output.
     for (let i = 0; i < thinkBlocks.length; i++) {
         let think = thinkBlocks[i];
-        let innerHtml = window.DOMPurify.sanitize(window.marked.parse(think.text || ''), sanitizeConfig);
+        let innerHtml = window.DOMPurify.sanitize(window.marked.parse(think.text || ''), LLMA_SANITIZE_CONFIG);
         let label = think.live ? translate('Thinking...') : translate('Reasoning');
         let preview = llmaEscapeHtml(llmaThinkPreview(think.text, think.live));
         let block = `<details class="llma-think${think.live ? ' llma-think-live' : ''}"><summary class="llma-think-summary">`
@@ -415,7 +416,8 @@ function llmaRenderMarkdown(text, options) {
     }
 
     // Add copy buttons to code blocks
-    result = result.replace(/<pre>/g, `<pre><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
+    // A code block scrolls sideways when its lines are long, so it takes keyboard focus.
+    result = result.replace(/<pre>/g, `<pre tabindex="0"><button class="llma-copy-code-btn" type="button">${translate('Copy')}</button>`);
 
     return result;
 }
@@ -475,14 +477,45 @@ function llmaPostRenderMermaid(containerEl) {
     });
 }
 
-function llmaCopyCode(btn) {
+/**
+ * Puts text on the clipboard. A page served over plain HTTP from another machine has no clipboard API, so the older copy command is used there and its answer checked.
+ * @param {string} text - What to copy.
+ * @returns {Promise<boolean>} Whether it was copied.
+ */
+async function llmaWriteClipboard(text) {
+    try {
+        if (navigator.clipboard) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+        let focused = document.activeElement;
+        let box = document.createElement('textarea');
+        box.className = 'llma-copy-render';
+        box.value = text;
+        document.body.appendChild(box);
+        box.focus({ preventScroll: true });
+        box.select();
+        let copied = document.execCommand('copy');
+        box.remove();
+        focused?.focus({ preventScroll: true });
+        return copied;
+    }
+    catch (error) {
+        console.error('[LLMAssistant] Copy failed:', error);
+        return false;
+    }
+}
+
+async function llmaCopyCode(btn) {
     const code = btn.parentElement.querySelector('code');
     if (!code) return;
-    navigator.clipboard.writeText(code.textContent || '').then(() => {
-        const prev = btn.textContent;
-        btn.textContent = translate('Copied!');
-        setTimeout(() => { btn.textContent = prev; }, 1500);
-    });
+    if (!await llmaWriteClipboard(code.textContent || '')) {
+        llmaShowToast('Could not copy to the clipboard', 'error');
+        return;
+    }
+    const prev = btn.textContent;
+    btn.textContent = translate('Copied!');
+    setTimeout(() => { btn.textContent = prev; }, 1500);
 }
 
 // Delegated handler for the code-block "Copy" buttons. Registered once (CSP-clean; no inline
@@ -654,6 +687,8 @@ function llmaShowToast(message, type = 'info') {
     // it does mean those specific messages aren't usefully translatable. See the i18n audit notes.
     toast.textContent = translate(message);
     container.appendChild(toast);
+    // A node added with its text is not reliably read out, so the toast is also said through the live region.
+    llmaA11y.announce(toast.textContent);
     llmaToastTimer = setTimeout(() => toast.remove(), LLMA_CONSTANTS.TOAST_DURATION_MS);
 }
 
@@ -910,6 +945,7 @@ const LLMA_ICON_PATHS = {
     edit: '<path d="M2.5 13.5l.7-3L10.8 3a1.4 1.4 0 0 1 2 2l-7.6 7.6z"/><path d="M9.5 4.3l2.2 2.2"/>',
     trash: '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/>',
     prompt: '<path d="M2.5 8h9M8 4.5L11.5 8 8 11.5"/><path d="M13.5 3v10"/>',
+    markdown: '<rect x="1.2" y="3.5" width="13.6" height="9" rx="1.6"/><path d="M3.8 10.3V5.8L6 8.3l2.2-2.5v4.5M11.6 5.8v4.3M9.9 8.5l1.7 1.8 1.7-1.8"/>',
 };
 
 /**

@@ -58,7 +58,7 @@ jobs:
 
       - name: Browser e2e
         working-directory: SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E
-        run: npx playwright test --shard=${{ matrix.shard }}/3
+        run: npx playwright test --project=chromium --shard=${{ matrix.shard }}/3
 
       - name: Upload report and logs
         if: always()
@@ -70,15 +70,68 @@ jobs:
             SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/test-results
             SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/.run/*.log
 
-  # One required check name for the whole suite: passes only when every shard passed (a cancelled or skipped shard fails it).
+  # Firefox and WebKit, only the specs tagged @smoke (load, send a message, open settings). A job of its own, so it adds runner time but runs beside
+  # the shards instead of lengthening one of them. One Playwright run covers both browsers, with one throwaway SwarmUI.
+  e2e-smoke:
+    name: e2e smoke (Firefox, WebKit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out SwarmUI
+        uses: actions/checkout@v4
+        with:
+          repository: mcmonkeyprojects/SwarmUI
+          path: SwarmUI
+
+      - name: Check out this extension into SwarmUI
+        uses: actions/checkout@v4
+        with:
+          path: SwarmUI/src/Extensions/SwarmUI-LLMAssistant
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build SwarmUI
+        working-directory: SwarmUI
+        run: dotnet build src/SwarmUI.csproj --configuration Release -o src/bin/live_release
+
+      - name: Install e2e dependencies
+        working-directory: SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E
+        run: |
+          npm ci || npm install --no-audit --no-fund
+          npx playwright install --with-deps firefox webkit
+
+      - name: Browser smoke
+        working-directory: SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E
+        run: npm run test:smoke
+
+      - name: Upload report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-smoke
+          path: |
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/playwright-report
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/test-results
+            SwarmUI/src/Extensions/SwarmUI-LLMAssistant/E2E/.run/*.log
+
+  # One required check name for the whole suite: passes only when every shard and the smoke job passed (a cancelled or skipped one fails it).
   e2e:
     name: e2e
-    needs: e2e-shard
+    needs: [e2e-shard, e2e-smoke]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: All shards passed
+      - name: All shards and the smoke job passed
         run: |
-          echo "shards: ${{ needs.e2e-shard.result }}"
+          echo "shards: ${{ needs.e2e-shard.result }}, smoke: ${{ needs.e2e-smoke.result }}"
           test "${{ needs.e2e-shard.result }}" = "success"
+          test "${{ needs.e2e-smoke.result }}" = "success"

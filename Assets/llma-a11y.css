@@ -1,0 +1,225 @@
+/* ================================================================
+   LLM Assistant: accessibility
+   Focus rings, message navigation, reduced motion, touch targets and
+   contrast. Registered after the other sheets so these rules win.
+   Theme variables only.
+   ================================================================ */
+
+/* ── Focus rings ─────────────────────────────────────────────── */
+/* --text-strong is the one theme colour that stands out against every surface in light and dark themes. */
+.llma-container :focus-visible,
+.llma-companion :focus-visible,
+.llma-asset-menu :focus-visible,
+.llma-usage-popover :focus-visible {
+    outline: 2px solid var(--text-strong) !important;
+    outline-offset: 2px;
+}
+/* Rows and menu items sit inside boxes that clip, so their ring is drawn inwards. */
+.llma-container .llma-thread-name:focus-visible,
+.llma-container .llma-thread-branch-row:focus-visible,
+.llma-container .llma-thread-snippet:focus-visible,
+.llma-container .llma-branch-menu-row:focus-visible,
+.llma-container .llma-menu-item:focus-visible,
+.llma-container .llma-modal-tab:focus-visible,
+.llma-container .llma-msg-row:focus-visible,
+.llma-container .llma-compare-col:focus-visible,
+.llma-asset-menu button:focus-visible {
+    outline-offset: -2px;
+}
+/* The composer's textarea draws no outline of its own: its box does. */
+.llma-container .llma-input-wrap .llma-input:focus-visible { outline: none !important; }
+.llma-container .llma-input-wrap:has(> .llma-input:focus-visible) {
+    outline: 2px solid var(--text-strong);
+    outline-offset: 2px;
+}
+/* Bootstrap's segmented controls focus a hidden radio: ring its label. */
+.llma-container .btn-check:focus-visible + .btn {
+    outline: 2px solid var(--text-strong);
+    outline-offset: 2px;
+}
+
+/* ── Message navigation and actions ──────────────────────────── */
+.llma-msg-row, .llma-session-update, .llma-compare-col { scroll-margin: 8px; }
+.llma-msg-row:focus-visible { border-radius: 10px; }
+/* The action bar shows for the keyboard as it does for the mouse. */
+.llma-msg-row:focus-within .llma-msg-actions,
+.llma-msg-row:focus .llma-msg-actions,
+.llma-compare-col:focus-within .llma-msg-actions,
+.llma-compare-col:focus .llma-msg-actions,
+.llma-msg-actions:focus-within { opacity: 1; }
+.llma-msg-action-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.llma-msg-bubble pre:focus-within .llma-copy-code-btn,
+.llma-copy-code-btn:focus-visible { opacity: 1; }
+/* Under the last message: Retry, and the way to the rest of a branch that stops short. */
+.llma-msg-tail { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.llma-msg-stopped { color: var(--text-soft); font-style: italic; }
+/* Where Copy renders a reply to read its text: laid out, but off screen. */
+.llma-copy-render { position: fixed; left: -10000px; top: 0; width: 600px; }
+
+/* The chat row's title is the button that opens the chat. */
+.llma-thread-name {
+    border: none;
+    background: none;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.llma-thread-item:focus-within .llma-thread-del,
+.llma-thread-item:focus-within .llma-thread-rename { visibility: visible; }
+
+/* ── Contrast ────────────────────────────────────────────────── */
+/* Several themes (Modern Light above all) have a soft text colour under 4.5:1, and the accent colour is under it as text. Both are
+   derived here from colours every theme keeps readable: the body text, the strongest text and the background. */
+.llma-container, .llma-companion, .llma-asset-menu, .llma-usage-popover {
+    --text-soft: color-mix(in srgb, var(--text) 82%, var(--background));
+    --llma-accent-text: color-mix(in srgb, var(--emphasis) 30%, var(--text-strong));
+    --llma-accent-fill: color-mix(in srgb, var(--emphasis) 55%, var(--background));
+}
+/* Secondary text was faded with opacity. It uses the soft text colour at full strength instead. */
+.llma-container :is(
+    .llma-sidebar-label, .llma-threads-empty-sub, .llma-thread-group-label, .llma-thread-item, .llma-thread-rename, .llma-thread-del, .llma-thread-pin, .llma-thread-branch-toggle,
+    .llma-thread-branch-loading, .llma-thread-branch-row, .llma-thread-branch-time, .llma-search-status, .llma-thread-snippet, .llma-thread-snippet-who, .llma-import-file, .llma-import-sample-who,
+    .llma-context-bar, .llma-thread-title, .llma-icon-btn, .llma-menu-heading, .llma-menu-item, .llma-model-chip-caret,
+    .llma-empty-greeting-sub, .llma-msg-meta, .llma-msg-action-btn:not([aria-disabled="true"]), .llma-branch-icon, .llma-branch-sep, .llma-branch-caret, .llma-branch-menu-time,
+    .llma-input-hint, .llma-char-count, .llma-think-preview, .llma-think-body, .llma-msg-bubble blockquote,
+    .llma-panel-header-label, .llma-panel-desc, .llma-panel-action-btn, .llma-stat-lbl, .llma-mem-header, .llma-mem-chip, .llma-panel-empty,
+    .llma-asset-card-sub, .llma-asset-card-open, .llma-panel-assets-header, .llma-asset-count, .llma-asset-empty, .llma-asset-actions button, .llma-asset-view-tab, .llma-asset-view-markdown blockquote,
+    .llma-json-toggle, .llma-json-null, .llma-json-bracket, .llma-json-count, .llma-empty-state, .llma-banner-text em, .llma-memory-notice-close,
+    .llma-modal-close, .llma-settings-note, .llma-builtin-badge, .llma-list-desc, .llma-list-edit, .llma-editor-field label, .llma-instr-section h5, .llma-instr-sublabel, .llma-instr-sublabel small,
+    .llma-instr-variants-header > span, .llma-instr-variants-help, .llma-variant-remove, .llma-assist-tool-config-section h5, .llma-asst-tool-config-help, .llma-asst-tool-config-empty,
+    .llma-params-section h5, .llma-params-section h5 small, .llma-tool-popup-desc, .llma-tool-popup-foot, .llma-tool-form-field label, .llma-tool-form-empty,
+    .llma-welcome-bubble-name, .llma-welcome-sub, .llma-welcome-tip, .llma-gallery-sub, .llma-card-desc, .llma-card-badge
+) { opacity: 1; }
+.llma-container :is(
+    .llma-sidebar-label, .llma-thread-group-label, .llma-context-bar, .llma-menu-heading, .llma-msg-meta:not(.llma-msg-meta-truncated), .llma-input-hint, .llma-char-count,
+    .llma-editor-field label, .llma-instr-section h5, .llma-assist-tool-config-section h5, .llma-params-section h5, .llma-builtin-badge, .llma-panel-header-label, .llma-stat-lbl, .llma-mem-header
+) { color: var(--text-soft); }
+.llma-container .llma-input::placeholder { color: var(--text-soft); opacity: 1; }
+/* Accent colour used for text. */
+.llma-container :is(.llma-msg-bubble a, .llma-greeting-accent, .llma-welcome-bubble-name, .llma-attach-warn-link, .llma-json-key, .llma-thread-branch-row.active,
+    .llma-thinking-toggle-btn.on, .llma-tools-btn.active, .llma-asset-type-badge) { color: var(--llma-accent-text); }
+.llma-container .llma-msg-bubble a { text-decoration: underline; }
+/* Text on an accent fill: the fill is pulled toward the background, so the theme's strongest text reads on it in every theme. */
+.llma-container .llma-msg-bubble.user-bubble,
+.llma-container .llma-send-btn { background: var(--llma-accent-fill); color: var(--text-strong); }
+.llma-container .llma-msg-bubble.user-bubble a { color: var(--text-strong); }
+/* Bootstrap's pink inline code is unreadable on the bubble's tinted code background in light themes. */
+.llma-container .llma-msg-bubble :not(pre) > code { color: var(--text-strong); }
+/* Filled controls that Bootstrap and core colour with white on the accent: the same fill and text as the other accent surfaces. */
+.llma-container .llma-segmented .btn-check:checked + .btn,
+.llma-container .nav-pills .nav-link.active,
+.llma-container .basic-button.btn-primary { background-color: var(--llma-accent-fill) !important; color: var(--text-strong) !important; }
+.llma-container .nav-pills .nav-link { color: var(--text); }
+.llma-container .list-group-item.active { background-color: var(--llma-accent-fill) !important; color: var(--text-strong) !important; }
+.llma-container .llma-select-toggle[aria-pressed="true"] { color: var(--llma-accent-text); }
+.llma-container .text-muted { color: var(--text-soft) !important; }
+/* Error red as small text on its own red tint is under 4.5:1: the title leans on the strong text colour, the icon and border stay red. */
+.llma-container :is(.llma-msg-error-title, .llma-msg-meta-truncated) { color: color-mix(in srgb, var(--backend-errored) 35%, var(--text-strong)); opacity: 1; }
+.llma-container .llma-compare-col .llma-msg-actions { opacity: 1; }
+
+/* A switched-off tool was faded as a whole, text and switch included. It is marked by its border instead. */
+.llma-container .llma-tool-list-item.disabled { opacity: 1; border-style: dashed; }
+/* Bootstrap's coloured badges and text put fixed colours on theme backgrounds, several under 4.5:1. A badge keeps its colour as a border
+   (the round status dots, which are nothing but colour, are left alone), and coloured text leans on the theme's strongest text colour. */
+.llma-container .badge[class*="text-bg-"]:not(.rounded-pill) { background-color: var(--background) !important; color: var(--text) !important; border: 1px solid var(--light-border); }
+.llma-container .badge.text-bg-success:not(.rounded-pill) { border: 2px solid var(--bs-success); }
+.llma-container .badge.text-bg-warning:not(.rounded-pill) { border: 2px solid var(--bs-warning); }
+.llma-container .badge.text-bg-danger:not(.rounded-pill) { border: 2px solid var(--bs-danger); }
+.llma-container .badge:is(.text-bg-primary, .text-bg-info):not(.rounded-pill) { border: 2px solid var(--emphasis); }
+/* Bootstrap's status alerts put white text on those colours too: an alert keeps its colour as a border, like a badge. */
+:is(.llma-container, .llma-usage-popover) .alert:is(.alert-success, .alert-warning, .alert-danger) { background-color: var(--background) !important; color: var(--text) !important; border: 2px solid var(--bs-success); }
+:is(.llma-container, .llma-usage-popover) .alert.alert-warning { border-color: var(--bs-warning); }
+:is(.llma-container, .llma-usage-popover) .alert.alert-danger { border-color: var(--bs-danger); }
+/* The figure under a reply was faded as well. */
+.llma-container .llma-usage-chip { opacity: 1; }
+/* Core lightens a hovered button until its text is under 4.5:1 in the dark theme: a smaller step toward the text colour. */
+:is(.llma-container, .llma-usage-popover) .basic-button:not(.btn-primary):hover:not(:disabled) { background-color: color-mix(in srgb, var(--button-background) 85%, var(--button-text)); }
+.llma-container .text-success { color: color-mix(in srgb, var(--bs-success) 35%, var(--text-strong)) !important; }
+.llma-container .text-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)) !important; }
+.llma-container .llma-rewrite-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)); }
+.llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }
+
+/* ── Small targets ─────────────────────────────────────────── */
+.llma-branch-nav, .llma-branch-label, .llma-usage-chip, .llma-usage-thread, .llma-doc-chip-remove { min-width: 24px; min-height: 24px; }
+/* Error red as the hovered cross on a chip is under 4.5:1. */
+.llma-container .llma-doc-chip-remove:hover { color: var(--text-strong); }
+
+/* ── Off-screen panels ─────────────────────────────────────── */
+/* A collapsed or closed panel is zero wide or off screen: it is hidden too, so Tab cannot walk into it and drag the layout sideways. */
+.llma-container { overflow: clip; }
+@media (min-width: 681px) {
+    .llma-container.sidebar-collapsed .llma-sidebar { visibility: hidden; }
+}
+@media (min-width: 1051px) {
+    .llma-container.panel-collapsed .llma-asst-panel { visibility: hidden; }
+}
+@media (max-width: 1050px) {
+    .llma-asst-panel { transition: transform 0.22s ease, visibility 0.22s; }
+    .llma-asst-panel:not(.panel-open) { visibility: hidden; }
+}
+@media (max-width: 680px) {
+    .llma-sidebar { transition: transform 0.22s ease, visibility 0.22s; }
+    .llma-sidebar:not(.sidebar-open) { visibility: hidden; }
+    /* Wider, so a chat's title is still readable beside its three full-size buttons. */
+    .llma-sidebar { width: min(300px, 88%); }
+    /* The composer's buttons grew: the Thinking button keeps its icon and state, and its name stays for screen readers. */
+    .llma-container .llma-thinking-toggle-name { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+}
+
+/* A button faded out of sight is out of the Tab order too. */
+.llma-scroll-bottom-btn:not(.visible) { visibility: hidden; }
+
+/* ── Reduced motion ──────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .llma-container, .llma-container *, .llma-container *::before, .llma-container *::after,
+    .llma-companion, .llma-companion *, .llma-asset-menu {
+        animation-duration: 0.001ms !important;
+        animation-delay: 0s !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        transition-delay: 0s !important;
+        scroll-behavior: auto !important;
+    }
+    /* The toast fades itself out with an animation: without it, it stays until it is removed. */
+    .llma-container .llma-toast { animation: none !important; }
+}
+
+/* ── Touch targets ───────────────────────────────────────────── */
+@media (pointer: coarse), (max-width: 680px) {
+    .llma-container button:not(.llma-split-quickbutton),
+    .llma-container .llma-segmented > .btn,
+    .llma-container .llma-attach-label,
+    .llma-container select,
+    .llma-container .llma-search,
+    .llma-container .llma-find-input,
+    .llma-container .llma-think-summary,
+    .llma-asset-menu button,
+    .llma-usage-popover button,
+    .llma-companion button {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    /* An icon centred in a square that grew. */
+    .llma-container .llma-icon-btn, .llma-container .llma-attach-label { display: inline-flex; align-items: center; justify-content: center; }
+    .llma-container .llma-think-summary { line-height: 40px; }
+    .llma-container .llma-segmented > .btn { display: inline-flex; align-items: center; justify-content: center; }
+    .llma-container .llma-thread-checkbox, .llma-container .llma-bulk-all { width: 24px; height: 24px; }
+    /* No hover on touch: the row's buttons and the message actions are always there. */
+    .llma-container .llma-thread-item .llma-thread-rename,
+    .llma-container .llma-thread-item .llma-thread-del,
+    .llma-container .llma-thread-item .llma-thread-pin { visibility: visible; }
+    .llma-container .llma-thread-item.select-mode .llma-thread-rename,
+    .llma-container .llma-thread-item.select-mode .llma-thread-del,
+    .llma-container .llma-thread-item.select-mode .llma-thread-pin { display: none; }
+    .llma-container .llma-msg-actions { opacity: 1; flex-wrap: wrap; }
+    .llma-container .llma-copy-code-btn { opacity: 1; position: static; float: right; }
+    /* Bigger buttons need the bars to wrap instead of running off the screen. */
+    .llma-container .llma-topbar { flex-wrap: wrap; height: auto; row-gap: 4px; }
+    .llma-container .llma-topbar-left { flex: 1 0 auto; }
+    .llma-container .llma-topbar-right { flex-wrap: wrap; margin-left: auto; }
+    .llma-container .llma-thread-item { padding-top: 2px; padding-bottom: 2px; gap: 2px; }
+}

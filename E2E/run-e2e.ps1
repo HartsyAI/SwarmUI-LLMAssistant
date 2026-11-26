@@ -5,5 +5,10 @@ if (-not (Test-Path node_modules)) {
     npm install --no-audit --no-fund
     npx playwright install chromium
 }
-npx playwright test @args
+if ($args.Count -eq 0) {
+    npm test
+}
+else {
+    npx playwright test @args
+}
 exit $LASTEXITCODE

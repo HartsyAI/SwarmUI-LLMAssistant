@@ -1,10 +1,10 @@
 <div class="llma-container" id="llma-container">
     <!-- ── Sidebar ───────────────────────────────────────────── -->
-    <aside class="llma-sidebar" id="llma-sidebar">
+    <aside class="llma-sidebar" id="llma-sidebar" aria-label="Chat list">
         <div class="llma-sidebar-header">
             <span class="llma-sidebar-label translate">Chats</span>
-            <button class="llma-select-toggle llma-group-toggle translate" id="llma-thread-group-toggle" type="button" title="Switch between grouping chats by date or by assistant" aria-label="Group chats">By date</button>
-            <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select several chats to delete them" aria-label="Select multiple chats" aria-pressed="false">Select</button>
+            <button class="llma-select-toggle llma-group-toggle translate" id="llma-thread-group-toggle" type="button" title="Switch between grouping chats by date or by assistant">By date</button>
+            <button class="llma-select-toggle translate" id="llma-thread-select-toggle" type="button" title="Select several chats to delete them" aria-pressed="false">Select</button>
         </div>
         <!-- Which chats are listed: all of them, ordinary chats, or coding sessions. Shown for a user who can use code mode. -->
         <div class="btn-group btn-group-sm llma-segmented llma-thread-mode-filter" role="group" aria-label="Chat kind" id="llma-thread-mode-filter" style="display:none;">
@@ -38,7 +38,7 @@
     </aside>
 
     <!-- ── Splitter (sidebar / main) ─────────────────────────── -->
-    <div class="llma-splitbar splitter-bar translate" id="llma-split-left" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-left-btn" title="Toggle sidebar">&#x21DA;</div></div>
+    <div class="llma-splitbar splitter-bar translate" id="llma-split-left" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-left-btn" title="Toggle sidebar">&#x21DA;</div></div>
 
     <!-- ── Main ──────────────────────────────────────────────── -->
     <main class="llma-main">
@@ -183,15 +183,15 @@
                     <button class="llma-find-btn translate" id="llma-find-next" type="button" title="Next match (Enter)" aria-label="Next match">&rsaquo;</button>
                     <button class="llma-find-btn translate" id="llma-find-close" type="button" title="Close (Esc)" aria-label="Close find">&times;</button>
                 </div>
-                <div class="llma-messages" id="llma-messages"></div>
+                <div class="llma-messages" id="llma-messages" role="region" aria-label="Chat messages" aria-busy="false"></div>
                 <!-- Empty-chat greeting: rendered above the input only when the
                      thread has zero messages. Personalized to the active
                      assistant + the user's memory profile. -->
                 <div class="llma-empty-greeting" id="llma-empty-greeting" style="display:none;"></div>
                 <div class="llma-attachment-preview" id="llma-attachment-preview" style="display:none;"></div>
                 <!-- Documents attached to the message being written (chat-documents.js). -->
-                <div class="llma-document-chips" id="llma-document-chips" style="display:none;" aria-live="polite"></div>
-                <div class="llma-input-area">
+                <div class="llma-document-chips" id="llma-document-chips" style="display:none;" role="group" aria-label="Attached documents"></div>
+                <div class="llma-input-area" role="group" aria-label="Message composer">
                     <!-- Floats just above the composer while the user has scrolled up during generation.
                          Click jumps back to the latest message and re-enables auto-follow. -->
                     <button class="llma-scroll-bottom-btn translate" id="llma-scroll-bottom-btn" type="button" title="Scroll to latest" aria-label="Scroll to latest message">
@@ -206,7 +206,7 @@
                         </div>
                     </div>
                     <div class="llma-input-wrap">
-                        <textarea class="llma-input translate" id="llma-input" placeholder="Type a message, or / for tools…" rows="1"></textarea>
+                        <textarea class="llma-input translate" id="llma-input" placeholder="Type a message, or / for tools…" aria-label="Message" aria-describedby="llma-input-hint" rows="1"></textarea>
                         <div class="llma-input-actions">
                             <div class="llma-input-actions-left">
                                 <button class="llma-tools-btn translate" id="llma-tools-btn" type="button" title="Tools (/)" aria-label="Open tools menu">
@@ -216,7 +216,7 @@
                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M9.5 2.5a3 3 0 00-3.9 3.9L2 10l1.5 1.5L4.5 10l1.1 1.1L4.5 12.2 6 13.7l1.1-1.1 1.1 1.1L10 11.9l1.6 1.6L13.2 12l-1.6-1.6 1.1-1.1a3 3 0 003.9-3.9l-2.1 2.1-1.4-1.4L15.2 4a3 3 0 00-3.9-.9L9.5 2.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><line class="llma-tools-toggle-slash" x1="2.5" y1="13.5" x2="13.5" y2="2.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
                                 </button>
                                 <!-- Thinking toggle: Auto (template default) → On → Off; chat-composer.js keeps its label and title current. -->
-                                <button class="llma-thinking-toggle-btn" id="llma-thinking-toggle-btn" type="button" title="Thinking is Auto: the model's own default applies. Click for ON." aria-label="Toggle thinking for replies" aria-pressed="mixed">
+                                <button class="llma-thinking-toggle-btn" id="llma-thinking-toggle-btn" type="button" title="Thinking is Auto: the model's own default applies. Click for ON." aria-pressed="mixed">
                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.75a4.25 4.25 0 00-2.5 7.7V11h5V9.45A4.25 4.25 0 008 1.75z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="M6 13h4M6.75 14.75h2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
                                     <span class="llma-thinking-toggle-name translate">Thinking</span>
                                     <span class="llma-thinking-toggle-label">Auto</span>
@@ -268,7 +268,7 @@
                                 </label>
                             </div>
                             <div class="llma-input-actions-right">
-                                <button class="llma-model-chip" id="llma-model-chip" type="button" title="Switch model" aria-label="Switch model">
+                                <button class="llma-model-chip" id="llma-model-chip" type="button" title="Switch model">
                                     <span class="llma-model-chip-dot" aria-hidden="true"></span>
                                     <span class="llma-model-chip-text" id="llma-model-chip-text">No model</span>
                                     <span class="llma-model-chip-caret" aria-hidden="true">&#9662;</span>
@@ -283,7 +283,7 @@
                         </div>
                     </div>
                     <div class="llma-input-footer">
-                        <span class="llma-input-hint translate">Enter to send &middot; Shift+Enter for newline &middot; / for tools</span>
+                        <span class="llma-input-hint translate" id="llma-input-hint">Enter to send &middot; Shift+Enter for newline &middot; / for tools</span>
                         <span class="llma-char-count" id="llma-char-count"></span>
                     </div>
                 </div>
@@ -292,10 +292,10 @@
     </main>
 
     <!-- ── Splitter (main / assistant panel) ─────────────────── -->
-    <div class="llma-splitbar splitter-bar translate" id="llma-split-right" role="separator" aria-orientation="vertical" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-right-btn" title="Toggle panel">&#x21DB;</div></div>
+    <div class="llma-splitbar splitter-bar translate" id="llma-split-right" title="Drag to resize"><div class="t2i-split-quickbutton llma-split-quickbutton translate" id="llma-split-right-btn" title="Toggle panel">&#x21DB;</div></div>
 
     <!-- ── Assistant Panel (right) ───────────────────────────── -->
-    <aside class="llma-asst-panel" id="llma-asst-panel">
+    <aside class="llma-asst-panel" id="llma-asst-panel" aria-label="Assistant panel">
         <div class="llma-panel-header">
             <span class="llma-panel-header-label translate">Assistant</span>
             <button class="llma-icon-btn translate" id="llma-panel-collapse" title="Collapse panel" aria-label="Collapse panel">
@@ -421,7 +421,7 @@
                             <div class="llma-avatar-controls">
                                 <button class="basic-button translate" id="llma-avatar-upload-btn">Upload</button>
                                 <input type="file" id="llma-avatar-file" accept="image/*" style="display:none;">
-                                <input type="color" id="llma-asst-color" value="#7c8aff">
+                                <input type="color" id="llma-asst-color" class="translate" title="Assistant color" aria-label="Assistant color" value="#7c8aff">
                             </div>
                         </div>
                         <div class="llma-editor-grid">

@@ -62,7 +62,7 @@ function llmaCompanionRender() {
     root.style.display = 'none';
     root.innerHTML = `
         <div class="llma-companion-portrait-wrap translate" id="llma-companion-portrait-wrap" title="Click to expand / collapse">
-            <img class="llma-companion-portrait" id="llma-companion-portrait" alt="">
+            <img class="llma-companion-portrait" id="llma-companion-portrait" role="button" tabindex="0" alt="${llmaEscapeHtml(translate('Expand or collapse the companion'))}">
             <button class="llma-companion-close translate" id="llma-companion-close" title="Hide for this session" aria-label="Hide companion">&times;</button>
         </div>
         <div class="llma-companion-bubble" id="llma-companion-bubble" aria-live="polite"></div>
@@ -83,6 +83,13 @@ function llmaCompanionRender() {
     document.getElementById('llma-companion-portrait-wrap')?.addEventListener('click', (e) => {
         if (e.target.closest('.llma-companion-close')) return; // close handled separately
         llmaCompanionToggleExpanded();
+    });
+    // The portrait is the expand control: Enter and Space click it, which reaches the wrapper's handler above.
+    document.getElementById('llma-companion-portrait')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.target.click();
+        }
     });
     document.getElementById('llma-companion-close')?.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -237,7 +244,8 @@ function llmaCompanionApplyPortrait() {
     if (!img || !wrap) return;
     const fallback = '/ExtensionFile/LLMAssistantExtension/Assets/swarmui-logo.jpg';
     img.src = persona?.avatar || fallback;
-    img.alt = persona?.name ? `${persona.name} ${translate('avatar')}` : translate('Companion');
+    // The portrait is a button, so its name says what pressing it does.
+    img.alt = `${persona?.name || translate('Companion')}: ${translate('expand or collapse')}`;
     wrap.style.borderColor = persona?.color || '#7c8aff';
 }
 

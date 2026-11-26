@@ -17,5 +17,11 @@ export default defineConfig({
         trace: 'retain-on-failure',
         screenshot: 'only-on-failure',
         viewport: { width: 1440, height: 900 }
-    }
+    },
+    // Chromium runs everything. Firefox and WebKit run only the specs tagged @smoke (load, send, open settings), so they cost minutes, not another suite.
+    projects: [
+        { name: 'chromium', use: { browserName: 'chromium' } },
+        { name: 'firefox-smoke', use: { browserName: 'firefox' }, grep: /@smoke/ },
+        { name: 'webkit-smoke', use: { browserName: 'webkit' }, grep: /@smoke/ }
+    ]
 });

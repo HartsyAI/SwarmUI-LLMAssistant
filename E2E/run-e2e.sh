@@ -6,4 +6,7 @@ if [ ! -d node_modules ]; then
     npm install --no-audit --no-fund
     npx playwright install --with-deps chromium
 fi
+if [ "$#" -eq 0 ]; then
+    exec npm test
+fi
 exec npx playwright test "$@"

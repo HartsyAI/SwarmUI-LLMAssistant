@@ -291,6 +291,7 @@
         wsPayload.models = lanes.map(L => ({ model: L.model, device: L.device, backendId: L.backendId, assistantMessageId: L.msgId }));
 
         llmaSetStreaming(true);
+        llmaA11y.announce(translate('Both models are replying'));
         LLMAState._streamingLanes = lanes;
         const startTime = performance.now();
         let doneCount = 0;
@@ -298,10 +299,18 @@
         // One controller per lane handles its own column's incremental render.
         const ctls = lanes.map(L => llmaMakeLaneController(L, startTime));
 
+        let finalized = false;
         const finalizeGroup = () => {
+            if (finalized) {
+                return;
+            }
+            finalized = true;
             LLMAState._activeSocket = null;
             LLMAState._streamingLanes = null;
+            llmaCompareSettleLeaf(lanes);
             llmaSetStreaming(false);
+            // A lane that failed has announced itself; this says the turn is over.
+            llmaA11y.announce(lanes.some(L => L.node.unsaved || L.node.meta?.error) ? translate('Comparison finished with errors') : translate('Both replies complete'));
             if (typeof llmaRebuildAssetsForThread === 'function') llmaRebuildAssetsForThread();
             if (typeof llmaSaveActiveThread === 'function') llmaSaveActiveThread();
             if (typeof llmaUpdateContextBar === 'function') llmaUpdateContextBar();
@@ -309,16 +318,20 @@
             if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
         };
 
+        let accepted = false;
         try {
             LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', wsPayload, data => {
+                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
+                if (!accepted) {
+                    accepted = true;
+                    llmaActions.forgetLost(wsPayload.threadId);
+                }
                 // Every compare event is lane-tagged; route to the right column. Default to lane 0 for safety.
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];
                 if (!ctl || ctl.isDone()) {
-                    if (data.error) ctl && ctl.fail(data.error);
                     return;
                 }
-                if (data.error) { ctl.fail(data.error); if (++doneCount >= ctls.length) finalizeGroup(); return; }
                 if (data.status) { ctl.status(data); return; }
                 if (data.chunk)  { ctl.chunk(data.chunk); }
                 if (data.iteration !== undefined) ctl.newIteration();
@@ -326,16 +339,27 @@
                 if (data.tool_approval) ctl.toolApproval(data.tool_approval);
                 if (data.tool_result) ctl.toolResult(data.tool_result);
                 if (data.done) { ctl.done(data); if (++doneCount >= ctls.length) finalizeGroup(); }
-            }, 0, err => {
-                // Socket-level failure kills every still-open lane.
+            }, 0, (err, data) => {
+                // Core's helper hands every error frame here, one lane's included: that lane fails and the other goes on.
+                if (data && typeof data.lane === 'number' && ctls[data.lane]) {
+                    if (!ctls[data.lane].isDone()) {
+                        ctls[data.lane].fail(err);
+                        if (++doneCount >= ctls.length) finalizeGroup();
+                    }
+                    return;
+                }
+                // A failure of the socket or of the whole request ends every lane still open. With no frame, the server may still be writing them.
+                for (let i = 0; !data && i < ctls.length; i++) {
+                    if (!ctls[i].isDone()) {
+                        llmaActions.markLost(lanes[i].node);
+                    }
+                }
                 ctls.forEach(c => { if (!c.isDone()) c.fail(err || 'WebSocket error'); });
-                LLMAState._activeSocket = null;
-                LLMAState._streamingLanes = null;
-                llmaSetStreaming(false);
+                finalizeGroup();
             });
         } catch (ex) {
             ctls.forEach(c => { if (!c.isDone()) c.fail(ex && ex.message ? ex.message : String(ex)); });
-            llmaSetStreaming(false);
+            finalizeGroup();
         }
     }
 
@@ -428,6 +452,10 @@
                     L.node.rawContent = streamedRaw;
                     L.node.meta = Object.assign({}, L.node.meta, { error: err });
                 }
+                else {
+                    llmaActions.markUnsaved(L.node);
+                }
+                llmaA11y.announceFailure(err);
             },
         };
     }
@@ -441,10 +469,21 @@
             if (L.node && L.bubble) {
                 L.bubble.querySelector('.llma-typing')?.remove();
             }
+            // A lane stopped before anything arrived saved no reply.
+            if (L.node && !L.node.content && !(L.node.toolCalls || []).length) {
+                llmaActions.markUnsaved(L.node);
+            }
         }
+        llmaCompareSettleLeaf(lanes);
         LLMAState._streamingLanes = null;
-        if (typeof llmaSaveActiveThread === 'function') llmaSaveActiveThread();
         return true;
+    }
+
+    /** Puts the page's tip where the server puts it after a comparison: lane 1's reply when it was saved, else the message both were asked. */
+    function llmaCompareSettleLeaf(lanes) {
+        const first = lanes[0].node;
+        LLMAState.activeLeafId = first.unsaved ? first.parentId : first.id;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
     }
 
     // ---- DOM: live columns ------------------------------------------------------
@@ -480,24 +519,40 @@
         return refs;
     }
 
-    /** Per-column action bar: Copy · Use as Prompt · Keep this one · Del. Reuses the shared
+    /** Per-column action bar: Copy · Copy as Markdown · Use as Prompt · Keep this one · Delete. Reuses the shared
      *  llmaCreateActionBtn helper (same .llma-msg-action-btn element the normal message actions use). */
     function llmaBuildCompareActions(msgId) {
-        const actions = document.createElement('div');
-        actions.className = 'llma-msg-actions';
+        const actions = llmaActions.emptyBar();
         actions.appendChild(llmaCreateActionBtn(translate('Copy'), () => { if (typeof llmaCopyMessage === 'function') llmaCopyMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Copy as Markdown'), () => llmaActions.copyMarkdown(msgId)));
         actions.appendChild(llmaCreateActionBtn(translate('Use as Prompt'), () => {
             const m = (LLMAState.allNodes || []).find(x => x.id === msgId);
             if (m && typeof llmaSendToPromptBox === 'function') llmaSendToPromptBox(m.content);
         }));
         actions.appendChild(llmaCreateActionBtn(translate('Keep this one'), () => llmaKeepLane(msgId)));
-        actions.appendChild(llmaCreateActionBtn(translate('Del'), () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
+        actions.appendChild(llmaCreateActionBtn(translate('Delete'), () => { if (typeof llmaDeleteMessage === 'function') llmaDeleteMessage(msgId); }));
+        for (const button of actions.children) {
+            button.type = 'button';
+        }
+        // Keep this one and Delete change the chat, so they are off while a reply streams.
+        for (const button of Array.from(actions.children).slice(-2)) {
+            button.dataset.llmaMutates = 'true';
+            button.setAttribute('aria-disabled', llmaActions.busy() ? 'true' : 'false');
+        }
         return actions;
     }
 
     /** Converge: make this lane's reply the active path and exit compare mode. The comparison turn stays
      *  visible as columns in history; new messages continue single-model from here. */
     function llmaKeepLane(msgId) {
+        if (llmaActions.refuseIfBusy('Stop generation before choosing a reply')) {
+            return;
+        }
+        // A lane that never saved a reply cannot be continued from.
+        if (llmaActions.node(msgId)?.unsaved) {
+            llmaShowToast('That model saved no reply', 'info');
+            return;
+        }
         llmaToggleCompareMode(false);
         if (typeof llmaSetActiveLeaf === 'function') {
             llmaSetActiveLeaf(msgId, { focusInput: true });

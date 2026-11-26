@@ -5,11 +5,13 @@
   "description": "Browser e2e for SwarmUI-LLMAssistant: Playwright against a throwaway SwarmUI and a scripted mock LLM. Dev-only.",
   "type": "module",
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --project=chromium",
+    "test:smoke": "playwright test --project=firefox-smoke --project=webkit-smoke",
     "stack": "node harness/stack.mjs",
-    "install-browsers": "playwright install chromium"
+    "install-browsers": "playwright install chromium firefox webkit"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.1",
     "@playwright/test": "1.65.1"
   }
 }
