@@ -311,7 +311,7 @@ While a reply streams, and while the chat is a [session](#sessions) working in t
 
 | Keys | Where | Action |
 |---|---|---|
-| `Tab` / `Shift+Tab` | the chat | Of the messages, the newest (or the one you were last on) and its action bar are stops. Links, code blocks, reasoning and tool steps inside any message are stops of their own |
+| `Tab` / `Shift+Tab` | the chat | Of the messages, the newest (or the one you were last on), its action bar and its [usage figure](#usage-and-cost) are stops. Links, code blocks, reasoning and tool steps inside any message are stops of their own |
 | `↑` / `↓`, `Home` / `End` | a message has focus | Previous / next, first / last message |
 | `Enter` | a message has focus | Go to its actions; `←` / `→` move along them |
 | `Esc` | message actions, a message | Back to the message, then to the composer |
@@ -319,7 +319,7 @@ While a reply streams, and while the chat is a [session](#sessions) working in t
 | `←` / `→`, `Home` / `End` | settings tabs | Switch tabs |
 
 - Dialogs keep `Tab` inside them. Focus rings use the theme's strongest text colour.
-- Screen readers: messages are articles named for who wrote them. One polite live region says when a reply starts, finishes, stops or fails, when a tool waits for approval, says what the first-run guide's buttons did, and repeats the toasts. Reply text is not announced as it streams.
+- Screen readers: messages are articles named for who wrote them. One polite live region says when a reply starts, finishes, stops or fails, when a tool waits for approval, says what the first-run guide's buttons did and that prices were saved, and repeats the toasts. Reply text is not announced as it streams.
 - **Reduced motion** (the system setting) turns off the animations and smooth scrolling.
 - **Touch screens and narrow windows**: controls are at least 44 by 44 pixels.
 - The Playwright suite runs [axe](https://github.com/dequelabs/axe-core) (WCAG 2.0 to 2.2, A and AA) on the main views in the `modern_dark` and `modern_light` themes. Other themes, SwarmUI's own page around the tab, and real screen readers have not been checked.

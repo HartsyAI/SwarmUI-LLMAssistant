@@ -9,7 +9,8 @@
 /* --text-strong is the one theme colour that stands out against every surface in light and dark themes. */
 .llma-container :focus-visible,
 .llma-companion :focus-visible,
-.llma-asset-menu :focus-visible {
+.llma-asset-menu :focus-visible,
+.llma-usage-popover :focus-visible {
     outline: 2px solid var(--text-strong) !important;
     outline-offset: 2px;
 }
@@ -73,7 +74,7 @@
 /* ── Contrast ────────────────────────────────────────────────── */
 /* Several themes (Modern Light above all) have a soft text colour under 4.5:1, and the accent colour is under it as text. Both are
    derived here from colours every theme keeps readable: the body text, the strongest text and the background. */
-.llma-container, .llma-companion, .llma-asset-menu {
+.llma-container, .llma-companion, .llma-asset-menu, .llma-usage-popover {
     --text-soft: color-mix(in srgb, var(--text) 82%, var(--background));
     --llma-accent-text: color-mix(in srgb, var(--emphasis) 30%, var(--text-strong));
     --llma-accent-fill: color-mix(in srgb, var(--emphasis) 55%, var(--background));
@@ -130,17 +131,19 @@
 .llma-container .badge.text-bg-danger:not(.rounded-pill) { border: 2px solid var(--bs-danger); }
 .llma-container .badge:is(.text-bg-primary, .text-bg-info):not(.rounded-pill) { border: 2px solid var(--emphasis); }
 /* Bootstrap's status alerts put white text on those colours too: an alert keeps its colour as a border, like a badge. */
-.llma-container .alert:is(.alert-success, .alert-warning, .alert-danger) { background-color: var(--background) !important; color: var(--text) !important; border: 2px solid var(--bs-success); }
-.llma-container .alert.alert-warning { border-color: var(--bs-warning); }
-.llma-container .alert.alert-danger { border-color: var(--bs-danger); }
+:is(.llma-container, .llma-usage-popover) .alert:is(.alert-success, .alert-warning, .alert-danger) { background-color: var(--background) !important; color: var(--text) !important; border: 2px solid var(--bs-success); }
+:is(.llma-container, .llma-usage-popover) .alert.alert-warning { border-color: var(--bs-warning); }
+:is(.llma-container, .llma-usage-popover) .alert.alert-danger { border-color: var(--bs-danger); }
+/* The figure under a reply was faded as well. */
+.llma-container .llma-usage-chip { opacity: 1; }
 /* Core lightens a hovered button until its text is under 4.5:1 in the dark theme: a smaller step toward the text colour. */
-.llma-container .basic-button:not(.btn-primary):hover:not(:disabled) { background-color: color-mix(in srgb, var(--button-background) 85%, var(--button-text)); }
+:is(.llma-container, .llma-usage-popover) .basic-button:not(.btn-primary):hover:not(:disabled) { background-color: color-mix(in srgb, var(--button-background) 85%, var(--button-text)); }
 .llma-container .text-success { color: color-mix(in srgb, var(--bs-success) 35%, var(--text-strong)) !important; }
 .llma-container .text-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)) !important; }
 .llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }
 
 /* ── Small targets ─────────────────────────────────────────── */
-.llma-branch-nav, .llma-branch-label { min-width: 24px; min-height: 24px; }
+.llma-branch-nav, .llma-branch-label, .llma-usage-chip, .llma-usage-thread { min-width: 24px; min-height: 24px; }
 
 /* ── Off-screen panels ─────────────────────────────────────── */
 /* A collapsed or closed panel is zero wide or off screen: it is hidden too, so Tab cannot walk into it and drag the layout sideways. */
@@ -192,6 +195,7 @@
     .llma-container .llma-find-input,
     .llma-container .llma-think-summary,
     .llma-asset-menu button,
+    .llma-usage-popover button,
     .llma-companion button {
         min-height: 44px;
         min-width: 44px;

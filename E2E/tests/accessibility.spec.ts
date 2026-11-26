@@ -42,6 +42,25 @@ async function richChat(page: Page) {
     await expect(page.locator('#llma-send-btn')).toBeVisible();
 }
 
+/** Prices the mock model, with a daily budget that one reply passes: the figures, the warning and their popovers all show. */
+async function priceReplies(page: Page) {
+    let saved = await api(page, 'LLMAssistantSaveUsageSettings', { currency: 'USD', prices: { 'mock-model': { input: 2, output: 10 } }, budget: { enabled: true, daily: 0.001, weekly: 0 } });
+    expect(saved.success, JSON.stringify(saved)).toBe(true);
+}
+
+/** Takes the prices and the budget away again. */
+async function clearPrices(page: Page) {
+    await api(page, 'LLMAssistantSaveUsageSettings', { currency: 'USD', prices: {}, budget: { enabled: false, daily: 0, weekly: 0 } });
+}
+
+/** One exchange, waited for until the reply's cost is drawn. */
+async function pricedExchange(page: Page, text: string) {
+    await send(page, text);
+    await expect(lastAssistant(page)).toContainText(`Mock reply: ${text}`);
+    await expect(page.locator('#llma-send-btn')).toBeVisible();
+    await expect(page.locator('.llma-msg-row.assistant').last().locator('.llma-usage-chip')).toContainText('USD', { timeout: 20_000 });
+}
+
 /** Opens the first-run guide over an empty chat, which the llm fixture skips, and waits for its checks. */
 async function openGuide(page: Page) {
     expect((await api(page, 'LLMAssistantSetOnboarding', { action: 'run' })).success).toBe(true);
@@ -192,6 +211,31 @@ for (let theme of ['modern_dark', 'modern_light']) {
             }
             finally {
                 await resetCodeTools(llm);
+            }
+        });
+
+        test('usage figures, their popovers and the price table have no violations', async ({ llm }) => {
+            await priceReplies(llm);
+            try {
+                await pricedExchange(llm, 'count me');
+                await expect(llm.locator('#llma-usage-warning')).toBeVisible();
+                await llm.mouse.move(0, 0);
+                await audit(llm, 'usage figures and budget warning');
+                let popover = llm.locator('#popover_llma_usage');
+                await llm.locator('.llma-usage-chip').click();
+                await expect(popover).toBeVisible();
+                await audit(llm, 'usage: one reply', '#popover_llma_usage');
+                await llm.keyboard.press('Escape');
+                await llm.locator('#llma-usage-warning').click();
+                await expect(popover.locator('tr[data-period="week"]')).toBeVisible();
+                await audit(llm, 'usage: the chat and the totals', '#popover_llma_usage');
+                await popover.locator('.llma-usage-edit').click();
+                await expect(llm.locator('#llma-usage-rows .llma-usage-row')).toHaveCount(1);
+                await llm.waitForLoadState('networkidle');
+                await audit(llm, 'settings: usage with a price');
+            }
+            finally {
+                await clearPrices(llm);
             }
         });
 
@@ -467,6 +511,58 @@ test('the first-run guide keeps keyboard focus when it redraws, and says what ha
     await llm.keyboard.press('Enter');
     await expect(llm.locator('#llma-onboarding')).toBeHidden();
     await expect(llm.locator('#llma-input')).toBeFocused();
+});
+
+test('usage figures work from the keyboard, and their popover gives focus back', async ({ llm }) => {
+    await priceReplies(llm);
+    try {
+        await pricedExchange(llm, 'count one');
+        await pricedExchange(llm, 'count two');
+        let chips = llm.locator('#llma-messages .llma-usage-chip');
+        await expect(chips).toHaveCount(2);
+        // Like the actions, only the current message's figure is in the Tab order.
+        await expect(chips.first()).toHaveAttribute('tabindex', '-1');
+        await expect(chips.last()).toHaveAttribute('tabindex', '0');
+        let popover = llm.locator('#popover_llma_usage');
+        let edit = popover.locator('.llma-usage-edit');
+        for (let opener of [chips.last(), llm.locator('#llma-usage-thread'), llm.locator('#llma-usage-warning')]) {
+            await opener.focus();
+            await llm.keyboard.press('Enter');
+            await expect(edit).toBeFocused();
+            await expect(opener).toHaveAttribute('aria-expanded', 'true');
+            await llm.keyboard.press('Escape');
+            await expect(popover).toBeHidden();
+            await expect(opener).toBeFocused();
+            await expect(opener).toHaveAttribute('aria-expanded', 'false');
+        }
+        // Tab past its last button closes it too.
+        await llm.keyboard.press('Enter');
+        await expect(edit).toBeFocused();
+        await llm.keyboard.press('Tab');
+        await expect(popover).toBeHidden();
+        await expect(llm.locator('#llma-usage-warning')).toBeFocused();
+        // Settings opened from it: saving and removing a row keep the keyboard in the tab, and closing returns to the opener.
+        await chips.last().focus();
+        await llm.keyboard.press('Enter');
+        await expect(edit).toBeFocused();
+        await llm.keyboard.press('Enter');
+        await expect(llm.locator('#llma-usage-rows .llma-usage-row')).toHaveCount(1);
+        await llm.waitForLoadState('networkidle');
+        await llm.locator('#llma-usage-save').focus();
+        await llm.keyboard.press('Enter');
+        await expect(llm.locator('#llma-announcer')).toContainText('Saved.');
+        await expect(llm.locator('#llma-usage-save')).toBeFocused();
+        await llm.locator('.llma-usage-remove').focus();
+        await llm.keyboard.press('Enter');
+        await expect(llm.locator('#llma-usage-add')).toBeFocused();
+        llm.once('dialog', dialog => dialog.accept());
+        await llm.keyboard.press('Escape');
+        await expect(llm.locator('#llma-settings-overlay')).toBeHidden();
+        await expect(chips.last()).toBeFocused();
+    }
+    finally {
+        await clearPrices(llm);
+    }
 });
 
 test('the live region says when a reply starts, ends or fails, and not once per token', async ({ llm }) => {

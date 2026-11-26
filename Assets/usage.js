@@ -153,6 +153,9 @@ class LLMAUsage {
                 chip.remove();
             }
         }
+        if (added) {
+            llmaA11y.syncMessages();
+        }
         this.renderThread(shown ? data : null);
         this.renderWarning();
         // A new line under the last reply must not hide behind the composer. A view anywhere else (a search result, earlier text) stays where it is.
@@ -362,6 +365,7 @@ class LLMAUsage {
         pop.innerHTML = html;
         showPopover('llma_usage', 0, 0);
         this.place(pop, anchor);
+        llmaA11y.openedPopover(pop, anchor);
         return pop;
     }
 
@@ -379,7 +383,7 @@ class LLMAUsage {
 
     /** Opens Settings on the Usage tab, with a row ready for `model` when it has no price yet. */
     openSettings(model) {
-        hidePopover('llma_usage');
+        llmaA11y.closeFloating();
         llmaOpenSettings();
         llmaUsageSettings.wanted = model || '';
         document.querySelector('.llma-modal-tab[data-tab="usage"]')?.click();
@@ -437,7 +441,7 @@ class LLMAUsageSettings {
             + `<h6 class="mt-3">${escapeHtml(translate('Soft budget'))}</h6>`
             + `<div class="form-check"><input type="checkbox" class="form-check-input" id="llma-usage-budget-enabled"${usage.budget.enabled ? ' checked' : ''}><label class="form-check-label" for="llma-usage-budget-enabled">${escapeHtml(translate('Warn me when spending reaches a limit (nothing is ever blocked)'))}</label></div>`
             + `<div class="d-flex flex-wrap gap-2 mt-1">${this.limitInput('llma-usage-budget-daily', 'Daily limit (0 for none)', usage.budget.daily)}${this.limitInput('llma-usage-budget-weekly', 'Weekly limit (0 for none)', usage.budget.weekly)}</div>`
-            + `<div class="d-flex flex-wrap align-items-center gap-2 mt-3"><button type="button" class="basic-button btn-primary" id="llma-usage-save">${escapeHtml(translate('Save prices and budget'))}</button><span id="llma-usage-status" class="small" role="status"></span></div>`;
+            + `<div class="d-flex flex-wrap align-items-center gap-2 mt-3"><button type="button" class="basic-button btn-primary" id="llma-usage-save">${escapeHtml(translate('Save prices and budget'))}</button><span id="llma-usage-status" class="small"></span></div>`;
         for (let [model, price] of Object.entries(usage.prices)) {
             this.addRow(model, price);
         }
@@ -462,6 +466,9 @@ class LLMAUsageSettings {
             + box('input', 'Input', price.input) + box('output', 'Output', price.output) + box('cached', 'Cached (optional)', price.cached)
             + `<button type="button" class="basic-button llma-usage-remove">${escapeHtml(translate('Remove'))}</button>`;
         row.querySelector('.llma-usage-remove').addEventListener('click', () => {
+            // The keyboard stays in the table: on the next row, else the one before, else the button that adds one.
+            let next = row.nextElementSibling || row.previousElementSibling;
+            (next?.querySelector('input') || document.getElementById('llma-usage-add')).focus();
             row.remove();
             this.dirty = true;
         });
@@ -516,8 +523,14 @@ class LLMAUsageSettings {
             return this.fail(status, llmaShortError(err) || translate('Could not save.'));
         }
         this.dirty = false;
+        // The form is drawn again: the control with the keyboard keeps it.
+        let held = document.activeElement?.id;
         this.render(reply.usage);
+        if (held) {
+            document.getElementById(held)?.focus({ preventScroll: true });
+        }
         document.getElementById('llma-usage-status').textContent = translate('Saved.');
+        llmaA11y.announce(translate('Saved.'));
         llmaUsage.warned.clear();
         llmaUsage.scheduleRefresh();
         document.getElementById('llma-usage-totals').innerHTML = await llmaUsage.periodsHtml();

@@ -21,6 +21,10 @@ class LLMAAccessibility {
         this.announcer = null;
         this.pending = [];
         this.announceTimer = null;
+        /** Whether the last click was made with Enter or Space. */
+        this.clickByKeyboard = false;
+        /** The popover made on demand that was opened last, with what opened it: { pop, anchor }, or null. */
+        this.floating = null;
         /** The last element focused outside every dialog: where focus goes back to when a dialog closes. */
         this.lastOutside = null;
         /** The popovers of the chat: the button that opens each one, and how to tell that it is open. A click on the button closes it again. */
@@ -51,6 +55,8 @@ class LLMAAccessibility {
             this.nameInputs(document.getElementById(id));
         }
         document.addEventListener('keydown', e => this.onEscape(e), true);
+        // A click made with Enter or Space reports no click count.
+        document.addEventListener('click', e => this.clickByKeyboard = e.detail == 0, true);
     }
 
     // ---- Live region ------------------------------------------------------------
@@ -165,7 +171,7 @@ class LLMAAccessibility {
                 button.tabIndex = current && button == chosen ? 0 : -1;
             }
         }
-        for (let button of row.querySelectorAll('.llma-branch-pill button')) {
+        for (let button of row.querySelectorAll('.llma-branch-pill button, .llma-usage-chip')) {
             button.tabIndex = current ? 0 : -1;
         }
     }
@@ -326,6 +332,46 @@ class LLMAAccessibility {
         return Array.from(container.querySelectorAll(LLMA_FOCUSABLE_SELECTOR)).filter(el => el.offsetParent !== null);
     }
 
+    /** For a popover shown beside whatever opened it (call right after showing it): the opener says it is open, a keyboard click moves into it, and Tab past either end or
+     *  Escape closes it and goes back. */
+    openedPopover(pop, anchor) {
+        this.floating?.anchor.setAttribute('aria-expanded', 'false');
+        if (!pop.dataset.llmaWired) {
+            pop.dataset.llmaWired = 'true';
+            new MutationObserver(() => {
+                if (pop.dataset.visible != 'true') {
+                    this.floating?.anchor.setAttribute('aria-expanded', 'false');
+                }
+            }).observe(pop, { attributes: true, attributeFilter: ['data-visible'] });
+            pop.addEventListener('keydown', e => {
+                let items = this.focusableIn(pop);
+                if (e.key == 'Tab' && e.target == items[e.shiftKey ? 0 : items.length - 1]) {
+                    e.preventDefault();
+                    this.closeFloating();
+                }
+            });
+        }
+        this.floating = { pop: pop, anchor: anchor };
+        anchor.setAttribute('aria-haspopup', 'dialog');
+        anchor.setAttribute('aria-expanded', 'true');
+        if (this.clickByKeyboard) {
+            this.focusableIn(pop)[0]?.focus({ preventScroll: true });
+        }
+    }
+
+    /** Closes the popover made on demand and puts focus back on what opened it, or on the composer when that is gone. Returns false when none was open. */
+    closeFloating() {
+        if (this.floating?.pop.dataset.visible != 'true') {
+            return false;
+        }
+        let { pop, anchor } = this.floating;
+        hidePopover(pop.id.slice('popover_'.length));
+        anchor.setAttribute('aria-expanded', 'false');
+        let back = anchor.isConnected && anchor.offsetParent !== null ? anchor : document.getElementById('llma-input');
+        back?.focus();
+        return true;
+    }
+
     /** Escape closes the popover or drawer that is open and puts focus back on what opened it. */
     onEscape(e) {
         // A select2 list open inside the model popover closes first, by itself.
@@ -337,6 +383,11 @@ class LLMAAccessibility {
             e.stopPropagation();
             trigger?.focus();
         };
+        if (this.closeFloating()) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
         for (let popover of this.popovers) {
             let trigger = document.getElementById(popover.trigger);
             let panel = document.getElementById(popover.panel);
