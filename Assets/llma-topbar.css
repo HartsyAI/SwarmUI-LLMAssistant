@@ -121,7 +121,8 @@
 .llma-chip-anchor .llma-model-select-wrap .llma-model-select-b-wrap { width: 100%; max-width: none; }
 .llma-chip-anchor .llma-model-select-wrap .select2-container { width: 100% !important; }
 /* VS toggle + refresh + unload become full-width rows so the stacked layout reads cleanly. */
-.llma-chip-anchor .llma-model-select-wrap .llma-icon-btn { width: 100%; border: 1px solid var(--light-border); }
+.llma-chip-anchor .llma-model-select-wrap .llma-icon-btn { width: 100%; border: 1px solid var(--light-border); border-radius: 8px; }
+.llma-chip-anchor .llma-model-select-wrap .llma-compare-toggle[aria-pressed="true"] { border-color: var(--emphasis); }
 /* With the bar's room to spare they keep their size; when it runs short (two models beside the title) the selects give way, not the title. */
 .llma-topbar:not(.llma-bar-compact) .llma-topbar-right,
 .llma-topbar:not(.llma-bar-compact) .llma-model-anchor,

@@ -69,7 +69,6 @@
     border: 1px solid var(--light-border);
     border-radius: 5px;
     padding: 1px 6px;
-    text-transform: lowercase;
 }
 /* When a model is served by more than one backend, the badge becomes a picker to route the lane's next
    send to a specific GPU / backend. Styled to read like the badge, with a small caret. */
@@ -84,7 +83,6 @@
     border: 1px solid var(--light-border);
     border-radius: 5px;
     padding: 1px 18px 1px 6px;
-    text-transform: lowercase;
     cursor: pointer;
     outline: none;
     -webkit-appearance: none;
