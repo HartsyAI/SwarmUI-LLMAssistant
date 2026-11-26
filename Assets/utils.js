@@ -270,10 +270,10 @@ function llmaMakeStreamRenderer(getBubble) {
         return textContainer;
     };
     // ended: nothing more comes for this segment, so all of it is drawn and no reasoning block in it is still "thinking".
-    const renderNow = (ended = false) => {
+    let renderNow = (ended = false) => {
         const tc = ensureTextContainer();
         if (!tc) return;
-        const text = ended ? filter.finalText() : filter.visibleText();
+        let text = ended ? filter.finalText() : filter.visibleText();
         llmaSetRenderedHtml(tc, llmaRenderMarkdown(text.trim(), { streaming: !ended }));
         lastRender = performance.now();
     };

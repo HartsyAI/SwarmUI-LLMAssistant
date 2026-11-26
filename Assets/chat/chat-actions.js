@@ -12,7 +12,7 @@
 const LLMA_CODE_PATTERN = '(?:^|(?<=\\n))[ \\t]*(`{3,}|~{3,})[\\s\\S]*?(?:\\n[ \\t]*\\1[`~]*[ \\t]*(?=\\n|$)|$)|(`+)(?:(?!\\n[ \\t]*\\n)[\\s\\S])*?\\2';
 
 /** Where this browser keeps why a message was left without a reply, as [messageId, error] pairs, newest last. */
-const LLMA_REPLY_FAILURES_KEY = 'llma.replyFailures';
+let LLMA_REPLY_FAILURES_KEY = 'llma.replyFailures';
 
 /** The actions a user takes on one message of the chat. */
 class LLMAMessageActions {

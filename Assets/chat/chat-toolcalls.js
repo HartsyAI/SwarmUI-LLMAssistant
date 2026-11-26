@@ -46,7 +46,7 @@
     };
 
     /** What a call that did not succeed, or has not run yet, says after its tool's name. */
-    const LLMA_TOOL_OUTCOMES = { waiting: 'needs permission', declined: 'declined', failed: 'failed' };
+    let LLMA_TOOL_OUTCOMES = { waiting: 'needs permission', declined: 'declined', failed: 'failed' };
 
     /** Where a call's step stands: 'waiting' (for the user's permission), 'running', 'done', 'declined' or 'failed'. */
     function llmaToolState(callBubble) {
@@ -284,7 +284,7 @@
         if (reply && reply.resolved) {
             row.textContent = decision == 'deny' ? translate('Declined.') : translate('Allowed.');
             // Allowed: the call is at work from here. A declined one gets its result straight away.
-            const callBubble = row.closest('.llma-tool-call-bubble.pending.waiting');
+            let callBubble = row.closest('.llma-tool-call-bubble.pending.waiting');
             if (callBubble && decision != 'deny') {
                 callBubble.classList.remove('waiting');
                 llmaToolRunningStatus(callBubble.querySelector('.llma-tool-call-status'));
@@ -710,7 +710,7 @@
     /** Draws one stored call, with its result when it has one. */
     function llmaRenderStoredCall(bubble, tc) {
         llmaRenderToolCall(bubble, { id: tc.id, name: tc.name, arguments: tc.arguments });
-        if (tc.result !== null && tc.result !== undefined) {
+        if (tc.result != null) {
             llmaRenderToolResult(bubble, { id: tc.id, name: tc.name, result: tc.result });
         }
     }

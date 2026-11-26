@@ -369,7 +369,7 @@ function llmaSetupTopBar() {
 
 // -- Model picker placement --
 /** The top bar width below which its model selects give way to the composer's model chip. */
-const LLMA_MODEL_COMPACT_BELOW = 900;
+let LLMA_MODEL_COMPACT_BELOW = 900;
 
 /**
  * Shows one model picker for the width there is: the selects in the top bar while it is wide enough, else the composer's model chip, which
@@ -1270,10 +1270,10 @@ function llmaRenderWelcomeAssistants() {
 
 // -- Settings Modal --
 /** The tabs holding something "Reset All Defaults" puts back. Chats, memory, knowledge and schedules are stored apart and kept. */
-const LLMA_SETTINGS_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp', 'skills', 'prompt-styles', 'usage', 'companion'];
+let LLMA_SETTINGS_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp', 'skills', 'prompt-styles', 'usage', 'companion'];
 
 /** The tabs whose fields "Save & Close" saves. */
-const LLMA_SETTINGS_SAVE_TABS = ['general', 'companion'];
+let LLMA_SETTINGS_SAVE_TABS = ['general', 'companion'];
 
 /** Whether a field of those tabs changed since the dialog was drawn: "Save & Close" is then offered on every tab. */
 let llmaSettingsDirty = false;
