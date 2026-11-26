@@ -18,8 +18,10 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// otherwise-completely-normal turns; a coin-flip failure rate that unit tests against a fake/mocked
 /// <see cref="WebSocket"/> would never catch, because the bug lives entirely in the real
 /// <c>ManagedWebSocket</c>'s state machine, not in this extension's own code. Every test here therefore runs a
-/// real <see cref="HttpListener"/> server socket against a real <see cref="ClientWebSocket"/> client over
-/// loopback TCP, the same shape the reviewer's repro used, rather than a fake or mocked socket.
+/// real pair of those sockets over loopback TCP, made with <c>WebSocket.CreateFromStream</c> as the web server makes its
+/// own, rather than a fake or mocked socket. Not <c>HttpListener</c>: on Windows its server socket is another class,
+/// whose <c>CloseAsync</c> returns on an aborted socket, and on Linux closing the listener could throw
+/// "Address already in use" after any test.
 ///
 /// <para>Covers the three scenarios the fix needs to get right: (a) 200 repetitions of a normal
 /// turn-finishes-then-framework-closes completion, asserting zero exceptions and that the socket ends
@@ -31,59 +33,44 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// All three run in well under the 10-second budget; see each test's own timing notes.</para></summary>
 public class VoiceTurnWsDisconnectTests : IDisposable
 {
-    private readonly HttpListener _listener;
-    private readonly string _wsUri;
+    /// <summary>Accepts the TCP connections the socket pairs run over.</summary>
+    private readonly TcpListener _listener;
+
+    /// <summary>Held while one pair connects, so that a pair's two ends are the two ends of one connection.</summary>
+    private readonly SemaphoreSlim _connecting = new(1, 1);
 
     public VoiceTurnWsDisconnectTests()
     {
-        int port = GetFreeLoopbackPort();
-        _listener = new HttpListener();
-        _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        _listener.Start();
-        _wsUri = $"ws://127.0.0.1:{port}/";
+        _listener = new TcpListener(IPAddress.Loopback, 0);
+        _listener.Start(256);
     }
 
-    public void Dispose()
-    {
-        try { _listener.Stop(); } catch { /* already stopped/disposed */ }
-        _listener.Close();
-    }
+    public void Dispose() => _listener.Stop();
 
-    /// <summary>Binds port 0 just to let the OS hand back an unused loopback port, then immediately releases it
-    /// for <see cref="_listener"/> to bind for real. Carries the same tiny reuse-race every "find a free port
-    /// for a test" helper does; acceptable for a loopback-only dev-box test, same as the engine repo's other
-    /// real-socket tests.</summary>
-    private static int GetFreeLoopbackPort()
+    /// <summary>Opens one real server/client WebSocket pair over its own loopback connection. Both ends are the runtime's
+    /// managed socket on every platform, which is what the server hands a WS route.</summary>
+    private async Task<(WebSocket Server, WebSocket Client)> OpenPairAsync()
     {
-        TcpListener probe = new(IPAddress.Loopback, 0);
-        probe.Start();
-        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
-    }
-
-    /// <summary>Opens one real client/server WebSocket pair over loopback: a <see cref="ClientWebSocket"/>
-    /// connecting to this fixture's <see cref="HttpListener"/>, upgraded server-side via
-    /// <see cref="HttpListenerContext.AcceptWebSocketAsync(string)"/>. The accept and the connect are started
-    /// concurrently and interleaved deliberately: <see cref="HttpListener.GetContextAsync"/> resolves once the
-    /// upgrade request's headers arrive (before any response is sent), so the 101 response that actually
-    /// completes the client's <see cref="ClientWebSocket.ConnectAsync"/> task is sent by
-    /// <c>AcceptWebSocketAsync</c> in between -- awaiting the connect task first would deadlock.</summary>
-    private async Task<(WebSocket Server, ClientWebSocket Client)> OpenPairAsync()
-    {
-        ClientWebSocket client = new();
-        Task<HttpListenerContext> acceptTask = _listener.GetContextAsync();
-        Task connectTask = client.ConnectAsync(new Uri(_wsUri), CancellationToken.None);
-        HttpListenerContext context = await acceptTask;
-        HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
-        await connectTask;
-        return (wsContext.WebSocket, client);
+        await _connecting.WaitAsync();
+        try
+        {
+            TcpClient dialed = new();
+            Task<TcpClient> accepting = _listener.AcceptTcpClientAsync();
+            await dialed.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)_listener.LocalEndpoint).Port);
+            TcpClient accepted = await accepting;
+            return (WebSocket.CreateFromStream(accepted.GetStream(), new WebSocketCreationOptions { IsServer = true }),
+                WebSocket.CreateFromStream(dialed.GetStream(), new WebSocketCreationOptions { IsServer = false }));
+        }
+        finally
+        {
+            _connecting.Release();
+        }
     }
 
     /// <summary>Stands in for a real client's (eg a browser's) automatic echo of a server-initiated close
-    /// frame: <see cref="ClientWebSocket"/> does not do this on its own, so without a loop like this one,
+    /// frame: a <see cref="WebSocket"/> does not do this on its own, so without a loop like this one,
     /// nothing would ever complete the close handshake the server's <c>CloseAsync</c> is waiting on.</summary>
-    private static async Task EchoCloseWhenReceivedAsync(ClientWebSocket client)
+    private static async Task EchoCloseWhenReceivedAsync(WebSocket client)
     {
         byte[] buffer = new byte[16];
         while (client.State is WebSocketState.Open or WebSocketState.CloseSent)
@@ -114,11 +101,8 @@ public class VoiceTurnWsDisconnectTests : IDisposable
         // CloseAsync unconditionally right after. 200 repetitions, not 1 -- an intermittent ~41% failure needs
         // a real sample size to disprove; one green iteration would not have caught the original bug either.
         //
-        // Run concurrently, not in a sequential loop: a real client's own close-echo (ClientWebSocket
-        // responding to an already-received Close frame) costs a fixed ~1 second of wall clock on this
-        // runtime/platform regardless of CloseAsync vs CloseOutputAsync -- measured directly, not assumed; it
-        // is not CPU-bound and not specific to this fix. 200 of those sequentially would be ~200 seconds, far
-        // past this test's 10-second budget; 200 concurrently pay that fixed cost once, in parallel.
+        // Run concurrently, not in a sequential loop: each iteration opens its own connection and completes a whole
+        // close handshake, and 200 of those one after another would pay for every round trip in turn.
         Task<(Exception Thrown, WebSocketState FinalState)>[] iterations = new Task<(Exception, WebSocketState)>[200];
         for (int i = 0; i < iterations.Length; i++)
         {
@@ -134,7 +118,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
 
     private async Task<(Exception Thrown, WebSocketState FinalState)> RunOneNormalCompletionAsync()
     {
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             _ = ChatEndpoints.WatchForDisconnectAsync(server, () => { });
@@ -156,7 +140,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     {
         // (b) Unlike the normal-completion scenario, nothing calls CloseAsync here -- the turn is still
         // actively using the socket (mid-stream) when the client goes away.
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             using CancellationTokenSource turnCancel = new();
@@ -190,7 +174,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
         // before a shell/http ToolHandler sees it; that derived token still cancels whenever this one does, which is all this
         // test needs: it models a handler awaiting turnCancel.Token directly, since the scope here is the socket-to-token
         // wiring, not the tool loop itself (ToolLoopIntegrationTests and ToolTurnRunnerTests cover that).
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             using CancellationTokenSource turnCancel = new();
@@ -237,7 +221,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
         // cancelled it once the turn finished, intending to "clean up" the dangling receive. This is that
         // exact sequence, isolated -- no WatchForDisconnectAsync involved, just the two WebSocket calls it
         // used to make in the wrong order.
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             using CancellationTokenSource receiveCancel = new();
@@ -273,7 +257,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     public async Task AChatToolTurnIsCancelledWhenItsTabCloses()
     {
         // The chat route hands its turn's source to CancelToolTurnOnClose; a closed tab must cancel it, so no later call starts.
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             using CancellationTokenSource turn = new();
@@ -293,7 +277,7 @@ public class VoiceTurnWsDisconnectTests : IDisposable
     public async Task AChatTurnWithoutToolsIsLeftToFinishWhenItsTabCloses()
     {
         // Nothing runs after a reply without tools, so its generation keeps running and is saved, as on main.
-        (WebSocket server, ClientWebSocket client) = await OpenPairAsync();
+        (WebSocket server, WebSocket client) = await OpenPairAsync();
         try
         {
             using CancellationTokenSource turn = new();
