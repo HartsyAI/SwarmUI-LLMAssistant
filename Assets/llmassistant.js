@@ -127,8 +127,10 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
 
     LLMAState.activeAssistantId = assistantId;
     LLMAState.activeThreadId    = null;
+    LLMAState.activeThreadAssistantId = null;
     LLMAState.activeThreadToolsEnabled = null;
     LLMAState.activeThreadAutoEnhance = null;
+    llmaRewriteControls.onNewChat();
     if (typeof llmaCloseLingeringSocket === 'function') llmaCloseLingeringSocket();
     LLMAState.activeThreadMemoryExtraction = null;
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();

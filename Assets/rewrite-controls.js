@@ -13,6 +13,8 @@ class LLMARewriteControls {
         this.previewRequest = 0;
         /** Stops watching for a click outside the open popover. */
         this.stopClickAway = null;
+        /** The chat being created that choices still belong to, { threadId, changed, value }, or null. */
+        this.creation = null;
     }
 
     /** Wires the composer button, its popover and the preview dialog. */
@@ -47,21 +49,33 @@ class LLMARewriteControls {
         return value === true ? 'on' : value === false ? 'off' : 'default';
     }
 
-    /** Takes the chat switch and the assistant of a chat that was just loaded, then asks the server again. */
+    /** Takes the chat switch of a chat that was just loaded, then asks the server again. */
     onThreadLoaded(thread) {
-        LLMAState.activeThreadAssistantId = thread.assistantId || null;
         LLMAState.activeThreadAutoEnhance = typeof thread.autoEnhance == 'boolean' ? thread.autoEnhance : null;
         this.refresh();
     }
 
-    /** Takes up a chat that was just created. A switch changed while the creation was on its way is saved now, before the first message goes out. */
-    async onThreadCreated(thread) {
-        let wanted = LLMAState.activeThreadAutoEnhance;
-        if (wanted !== (thread.autoEnhance ?? null)) {
-            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantSetThreadAutoEnhance', { threadId: thread.id, enabled: wanted }), translate('Could not save the setting for this chat'));
+    /** Starts recording the choices made while a chat is being created. The caller sets threadId on the record once the chat has one, and hands it back to onThreadCreated. */
+    onThreadCreating() {
+        this.creation = { threadId: null, changed: false, value: null };
+        return this.creation;
+    }
+
+    /** A new chat was started: what is chosen from now on is not for a chat still being created. */
+    onNewChat() {
+        this.creation = null;
+    }
+
+    /** Takes up a chat that was just created. Only a switch chosen while its creation was on its way is saved now, before the first message goes out: what the page shows by then may belong to another chat. */
+    async onThreadCreated(thread, creation) {
+        if (creation.changed && creation.value !== (thread.autoEnhance ?? null)) {
+            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantSetThreadAutoEnhance', { threadId: thread.id, enabled: creation.value }), translate('Could not save the setting for this chat'));
             if (reply) {
-                thread.autoEnhance = wanted;
+                thread.autoEnhance = creation.value;
             }
+        }
+        if (this.creation == creation) {
+            this.creation = null;
         }
         this.onThreadLoaded(thread);
     }
@@ -163,6 +177,10 @@ class LLMARewriteControls {
     async setChat(value) {
         let enabled = value == 'on' ? true : value == 'off' ? false : null;
         let threadId = LLMAState.activeThreadId;
+        if (this.creation && (!threadId || threadId == this.creation.threadId)) {
+            this.creation.changed = true;
+            this.creation.value = enabled;
+        }
         if (threadId) {
             let reply = await llmaUserAction(() => llmaRequest('LLMAssistantSetThreadAutoEnhance', { threadId: threadId, enabled: enabled }), translate('Could not save the setting for this chat'));
             if (!reply || LLMAState.activeThreadId != threadId) {

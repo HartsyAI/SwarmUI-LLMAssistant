@@ -663,6 +663,7 @@ async function llmaCreateThread(assistantId) {
     const initialTitle = assistant ? `Chat with ${assistant.name}` : 'New Chat';
 
     let thread;
+    const rewriteCreation = llmaRewriteControls.onThreadCreating();
     try {
         const result = await llmaRequest('LLMAssistantCreateThread', { assistantId: assistantId || '', title: initialTitle, mode: llmaCodeMode.modeForNewChat, rememberChat: LLMAState.activeThreadMemoryExtraction !== false, ...(typeof LLMAState.activeThreadAutoEnhance === 'boolean' ? { autoEnhance: llmaRewriteControls.toSwitch(LLMAState.activeThreadAutoEnhance) } : {}) });
         if (!result?.success || !result.thread) {
@@ -686,6 +687,8 @@ async function llmaCreateThread(assistantId) {
     });
 
     LLMAState.activeThreadId    = thread.id;
+    LLMAState.activeThreadAssistantId = thread.assistantId || null;
+    rewriteCreation.threadId    = thread.id;
     llmaContext.activeCompaction = null;
     LLMAState.messages          = [];
     LLMAState.allNodes          = [];
@@ -706,7 +709,7 @@ async function llmaCreateThread(assistantId) {
     // "Don't remember this chat", flipped before the chat existed, was sent with the creation itself (rememberChat), so there is no second call that could fail and leave the chat remembered.
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
     // The rewrite switch chosen before the chat existed was sent with the creation too; one changed while it was on its way is saved here.
-    await llmaRewriteControls.onThreadCreated(thread);
+    await llmaRewriteControls.onThreadCreated(thread, rewriteCreation);
 
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = thread.title;
@@ -743,6 +746,7 @@ async function llmaSwitchThread(threadId) {
         if (!thread) { llmaShowToast('Chat not found', 'error'); return; }
 
         LLMAState.activeThreadId    = thread.id;
+        LLMAState.activeThreadAssistantId = thread.assistantId || null;
         llmaIngestThread(thread); // sets allNodes / activeLeafId / messages (active path)
         // The summary standing in for the start of this chat on the branch showing; the marker is drawn with the messages.
         llmaContext.activeCompaction = result.activeCompaction || null;
@@ -988,6 +992,7 @@ function llmaShowWelcome() {
     if (welcome) welcome.style.display = '';
     if (chat)    chat.style.display    = 'none';
     LLMAState.activeThreadId = null;
+    LLMAState.activeThreadAssistantId = null;
     LLMAState.messages = [];
     const titleEl = document.getElementById('llma-thread-title');
     if (titleEl) titleEl.textContent = 'LLM Assistant';

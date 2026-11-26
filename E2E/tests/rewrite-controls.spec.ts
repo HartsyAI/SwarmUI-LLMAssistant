@@ -348,6 +348,15 @@ test('a chat\'s own assistant decides, not the one selected, for the status and 
     await api(llm, 'LLMAssistantSaveAssistant', { assistant: { ...other, autoEnhance: true }, scope: 'personal' });
     await setAssistant(llm, false);
     expect(await byHand('hand-on')).toHaveLength(1);
+    // The picker offers what the chat's assistant may run, whoever is selected; a new chat goes back to the selected one.
+    let offered = () => llm.evaluate(() => {
+        (0, eval)('LLMAState').activeAssistantId = 'default';
+        return (0, eval)('llmaPickerTools')().map((t: any) => t.id);
+    });
+    expect(await offered()).toEqual(['generate_image']);
+    await llm.evaluate(() => (0, eval)('llmaStartChatWithAssistant')('default', { persist: false }));
+    expect((await offered()).length).toBeGreaterThan(1);
+    expect(await llm.evaluate(() => (0, eval)('LLMAState').activeThreadAssistantId)).toBeNull();
 });
 
 test('a default preset\'s rewrite setting counts for a chat with no switch of its own, and gives way to one that has it', async ({ llm }) => {
@@ -425,3 +434,31 @@ test('a switch changed while the chat is being created is kept', async ({ llm })
     await expect.poll(async () => (await activeThread(llm)).autoEnhance).toBe(false);
     await expect(llm.locator('#llma-enhance-label')).toHaveText('Off');
 });
+
+/** Holds the chat creation back, so something can happen while it is on its way. */
+async function slowCreation(page: Page) {
+    await page.route('**/API/LLMAssistantCreateThread', async route => {
+        await new Promise(resolve => setTimeout(resolve, 2500));
+        await route.continue();
+    });
+}
+
+for (let [name, later] of [['and left alone', null], ['and then chosen otherwise', 'on']] as const) {
+    test(`a new chat started while one is being created, ${name}, does not change the switch of the one being created`, async ({ llm }) => {
+        await slowCreation(llm);
+        await chooseForChat(llm, 'off');
+        let asked = llm.waitForRequest('**/API/LLMAssistantCreateThread');
+        await send(llm, 'hello before a new chat');
+        await asked;
+        await llm.evaluate(async value => {
+            (0, eval)('llmaStartChatWithAssistant')('default', { persist: false });
+            if (value) {
+                await (0, eval)('llmaRewriteControls').setChat(value);
+            }
+        }, later);
+        await expect(llm.locator('.llma-msg-row.assistant .llma-msg-bubble').last()).toContainText('Mock reply');
+        let threads = (await api(llm, 'LLMAssistantGetThreads')).threads;
+        expect(threads).toHaveLength(1);
+        expect((await api(llm, 'LLMAssistantGetThread', { threadId: threads[0].id })).thread.autoEnhance).toBe(false);
+    });
+}

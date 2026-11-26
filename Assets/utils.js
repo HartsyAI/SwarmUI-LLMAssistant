@@ -749,6 +749,12 @@ function llmaPopoverClickAway(popoverEl, triggerEl, onClose) {
     return () => document.removeEventListener('click', handler, true);
 }
 
+// -- Chat Assistant --
+/** The assistant the open chat's turns and tool runs use: the chat's own, else (no chat yet) the selected one. */
+function llmaChatAssistantId() {
+    return (LLMAState.activeThreadId && LLMAState.activeThreadAssistantId) || LLMAState.activeAssistantId;
+}
+
 // -- Approximate Token Count --
 function llmaApproxTokens(messages) {
     const totalChars = messages.reduce((sum, m) => sum + (m.content?.length || 0), 0);

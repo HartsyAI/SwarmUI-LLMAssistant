@@ -25,7 +25,7 @@ const LLMAToolPicker = {
 // Server-resolved effective tools ∩ globally-enabled; empty when tool calling is off for the chat.
 function llmaPickerTools() {
     if (!llmaEffectiveToolsEnabled()) return [];
-    const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
+    const asst = (LLMAState.assistants || []).find(a => a.id === llmaChatAssistantId());
     const enabledIds = asst?._effectiveToolIds || asst?.enabledToolIds || [];
     return (LLMAState.tools || []).filter(t => enabledIds.includes(t.id) && t.enabled !== false);
 }
@@ -52,7 +52,7 @@ function llmaPickerOnListChanged() {
 // to the active assistant's resolved master switch (missing/undefined = on, matching the server default).
 function llmaEffectiveToolsEnabled() {
     if (typeof LLMAState.activeThreadToolsEnabled === 'boolean') return LLMAState.activeThreadToolsEnabled;
-    const asst = (LLMAState.assistants || []).find(a => a.id === LLMAState.activeAssistantId);
+    const asst = (LLMAState.assistants || []).find(a => a.id === llmaChatAssistantId());
     if (typeof asst?._effectiveToolsEnabled === 'boolean') return asst._effectiveToolsEnabled;
     return asst?.toolsEnabled !== false;
 }
@@ -383,8 +383,7 @@ async function llmaRunToolDirect(tool, args) {
         await llmaCreateThread(LLMAState.activeAssistantId);
     }
     llmaShowChatPanel();
-    // The chat's own assistant, as its turns use; the selected one can differ from it.
-    const assistantId = LLMAState.activeThreadAssistantId || LLMAState.activeAssistantId;
+    const assistantId = llmaChatAssistantId();
     const callId = llmaGenerateId();
     const msgId = llmaGenerateId();
     llmaAppendMessageToDOM('assistant', '', null, msgId);
