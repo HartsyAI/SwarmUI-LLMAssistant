@@ -722,6 +722,70 @@ video.llma-msg-image {
 }
 .llma-attachment-remove:hover { background: color-mix(in srgb, var(--backend-errored) 80%, transparent); }
 
+/* Documents: chips above the composer and at the top of a sent message */
+.llma-document-chips {
+    margin: 0 auto;
+    width: 100%;
+    max-width: 760px;
+    box-sizing: border-box;
+    padding: 8px 16px;
+    /* Many files scroll here rather than push the composer off a small screen. */
+    max-height: 112px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.llma-msg-documents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 6px;
+    white-space: normal;
+}
+.llma-doc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    min-width: 0;
+    padding: 4px 8px;
+    border: 1px solid var(--light-border);
+    border-radius: 8px;
+    background: var(--background-soft);
+    color: var(--text);
+    font-size: 12px;
+}
+.llma-doc-chip-name {
+    min-width: 3em;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+.llma-doc-chip-meta {
+    flex-shrink: 0;
+    max-width: 75%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-soft);
+}
+.llma-doc-chip-reading { border-style: dashed; }
+.llma-doc-chip-remove {
+    flex-shrink: 0;
+    border: none;
+    background: none;
+    color: var(--text-soft);
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+}
+.llma-doc-chip-remove:hover { color: var(--backend-errored); }
+
 /* ── Input Area ─────────────────────────────────────────────── */
 .llma-input-area {
     position: relative;
@@ -1009,16 +1073,6 @@ mark.llma-find-mark.active {
     outline: 1px solid var(--bs-warning);
 }
 
-/* Disabled paperclip — current model is known-text-only. Click still fires (so we can show a
-   toast explaining why) but visually it reads as inactive. */
-.llma-input-actions .llma-icon-btn.llma-attach-disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-}
-.llma-input-actions .llma-icon-btn.llma-attach-disabled:hover {
-    background: transparent;
-    color: var(--text-soft);
-}
 .llma-send-btn {
     width: 34px;
     height: 34px;

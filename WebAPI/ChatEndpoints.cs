@@ -7,6 +7,7 @@ using Hartsy.Extensions.LLMAssistant.Backends;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
 using Hartsy.Extensions.LLMAssistant.Services.Compaction;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 using Hartsy.Extensions.LLMAssistant.Services.PromptAssets;
@@ -747,7 +748,8 @@ public static class ChatEndpoints
 
     /// <summary>Sends a chat message with streaming response over WebSocket. Server-authoritative:
     /// the thread is the source of truth for history. Request shape:
-    /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, loops?, instructionId? }</c>.
+    /// <c>{ threadId: string (required), message: string, model?, temperature?, maxTokens?, loops?, instructionId?, media?, documents? }</c>.
+    /// <c>documents</c> lists ids returned by <see cref="DocumentEndpoints.LLMAssistantUploadChatDocument"/>.
     /// <c>loops</c> is the recurrent-block pass count for a looped model such as Dory (1 to 4); omitted, the saved
     /// <c>loops</c> parameter and then the local backend's <c>RecurrentLoops</c> setting apply, and other models ignore it.
     /// The server loads the thread, appends the user message, builds the LLM input from the stored
@@ -769,6 +771,12 @@ public static class ChatEndpoints
             {
                 return new JObject { ["success"] = false, ["error"] = "message is required." };
             }
+            // Attached documents are named by id; what the message holds about them is built from the user's own stored files, never taken from the request.
+            (JArray documents, string documentError) = ChatDocuments.Resolve(session.User, rawInput[ChatDocuments.Field], DocumentCaps.From(SettingsService.GetMergedSettings(session.User)));
+            if (documentError is not null)
+            {
+                return new JObject { ["success"] = false, ["error"] = documentError };
+            }
             // A session still working in the background is stopped first (what it had is saved), so the user's message lands after it and not before its partial reply.
             // Reports from sessions that finished since the last turn go in just before the message, where the model reads them with it.
             if (BackgroundTurnService.IsLive(session.User.UserID, threadId))
@@ -787,6 +795,10 @@ public static class ChatEndpoints
             if (rawInput["media"] is JArray mediaArr && mediaArr.Count > 0)
             {
                 userMsg["media"] = mediaArr.DeepClone();
+            }
+            if (documents is not null)
+            {
+                userMsg[ChatDocuments.Field] = documents;
             }
             if (ThreadStorageService.AppendMessage(session.User, threadId, userMsg) is null)
             {
@@ -839,10 +851,11 @@ public static class ChatEndpoints
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
             JObject original = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
             if (original is null) { return Fail($"Message '{messageId}' not found in thread."); }
-            // Build the edited sibling: same role, new content, carry the original's media.
+            // Build the edited sibling: same role, new content, carry the original's media and documents.
             JObject edited = new() { ["role"] = original["role"]?.ToString() ?? Roles.User, ["content"] = content };
             if (!string.IsNullOrEmpty(userMessageId)) { edited["id"] = userMessageId; }
             if (original["media"] is JArray om && om.Count > 0) { edited["media"] = om.DeepClone(); }
+            if (ChatDocuments.HasDocuments(original)) { edited[ChatDocuments.Field] = original[ChatDocuments.Field].DeepClone(); }
             edited["editedAt"] = DateTime.UtcNow.ToString("o");
             edited["editedFrom"] = messageId;
             if (ThreadStorageService.AddBranch(session.User, threadId, messageId, edited) is null)
@@ -1155,8 +1168,9 @@ public static class ChatEndpoints
         string approvalMode = ResolveApprovalMode(rawInput, thread);
         SaveApprovalModeIfChanged(session, threadId, thread, approvalMode);
         // Build the active-branch history ONCE; it's identical for every lane (same prompt, same context).
-        // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds).
-        List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput);
+        // Each lane gets its own ExtendedLLMInput (its own model, device and tool rounds). Attached documents are fitted to the smallest window among the models.
+        int smallestWindow = await ChatDocuments.SmallestWindowAsync(session, thread, modelsArr.Select(e => e is JObject lane ? lane["model"]?.ToString() : e?.ToString()), settings);
+        List<ChatMessageData> baseHistory = BuildHistoryFromThread(thread, settings, rawInput, session.User, smallestWindow);
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         bool toolsOn = EffectiveToolsEnabled(thread, assistantId, settings, session.User);
         List<JObject> enabledTools = toolsOn
@@ -1288,14 +1302,17 @@ public static class ChatEndpoints
     /// <summary>Reads stored thread messages, applies maxContextMessages truncation.
     /// Source of truth is the saved thread; the client cannot inject fake history.
     /// Per-message <c>media</c> entries (URLs, persisted by the upload endpoint) are converted to
-    /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.</summary>
-    internal static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput)
+    /// <see cref="LLMMediaAttachment"/>s and propagated so vision-capable backends can pass them.
+    /// <para>With a <paramref name="user"/>, the text of attached documents is put in front of the messages that carry them, as quoted data, within the room a window of
+    /// <paramref name="contextWindow"/> tokens leaves (see <see cref="ChatDocuments.AddToHistory"/>).</para></summary>
+    internal static List<ChatMessageData> BuildHistoryFromThread(JObject thread, JObject settings, JObject rawInput, User user = null, int contextWindow = 0)
     {
         List<ChatMessageData> history = [];
         // Branch model: the LLM only ever sees the ACTIVE path (root → active leaf), never off-path siblings.
         // A saved summary of the start of the conversation stands in for the messages it covers, when it still applies to this path.
         List<JObject> activePath = ThreadStorageService.GetActivePath(thread);
-        List<JObject> sentPath = CompactionPlanner.Apply(activePath, CompactionPlanner.FindActive(thread, activePath));
+        CompactionRecord summary = CompactionPlanner.FindActive(thread, activePath);
+        List<JObject> sentPath = CompactionPlanner.Apply(activePath, summary);
         foreach (JObject msg in sentPath)
         {
             ChatMessageData entry = new()
@@ -1347,9 +1364,14 @@ public static class ChatEndpoints
         }
         // The summary is what makes the dropped messages' content reachable, so the message-count limit never cuts it.
         bool leadsWithSummary = sentPath.Count > 0 && sentPath[0]["compaction"] is not null;
-        return leadsWithSummary
+        List<ChatMessageData> sent = leadsWithSummary
             ? [history[0], .. TruncateHistory(history.GetRange(1, history.Count - 1), settings, rawInput)]
             : TruncateHistory(history, settings, rawInput);
+        if (user is not null)
+        {
+            ChatDocuments.AddToHistory(user, activePath, summary, sentPath, history, sent, DocumentCaps.From(settings).Budget(contextWindow));
+        }
+        return sent;
     }
 
     /// <summary>Whether the conversation has grown to the configured share of the model's window, so that a reply would summarize its start first. Only looks: it makes no model call
@@ -1362,8 +1384,9 @@ public static class ChatEndpoints
         }
         List<JObject> path = ThreadStorageService.GetActivePath(thread);
         CompactionRecord active = CompactionPlanner.FindActive(thread, path);
-        (long tokens, _) = CompactionPlanner.EstimateContext(path, active, ContextWindowService.EstimateTokens(systemPrompt));
-        return CompactionPlanner.IsDue(tokens, ContextWindowService.Resolve(modelInfo, settings), CompactionPlanner.Threshold(settings));
+        int window = ContextWindowService.Resolve(modelInfo, settings);
+        (long tokens, _) = CompactionPlanner.EstimateContext(path, active, ContextWindowService.EstimateTokens(systemPrompt), DocumentCaps.From(settings).Budget(window));
+        return CompactionPlanner.IsDue(tokens, window, CompactionPlanner.Threshold(settings));
     }
 
     /// <summary>Summarizes the start of the active branch first when the conversation has grown to the configured share of the model's window

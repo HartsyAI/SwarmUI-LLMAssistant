@@ -189,6 +189,8 @@
                      assistant + the user's memory profile. -->
                 <div class="llma-empty-greeting" id="llma-empty-greeting" style="display:none;"></div>
                 <div class="llma-attachment-preview" id="llma-attachment-preview" style="display:none;"></div>
+                <!-- Documents attached to the message being written (chat-documents.js). -->
+                <div class="llma-document-chips" id="llma-document-chips" style="display:none;" aria-live="polite"></div>
                 <div class="llma-input-area">
                     <!-- Floats just above the composer while the user has scrolled up during generation.
                          Click jumps back to the latest message and re-enables auto-follow. -->
@@ -260,8 +262,8 @@
                                 </div>
                                 <!-- The workspace this chat works in (code mode only; code-mode.js fills it). -->
                                 <select class="form-select form-select-sm llma-workspace-select" id="llma-workspace-select" aria-label="Workspace" style="display:none;"></select>
-                                <label class="llma-icon-btn llma-attach-label translate" id="llma-attach-label" title="Attach image or video" style="cursor:pointer;">
-                                    <input type="file" id="llma-attach-file" accept="image/*,video/mp4,video/webm,video/quicktime" style="display:none;">
+                                <label class="llma-icon-btn llma-attach-label translate" id="llma-attach-label" title="Attach image, video or document" style="cursor:pointer;">
+                                    <input type="file" id="llma-attach-file" accept="image/*,video/mp4,video/webm,video/quicktime,.pdf,.docx,.txt,.md,.csv,.html" multiple style="display:none;">
                                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7.5 3.5L4 7a2.12 2.12 0 003 3l5-5a3.54 3.54 0 00-5-5L2.5 4.5a4.95 4.95 0 007 7L13 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 </label>
                             </div>
@@ -669,7 +671,7 @@
                     <div id="llma-knowledge-totals" class="text-muted small mb-2"></div>
                     <div id="llma-knowledge-list"></div>
                     <button type="button" class="basic-button translate" id="llma-knowledge-add">+ Add Documents</button>
-                    <input type="file" id="llma-knowledge-files" multiple hidden accept=".txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.html,.htm,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.js,.ts,.py,.cs,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,text/*">
+                    <input type="file" id="llma-knowledge-files" multiple hidden accept=".pdf,.docx,.txt,.md,.markdown,.csv,.tsv,.json,.jsonl,.log,.html,.htm,.xml,.yaml,.yml,.toml,.ini,.rst,.tex,.js,.ts,.py,.cs,.java,.go,.rs,.c,.cpp,.h,.sh,.sql,text/*">
                     <div id="llma-knowledge-embedding" class="mt-3"></div>
                     <div id="llma-knowledge-search"></div>
                 </div>

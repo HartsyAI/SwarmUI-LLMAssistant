@@ -80,7 +80,8 @@ public static class TurnSetupService
             thread = await ChatEndpoints.AutoCompactIfDueAsync(notify, session, threadId, thread, model, modelInfo, settings, systemPrompt, ct);
         }
         // Build LLM input from the active branch (truncated to maxContextMessages).
-        List<ChatMessageData> history = ChatEndpoints.BuildHistoryFromThread(thread, settings, rawInput);
+        // Attached documents go in as quoted data, fitted to this model's window.
+        List<ChatMessageData> history = ChatEndpoints.BuildHistoryFromThread(thread, settings, rawInput, session.User, ContextWindowService.Resolve(modelInfo, settings));
         ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
         input.RequestSession = session;
         input.ConversationId = ChatEndpoints.ThreadConversationId(threadId);

@@ -1,5 +1,6 @@
 using System.Text;
 using Newtonsoft.Json;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json.Linq;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
@@ -22,7 +23,7 @@ public static class ThreadExport
     /// <summary>The export JSON: what <see cref="ThreadImport"/> reads. Every message of every branch, plus which branch was showing.</summary>
     public static JObject ToJson(JObject thread, DateTime nowUtc)
     {
-        return new JObject
+        JObject export = new()
         {
             ["format"] = ThreadImport.FormatName,
             ["version"] = ThreadImport.FormatVersion,
@@ -33,6 +34,11 @@ public static class ThreadExport
             ["activeLeafId"] = thread["activeLeafId"],
             ["exportedAt"] = nowUtc.ToString("o")
         };
+        if (ChatDocuments.IsMarked(thread))
+        {
+            export[ChatDocuments.ThreadFlag] = true;
+        }
+        return export;
     }
 
     /// <summary>The Markdown export: the title, then the conversation on the branch showing, each message under its speaker. Only user and assistant text.</summary>

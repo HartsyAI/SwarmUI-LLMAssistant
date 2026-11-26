@@ -32,6 +32,12 @@
     <PackageReference Include="NodaTime" Version="3.2.1" />
   </ItemGroup>
 
+  <!-- Reading the text layer of PDF files attached to a chat or added to the knowledge library (Services/Documents). PdfPig is Apache-2.0, pure managed code with no
+       dependencies on net8.0. Word .docx needs no package: it is read with the runtime's own zip and XML readers. -->
+  <ItemGroup>
+    <PackageReference Include="PdfPig" Version="0.1.16" />
+  </ItemGroup>
+
   <!-- RELEASE: the published meta-package, https://www.nuget.org/packages/HartsyInference. -->
   <ItemGroup Condition="'$(UseLocalHartsy)' != 'true'">
     <!-- Always the newest engine published on nuget.org, as SwarmUI-AudioLab and SwarmUI-HartsyInference do: SwarmUI rebuilds

@@ -46,6 +46,11 @@ public static class SettingsService
             // Long-edge cap (px) for images sent to vision models. Lower = fewer vision tokens (cheaper on
             // remote APIs), at some loss of fine detail. Clamped to [256, 2048]; 1536 = the prior fixed cap.
             ["imageMaxDimension"] = 1536,
+            ["documentMaxMb"] = Documents.DocumentCaps.DefaultMaxMb,
+            ["documentMaxPages"] = Documents.DocumentCaps.DefaultMaxPages,
+            ["documentMaxChars"] = Documents.DocumentCaps.DefaultMaxChars,
+            ["documentMaxPerMessage"] = Documents.DocumentCaps.DefaultPerMessage,
+            ["documentContextChars"] = Documents.DocumentCaps.DefaultContextChars,
             // The model's window in tokens when the model's own listing is wrong or silent (0 = use the listing).
             ["contextWindow"] = 0,
             // Summarize the start of a long chat on its own once it fills this share of the window (see CompactionPlanner).

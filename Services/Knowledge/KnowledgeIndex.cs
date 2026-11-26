@@ -13,6 +13,8 @@ public sealed class IndexedChunk
     public string Text;
     /// <summary>The heading it sits under, or empty.</summary>
     public string Heading;
+    /// <summary>The page of the file it is from (a PDF), from 1, or 0.</summary>
+    public int Page;
     /// <summary>How many times each word occurs in the piece, its heading and its document's title.</summary>
     public Dictionary<string, int> Terms = [];
     /// <summary>The number of words counted (the sum of <see cref="Terms"/>).</summary>
