@@ -496,7 +496,9 @@ for (let refused of [{ where: 'in a new chat', earlier: false, compare: false },
         // With the extra file taken off, the same message goes, with what was attached to it.
         await chips(llm).filter({ hasText: 'two.txt' }).locator('.llma-doc-chip-remove').click();
         await llm.locator('#llma-input').press('Enter');
-        await expect(lastAssistant(llm)).toContainText('now it went');
+        let replies = llm.locator(refused.compare ? '#llma-messages .llma-compare-col' : '#llma-messages .llma-msg-row.assistant');
+        await expect(replies).toHaveCount(refused.compare || refused.earlier ? 2 : 1);
+        await expect(replies.last()).toContainText('now it went');
         await expect(llm.locator('#llma-send-btn')).toBeVisible();
         await expect.poll(async () => (await thread(llm)).messages.filter((m: any) => m.content == 'REFUSED-QUESTION').length).toBe(1);
         let sent = (await thread(llm)).messages.find((m: any) => m.content == 'REFUSED-QUESTION');

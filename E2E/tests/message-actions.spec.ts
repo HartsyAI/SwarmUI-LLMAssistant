@@ -757,7 +757,7 @@ for (let compare of [false, true]) {
     });
 }
 
-test('a tool run by hand is saved as the row shows it: it can be deleted at once, and a reply asked for after it', async ({ llm }) => {
+test('a tool run by hand is saved under its row\'s id: it can be deleted or regenerated at once', async ({ llm }) => {
     await setScenarios([{ match: 'before the tool', rounds: [{ text: 'first reply' }] }]);
     await exchange(llm, 'before the tool', 'first reply');
     await llm.evaluate(() => (0, eval)('llmaRunToolDirect')({ id: 'memory_read' }, {}));
@@ -777,6 +777,17 @@ test('a tool run by hand is saved as the row shows it: it can be deleted at once
     await expect(replyRows(llm)).toHaveCount(1);
     await expect(llm.locator('#llma-announcer')).toContainText('Message deleted');
     expect(await stored(llm)).toHaveLength(2);
+    // Regenerate asks for another reply in its place, as it does after a reload.
+    await llm.evaluate(() => (0, eval)('llmaRunToolDirect')({ id: 'memory_read' }, {}));
+    await expect(replyRows(llm)).toHaveCount(2);
+    row = replyRows(llm).last();
+    await row.hover();
+    await action(llm, row, 'Regenerate').click();
+    await expect.poll(async () => (await stored(llm)).length, { timeout: 30_000 }).toBe(4);
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let after = await stored(llm);
+    expect(after[3].parentId).toBe(after[2].parentId);
+    await expect(llm.locator('.llma-toast', { hasText: 'Nothing to regenerate from' })).toHaveCount(0);
 });
 
 test('deleting a message the saved chat does not hold says that, not that it was deleted', async ({ llm }) => {
