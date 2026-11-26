@@ -383,7 +383,9 @@ async function llmaRunToolDirect(tool, args) {
     if (!LLMAState.activeThreadId) {
         await llmaCreateThread(LLMAState.activeAssistantId);
     }
+    const threadId = LLMAState.activeThreadId;
     llmaShowChatPanel();
+    llmaOnboarding.onSend();
     const assistantId = llmaChatAssistantId();
     const callId = llmaGenerateId();
     const msgId = llmaGenerateId();
@@ -394,26 +396,40 @@ async function llmaRunToolDirect(tool, args) {
     llmaScrollToBottom();
 
     let result;
+    // Whether the server answered with a call it ran, which it then saved on the chat.
+    let ran = false;
     try {
         const res = await llmaRequest('LLMAssistantExecuteTool', {
             toolId: tool.id,
             arguments: args,
             callId,
             assistantId,
-            threadId: LLMAState.activeThreadId,
+            threadId,
+            messageId: msgId,
         });
-        result = res?.result ?? { success: res?.success !== false };
+        ran = res?.success !== false;
+        result = res?.result ?? { success: ran };
     } catch (e) {
         result = { success: false, error: llmaShortError(e) || 'Tool execution failed' };
     }
     if (bubble) llmaRenderToolResult(bubble, { id: callId, name: tool.id, result });
     llmaScrollToBottom();
 
-    // Mirror into in-memory history + assets (the backend already persisted the thread copy).
-    LLMAState.messages.push({
+    // Another chat may be on screen by now: this one is read when it is opened.
+    if (LLMAState.activeThreadId !== threadId) return;
+    // Mirror into in-memory history + assets (the backend already persisted the thread copy, under this id).
+    const node = {
         id: msgId, role: 'assistant', content: '', timestamp: new Date().toISOString(),
         toolCalls: [{ id: callId, name: tool.id, arguments: args, result }],
-    });
+        parentId: LLMAState.activeLeafId ?? null,
+    };
+    LLMAState.messages.push(node);
+    (LLMAState.allNodes = LLMAState.allNodes || []).push(node);
+    // A reply that started meanwhile is the tip.
+    if (!LLMAState.isGenerating) LLMAState.activeLeafId = msgId;
+    if (!ran) llmaActions.markUnsaved(node);
     if (typeof llmaRebuildAssetsForThread === 'function') llmaRebuildAssetsForThread();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+    // The chat as saved decides where the call hangs.
+    await llmaSaveActiveThread();
 }

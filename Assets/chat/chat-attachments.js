@@ -317,6 +317,20 @@
         if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
     }
 
+    /** Puts back the image or video taken for a message the server then refused, unless something else has been attached since. */
+    function llmaRestoreAttachment(attachment) {
+        if (!attachment || LLMAState.attachedImage) return;
+        if (attachment.kind !== 'video') {
+            LLMAState.attachedImage = attachment;
+            llmaShowAttachmentPreview(attachment.dataUrl);
+            return;
+        }
+        // Clearing it revoked the blob URL its preview played from.
+        const objectUrl = URL.createObjectURL(attachment.file);
+        LLMAState.attachedImage = { ...attachment, objectUrl };
+        llmaShowVideoPreview(objectUrl, attachment.sizeBytes);
+    }
+
     /**
      * Upload the currently-attached image or video to the per-user uploads dir; returns `{ url, mediaType }`
      * (the shape both the WS media payload and the DOM render expect), or null on failure (toast
@@ -412,6 +426,7 @@
     window.llmaHandleAttach        = llmaHandleAttach;
     window.llmaAttachKind          = llmaAttachKind;
     window.llmaClearAttachment     = llmaClearAttachment;
+    window.llmaRestoreAttachment   = llmaRestoreAttachment;
     window.llmaUploadAttachedImage = llmaUploadAttachedImage;
     window.llmaSendToPromptBox     = llmaSendToPromptBox;
 })();

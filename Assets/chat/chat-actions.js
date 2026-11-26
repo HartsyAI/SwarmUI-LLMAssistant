@@ -210,6 +210,18 @@ class LLMAMessageActions {
         }
     }
 
+    /** What a new turn calls with every frame the server sends it, error frames included. The first one shows the server took the turn up, which ended whatever an earlier
+     *  turn of the chat was still writing; a refusal (`refused`) does not, and neither does a failure with no frame. */
+    turnWatcher(threadId) {
+        let seen = false;
+        return data => {
+            if (!seen && data && !data.refused) {
+                seen = true;
+                this.forgetLost(threadId);
+            }
+        };
+    }
+
     /** The lost replies at or under a message that the chat, as just read, does not store: a turn without tools goes on writing after its connection drops. */
     stillWriting(msgId, thread) {
         let stored = new Set(thread.messages.map(m => m.id));

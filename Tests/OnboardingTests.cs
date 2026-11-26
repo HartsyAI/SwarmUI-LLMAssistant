@@ -232,10 +232,15 @@ public class OnboardingTests
         PromptAsset skill = new(PromptAsset.KindSkill, "video-prompt", "", "", "", PromptAsset.ScopeShared, null, false);
         try
         {
-            Assert.False(StarterMatching.HasSnippet(none, root, "video-prompt"));
-            Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, root, "video-prompt"));
+            Assert.False(StarterMatching.HasSnippet(none, [], root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, [], root, "video-prompt"));
+            // A trusted workspace's, of either kind: a personal command would take its place there.
+            PromptAsset inProject = new(PromptAsset.KindCommand, "video-prompt", "", "", "", PromptAsset.ScopeWorkspace, null, false);
+            Assert.True(StarterMatching.HasSnippet(none, [inProject], root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(none, [skill], root, "video-prompt"));
+            Assert.False(StarterMatching.HasSnippet(none, [inProject], root, "enhance-prompt"));
             Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindSkill, "video-prompt", "my skill", true, out _));
-            Assert.True(StarterMatching.HasSnippet(none, root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(none, [], root, "video-prompt"));
             Assert.False(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "video-prompt", "starter", true, out string shadow));
             Assert.Equal(PromptAssetService.AlreadyExists, shadow);
             string file = Path.Combine(root, "commands", "enhance-prompt.md");
@@ -355,6 +360,30 @@ public class OnboardingTests
         OnboardingState.Apply(skipped, OnboardingState.ActionSkip, out _, out _);
         OnboardingState.DuringInstall(skipped, false, () => true);
         Assert.Equal(OnboardingState.Skipped, OnboardingState.Load(skipped));
+    }
+
+    [Fact]
+    public async Task Two_installs_at_once_leave_a_new_user_in_the_guide()
+    {
+        FakeStorage storage = new();
+        int taken = 0;
+        using ManualResetEventSlim firstInside = new(), secondDone = new();
+        // The install that opens the guide is held inside until the other has had its turn, or has shown (by this wait running out) that it waits for this one.
+        Task first = Task.Run(() => OnboardingState.DuringInstall(storage, false, () =>
+        {
+            firstInside.Set();
+            secondDone.Wait(TimeSpan.FromSeconds(2));
+            return Interlocked.Exchange(ref taken, 1) == 0;
+        }));
+        Assert.True(firstInside.Wait(TimeSpan.FromSeconds(30)));
+        Task second = Task.Run(() =>
+        {
+            OnboardingState.DuringInstall(storage, false, () => Interlocked.Exchange(ref taken, 1) == 0);
+            secondDone.Set();
+        });
+        await Task.WhenAll(first, second);
+        // The items are there, whichever install added them: the user is still in the guide.
+        Assert.Equal(OnboardingState.Pending, OnboardingState.Load(storage));
     }
 
     [Fact]

@@ -30,10 +30,11 @@ public static class StarterMatching
             || assistants.Properties().Any(p => p.Value is JObject own && string.Equals(own["name"]?.ToString().Trim(), starter.Name, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Whether the name of a starter command is in use: by a command, or by a skill (which a command of the same name would hide behind <c>/name</c>), among those the user can see
-    /// (<paramref name="visible"/>) or as a file under their own folder, which the list leaves out when it is too large to read.</summary>
-    public static bool HasSnippet(PromptAssetSet visible, string personalRoot, string name)
+    /// outside a chat (<paramref name="visible"/>), in a workspace they trust (<paramref name="inWorkspaces"/>, where a personal command would take its place), or as a file under their
+    /// own folder, which the list leaves out when it is too large to read.</summary>
+    public static bool HasSnippet(PromptAssetSet visible, IEnumerable<PromptAsset> inWorkspaces, string personalRoot, string name)
         => visible.Get(PromptAsset.KindCommand, name) is not null || visible.Get(PromptAsset.KindSkill, name) is not null
-            || (personalRoot is not null && PromptAssetService.NameTaken(personalRoot, name));
+            || inWorkspaces.Any(a => a.Name == name) || (personalRoot is not null && PromptAssetService.NameTaken(personalRoot, name));
 }
 
 /// <summary>One user's own items, as the starter set sees them. There is no way to replace or remove anything through it.</summary>

@@ -152,6 +152,9 @@
         }
     }
 
+    /** What a delete says when the stored chat does not hold the message: nothing was deleted by it. */
+    const LLMA_NOT_SAVED = 'That message was not in the saved chat';
+
     /** Reads the chat as stored, asks if need be, and deletes. File-private. */
     async function llmaDeleteFromServer(msgId) {
         const threadId = LLMAState.activeThreadId;
@@ -173,7 +176,7 @@
         const writing = llmaActions.stillWriting(msgId, saved);
         if (!writing.length && !saved.messages.some(m => m.id === msgId)) {
             // Never saved (a reply that failed or was stopped before anything), or already gone: show the chat as it is stored.
-            llmaShowStoredThread(saved, focusAt);
+            llmaShowStoredThread(saved, focusAt, LLMA_NOT_SAVED);
             return;
         }
         // Asked before anything is stopped, so saying no changes nothing.
@@ -191,7 +194,7 @@
             }
             if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
             if (!saved.messages.some(m => m.id === msgId)) {
-                llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : 'Message deleted');
+                llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : LLMA_NOT_SAVED);
                 return;
             }
         }

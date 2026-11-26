@@ -9,6 +9,9 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 /// kind needs there.</summary>
 public sealed class UserStarterTarget(User user) : IStarterTarget
 {
+    /// <summary>What the user's trusted workspaces hold, read once for this target when first asked about.</summary>
+    private List<PromptAsset> _inWorkspaces;
+
     /// <inheritdoc/>
     public string UserId => user.UserID;
 
@@ -31,7 +34,8 @@ public sealed class UserStarterTarget(User user) : IStarterTarget
         }
         if (kind == StarterKinds.Snippet)
         {
-            return StarterMatching.HasSnippet(PromptAssetService.For(user, null), PromptAssetService.RootFor(user, PromptAsset.ScopePersonal), id);
+            _inWorkspaces ??= PromptAssetService.InTrustedWorkspaces(user);
+            return StarterMatching.HasSnippet(PromptAssetService.For(user, null), _inWorkspaces, PromptAssetService.RootFor(user, PromptAsset.ScopePersonal), id);
         }
         // The stored text itself, so a chat that cannot be read is left alone too.
         return user.GetGenericData(ThreadStorageService.DataName, ThreadStorageService.ThreadPrefix + id) is not null;

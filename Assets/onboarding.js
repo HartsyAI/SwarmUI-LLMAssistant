@@ -1,6 +1,6 @@
 /**
  * The first-run guide: what is ready (a backend, a chat model, tools, embeddings), where to set up a backend when there is none, and the starter set to add in one click. It sits over an empty
- * chat and never blocks anything: the message box, the chat list and the settings stay usable, the assistant gallery and chats with messages hide it, sending a message closes it, and it can be
+ * chat and never blocks anything: the message box, the chat list and the settings stay usable, the assistant gallery and chats with messages hide it, sending a message or running a tool closes it, and it can be
  * skipped. The server keeps whether the user has seen it and says what to show; Settings > General can run it again. Built from Bootstrap's list-group, badge and alert.
  */
 class LLMAOnboarding {
@@ -105,7 +105,7 @@ class LLMAOnboarding {
         this.render();
     }
 
-    /** The user sent a message: the guide is done with. The server records that itself when it saves the message. */
+    /** The user sent a message or ran a tool in a chat: the guide is done with. The server records that itself when it saves it. */
     onSend() {
         this.open = false;
         this.sync();

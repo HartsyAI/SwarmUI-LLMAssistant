@@ -1,6 +1,7 @@
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Onboarding;
 using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using SwarmUI.Utils;
 
@@ -160,6 +161,13 @@ public static class ToolEndpoints
         {
             return new JObject { ["success"] = false, ["error"] = "toolId is required" };
         }
+        // The page names the saved message as it names the row it drew, so the row can be deleted or answered from at once. A name the chat holds is refused before anything runs.
+        string messageId = rawInput["messageId"]?.ToString();
+        if (!string.IsNullOrEmpty(messageId) && !string.IsNullOrEmpty(threadId) && session?.User is not null
+            && MessageActions.Find(ThreadStorageService.GetThread(session.User, threadId), messageId) is not null)
+        {
+            return new JObject { ["success"] = false, ["error"] = $"The chat already has a message '{messageId}'." };
+        }
         // Honors the same per-handler permission gate as agentic execution (enforced inside ExecuteTool),
         // so this endpoint is safe at the chat permission level. assistant/thread context is optional.
         JObject result = await ToolExecutorService.ExecuteTool(toolId, args, session, assistantId: assistantId, threadId: threadId, modelId: null);
@@ -175,13 +183,23 @@ public static class ToolEndpoints
         {
             try
             {
-                ThreadStorageService.AppendMessage(session.User, threadId, new JObject
+                JObject call = new()
                 {
                     ["role"] = "assistant",
                     ["content"] = "",
                     ["toolCalls"] = new JArray { new JObject { ["id"] = callId, ["name"] = toolId, ["arguments"] = args, ["result"] = result } },
                     ["meta"] = new JObject { ["manualTool"] = true },
-                });
+                };
+                if (!string.IsNullOrEmpty(messageId))
+                {
+                    call["id"] = messageId;
+                }
+                JObject appended = ThreadStorageService.AppendMessage(session.User, threadId, call);
+                // A tool run by hand in a chat ends the first run, as a message does. One run outside a chat (a test from Settings) does not come here.
+                if (appended is not null)
+                {
+                    OnboardingService.NoteMessage(session.User);
+                }
             }
             catch (Exception ex)
             {

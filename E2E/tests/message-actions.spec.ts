@@ -1,4 +1,4 @@
-import { test, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, reopen, enableSessionTools, resetSessionTools } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, reopen, enableSessionTools, resetSessionTools, useDocumentCaps } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // The per-message actions: copy, regenerate / retry, edit and resend, delete, branch from here.
@@ -716,4 +716,79 @@ test('deleting the branch on screen leaves a way to the other one', async ({ llm
     await expect(replyRows(llm)).toHaveCount(0);
     await llm.locator('.llma-msg-later').click();
     await expect(lastAssistant(llm)).toContainText('take one');
+});
+
+for (let compare of [false, true]) {
+    test(`an error as the first thing a turn says ends the wait for a lost reply, a refusal does not${compare ? ', with two models' : ''}`, async ({ llm }) => {
+        test.slow();
+        await clearRequests();
+        await setScenarios([{ match: 'slow one', rounds: [{ delayMs: 30_000, text: 'never mind' }] }, { match: 'broken one', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }]);
+        if (compare) {
+            await llm.locator('#llma-compare-toggle').click();
+            await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
+        }
+        let lost = compare ? 2 : 1;
+        await send(llm, 'slow one');
+        await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThanOrEqual(lost);
+        await loseConnection(llm);
+        expect(await lostCount(llm)).toBe(lost);
+        // Refused for its documents: the server takes no turn up, and what it was writing goes on.
+        try {
+            await llm.locator('#llma-attach-file').setInputFiles([1, 2].map(n => ({ name: `d${n}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`words ${n}`) })));
+            await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(2, { timeout: 20_000 });
+            await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+            await useDocumentCaps(llm, { documentMaxPerMessage: 1 });
+            await send(llm, 'refused one');
+            await expect(llm.locator('.llma-toast')).toContainText('at most 1 documents');
+            await expect(llm.locator('#llma-send-btn')).toBeVisible();
+            expect(await lostCount(llm)).toBe(lost);
+        }
+        finally {
+            await useDocumentCaps(llm, { documentMaxPerMessage: 5 });
+        }
+        for (let left of [1, 0]) {
+            await llm.locator('#llma-document-chips .llma-doc-chip-remove').first().click();
+            await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(left);
+        }
+        await send(llm, 'broken one');
+        await expect(llm.locator('.llma-msg-error').last()).toBeVisible({ timeout: 20_000 });
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        await expect.poll(() => lostCount(llm)).toBe(0);
+    });
+}
+
+test('a tool run by hand is saved as the row shows it: it can be deleted at once, and a reply asked for after it', async ({ llm }) => {
+    await setScenarios([{ match: 'before the tool', rounds: [{ text: 'first reply' }] }]);
+    await exchange(llm, 'before the tool', 'first reply');
+    await llm.evaluate(() => (0, eval)('llmaRunToolDirect')({ id: 'memory_read' }, {}));
+    await expect(replyRows(llm)).toHaveCount(2);
+    let row = replyRows(llm).last();
+    let id = (await row.getAttribute('data-msg-id'))!;
+    let messages = await stored(llm);
+    expect(messages.map(m => m.id)).toContain(id);
+    expect(messages.find(m => m.id == id)!.parentId).toBe(messages[1].id);
+    await expectSameTree(llm);
+    // A second call under an id the chat holds is refused before the tool runs.
+    let listed = await api(llm, 'LLMAssistantGetThreads');
+    expect(await api(llm, 'LLMAssistantExecuteTool', { toolId: 'memory_read', arguments: {}, threadId: listed.threads[0].id, messageId: id })).toMatchObject({ success: false });
+    expect(await stored(llm)).toHaveLength(3);
+    await row.hover();
+    await action(llm, row, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(1);
+    await expect(llm.locator('#llma-announcer')).toContainText('Message deleted');
+    expect(await stored(llm)).toHaveLength(2);
+});
+
+test('deleting a message the saved chat does not hold says that, not that it was deleted', async ({ llm }) => {
+    await setScenarios([{ match: 'twice deleted', rounds: [{ text: 'the reply' }] }]);
+    await exchange(llm, 'twice deleted', 'the reply');
+    let listed = await api(llm, 'LLMAssistantGetThreads');
+    let reply = replyRows(llm).first();
+    // Deleted from somewhere else (another tab) while this page still shows it.
+    expect(await api(llm, 'LLMAssistantDeleteMessage', { threadId: listed.threads[0].id, messageId: await reply.getAttribute('data-msg-id') })).toMatchObject({ success: true });
+    await reply.hover();
+    await action(llm, reply, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(0);
+    await expect(llm.locator('#llma-announcer')).toContainText('not in the saved chat');
+    await expect(llm.locator('#llma-announcer')).not.toContainText('Message deleted');
 });

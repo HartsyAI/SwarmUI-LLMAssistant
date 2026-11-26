@@ -48,6 +48,8 @@
 .llma-compare-col:focus .llma-msg-actions,
 .llma-msg-actions:focus-within { opacity: 1; }
 .llma-msg-action-btn[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+/* The rewrite preview's button while a rewrite is on its way: it stays focusable. */
+.llma-rewrite-modal .basic-button[aria-disabled="true"] { opacity: 0.65; cursor: default; }
 .llma-msg-bubble pre:focus-within .llma-copy-code-btn,
 .llma-copy-code-btn:focus-visible { opacity: 1; }
 /* Under the last message: Retry, and the way to the rest of a branch that stops short. */

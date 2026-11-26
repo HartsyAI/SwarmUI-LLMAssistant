@@ -273,6 +273,24 @@ test.describe('workspace skills and commands', () => {
         return threads[0].id;
     }
 
+    test('the starter set leaves out a command a trusted workspace already has', async ({ llm }) => {
+        let threadId = await codeChat(llm);
+        seed('.llma/commands/enhance-prompt.md', 'From the project: $ARGUMENTS');
+        expect((await api(llm, 'LLMAssistantSetWorkspaceTrust', { workspaceId: 'user:default', trusted: true })).success).toBe(true);
+        try {
+            let result = await api(llm, 'LLMAssistantInstallStarterSet');
+            expect(result.skipped.find((s: any) => s.id == 'enhance-prompt'), JSON.stringify(result)).toMatchObject({ code: 'exists' });
+            expect(result.added.map((a: any) => a.id)).toContain('video-prompt');
+            let expanded = await api(llm, 'LLMAssistantExpandPromptAsset', { kind: 'command', name: 'enhance-prompt', threadId, arguments: 'go' });
+            expect(expanded.text).toBe('From the project: go');
+        }
+        finally {
+            for (let assistantId of ['starter-general', 'starter-prompt-helper', 'starter-researcher']) {
+                await api(llm, 'LLMAssistantDeleteAssistant', { assistantId, scope: 'personal' });
+            }
+        }
+    });
+
     test('are ignored until the workspace is trusted, never replace a name from another scope, and go again when trust is withdrawn', async ({ llm }) => {
         seed('.llma/skills/ws-skill/SKILL.md', '---\ndescription: A workspace skill\n---\nWorkspace steps.');
         seed('.llma/commands/ws-cmd.md', 'From the workspace: $ARGUMENTS');
