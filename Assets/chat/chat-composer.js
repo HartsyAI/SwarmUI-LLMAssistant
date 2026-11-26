@@ -152,6 +152,9 @@
         }
     }
 
+    /** What a delete says when the stored chat does not hold the message: nothing was deleted by it. */
+    const LLMA_NOT_SAVED = 'That message was not in the saved chat';
+
     /** Reads the chat as stored, asks if need be, and deletes. File-private. */
     async function llmaDeleteFromServer(msgId) {
         const threadId = LLMAState.activeThreadId;
@@ -173,7 +176,7 @@
         const writing = llmaActions.stillWriting(msgId, saved);
         if (!writing.length && !saved.messages.some(m => m.id === msgId)) {
             // Never saved (a reply that failed or was stopped before anything), or already gone: show the chat as it is stored.
-            llmaShowStoredThread(saved, focusAt);
+            llmaShowStoredThread(saved, focusAt, LLMA_NOT_SAVED);
             return;
         }
         // Asked before anything is stopped, so saying no changes nothing.
@@ -191,7 +194,7 @@
             }
             if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
             if (!saved.messages.some(m => m.id === msgId)) {
-                llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : 'Message deleted');
+                llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : LLMA_NOT_SAVED);
                 return;
             }
         }
@@ -312,6 +315,7 @@
                 timestamp: new Date().toISOString(),
                 editedFrom: msgId,
             };
+            const previousLeaf = LLMAState.activeLeafId;
             (LLMAState.allNodes = LLMAState.allNodes || []).push(branchNode);
             LLMAState.activeLeafId = newUserId;
             LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, newUserId);
@@ -322,7 +326,9 @@
             payload.content = newContent;
             payload.userMessageId = newUserId;  // store the new branch node under this id
             if (branchNode.media) payload.media = branchNode.media;
-            llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantEditMessageWS' });
+            const wording = textarea.value;
+            const refused = error => llmaTakeBackEdit({ threadId: payload.threadId, messageId: msgId, branchId: newUserId, leafId: previousLeaf, wording }, error);
+            llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantEditMessageWS', refused });
         });
         const cancelBtn = document.createElement('button');
         cancelBtn.type = 'button';
@@ -353,6 +359,32 @@
         textarea.focus();
     }
 
+    /** An edit the server refused made no branch: the one drawn here goes, the chat is shown as stored, and the new wording goes back into the message's editor, or into the
+     *  composer when the message cannot be edited here any more. File-private. */
+    async function llmaTakeBackEdit(edit, error) {
+        llmaShowToast(error, 'error');
+        if (LLMAState.activeThreadId !== edit.threadId) return;
+        llmaDropUnstored(edit.branchId, edit.leafId);
+        await llmaReloadActiveThread();
+        if (LLMAState.activeThreadId !== edit.threadId) return;
+        llmaStartEdit(edit.messageId);
+        const editor = document.querySelector(`#llma-messages [data-msg-id="${CSS.escape(edit.messageId)}"] textarea`);
+        if (editor) {
+            editor.value = edit.wording;
+        }
+        else {
+            llmaPutBackText(edit.wording);
+        }
+    }
+
+    /** A regenerate or retry the server refused: the chat is shown as stored, without the reply this page had made room for. File-private. */
+    async function llmaTakeBackRegenerate(threadId, error) {
+        llmaShowToast(error, 'error');
+        if (LLMAState.activeThreadId === threadId) {
+            await llmaReloadActiveThread();
+        }
+    }
+
     /** Regenerate an assistant reply as a NEW sibling branch (the previous reply stays switchable via the
      *  ‹ k/n › pager). The server moves the branch point to the preceding turn and streams a fresh reply. */
     function llmaRegenerateMessage(msgId) {
@@ -373,7 +405,7 @@
 
         const payload = llmaBuildPayload('', 'chat');
         payload.messageId = targetId; // the reply to regenerate, or the user message to answer
-        llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantRegenerateWS' });
+        llmaStreamResponse(payload, null, { endpoint: 'LLMAssistantRegenerateWS', refused: error => llmaTakeBackRegenerate(payload.threadId, error) });
     }
 
     // --- Public API (called by sibling files + other chat/ modules) ---

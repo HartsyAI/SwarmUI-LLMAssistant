@@ -756,6 +756,8 @@ public static class ChatEndpoints
     /// history, streams the response, and persists the assistant reply when done.</summary>
     public static async Task<JObject> LLMAssistantSendMessageWS(WebSocket socket, Session session, JObject rawInput)
     {
+        // Whether the message is in the chat yet: a failure before that is a refusal (see Refuse).
+        bool stored = false;
         try
         {
             string threadId = rawInput["threadId"]?.ToString();
@@ -765,17 +767,17 @@ public static class ChatEndpoints
             string userMessageId = rawInput["userMessageId"]?.ToString();
             if (string.IsNullOrEmpty(threadId))
             {
-                return new JObject { ["success"] = false, ["error"] = "threadId is required. Call LLMAssistantCreateThread first." };
+                return Refuse("threadId is required. Call LLMAssistantCreateThread first.");
             }
             if (string.IsNullOrEmpty(message))
             {
-                return new JObject { ["success"] = false, ["error"] = "message is required." };
+                return Refuse("message is required.");
             }
             // Attached documents are named by id; what the message holds about them is built from the user's own stored files, never taken from the request.
             (JArray documents, string documentError) = ChatDocuments.Resolve(session.User, rawInput[ChatDocuments.Field], DocumentCaps.From(SettingsService.GetMergedSettings(session.User)));
             if (documentError is not null)
             {
-                return new JObject { ["success"] = false, ["error"] = documentError };
+                return Refuse(documentError);
             }
             // A session still working in the background is stopped first (what it had is saved), so the user's message lands after it and not before its partial reply.
             // Reports from sessions that finished since the last turn go in just before the message, where the model reads them with it.
@@ -802,8 +804,9 @@ public static class ChatEndpoints
             }
             if (ThreadStorageService.AppendMessage(session.User, threadId, userMsg) is null)
             {
-                return new JObject { ["success"] = false, ["error"] = $"Chat '{threadId}' not found." };
+                return Refuse($"Chat '{threadId}' not found.");
             }
+            stored = true;
             // AppendMessage fills in the id when the client didn't supply one; capture it as the explicit
             // parent for compare lanes (so both replies become siblings of this exact user turn).
             string parentUserId = userMsg["id"]?.ToString();
@@ -823,11 +826,7 @@ public static class ChatEndpoints
         }
         catch (Exception ex)
         {
-            return new JObject
-            {
-                ["success"] = false,
-                ["error"] = ex.Message
-            };
+            return stored ? Fail(ex.Message) : Refuse(ex.Message);
         }
     }
 
@@ -838,23 +837,24 @@ public static class ChatEndpoints
     /// node), assistantMessageId, model?, ... }</c>.</summary>
     public static async Task<JObject> LLMAssistantEditMessageWS(WebSocket socket, Session session, JObject rawInput)
     {
+        bool takenUp = false;
         try
         {
             string threadId = rawInput["threadId"]?.ToString();
             string messageId = rawInput["messageId"]?.ToString();
             string content = rawInput["content"]?.ToString();
             string userMessageId = rawInput["userMessageId"]?.ToString();
-            if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
-            if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
-            if (content is null) { return Fail("content is required."); }
+            if (string.IsNullOrEmpty(threadId)) { return Refuse("threadId is required."); }
+            if (string.IsNullOrEmpty(messageId)) { return Refuse("messageId is required."); }
+            if (content is null) { return Refuse("content is required."); }
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
-            if (MessageActions.Find(thread, messageId) is null) { return Fail($"Message '{messageId}' not found in thread."); }
+            if (thread is null) { return Refuse($"Chat '{threadId}' not found."); }
+            if (MessageActions.Find(thread, messageId) is null) { return Refuse($"Message '{messageId}' not found in thread."); }
             // A session still working in the background is stopped first (what it had is saved), so it cannot append to the branch made here. Only a request that can be carried out stops it.
             await BackgroundTurnService.StopAsync(session.User, threadId);
             // Read again: stopping saved what the turn had.
             JObject original = MessageActions.Find(ThreadStorageService.GetThread(session.User, threadId), messageId);
-            if (original is null) { return Fail($"Message '{messageId}' not found in thread."); }
+            if (original is null) { return Refuse($"Message '{messageId}' not found in thread."); }
             // Build the edited sibling: same role, new content, carry the original's media and documents.
             JObject edited = new() { ["role"] = original["role"]?.ToString() ?? Roles.User, ["content"] = content };
             if (!string.IsNullOrEmpty(userMessageId)) { edited["id"] = userMessageId; }
@@ -864,15 +864,16 @@ public static class ChatEndpoints
             edited["editedFrom"] = messageId;
             if (ThreadStorageService.AddBranch(session.User, threadId, messageId, edited) is null)
             {
-                return Fail("Failed to create edit branch.");
+                return Refuse("Failed to create edit branch.");
             }
+            takenUp = true;
             OnboardingService.NoteMessage(session.User);
             await StreamReplyForThread(socket, session, threadId, rawInput);
             return null;
         }
         catch (Exception ex)
         {
-            return new JObject { ["success"] = false, ["error"] = ex.Message };
+            return takenUp ? Fail(ex.Message) : Refuse(ex.Message);
         }
     }
 
@@ -881,31 +882,33 @@ public static class ChatEndpoints
     /// Request: <c>{ threadId, messageId (the reply to regenerate, or the user message to answer), assistantMessageId, model?, ... }</c>.</summary>
     public static async Task<JObject> LLMAssistantRegenerateWS(WebSocket socket, Session session, JObject rawInput)
     {
+        bool takenUp = false;
         try
         {
             string threadId = rawInput["threadId"]?.ToString();
             string messageId = rawInput["messageId"]?.ToString();
-            if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
-            if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
+            if (string.IsNullOrEmpty(threadId)) { return Refuse("threadId is required."); }
+            if (string.IsNullOrEmpty(messageId)) { return Refuse("messageId is required."); }
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
-            if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
-            if (!MessageActions.TryResolveReplyPoint(thread, messageId, out _, out string error)) { return Fail(error); }
+            if (thread is null) { return Refuse($"Chat '{threadId}' not found."); }
+            if (!MessageActions.TryResolveReplyPoint(thread, messageId, out _, out string error)) { return Refuse(error); }
             // A session still working in the background is stopped first (what it had is saved), so its reply cannot land beside the new one. Only a request that can be carried out stops it.
             await BackgroundTurnService.StopAsync(session.User, threadId);
             // Read again: stopping saved what the turn had.
-            if (!MessageActions.TryResolveReplyPoint(ThreadStorageService.GetThread(session.User, threadId), messageId, out string replyTo, out error)) { return Fail(error); }
+            if (!MessageActions.TryResolveReplyPoint(ThreadStorageService.GetThread(session.User, threadId), messageId, out string replyTo, out error)) { return Refuse(error); }
             // Move the active leaf to the turn being answered; the streamed reply appends as a new child of it.
             if (ThreadStorageService.SetActiveLeaf(session.User, threadId, replyTo) is null)
             {
-                return Fail("Failed to set branch point.");
+                return Refuse("Failed to set branch point.");
             }
+            takenUp = true;
             OnboardingService.NoteMessage(session.User);
             await StreamReplyForThread(socket, session, threadId, rawInput);
             return null;
         }
         catch (Exception ex)
         {
-            return new JObject { ["success"] = false, ["error"] = ex.Message };
+            return takenUp ? Fail(ex.Message) : Refuse(ex.Message);
         }
     }
 
@@ -1292,6 +1295,10 @@ public static class ChatEndpoints
 
     /// <summary>Small helper for pre-stream validation failures on the chat endpoints.</summary>
     private static JObject Fail(string error) => new() { ["success"] = false, ["error"] = error };
+
+    /// <summary>The failure of a chat socket request that was turned down before it stored anything or took a turn up. <c>refused</c> tells the page that the message was not
+    /// kept, so it goes back to the composer, and that a reply still being written in the chat goes on.</summary>
+    private static JObject Refuse(string error) => new() { ["success"] = false, ["error"] = error, ["refused"] = true };
 
     /// <summary>Sends a single <c>{ "error": ... }</c> frame over the socket (mirrors the client's error
     /// handling) for failures that surface after streaming has begun.</summary>

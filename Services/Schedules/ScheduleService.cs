@@ -111,6 +111,7 @@ public static class ScheduleService
                 continue;
             }
             string id = schedule[ScheduleFields.Id].ToString();
+            MarkIfCreatorHasDocuments(user, schedule);
             // Move on before running: the next time is saved first, so this one is not repeated whatever happens to the run.
             ScheduleStore.Mutate(user, id, s =>
             {
@@ -141,6 +142,8 @@ public static class ScheduleService
         {
             return new ScheduleRunResult(false, null, null, "There is no such schedule.");
         }
+        // Before anything can skip the run: the chat that made the schedule may be deleted before one starts.
+        MarkIfCreatorHasDocuments(user, schedule);
         if (!user.HasPermission(LLMAssistantAPI.PermSchedules))
         {
             return Skipped(user, scheduleId, "The user no longer has permission to run schedules.", nowUtc);
@@ -198,6 +201,24 @@ public static class ScheduleService
         return new ScheduleRunResult(true, runId, status, null);
     }
 
+    /// <summary>Marks a schedule the assistant made that has no <see cref="ScheduleFields.FromDocuments"/> yet, when the chat that made it has a document within reach now: one saved before the
+    /// mark was kept, or whose chat took in a document since. Saved, so it holds after that chat is gone.</summary>
+    private static void MarkIfCreatorHasDocuments(User user, JObject schedule)
+    {
+        string createdBy = schedule[ScheduleFields.CreatedBy]?.ToString();
+        if (schedule[ScheduleFields.Source]?.ToString() != ScheduleSources.Assistant || schedule[ScheduleFields.FromDocuments] is not null || string.IsNullOrWhiteSpace(createdBy)
+            || ThreadStorageService.GetThread(user, createdBy) is not JObject creator || !Documents.ChatDocuments.ReachedByDocuments(user, creator))
+        {
+            return;
+        }
+        schedule[ScheduleFields.FromDocuments] = true;
+        ScheduleStore.Mutate(user, schedule[ScheduleFields.Id].ToString(), s =>
+        {
+            s[ScheduleFields.FromDocuments] = true;
+            return true;
+        });
+    }
+
     /// <summary>The chat a schedule's runs are listed under, made the first time it is needed (and again if the user deleted it). Its approval mode follows the schedule's, and a new one takes the prompt rewrite switch of
     /// the chat that made the schedule, which its runs then inherit.</summary>
     private static JObject EnsureHost(User user, JObject schedule, JObject settings)
@@ -229,6 +250,11 @@ public static class ScheduleService
             thread[ScheduleFields.HostMarker] = scheduleId;
             thread["approvalMode"] = mode;
             PromptRewrite.RewritePolicy.CopyChatSwitch(creator, thread);
+            // Set every time, from the schedule: the chat that made it may be gone. Runs are sessions under this chat, so the memory guard finds the mark.
+            if (schedule[ScheduleFields.FromDocuments] is JValue { Type: JTokenType.Boolean } fromDocuments && fromDocuments.Value<bool>())
+            {
+                thread[Documents.ChatDocuments.ThreadFlag] = true;
+            }
             ThreadStorageService.MarkTitleClaimed(thread);
             return true;
         });

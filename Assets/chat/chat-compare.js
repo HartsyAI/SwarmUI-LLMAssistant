@@ -258,7 +258,7 @@
 
     /** Stream one prompt to two models over a single multiplexed socket. `payload` is the fully-built
      *  send payload from llmaSendMessage (threadId, message, userMessageId, params, media). */
-    function llmaStreamCompare(payload, userMsgId) {
+    function llmaStreamCompare(payload, userMsgId, opts = {}) {
         const laneModels = [LLMAState.currentModel, LLMAState.compareModelB];
         // Resolve each lane's device/backend, honoring any per-lane override from the header dropdown.
         const lanes = laneModels.map((model, i) => {
@@ -318,14 +318,10 @@
             if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
         };
 
-        let accepted = false;
+        const takenUp = llmaActions.turnWatcher(wsPayload.threadId);
         try {
             LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', wsPayload, data => {
-                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
-                if (!accepted) {
-                    accepted = true;
-                    llmaActions.forgetLost(wsPayload.threadId);
-                }
+                takenUp(data);
                 // Every compare event is lane-tagged; route to the right column. Default to lane 0 for safety.
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];
@@ -340,6 +336,7 @@
                 if (data.tool_result) ctl.toolResult(data.tool_result);
                 if (data.done) { ctl.done(data); if (++doneCount >= ctls.length) finalizeGroup(); }
             }, 0, (err, data) => {
+                takenUp(data);
                 // Core's helper hands every error frame here, one lane's included: that lane fails and the other goes on.
                 if (data && typeof data.lane === 'number' && ctls[data.lane]) {
                     if (!ctls[data.lane].isDone()) {
@@ -356,6 +353,9 @@
                 }
                 ctls.forEach(c => { if (!c.isDone()) c.fail(err || 'WebSocket error'); });
                 finalizeGroup();
+                if (data?.refused && opts.refused) {
+                    opts.refused(err);
+                }
             });
         } catch (ex) {
             ctls.forEach(c => { if (!c.isDone()) c.fail(ex && ex.message ? ex.message : String(ex)); });

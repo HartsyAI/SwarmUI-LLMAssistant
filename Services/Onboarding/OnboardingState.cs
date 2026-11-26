@@ -42,6 +42,9 @@ public static class OnboardingState
     /// <summary>Held while the state is read and written.</summary>
     private static readonly object Lock = new();
 
+    /// <summary>Held for the whole of <see cref="DuringInstall"/>. Not <see cref="Lock"/>, which a message being sent takes: it does not wait for an install.</summary>
+    private static readonly object InstallRuns = new();
+
     /// <summary>The saved status; <see cref="New"/> when nothing was saved or what was saved cannot be read.</summary>
     public static string Load(IOnboardingStorage storage)
     {
@@ -117,29 +120,33 @@ public static class OnboardingState
     /// when nothing was added, they are left new, as they were.</summary>
     public static void DuringInstall(IOnboardingStorage storage, bool hadChats, Func<bool> install)
     {
-        bool opened = false;
-        lock (Lock)
+        // One at a time: an install that found nothing left to add, because another was adding it, would put the user back to new while their chats were arriving.
+        lock (InstallRuns)
         {
-            if (Load(storage) == New && !hadChats)
+            bool opened = false;
+            lock (Lock)
             {
-                Save(storage, Pending);
-                opened = true;
-            }
-        }
-        bool added = false;
-        try
-        {
-            added = install();
-        }
-        finally
-        {
-            if (opened && !added)
-            {
-                lock (Lock)
+                if (Load(storage) == New && !hadChats)
                 {
-                    if (Load(storage) == Pending)
+                    Save(storage, Pending);
+                    opened = true;
+                }
+            }
+            bool added = false;
+            try
+            {
+                added = install();
+            }
+            finally
+            {
+                if (opened && !added)
+                {
+                    lock (Lock)
                     {
-                        Save(storage, New);
+                        if (Load(storage) == Pending)
+                        {
+                            Save(storage, New);
+                        }
                     }
                 }
             }

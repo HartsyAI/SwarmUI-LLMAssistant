@@ -275,9 +275,26 @@ public static class ThreadStorageService
         return thread;
     }
 
+    /// <summary>The longest message id kept.</summary>
+    public const int MaxMessageIdChars = 64;
+
+    /// <summary>Whether a caller's message id can be kept: letters, digits, dashes and underscores only, as the page puts ids into selectors.</summary>
+    public static bool IsValidMessageId(string id) => id is { Length: > 0 and <= MaxMessageIdChars } && id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_');
+
+    /// <summary>Gives a message about to join <paramref name="messages"/> an id of its own: one that is missing, cannot be kept or is taken is replaced. Done under the write lock, so of two
+    /// requests with one id only the first keeps it; a message that was its own parent would cut the history off the branch showing.</summary>
+    internal static void ClaimMessageId(JArray messages, JObject message)
+    {
+        string id = message["id"]?.ToString();
+        if (!IsValidMessageId(id) || messages.OfType<JObject>().Any(m => m["id"]?.ToString() == id))
+        {
+            message["id"] = Guid.NewGuid().ToString("N");
+        }
+    }
+
     /// <summary>Appends a single message to a thread and persists. The message is expected to
     /// have at minimum <c>role</c> and <c>content</c>; <c>id</c> and <c>timestamp</c> are filled
-    /// in if missing. Returns the updated thread, or null if not found.</summary>
+    /// in if missing, and an id the chat cannot take is replaced (see <see cref="ClaimMessageId"/>). Returns the updated thread, or null if not found.</summary>
     public static JObject AppendMessage(User user, string threadId, JObject message)
     {
         if (message is null)
@@ -294,10 +311,7 @@ public static class ThreadStorageService
                 return null;
             }
             JArray messages = thread["messages"] as JArray ?? [];
-            if (message["id"] is null)
-            {
-                message["id"] = Guid.NewGuid().ToString("N");
-            }
+            ClaimMessageId(messages, message);
             if (message["timestamp"] is null)
             {
                 message["timestamp"] = DateTime.UtcNow.ToString("o");
@@ -340,10 +354,7 @@ public static class ThreadStorageService
                 return null;
             }
             JArray messages = thread["messages"] as JArray ?? [];
-            if (message["id"] is null)
-            {
-                message["id"] = Guid.NewGuid().ToString("N");
-            }
+            ClaimMessageId(messages, message);
             if (message["timestamp"] is null)
             {
                 message["timestamp"] = DateTime.UtcNow.ToString("o");
@@ -569,10 +580,7 @@ public static class ThreadStorageService
             {
                 return null;
             }
-            if (newMessage["id"] is null)
-            {
-                newMessage["id"] = Guid.NewGuid().ToString("N");
-            }
+            ClaimMessageId(messages, newMessage);
             if (newMessage["timestamp"] is null)
             {
                 newMessage["timestamp"] = DateTime.UtcNow.ToString("o");

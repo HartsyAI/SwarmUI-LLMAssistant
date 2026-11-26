@@ -273,6 +273,36 @@ test.describe('workspace skills and commands', () => {
         return threads[0].id;
     }
 
+    test('the starter set leaves out a command a trusted workspace already has', async ({ llm }) => {
+        let threadId = await codeChat(llm);
+        seed('.llma/commands/enhance-prompt.md', 'From the project: $ARGUMENTS');
+        expect((await api(llm, 'LLMAssistantSetWorkspaceTrust', { workspaceId: 'user:default', trusted: true })).success).toBe(true);
+        try {
+            let result = await api(llm, 'LLMAssistantInstallStarterSet');
+            expect(result.skipped.find((s: any) => s.id == 'enhance-prompt'), JSON.stringify(result)).toMatchObject({ code: 'workspace' });
+            expect(result.starter.items.find((i: any) => i.id == 'enhance-prompt')).toMatchObject({ installed: false, inWorkspace: true });
+            expect(result.starter).toMatchObject({ inWorkspace: 1, missing: 0, installed: result.starter.total - 1 });
+            expect(result.added.map((a: any) => a.id)).toContain('video-prompt');
+            let expanded = await api(llm, 'LLMAssistantExpandPromptAsset', { kind: 'command', name: 'enhance-prompt', threadId, arguments: 'go' });
+            expect(expanded.text).toBe('From the project: go');
+            // The guide says where it is, and does not claim the whole set was added.
+            expect((await api(llm, 'LLMAssistantSetOnboarding', { action: 'run' })).success).toBe(true);
+            await reopen(llm);
+            await llm.locator('#llma-new-thread-btn').click();
+            let item = llm.locator('#llma-onboarding li[data-item="enhance-prompt"]');
+            await expect(item).toContainText('In a workspace');
+            await expect(item).not.toContainText('Added');
+            await expect(llm.locator('#llma-onboarding-install')).toHaveText('Nothing left to add');
+            await expect(llm.locator('#llma-onboarding-install')).toBeDisabled();
+        }
+        finally {
+            await api(llm, 'LLMAssistantSetOnboarding', { action: 'skip' });
+            for (let assistantId of ['starter-general', 'starter-prompt-helper', 'starter-researcher']) {
+                await api(llm, 'LLMAssistantDeleteAssistant', { assistantId, scope: 'personal' });
+            }
+        }
+    });
+
     test('are ignored until the workspace is trusted, never replace a name from another scope, and go again when trust is withdrawn', async ({ llm }) => {
         seed('.llma/skills/ws-skill/SKILL.md', '---\ndescription: A workspace skill\n---\nWorkspace steps.');
         seed('.llma/commands/ws-cmd.md', 'From the workspace: $ARGUMENTS');
@@ -307,6 +337,9 @@ test.describe('workspace skills and commands', () => {
         await setScenarios([turn('use the workspace skill', [{ name: 'skill', arguments: { name: 'ws-skill' } }], 'Done.')]);
         await send(llm, 'use the workspace skill');
         await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(3);
+        // The row is there as soon as the reply starts: the tool's result is sent, and answered, after that.
+        await expect(lastAssistant(llm)).toContainText('Done.');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
         let request = (await mockRequests())[0];
         expect(request.messages.map((m: any) => JSON.stringify(m.content)).join('\n')).toContain('ws-skill: A workspace skill');
         expect((await toolResults())[0]).toMatchObject({ success: true, instructions: 'Workspace steps.' });

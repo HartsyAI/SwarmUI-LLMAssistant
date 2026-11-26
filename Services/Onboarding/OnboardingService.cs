@@ -66,7 +66,7 @@ public static class OnboardingService
         return new JObject { ["success"] = true, ["status"] = status, ["show"] = OnboardingState.ShouldShow(status, HasChats(user)) };
     }
 
-    /// <summary>Records that the user sent a message in a chat, which ends their first run. Never throws: it runs on the way to a reply, which must not fail over the guide's bookkeeping.</summary>
+    /// <summary>Records that the user sent a message or ran a tool by hand in a chat, which ends their first run. Never throws: it runs on the way to a reply, which must not fail over the guide's bookkeeping.</summary>
     public static void NoteMessage(User user)
     {
         try

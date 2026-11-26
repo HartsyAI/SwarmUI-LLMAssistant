@@ -108,10 +108,12 @@ class LLMAChatDocuments {
         }
     }
 
-    /** Removes a file from the composer. A remove button that had the keyboard passes it to the one now in its place, or to the attach button. */
+    /** Removes a file from the composer. When its own remove button had the keyboard, that passes to the one now in its place, or to the attach button; the keyboard on
+     *  another chip stays there (as when a file that cannot be read goes by itself). */
     remove(key) {
         let buttons = () => Array.from(document.querySelectorAll('#llma-document-chips .llma-doc-chip-remove'));
-        let held = buttons().indexOf(document.activeElement);
+        let focused = document.activeElement;
+        let held = focused?.closest('#llma-document-chips [data-id]')?.dataset.id == key ? buttons().indexOf(focused) : -1;
         this.pending = this.pending.filter(e => e.key != key);
         this.renderPending();
         if (held >= 0) {
@@ -136,6 +138,13 @@ class LLMAChatDocuments {
         this.pending = this.pending.filter(e => !ready.includes(e));
         this.renderPending();
         return ready.length > 0 ? ready.map(e => e.reference) : null;
+    }
+
+    /** Puts the documents of a message the server refused back on their chat's composer, ahead of anything attached since. */
+    giveBack(thread, references) {
+        let returned = (references || []).map(reference => ({ key: this.nextKey++, thread: thread, name: reference.name, reference: reference }));
+        this.pending = returned.concat(this.pending);
+        this.renderPending();
     }
 
     /** Draws the chips above the composer: those of the chat open now. */

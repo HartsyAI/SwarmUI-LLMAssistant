@@ -54,21 +54,22 @@ public class ImageToolsThirdReviewTests
     [Fact]
     public async Task AClaimThatAppearsDuringTheGraceIsInterruptedAsSoonAsItAppears()
     {
+        // The claim appears at a given look, not after a given time: on a loaded machine a timer can be arbitrarily late, and the test is about the order of things.
+        const int appearsAt = 5;
         TaskCompletionSource done = new();
-        string claim = null;
-        List<string> interrupted = [];
+        TaskCompletionSource<int> interrupted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<string> stopped = [];
         int looks = 0;
-        _ = Task.Run(async () =>
+        Task<string> watcher = ImageBatch.InterruptDuringGraceAsync(done.Task, () => ++looks >= appearsAt ? "claim" : null, claim =>
         {
-            await Task.Delay(120);
-            claim = "claim";
-        });
-        Task<string> watcher = ImageBatch.InterruptDuringGraceAsync(done.Task, () => { looks++; return claim; }, interrupted.Add, TimeSpan.FromSeconds(5));
-        await Task.Delay(400);
-        Assert.Contains("claim", interrupted);
-        Assert.True(looks > 1);
+            stopped.Add(claim);
+            interrupted.TrySetResult(looks);
+        }, TimeSpan.FromMinutes(5));
+        // The same look that found it interrupts it, while the generation is still running.
+        Assert.Equal(appearsAt, await interrupted.Task.WaitAsync(TimeSpan.FromMinutes(1)));
         done.SetResult();
         Assert.Equal("claim", await watcher);
+        Assert.All(stopped, claim => Assert.Equal("claim", claim));
     }
 
     [Fact]

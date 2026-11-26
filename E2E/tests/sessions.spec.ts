@@ -435,3 +435,30 @@ test('with the tools switched off, no session tools are offered', async ({ llm }
     expect(tools.filter((n: string) => n.startsWith('session_'))).toEqual([]);
     await enableSessionTools(llm);
 });
+
+test('two tool calls sent under one message id at once are both kept, and the chat stays whole', async ({ llm }) => {
+    let parent = await newChat(llm);
+    await setScenarios([{ regex: 'slow-task', rounds: [{ text: 'ok', delayMs: 6000 }] }]);
+    let child = await start(llm, parent, 'Slow', 'slow-task');
+    // Both calls are waiting on the session when the first of them is saved.
+    let call = () => api(llm, 'LLMAssistantExecuteTool', { toolId: 'session_wait', threadId: parent, messageId: 'same-id', arguments: { id: child, timeoutSeconds: 30 } });
+    let replies = await Promise.all([call(), call()]);
+    expect(replies.map(r => r.success), JSON.stringify(replies)).toEqual([true, true]);
+    let saved = await thread(llm, parent);
+    let ids: string[] = saved.messages.map((m: any) => m.id);
+    expect(new Set(ids).size, ids.join()).toBe(ids.length);
+    expect(ids).toContain('same-id');
+    expect(replies.map(r => r.messageId).sort()).toEqual(ids.slice(-2).sort());
+    // The branch showing still reaches the first message.
+    let byId = new Map<string, any>(saved.messages.map((m: any) => [m.id, m]));
+    let path: string[] = [];
+    for (let at = saved.activeLeafId; at && !path.includes(at); at = byId.get(at)?.parentId) {
+        path.push(at);
+    }
+    expect(path).toHaveLength(ids.length);
+    // An id that could not go into the page is refused before the tool runs.
+    for (let bad of ['quo"te', 'sp ace', 'x'.repeat(65)]) {
+        expect(await api(llm, 'LLMAssistantExecuteTool', { toolId: 'session_list', threadId: parent, messageId: bad, arguments: {} })).toMatchObject({ success: false });
+    }
+    expect((await thread(llm, parent)).messages).toHaveLength(ids.length);
+});

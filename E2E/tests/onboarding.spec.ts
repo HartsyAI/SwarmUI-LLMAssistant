@@ -17,6 +17,14 @@ async function removeStarters(page: Page) {
     }
 }
 
+/** Removes what specs here make of their own, also after one that failed part way. */
+async function removeOwn(page: Page) {
+    for (let assistantId of ['e2e-onboarding-other', 'e2e-onboarding-mine']) {
+        await api(page, 'LLMAssistantDeleteAssistant', { assistantId, scope: 'personal' });
+    }
+    await api(page, 'LLMAssistantDeletePromptAsset', { kind: 'skill', name: 'video-prompt', scope: 'personal' });
+}
+
 /** The ids the user has of each kind. */
 async function owned(page: Page) {
     let assistants = (await api(page, 'LLMAssistantGetAssistants')).assistants.map((a: any) => a.id as string);
@@ -38,6 +46,7 @@ test.beforeEach(() => test.slow());
 
 test.afterEach(async ({ llm }) => {
     await removeStarters(llm);
+    await removeOwn(llm);
     await api(llm, 'LLMAssistantSetOnboarding', { action: 'skip' });
 });
 
@@ -91,7 +100,6 @@ test('installing keeps the assistant on screen, and the next message goes to it'
     await expect(lastAssistant(llm)).toContainText('The other one.');
     let chat = (await api(llm, 'LLMAssistantGetThreads')).threads.find((t: any) => !t.title.startsWith('Example:'));
     expect(chat.assistantId).toBe('e2e-onboarding-other');
-    await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: 'e2e-onboarding-other', scope: 'personal' });
 });
 
 test('a skill by a snippet\'s name and an assistant by a starter\'s name count as there', async ({ llm }) => {
@@ -104,8 +112,6 @@ test('a skill by a snippet\'s name and an assistant by a starter\'s name count a
     let have = await owned(llm);
     expect(have.commands).not.toContain('video-prompt');
     expect(have.assistants).not.toContain('starter-researcher');
-    await api(llm, 'LLMAssistantDeletePromptAsset', { kind: 'skill', name: 'video-prompt', scope: 'personal' });
-    await api(llm, 'LLMAssistantDeleteAssistant', { assistantId: 'e2e-onboarding-mine', scope: 'personal' });
 });
 
 test('running the guide again while an install is still going leaves its buttons working', async ({ llm }) => {
@@ -226,6 +232,23 @@ for (let way of ['Regenerate', 'Edit']) {
         await expect(llm.locator('#llma-onboarding')).toBeHidden();
     });
 }
+
+test('running a tool by hand ends the first run too', async ({ llm }) => {
+    await asNewUser(llm);
+    await expect(llm.locator('#llma-onboarding')).toBeVisible();
+    await llm.evaluate(() => (0, eval)('llmaRunToolDirect')({ id: 'memory_read' }, {}));
+    await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(1);
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).status).toBe('completed');
+    await llm.locator('#llma-new-thread-btn').click();
+    await expect(llm.locator('#llma-empty-greeting')).toBeVisible();
+    await expect(llm.locator('#llma-onboarding')).toBeHidden();
+});
+
+test('a tool run outside any chat leaves the guide as it is', async ({ llm }) => {
+    expect(await api(llm, 'LLMAssistantSetOnboarding', { action: 'run' })).toMatchObject({ status: 'pending' });
+    expect((await api(llm, 'LLMAssistantExecuteTool', { toolId: 'memory_read', arguments: {} })).success).toBe(true);
+    expect(await api(llm, 'LLMAssistantGetOnboarding', { checks: false })).toMatchObject({ status: 'pending' });
+});
 
 test('skipping is remembered over a reload, and Settings runs it again', async ({ llm }) => {
     await asNewUser(llm);

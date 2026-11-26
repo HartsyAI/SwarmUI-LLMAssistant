@@ -33,6 +33,11 @@ public class OnboardingTests
 
         public bool Has(string kind, string id) => Items.ContainsKey((kind, id));
 
+        /// <summary>A snippet name a trusted workspace has.</summary>
+        public string Projects;
+
+        public bool InWorkspace(string kind, string id) => kind == StarterKinds.Snippet && id == Projects;
+
         public bool HasAssistant(string assistantId) => Items.ContainsKey((StarterKinds.Assistant, assistantId));
 
         public string AddAssistant(StarterAssistant assistant) => Add(StarterKinds.Assistant, assistant.Id, assistant.ChatInstruction);
@@ -206,6 +211,22 @@ public class OnboardingTests
     }
 
     [Fact]
+    public void A_command_only_a_workspace_has_is_reported_as_there_not_as_added_and_is_not_left_to_add()
+    {
+        FakeTarget user = new() { Projects = "video-prompt" };
+        (JArray added, JArray skipped) = StarterInstaller.Install(user);
+        Assert.Equal(Total - 1, added.Count);
+        Assert.Equal(StarterSkips.Workspace, Assert.Single(skipped)["code"].ToString());
+        JObject report = StarterInstaller.Describe(user);
+        JToken item = report["items"].Single(i => i["id"].ToString() == "video-prompt");
+        Assert.False((bool)item["installed"]);
+        Assert.True((bool)item["inWorkspace"]);
+        Assert.Equal(Total - 1, (int)report["installed"]);
+        Assert.Equal(1, (int)report["inWorkspace"]);
+        Assert.Equal(0, (int)report["missing"]);
+    }
+
+    [Fact]
     public void An_item_saved_by_something_else_meanwhile_is_reported_as_there_not_as_added_or_failed()
     {
         FakeTarget user = new() { Racing = "video-prompt" };
@@ -234,6 +255,11 @@ public class OnboardingTests
         {
             Assert.False(StarterMatching.HasSnippet(none, root, "video-prompt"));
             Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, root, "video-prompt"));
+            // A workspace's, of either kind: a personal command would take its place there.
+            PromptAsset inProject = new(PromptAsset.KindCommand, "video-prompt", "", "", "", PromptAsset.ScopeWorkspace, null, false);
+            Assert.True(StarterMatching.InWorkspace([inProject], "video-prompt"));
+            Assert.True(StarterMatching.InWorkspace([skill], "video-prompt"));
+            Assert.False(StarterMatching.InWorkspace([inProject], "enhance-prompt"));
             Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindSkill, "video-prompt", "my skill", true, out _));
             Assert.True(StarterMatching.HasSnippet(none, root, "video-prompt"));
             Assert.False(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "video-prompt", "starter", true, out string shadow));
@@ -355,6 +381,30 @@ public class OnboardingTests
         OnboardingState.Apply(skipped, OnboardingState.ActionSkip, out _, out _);
         OnboardingState.DuringInstall(skipped, false, () => true);
         Assert.Equal(OnboardingState.Skipped, OnboardingState.Load(skipped));
+    }
+
+    [Fact]
+    public async Task Two_installs_at_once_leave_a_new_user_in_the_guide()
+    {
+        FakeStorage storage = new();
+        int taken = 0;
+        using ManualResetEventSlim firstInside = new(), secondDone = new();
+        // The install that opens the guide is held inside until the other has had its turn, or has shown (by this wait running out) that it waits for this one.
+        Task first = Task.Run(() => OnboardingState.DuringInstall(storage, false, () =>
+        {
+            firstInside.Set();
+            secondDone.Wait(TimeSpan.FromSeconds(2));
+            return Interlocked.Exchange(ref taken, 1) == 0;
+        }));
+        Assert.True(firstInside.Wait(TimeSpan.FromSeconds(30)));
+        Task second = Task.Run(() =>
+        {
+            OnboardingState.DuringInstall(storage, false, () => Interlocked.Exchange(ref taken, 1) == 0);
+            secondDone.Set();
+        });
+        await Task.WhenAll(first, second);
+        // The items are there, whichever install added them: the user is still in the guide.
+        Assert.Equal(OnboardingState.Pending, OnboardingState.Load(storage));
     }
 
     [Fact]

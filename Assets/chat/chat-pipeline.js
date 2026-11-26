@@ -11,7 +11,8 @@
     async function llmaSendMessage() {
         const input = document.getElementById('llma-input');
         if (!input) return;
-        let message = input.value?.trim();
+        const typed = input.value;
+        let message = typed?.trim();
         if (!message && !LLMAState.attachedImage && !llmaChatDocuments.hasPending()) return;
         if (LLMAState.isGenerating) return;
         if (llmaChatDocuments.isReading()) {
@@ -68,6 +69,11 @@
         // Create thread if needed
         if (!LLMAState.activeThreadId) {
             await llmaCreateThread(LLMAState.activeAssistantId);
+            // No chat could be made (it said why): nothing is sent, and the message stays in the composer with its attachments.
+            if (!LLMAState.activeThreadId) {
+                llmaPutBackText(typed);
+                return;
+            }
         }
 
         // Hide welcome, show chat. Sending always means "take me to the latest"; re-arm auto-follow
@@ -79,7 +85,8 @@
         const userMsgId = llmaGenerateId();
         let mediaPayload = null;
         let mediaForRender = null;
-        if (LLMAState.attachedImage) {
+        const attachment = LLMAState.attachedImage;
+        if (attachment) {
             const upload = await llmaUploadAttachedImage(userMsgId);
             if (!upload) return; // toast already shown
             mediaPayload = [upload];
@@ -121,6 +128,9 @@
         if (documents) {
             // The server takes the ids and builds the references from its own copies.
             payload.documents = documents.map(d => d.id);
+        }
+        // The server takes no empty message: one of attachments alone is sent under the words the page shows for it.
+        if (mediaPayload || documents) {
             payload.message = payload.message || userMsg.content;
         }
         if (forced) {
@@ -129,11 +139,46 @@
 
         // Compare mode fans the same prompt out to two models side-by-side; otherwise normal single stream.
         // Both share all the prep above (thread create, attachment upload, user-message append).
+        const refused = error => llmaTakeBack({ threadId: payload.threadId, messageId: userMsgId, parentId: userMsg.parentId, typed, documents, attachment }, error);
         if (typeof llmaIsCompareActive === 'function' && llmaIsCompareActive()) {
-            llmaStreamCompare(payload, userMsgId);
+            llmaStreamCompare(payload, userMsgId, { refused });
         } else {
-            llmaStreamResponse(payload);
+            llmaStreamResponse(payload, null, { refused });
         }
+    }
+
+    /** A message the server refused before storing it comes off the chat, and what was typed and attached goes back to the composer, to be changed and sent again. */
+    function llmaTakeBack(unsent, error) {
+        llmaShowToast(error, 'error');
+        llmaChatDocuments.giveBack(unsent.threadId, unsent.documents);
+        // Another chat is on screen: only the documents have a place to wait there.
+        if ((LLMAState.activeThreadId || null) !== (unsent.threadId || null)) return;
+        llmaDropUnstored(unsent.messageId, unsent.parentId);
+        llmaRestoreAttachment(unsent.attachment);
+        llmaPutBackText(unsent.typed);
+    }
+
+    /** Takes a message the server did not store, and what hangs under it, off the chat, and shows the branch ending at leafId. */
+    function llmaDropUnstored(messageId, leafId) {
+        const gone = llmaActions.subtreeIds(messageId, LLMAState.allNodes);
+        LLMAState.allNodes = LLMAState.allNodes.filter(n => !gone.has(n.id));
+        LLMAState.activeLeafId = leafId;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
+        llmaRenderMessageHistory(LLMAState.messages);
+        llmaRebuildAssetsForThread();
+        llmaUpdateContextBar();
+        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
+    }
+
+    /** Puts text back into the composer, ahead of anything typed there since, and gives it the keyboard. */
+    function llmaPutBackText(text) {
+        const input = document.getElementById('llma-input');
+        if (!input) return;
+        input.value = input.value && text ? `${text}\n${input.value}` : text || input.value;
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+        llmaUpdateCharCount(input.value);
+        input.focus();
     }
 
     /**
@@ -201,14 +246,10 @@
         LLMAState._streamingMsgId = assistantMsgId;
         LLMAState._streamingText  = '';
 
-        let accepted = false;
+        const takenUp = llmaActions.turnWatcher(payload.threadId);
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
-                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
-                if (!accepted) {
-                    accepted = true;
-                    llmaActions.forgetLost(payload.threadId);
-                }
+                takenUp(data);
                 // Before the reply starts, a long chat may be summarized (compacting / compaction / compactionFailed).
                 if (llmaContext.onFrame(data)) {
                     return;
@@ -372,6 +413,8 @@
             }, 0, (err, data) => {
                 // An error frame from the server and a failed socket both come here (core's helper never hands an error frame to the callback above).
                 // err is a string; pass it straight through so the humanizer can recognize it instead of collapsing to "WebSocket error".
+                // It can be the first frame of a turn the server took up.
+                takenUp(data);
                 // A failure after some text keeps the text: text still waiting for its render is drawn first.
                 renderer.flushRender();
                 bubble?.querySelector('.llma-typing')?.remove();
@@ -398,6 +441,9 @@
                 }
                 llmaA11y.announceFailure(message);
                 llmaFinishStreamState();
+                if (data?.refused && opts.refused) {
+                    opts.refused(message);
+                }
             });
         } catch (ex) {
             llmaShowErrorInBubble(bubble, ex);
@@ -500,6 +546,8 @@
 
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSendMessage    = llmaSendMessage;
+    window.llmaDropUnstored   = llmaDropUnstored;
+    window.llmaPutBackText    = llmaPutBackText;
     window.llmaBuildPayload   = llmaBuildPayload;
     window.llmaStreamResponse = llmaStreamResponse;
     window.llmaStopGeneration = llmaStopGeneration;

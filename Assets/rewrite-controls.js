@@ -140,7 +140,14 @@ class LLMARewriteControls {
         if (this.policy) {
             document.getElementById('llma-enhance-all').value = this.policy.settings.chat;
         }
-        document.getElementById('llma-enhance-status').textContent = status;
+        let line = document.getElementById('llma-enhance-status');
+        if (line.textContent != status) {
+            line.textContent = status;
+            // Said while the popover shows, as when one of its switches changes the answer; opening a chat says nothing.
+            if (document.getElementById('llma-enhance-popover').style.display != 'none') {
+                llmaA11y.announce(status);
+            }
+        }
     }
 
     /** Opens or closes the popover; opening reads the state again, since Settings or the assistant may have changed it. */
@@ -217,7 +224,7 @@ class LLMARewriteControls {
         document.getElementById('llma-rewrite-preview-model').value = this.policy?.imageModel || '';
         document.getElementById('llma-rewrite-preview-result').innerHTML = '';
         document.getElementById('llma-rewrite-preview-policy').textContent = '';
-        document.getElementById('llma-rewrite-preview-run').disabled = false;
+        this.setRunning(false);
         overlay.style.display = '';
         llmaInstallFocusTrap(overlay);
         document.getElementById('llma-rewrite-preview-prompt').focus();
@@ -236,6 +243,22 @@ class LLMARewriteControls {
         return !!overlay && overlay.style.display != 'none';
     }
 
+    /** Marks the Rewrite button while a rewrite is on its way. Not `disabled`: a button that is gives up the keyboard. */
+    setRunning(running) {
+        document.getElementById('llma-rewrite-preview-run').setAttribute('aria-disabled', String(running));
+    }
+
+    /** Whether a rewrite is on its way. */
+    running() {
+        return document.getElementById('llma-rewrite-preview-run').getAttribute('aria-disabled') == 'true';
+    }
+
+    /** Shows a line where the preview's result goes, and says it. */
+    say(out, text) {
+        out.textContent = text;
+        llmaA11y.announce(text);
+    }
+
     /** Closes the preview, dropping any answer still on its way. */
     closePreview() {
         this.previewRequest++;
@@ -247,27 +270,25 @@ class LLMARewriteControls {
 
     /** Rewrites the previewed prompt and shows the original beside the result, the style used and any warnings. Nothing is generated. */
     async runPreview() {
+        if (this.running()) {
+            return;
+        }
         let prompt = document.getElementById('llma-rewrite-preview-prompt').value.trim();
         let out = document.getElementById('llma-rewrite-preview-result');
         if (!prompt) {
-            out.textContent = translate('Write a prompt to preview.');
+            this.say(out, translate('Write a prompt to preview.'));
             return;
         }
         let model = document.getElementById('llma-rewrite-preview-model').value.trim();
-        let button = document.getElementById('llma-rewrite-preview-run');
         let request = ++this.previewRequest;
-        button.disabled = true;
-        out.textContent = translate('Rewriting...');
+        this.setRunning(true);
+        this.say(out, translate('Rewriting...'));
         let policy = await this.askPolicy(model);
         let reply = await llmaUserAction(() => llmaRequest('LLMAssistantRewritePrompt', { prompt: prompt, imageModel: model }), translate('Could not rewrite'));
         if (request != this.previewRequest) {
             return;
         }
-        button.disabled = false;
-        // Disabling the focused button drops the focus to the page; take it back into the dialog.
-        if (document.activeElement == document.body) {
-            button.focus();
-        }
+        this.setRunning(false);
         document.getElementById('llma-rewrite-preview-policy').textContent = policy ? `${translate('When the assistant generates:')} ${this.describe(policy)}` : '';
         if (!reply) {
             out.textContent = '';
@@ -277,6 +298,7 @@ class LLMARewriteControls {
         out.innerHTML = llmaPromptStyles.rewriteSummaryLines(reply).join('<br>')
             + `<div class="row g-2 my-1">${column('Original', reply.original, 'llma-preview-original')}${column('Rewritten', reply.text, 'llma-preview-rewritten')}</div>`
             + llmaPromptStyles.rewriteDetailLines(reply, '').join('<br>');
+        llmaA11y.announce(out.innerText);
     }
 }
 

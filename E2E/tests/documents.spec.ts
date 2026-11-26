@@ -438,3 +438,71 @@ test('PDF and Word files are added to the knowledge library, found with their pa
     expect(scanned.success).toBe(false);
     expect(scanned.error).toContain('no text layer');
 });
+
+/** A 1x1 PNG, enough to be an attachment. */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+
+test('a file that cannot be read leaves the keyboard on the chip it was on', async ({ llm }) => {
+    let fail: () => void = () => {};
+    let held = new Promise<void>(resolve => fail = resolve);
+    await llm.route('**/API/LLMAssistantUploadChatDocument', async route => {
+        if (route.request().postDataJSON().name != 'first.txt') {
+            await route.continue();
+            return;
+        }
+        await held;
+        await route.fulfill({ json: { success: false, error: 'FIRST-COULD-NOT-BE-READ' } });
+    });
+    await llm.locator('#llma-attach-file').setInputFiles([txt('first.txt', 'one'), txt('second.txt', 'two'), txt('third.txt', 'three')]);
+    await expect(chips(llm)).toHaveCount(3);
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(1, { timeout: 20_000 });
+    let second = chips(llm).filter({ hasText: 'second.txt' }).locator('.llma-doc-chip-remove');
+    await second.focus();
+    fail();
+    await expect(chips(llm)).toHaveCount(2);
+    await expect(second).toBeFocused();
+});
+
+for (let refused of [{ where: 'in a new chat', earlier: false, compare: false }, { where: 'after earlier messages', earlier: true, compare: false }, { where: 'to two models', earlier: false, compare: true }]) {
+    test(`a message the server refuses before saving it goes back to the composer, ${refused.where}`, async ({ llm }) => {
+        test.slow();
+        await setScenarios([{ regex: '.*', rounds: [{ text: 'now it went' }] }]);
+        if (refused.compare) {
+            await llm.locator('#llma-compare-toggle').click();
+            await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
+        }
+        if (refused.earlier) {
+            await send(llm, 'EARLIER');
+            await expect(lastAssistant(llm)).toContainText('now it went');
+            await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        }
+        let before = refused.earlier ? 2 : 0;
+        await attach(llm, [txt('one.txt', 'FIRST-WORDS'), txt('two.txt', 'SECOND-WORDS')]);
+        await llm.locator('#llma-attach-file').setInputFiles({ name: 'badge.png', mimeType: 'image/png', buffer: PNG });
+        await expect(llm.locator('#llma-attachment-preview img')).toBeVisible();
+        // Lowered behind the page's back, so only the server refuses.
+        await useDocumentCaps(llm, { ...DEFAULT_CAPS, documentMaxPerMessage: 1 });
+        await send(llm, 'REFUSED-QUESTION');
+        await expect(llm.locator('.llma-toast')).toContainText('at most 1 documents');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        await expect(llm.locator('#llma-input')).toHaveValue('REFUSED-QUESTION');
+        await expect(llm.locator('#llma-input')).toBeFocused();
+        await expect(chips(llm)).toHaveCount(2);
+        await expect(llm.locator('#llma-attachment-preview img')).toBeVisible();
+        await expect(llm.locator('#llma-messages .llma-msg-row')).toHaveCount(before);
+        await expect(llm.locator('#llma-messages .llma-compare-col')).toHaveCount(0);
+        await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
+        expect((await thread(llm)).messages).toHaveLength(before);
+        // With the extra file taken off, the same message goes, with what was attached to it.
+        await chips(llm).filter({ hasText: 'two.txt' }).locator('.llma-doc-chip-remove').click();
+        await llm.locator('#llma-input').press('Enter');
+        let replies = llm.locator(refused.compare ? '#llma-messages .llma-compare-col' : '#llma-messages .llma-msg-row.assistant');
+        await expect(replies).toHaveCount(refused.compare || refused.earlier ? 2 : 1);
+        await expect(replies.last()).toContainText('now it went');
+        await expect(llm.locator('#llma-send-btn')).toBeVisible();
+        await expect.poll(async () => (await thread(llm)).messages.filter((m: any) => m.content == 'REFUSED-QUESTION').length).toBe(1);
+        let sent = (await thread(llm)).messages.find((m: any) => m.content == 'REFUSED-QUESTION');
+        expect(sent.documents.map((d: any) => d.name)).toEqual(['one.txt']);
+        expect(sent.media).toHaveLength(1);
+    });
+}

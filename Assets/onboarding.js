@@ -1,6 +1,6 @@
 /**
  * The first-run guide: what is ready (a backend, a chat model, tools, embeddings), where to set up a backend when there is none, and the starter set to add in one click. It sits over an empty
- * chat and never blocks anything: the message box, the chat list and the settings stay usable, the assistant gallery and chats with messages hide it, sending a message closes it, and it can be
+ * chat and never blocks anything: the message box, the chat list and the settings stay usable, the assistant gallery and chats with messages hide it, sending a message or running a tool closes it, and it can be
  * skipped. The server keeps whether the user has seen it and says what to show; Settings > General can run it again. Built from Bootstrap's list-group, badge and alert.
  */
 class LLMAOnboarding {
@@ -105,7 +105,7 @@ class LLMAOnboarding {
         this.render();
     }
 
-    /** The user sent a message: the guide is done with. The server records that itself when it saves the message. */
+    /** The user sent a message or ran a tool in a chat: the guide is done with. The server records that itself when it saves it. */
     onSend() {
         this.open = false;
         this.sync();
@@ -204,9 +204,11 @@ class LLMAOnboarding {
             html += `<li class="list-group-item bg-transparent llma-onboarding-item" data-item="${escapeHtml(item.id)}" data-installed="${item.installed ? 'true' : 'false'}">`
                 + `<span class="text-break">${escapeHtml(item.title)} <small class="text-muted">${translate(kinds[item.kind] || item.kind)}</small></span>`
                 + (item.installed ? `<span class="badge text-bg-success">${translate('Added')}</span>` : '')
+                + (item.inWorkspace ? `<span class="badge text-bg-secondary" title="${escapeHtml(translate('Only chats in that workspace have it'))}">${translate('In a workspace')}</span>` : '')
                 + '</li>';
         }
-        let label = starter.missing == 0 ? 'Starter set added' : (starter.installed == 0 ? 'Add starter set' : 'Add what is missing');
+        let done = starter.inWorkspace > 0 ? 'Nothing left to add' : 'Starter set added';
+        let label = starter.missing == 0 ? done : (starter.installed == 0 ? 'Add starter set' : 'Add what is missing');
         return `${html}</ul><button type="button" class="basic-button mb-2" id="llma-onboarding-install"${starter.missing == 0 ? ' disabled' : ''}>${translate(label)}</button>`;
     }
 
@@ -267,7 +269,8 @@ class LLMAOnboarding {
             }
             else {
                 await this.reloadLists();
-                let problems = reply.skipped.filter(s => s.code != 'exists');
+                // What is there already, or in a workspace (its line says so), is no problem.
+                let problems = reply.skipped.filter(s => s.code != 'exists' && s.code != 'workspace');
                 this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
                     + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
                     + '</div>';

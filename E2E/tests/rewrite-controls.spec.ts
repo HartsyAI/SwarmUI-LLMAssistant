@@ -462,3 +462,60 @@ for (let [name, later] of [['and left alone', null], ['and then chosen otherwise
         expect((await api(llm, 'LLMAssistantGetThread', { threadId: threads[0].id })).thread.autoEnhance).toBe(false);
     });
 }
+
+test('the preview\'s button keeps the keyboard while a rewrite runs, and does not start a second one', async ({ llm }) => {
+    let release: () => void = () => {};
+    let held = new Promise<void>(resolve => release = resolve);
+    let asked = 0;
+    await llm.route('**/API/LLMAssistantRewritePrompt', async route => {
+        asked++;
+        await held;
+        await route.continue();
+    });
+    await setScenarios([{ match: 'focus cat', rounds: [{ text: 'A focused cat.' }] }]);
+    await openPopover(llm);
+    await llm.locator('#llma-enhance-preview-btn').click();
+    await llm.locator('#llma-rewrite-preview-prompt').fill('focus cat');
+    let run = llm.locator('#llma-rewrite-preview-run');
+    await run.focus();
+    await llm.keyboard.press('Enter');
+    await expect.poll(() => asked).toBe(1);
+    await expect(run).toHaveAttribute('aria-disabled', 'true');
+    await expect(run).toBeFocused();
+    await llm.keyboard.press('Enter');
+    release();
+    await expect(llm.locator('.llma-preview-rewritten')).toHaveText('A focused cat.');
+    await expect(run).toHaveAttribute('aria-disabled', 'false');
+    await expect(run).toBeFocused();
+    expect(asked).toBe(1);
+});
+
+test('the popover and the preview say what changed through the one announcer', async ({ llm }) => {
+    await llm.evaluate(() => {
+        (window as any).heard = [];
+        let region = document.getElementById('llma-announcer')!;
+        new MutationObserver(() => region.textContent && (window as any).heard.push(region.textContent)).observe(region, { childList: true, characterData: true, subtree: true });
+    });
+    let heard = (): Promise<string> => llm.evaluate(() => (window as any).heard.join('\n'));
+    await expect(llm.locator('#llma-enhance-status[role], #llma-enhance-status[aria-live], #llma-rewrite-preview-result[role], #llma-rewrite-preview-result[aria-live]')).toHaveCount(0);
+    await openPopover(llm);
+    await llm.locator('label[for="llma-enhance-chat-on"]').click();
+    await expect.poll(heard).toContain('Decided by this chat.');
+    await llm.locator('#llma-enhance-preview-btn').click();
+    await llm.locator('#llma-rewrite-preview-run').click();
+    await expect.poll(heard).toContain('Write a prompt to preview.');
+    await setScenarios([{ match: 'spoken cat', rounds: [{ text: 'A spoken cat.' }] }]);
+    await llm.locator('#llma-rewrite-preview-prompt').fill('spoken cat');
+    await llm.locator('#llma-rewrite-preview-run').click();
+    await expect.poll(heard).toContain('A spoken cat.');
+    await llm.keyboard.press('Escape');
+    // With the popover closed, reading the setting again (as opening a chat does) says nothing.
+    await llm.evaluate(() => (window as any).heard = []);
+    await llm.evaluate(async () => {
+        (0, eval)('LLMAState').activeThreadAutoEnhance = false;
+        await (0, eval)('llmaRewriteControls').refresh();
+    });
+    await expect(llm.locator('#llma-enhance-label')).toHaveText('Off');
+    await llm.waitForTimeout(500);
+    expect(await heard()).not.toContain('Decided by');
+});

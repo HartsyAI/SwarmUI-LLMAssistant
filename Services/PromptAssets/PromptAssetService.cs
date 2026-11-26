@@ -149,6 +149,16 @@ public static class PromptAssetService
         return result;
     }
 
+    /// <summary>The skills and commands of every workspace <paramref name="user"/> trusts and may use in a code-mode chat. A personal asset by one of their names would hide it there.</summary>
+    public static List<PromptAsset> InTrustedWorkspaces(User user)
+    {
+        if (user is null || !user.HasPermission(WebAPI.LLMAssistantAPI.PermCodeMode))
+        {
+            return [];
+        }
+        return [.. WorkspaceService.List(user).Where(w => IsTrusted(user, w.Id)).SelectMany(LoadWorkspace)];
+    }
+
     // ===== Workspace trust =====
 
     /// <summary>Whether <paramref name="user"/> has trusted the workspace <paramref name="workspaceId"/>.</summary>
