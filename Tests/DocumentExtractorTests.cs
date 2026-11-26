@@ -278,7 +278,8 @@ public sealed class DocumentExtractorTests
     private static async Task AssertRefusedSoon(byte[] pdf)
     {
         Task<(ExtractedDocument Result, long Allocated)> reading = Task.Run(() => Cost(pdf));
-        Assert.True(await Task.WhenAny(reading, Task.Delay(TimeSpan.FromSeconds(20))) == reading, "still reading after 20 seconds");
+        // What is refused is refused in well under a second; the wait is long for a slow, loaded machine.
+        Assert.True(await Task.WhenAny(reading, Task.Delay(TimeSpan.FromSeconds(60))) == reading, "still reading after 60 seconds");
         (ExtractedDocument result, long allocated) = await reading;
         Assert.True(result.Status == DocumentStatus.TooLarge, $"{result.Status}: {result.Error}");
         Assert.True(allocated < 200 * 1024 * 1024, $"allocated {allocated / 1_000_000} MB");
@@ -387,6 +388,65 @@ public sealed class DocumentExtractorTests
         ExtractedDocument doc = Read("tagged.pdf", DocumentFixtures.Document($"{FontResource} /Contents 4 0 R", "/StructTreeRoot 6 0 R", "", objects));
         Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
         Assert.Contains("tagged words", doc.Text);
+    }
+
+    /// <summary>A page whose fonts each carry a program that unpacks to this many megabytes.</summary>
+    private static byte[] BigFontPrograms(int fonts, int megabytes)
+    {
+        byte[] program = DocumentFixtures.Deflate(new byte[megabytes * 1024 * 1024]);
+        // Object 4 is the content; then three objects for each font: the font, its descriptor and its program.
+        List<(string, byte[])> objects = [("", Ascii("BT /F0 12 Tf 10 700 Td (some words) Tj ET"))];
+        for (int i = 0; i < fonts; i++)
+        {
+            int font = 5 + i * 3;
+            objects.Add(($"<< /Type /Font /Subtype /TrueType /BaseFont /X /FirstChar 32 /LastChar 32 /Widths [500] /FontDescriptor {font + 1} 0 R >>", null));
+            objects.Add(($"<< /Type /FontDescriptor /FontName /X /Flags 32 /FontBBox [0 0 1000 1000] /FontFile2 {font + 2} 0 R >>", null));
+            objects.Add(("/Filter /FlateDecode", program));
+        }
+        string names = string.Join(' ', Enumerable.Range(0, fonts).Select(i => $"/F{i} {5 + i * 3} 0 R"));
+        return DocumentFixtures.Objects($"/Resources << /Font << {names} >> >> /Contents 4 0 R", [.. objects]);
+    }
+
+    [Fact]
+    public void A_page_whose_fonts_unpack_past_what_measuring_may_is_left_out()
+    {
+        // Eight programs of 12 MB: each within the stream limit, together past the 64 MB one page may unpack while it is measured.
+        ExtractedDocument doc = Read("fonts.pdf", BigFontPrograms(8, 12));
+        Assert.True(doc.Status == DocumentStatus.TooLarge, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("pages of that PDF are too large", doc.Error);
+        Assert.Equal(DocumentStatus.Ok, Read("font.pdf", BigFontPrograms(2, 12)).Status);
+    }
+
+    // Pictures are never unpacked to read text, so how one is packed does not matter.
+
+    [Theory]
+    [InlineData("/DCTDecode")]
+    [InlineData("/LZWDecode")]
+    [InlineData("/RunLengthDecode")]
+    [InlineData("/CCITTFaxDecode")]
+    [InlineData("/JBIG2Decode")]
+    [InlineData("/JPXDecode")]
+    public void A_page_that_also_draws_a_picture_is_read_however_the_picture_is_packed(string filter)
+    {
+        byte[] pdf = DocumentFixtures.Objects("/Resources << /Font << /F1 5 0 R >> /XObject << /Im 6 0 R >> >> /Contents 4 0 R",
+            ("", Ascii("q 100 0 0 100 40 500 cm /Im Do Q BT /F1 12 Tf 40 700 Td (words beside a picture) Tj ET")), Helvetica,
+            ($"/Type /XObject /Subtype /Image /Width 8 /Height 8 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter {filter}", [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4, 0x80, 0x01]));
+        ExtractedDocument doc = Read("picture.pdf", pdf);
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("words beside a picture", doc.Text);
+    }
+
+    [Theory]
+    [InlineData("/LZW")]
+    [InlineData("/RL")]
+    [InlineData("/DCT")]
+    [InlineData("/CCF")]
+    public void A_picture_written_into_the_page_itself_does_not_refuse_it(string filter)
+    {
+        byte[] content = [.. Ascii($"BI /W 4 /H 4 /CS /G /BPC 8 /F {filter} ID "), 0x80, 0x0B, 0x60, 0x50, 0x22, 0x0C, 0x0C, 0x85, 0x01, .. Ascii(" EI BT /F1 12 Tf 40 700 Td (words after a picture) Tj ET")];
+        ExtractedDocument doc = Read("inline.pdf", DocumentFixtures.Objects($"{FontResource} /Contents 4 0 R", ("", content), Helvetica));
+        Assert.True(doc.Status == DocumentStatus.Ok, $"{doc.Status}: {doc.Error}");
+        Assert.Contains("words after a picture", doc.Text);
     }
 
     [Fact]

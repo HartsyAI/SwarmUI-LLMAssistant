@@ -354,6 +354,37 @@ test('New Chat leaves a waiting file behind, and a file attached before a chat e
     expect((await sentUserMessages('MAKES-THE-CHAT')).join()).toContain('SENT-WITH-THE-FIRST-MESSAGE');
 });
 
+test('a PDF printed by a real browser, with a picture on it, is read with its words apart', async ({ llm }) => {
+    // Chromium writes it: embedded font programs, composite fonts with Unicode maps, and a picture, none of which the hand-made files have.
+    let printer = await llm.context().newPage();
+    await printer.setContent('<body></body>');
+    let picture = await printer.evaluate(() => {
+        let canvas = document.createElement('canvas');
+        canvas.width = 120;
+        canvas.height = 80;
+        let context = canvas.getContext('2d')!;
+        for (let x = 0; x < 120; x += 4) {
+            context.fillStyle = `hsl(${x * 3}, 70%, 50%)`;
+            context.fillRect(x, 0, 4, 80);
+        }
+        return canvas.toDataURL('image/jpeg', 0.9);
+    });
+    await printer.setContent(`<h1>Harbour Survey Report</h1><p>The northern quay needs repair before winter arrives.</p><img src="${picture}" width="240" height="160">`
+        + '<p>Divers found <b>three loose pilings</b> and one cracked bollard.</p>');
+    let printed = await printer.pdf({ format: 'A4' });
+    await printer.close();
+    let reply = await api(llm, 'LLMAssistantExtractDocument', { name: 'printed.pdf', data: printed.toString('base64') });
+    expect(reply, JSON.stringify(reply).slice(0, 500)).toMatchObject({ success: true, kind: 'pdf', pages: 1, truncated: false });
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
+    await attach(llm, [{ name: 'printed.pdf', mimeType: 'application/pdf', buffer: printed }]);
+    await send(llm, 'PRINTED-QUESTION');
+    await expect(lastAssistant(llm)).toContainText('ok');
+    let [message] = await sentUserMessages('PRINTED-QUESTION');
+    for (let words of ['Harbour Survey Report', 'The northern quay needs repair before winter arrives.', 'Divers found three loose pilings and one cracked bollard.']) {
+        expect(message, words).toContain(words);
+    }
+});
+
 test('an exported chat that had a file is still guarded after import', async ({ llm }) => {
     await setScenarios([{ regex: '.*', rounds: [{ text: 'ok' }] }]);
     await attach(llm, [txt('kept.txt', 'words')]);
