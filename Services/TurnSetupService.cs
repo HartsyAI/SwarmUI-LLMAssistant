@@ -30,7 +30,6 @@ public static class TurnSetupService
     /// summarized is not (the result says it would be), so the request is built exactly as it would be, from the chat as it is.</summary>
     public static async Task<PreparedTurn> PrepareAsync(Session session, string threadId, JObject thread, JObject rawInput, Func<JObject, Task> notify, CancellationToken ct, bool dryRun = false)
     {
-        string model = rawInput["model"]?.ToString();
         string instructionId = rawInput["instructionId"]?.ToString();
         string forceToolId = rawInput["forceToolId"]?.ToString();
         double temperature = rawInput["temperature"]?.Value<double>() ?? -1;
@@ -47,6 +46,8 @@ public static class TurnSetupService
         {
             assistantId = AssistantService.GetActiveAssistantId(settings, session.User);
         }
+        // A request that names no model gets the name of the one that will answer it, so the saved reply names it (a reply with no model name can never be priced).
+        string model = await LLMModelLookup.ResolveEffectiveModelIdAsync(rawInput["model"]?.ToString(), session);
         // Resolve model facts once so per-model instruction variants can pick the right text.
         LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
         // The saved notes {{userProfile}} shows depend on what the user just said (see MemoryRecall); a dry run records no use.
