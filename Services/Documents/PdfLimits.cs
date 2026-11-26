@@ -289,7 +289,7 @@ internal static class PdfLimits
     }
 
     /// <summary>Whether every reference the page tree leads to comes to an end. The parser follows an object that only refers to another (or holds an array of one reference) by calling
-    /// itself, in places with nothing to stop it, so <c>5 0 obj 5 0 R endobj</c> overflows the stack, which ends the whole server and cannot be caught. To be looked over before any page
+    /// itself, in places with nothing to stop it, so <c>5 0 obj 5 0 R endobj</c> overflows the stack, which ends the whole process and cannot be caught. To be looked over before any page
     /// is asked for, since asking already follows some. What opening a file follows by itself is not covered.</summary>
     public static ReferenceCheck CheckReferences(DictionaryToken catalog, IPdfTokenScanner scanner, CancellationToken ct)
     {
