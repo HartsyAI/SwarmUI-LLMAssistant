@@ -43,6 +43,7 @@ function llmaComputeActivePath(allNodes, leafId) {
 
 // Ingest a server thread blob into branch state: full node set, active leaf, and the active path.
 function llmaIngestThread(thread) {
+    llmaActions.noteStored(thread);
     LLMAState.allNodes = Array.isArray(thread.messages) ? thread.messages : [];
     LLMAState.activeLeafId = thread.activeLeafId
         || (LLMAState.allNodes.length ? LLMAState.allNodes[LLMAState.allNodes.length - 1].id : null);
@@ -53,6 +54,7 @@ function llmaIngestThread(thread) {
 // After a turn, the server's tree is the truth about each message's parent and about which one is the tip, so the next message is shown where the server puts it.
 // A reply the page shows that the server did not save (failed, or stopped before anything arrived) stays on screen, marked unsaved.
 function llmaAdoptServerTree(thread) {
+    llmaActions.noteStored(thread);
     let saved = Array.isArray(thread.messages) ? thread.messages : [];
     let ids = new Set(saved.map(n => n.id));
     let leaf = llmaActions.node(LLMAState.activeLeafId);

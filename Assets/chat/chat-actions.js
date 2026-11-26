@@ -95,7 +95,9 @@ class LLMAMessageActions {
         if (!result?.success || !result.thread) {
             throw new Error(result?.error || 'Chat not found');
         }
-        return typeof result.thread == 'string' ? JSON.parse(result.thread) : result.thread;
+        let thread = typeof result.thread == 'string' ? JSON.parse(result.thread) : result.thread;
+        this.noteStored(thread);
+        return thread;
     }
 
     /** A message's Markdown source. A reply's reasoning is not part of what it said, so it is left out (a think tag quoted in code stays). */
@@ -192,7 +194,14 @@ class LLMAMessageActions {
         }
     }
 
-    /** Forgets a chat's lost replies: a new turn there ends whatever was still being written. */
+    /** A read of a chat shows these replies stored: they are written, so there is nothing left to stop or to count for them. */
+    noteStored(thread) {
+        for (let node of thread.messages || []) {
+            this.lost.delete(node.id);
+        }
+    }
+
+    /** Forgets a chat's lost replies: a new turn the server has taken up there ended whatever was still being written. */
     forgetLost(threadId) {
         for (let reply of Array.from(this.lost.values())) {
             if (reply.threadId == threadId) {

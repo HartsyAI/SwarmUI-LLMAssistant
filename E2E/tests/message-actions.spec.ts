@@ -503,6 +503,54 @@ test('a delete stops nothing for a reply that failed, nor when the answer is no'
     expect(stops).toBe(0);
 });
 
+/** How many replies the page still takes to be possibly being written. */
+const lostCount = (page: Page): Promise<number> => page.evaluate(() => (0, eval)('llmaActions').lost.size);
+
+test('a lost reply is forgotten once a read shows it stored', async ({ llm }) => {
+    test.slow();
+    await clearRequests();
+    await setScenarios([{ match: 'slow one', rounds: [{ delayMs: 3000, text: 'stored after all' }] }]);
+    await send(llm, 'slow one');
+    await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+    await loseConnection(llm);
+    expect(await lostCount(llm)).toBe(1);
+    await expect.poll(async () => (await stored(llm)).length, { timeout: 30_000 }).toBe(2);
+    await llm.evaluate(() => (0, eval)('llmaSaveActiveThread')());
+    await expect(lastAssistant(llm)).toContainText('stored after all');
+    expect(await lostCount(llm)).toBe(0);
+    // Deleting the reply and then the question asks nothing and stops nothing: no phantom reply is counted.
+    let stops = 0;
+    llm.on('request', request => request.url().endsWith('/API/LLMAssistantStopGeneration') && stops++);
+    let questions = questionsAsked(llm, true);
+    let reply = replyRows(llm).first();
+    await reply.hover();
+    await action(llm, reply, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(0);
+    let question = userRows(llm).first();
+    await question.hover();
+    await action(llm, question, 'Delete').click();
+    await expect(userRows(llm)).toHaveCount(0);
+    expect(questions).toEqual([]);
+    expect(stops).toBe(0);
+});
+
+test('a lost reply is kept until the server takes up a new turn', async ({ llm }) => {
+    test.slow();
+    await clearRequests();
+    await setScenarios([{ match: 'slow one', rounds: [{ delayMs: 20_000, text: 'never mind' }] }, { match: 'next one', rounds: [{ text: 'next reply' }] }]);
+    await send(llm, 'slow one');
+    await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+    await loseConnection(llm);
+    // A turn that starts in the page and is never answered changes nothing.
+    await llm.evaluate(() => {
+        (0, eval)('llmaSetStreaming')(true);
+        (0, eval)('llmaSetStreaming')(false);
+    });
+    expect(await lostCount(llm)).toBe(1);
+    await exchange(llm, 'next one', 'next reply');
+    expect(await lostCount(llm)).toBe(0);
+});
+
 test('catching up with a late reply leaves a reader who scrolled away where they are', async ({ llm }) => {
     test.slow();
     await clearRequests();

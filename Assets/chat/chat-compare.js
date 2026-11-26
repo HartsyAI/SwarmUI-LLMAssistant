@@ -318,8 +318,14 @@
             if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
         };
 
+        let accepted = false;
         try {
             LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', wsPayload, data => {
+                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
+                if (!accepted) {
+                    accepted = true;
+                    llmaActions.forgetLost(wsPayload.threadId);
+                }
                 // Every compare event is lane-tagged; route to the right column. Default to lane 0 for safety.
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];

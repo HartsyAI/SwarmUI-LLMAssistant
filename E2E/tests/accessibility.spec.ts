@@ -129,6 +129,17 @@ for (let theme of ['modern_dark', 'modern_light']) {
             await llm.locator('#llma-export-btn').click();
             await audit(llm, 'export menu');
             await llm.keyboard.press('Escape');
+            await llm.locator('#llma-enhance-btn').click();
+            await expect(llm.locator('#llma-enhance-status')).not.toBeEmpty();
+            await audit(llm, 'prompt rewrite popover');
+            await llm.locator('#llma-enhance-preview-btn').click();
+            await expect(llm.locator('#llma-rewrite-overlay')).toBeVisible();
+            await llm.locator('#llma-rewrite-preview-prompt').fill('a quiet harbour');
+            await llm.locator('#llma-rewrite-preview-run').click();
+            await expect(llm.locator('.llma-preview-rewritten')).toBeVisible({ timeout: 30_000 });
+            await audit(llm, 'prompt rewrite preview');
+            await llm.keyboard.press('Escape');
+            await expect(llm.locator('#llma-rewrite-overlay')).toBeHidden();
             await llm.locator('#llma-input').fill('/');
             await expect(llm.locator('.llma-tool-popup-item').first()).toBeVisible();
             await audit(llm, 'tool picker');
@@ -444,7 +455,7 @@ test('a visible focus ring follows the keyboard', async ({ llm }) => {
 });
 
 test('Escape closes each popover and puts focus back on its button', async ({ llm }) => {
-    for (let [button, panel] of [['#llma-params-btn', '#llma-params-popover'], ['#llma-export-btn', '#llma-export-menu']]) {
+    for (let [button, panel] of [['#llma-params-btn', '#llma-params-popover'], ['#llma-export-btn', '#llma-export-menu'], ['#llma-enhance-btn', '#llma-enhance-popover']]) {
         await expect(llm.locator(button)).toHaveAttribute('aria-expanded', 'false');
         await llm.locator(button).focus();
         await llm.keyboard.press('Enter');

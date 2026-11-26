@@ -31,6 +31,7 @@ class LLMAAccessibility {
         this.popovers = [
             { trigger: 'llma-params-btn', panel: 'llma-params-popover', label: 'Parameters', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
             { trigger: 'llma-export-btn', panel: 'llma-export-menu', label: 'Export this chat', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
+            { trigger: 'llma-enhance-btn', panel: 'llma-enhance-popover', label: 'Auto-enhance prompt', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
             { trigger: 'llma-model-menu-btn', panel: 'llma-model-anchor', content: 'llma-model-select-wrap', label: 'Model selection', role: 'group', isOpen: panel => panel.classList.contains('llma-model-open') },
         ];
     }
@@ -296,13 +297,16 @@ class LLMAAccessibility {
             trigger.setAttribute('aria-haspopup', popover.role == 'dialog' ? 'dialog' : 'true');
             trigger.setAttribute('aria-expanded', 'false');
             let byKeyboard = false;
+            // Kept here: a popover's own script may set aria-expanded before the observer below runs.
+            let wasOpen = popover.isOpen(panel);
             // A click made with Enter or Space reports no click count. Heard before the handler that opens the popover, which the observer below follows.
             trigger.addEventListener('click', e => byKeyboard = e.detail == 0, true);
             new MutationObserver(() => {
                 let open = popover.isOpen(panel);
-                if (trigger.getAttribute('aria-expanded') == String(open)) {
+                if (open == wasOpen) {
                     return;
                 }
+                wasOpen = open;
                 trigger.setAttribute('aria-expanded', String(open));
                 if (open && byKeyboard) {
                     this.focusableIn(content)[0]?.focus();

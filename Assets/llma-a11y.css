@@ -140,6 +140,7 @@
 :is(.llma-container, .llma-usage-popover) .basic-button:not(.btn-primary):hover:not(:disabled) { background-color: color-mix(in srgb, var(--button-background) 85%, var(--button-text)); }
 .llma-container .text-success { color: color-mix(in srgb, var(--bs-success) 35%, var(--text-strong)) !important; }
 .llma-container .text-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)) !important; }
+.llma-container .llma-rewrite-warning { color: color-mix(in srgb, var(--bs-warning) 35%, var(--text-strong)); }
 .llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }
 
 /* ── Small targets ─────────────────────────────────────────── */

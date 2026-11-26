@@ -187,8 +187,14 @@
         LLMAState._streamingMsgId = assistantMsgId;
         LLMAState._streamingText  = '';
 
+        let accepted = false;
         try {
             LLMAState._activeSocket = makeWSRequest(wsEndpoint, payload, data => {
+                // The first frame: the server has taken this turn up, which ended whatever an earlier turn of the chat was still writing.
+                if (!accepted) {
+                    accepted = true;
+                    llmaActions.forgetLost(payload.threadId);
+                }
                 // Before the reply starts, a long chat may be summarized (compacting / compaction / compactionFailed).
                 if (llmaContext.onFrame(data)) {
                     return;
@@ -470,10 +476,9 @@
             document.querySelectorAll('.llma-tool-approval').forEach(row => row.remove());
         }
         llmaA11y.setBusy(active);
-        // A new turn, however it was started, ends the first run, and whatever an earlier turn of this chat was still writing.
+        // A new turn, however it was started, ends the first run.
         if (active) {
             llmaOnboarding.onSend();
-            llmaActions.forgetLost(LLMAState.activeThreadId);
         }
         // Greys out the actions that change the chat, and shows or removes the Retry row.
         llmaActions.syncTail();
