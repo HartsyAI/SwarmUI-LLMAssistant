@@ -827,11 +827,13 @@ public static class ChatEndpoints
             if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
             if (content is null) { return Fail("content is required."); }
-            // A session still working in the background is stopped first (what it had is saved), so it cannot append to the branch made here.
-            await BackgroundTurnService.StopAsync(session.User, threadId);
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
-            JObject original = (thread["messages"] as JArray)?.OfType<JObject>().FirstOrDefault(m => m["id"]?.ToString() == messageId);
+            if (MessageActions.Find(thread, messageId) is null) { return Fail($"Message '{messageId}' not found in thread."); }
+            // A session still working in the background is stopped first (what it had is saved), so it cannot append to the branch made here. Only a request that can be carried out stops it.
+            await BackgroundTurnService.StopAsync(session.User, threadId);
+            // Read again: stopping saved what the turn had.
+            JObject original = MessageActions.Find(ThreadStorageService.GetThread(session.User, threadId), messageId);
             if (original is null) { return Fail($"Message '{messageId}' not found in thread."); }
             // Build the edited sibling: same role, new content, carry the original's media.
             JObject edited = new() { ["role"] = original["role"]?.ToString() ?? Roles.User, ["content"] = content };
@@ -863,11 +865,13 @@ public static class ChatEndpoints
             string messageId = rawInput["messageId"]?.ToString();
             if (string.IsNullOrEmpty(threadId)) { return Fail("threadId is required."); }
             if (string.IsNullOrEmpty(messageId)) { return Fail("messageId is required."); }
-            // A session still working in the background is stopped first (what it had is saved), so its reply cannot land beside the new one.
-            await BackgroundTurnService.StopAsync(session.User, threadId);
             JObject thread = ThreadStorageService.GetThread(session.User, threadId);
             if (thread is null) { return Fail($"Chat '{threadId}' not found."); }
-            if (!MessageActions.TryResolveReplyPoint(thread, messageId, out string replyTo, out string error)) { return Fail(error); }
+            if (!MessageActions.TryResolveReplyPoint(thread, messageId, out _, out string error)) { return Fail(error); }
+            // A session still working in the background is stopped first (what it had is saved), so its reply cannot land beside the new one. Only a request that can be carried out stops it.
+            await BackgroundTurnService.StopAsync(session.User, threadId);
+            // Read again: stopping saved what the turn had.
+            if (!MessageActions.TryResolveReplyPoint(ThreadStorageService.GetThread(session.User, threadId), messageId, out string replyTo, out error)) { return Fail(error); }
             // Move the active leaf to the turn being answered; the streamed reply appends as a new child of it.
             if (ThreadStorageService.SetActiveLeaf(session.User, threadId, replyTo) is null)
             {

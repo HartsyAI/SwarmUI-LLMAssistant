@@ -179,8 +179,9 @@
         const focusAt = row?.contains(document.activeElement) ? llmaA11y.messageRows().indexOf(row) : -1;
         // The stored chat decides what the delete takes with it, and whether the message was saved at all: the page's own idea of both can be behind.
         let saved;
+        let stopped;
         try {
-            saved = await llmaActions.fetchThread(threadId);
+            ({ thread: saved, stopped } = await llmaActions.settledThread(threadId, msgId));
         }
         catch (error) {
             console.error('[LLMAssistant] Could not read the chat before a delete:', error);
@@ -190,7 +191,7 @@
         if (LLMAState.activeThreadId !== threadId || llmaActions.busy()) return;
         if (!saved.messages.some(m => m.id === msgId)) {
             // Never saved (a reply that failed or was stopped before anything), or already gone: show the chat as it is stored.
-            llmaShowStoredThread(saved, focusAt);
+            llmaShowStoredThread(saved, focusAt, stopped ? 'The reply was stopped before it was saved' : 'Message deleted');
             return;
         }
         const below = llmaActions.countBelow(msgId, saved.messages);
@@ -224,14 +225,14 @@
         llmaSaveActiveThread();
     }
 
-    /** Draws the chat as stored after a delete, says so, and puts keyboard focus where the deleted message was. File-private. */
-    function llmaShowStoredThread(thread, focusAt) {
+    /** Draws the chat as stored after a delete, says what happened, and puts keyboard focus where the deleted message was. File-private. */
+    function llmaShowStoredThread(thread, focusAt, said = 'Message deleted') {
         llmaIngestThread(thread);
         llmaRenderMessageHistory(LLMAState.messages);
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
-        llmaA11y.announce(translate('Message deleted'));
+        llmaA11y.announce(translate(said));
         if (focusAt >= 0) {
             llmaA11y.focusMessageAt(focusAt);
         }

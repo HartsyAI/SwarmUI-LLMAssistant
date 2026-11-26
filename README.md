@@ -293,7 +293,7 @@ Under each message (shown on hover, on keyboard focus, and always on a touch scr
 | **Delete** | any message | Removes the message **and every message under it, on every branch**. It asks first when that is more than the one message. | `LLMAssistantDeleteMessage` |
 | **Use as Prompt** | replies | Puts the reply in the Generate tab's prompt box. | none |
 
-While a reply streams, and while the chat is a [session](#sessions) working in the background (a call waiting for approval included), the actions that change the chat are off. `LLMAssistantEditMessageWS` and `LLMAssistantRegenerateWS` stop such a session's turn first, as sending a message does. A delete reads the stored chat before it asks, so the question counts what is really under the message. The side-by-side columns of a comparison have **Copy**, **Copy as Markdown**, **Use as Prompt**, **Keep this one** and **Delete**.
+While a reply streams, and while the chat is a [session](#sessions) working in the background (a call waiting for approval included), the actions that change the chat are off. `LLMAssistantEditMessageWS` and `LLMAssistantRegenerateWS` stop such a session's turn first, as sending a message does, once the message they name is found. A delete reads the stored chat before it asks, so the question counts what is really under the message. If the page shows a reply there that the chat has not stored (the connection dropped mid-reply), the delete first stops that reply (`LLMAssistantStopGeneration`) and waits for what it saves. The side-by-side columns of a comparison have **Copy**, **Copy as Markdown**, **Use as Prompt**, **Keep this one** and **Delete**.
 
 ## Accessibility <a id="accessibility"></a>
 
@@ -307,7 +307,7 @@ While a reply streams, and while the chat is a [session](#sessions) working in t
 | `←` / `→`, `Home` / `End` | settings tabs | Switch tabs |
 
 - Dialogs keep `Tab` inside them. Focus rings use the theme's strongest text colour.
-- Screen readers: messages are articles named for who wrote them. One polite live region says when a reply starts, finishes, stops or fails, when a tool waits for approval, and repeats the toasts. Reply text is not announced as it streams.
+- Screen readers: messages are articles named for who wrote them. One polite live region says when a reply starts, finishes, stops or fails, when a tool waits for approval, says what the first-run guide's buttons did, and repeats the toasts. Reply text is not announced as it streams.
 - **Reduced motion** (the system setting) turns off the animations and smooth scrolling.
 - **Touch screens and narrow windows**: controls are at least 44 by 44 pixels.
 - The Playwright suite runs [axe](https://github.com/dequelabs/axe-core) (WCAG 2.0 to 2.2, A and AA) on the main views in the `modern_dark` and `modern_light` themes. Other themes, SwarmUI's own page around the tab, and real screen readers have not been checked.

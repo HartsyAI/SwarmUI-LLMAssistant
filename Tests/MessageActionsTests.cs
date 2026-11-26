@@ -18,6 +18,15 @@ public class MessageActionsTests
             new JObject { ["id"] = "u2", ["parentId"] = "a1", ["role"] = "user", ["content"] = "two" })
     };
 
+    [Fact]
+    public void A_message_is_found_by_its_id_on_any_branch_and_nothing_else_is()
+    {
+        Assert.Equal("reply", MessageActions.Find(Thread(), "a1")["content"]?.ToString());
+        Assert.Null(MessageActions.Find(Thread(), "nope"));
+        Assert.Null(MessageActions.Find(new JObject(), "a1"));
+        Assert.Null(MessageActions.Find(null, "a1"));
+    }
+
     [Theory]
     [InlineData("a1", "u1")]
     [InlineData("u2", "u2")]

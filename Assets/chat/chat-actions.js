@@ -162,22 +162,48 @@ class LLMAMessageActions {
         }
     }
 
-    /** How many messages of a stored chat hang under this one, on every branch: deleting it deletes them too. */
-    countBelow(msgId, nodes) {
-        let count = 0;
+    /** The ids of this message and of every message under it, among these. */
+    subtreeIds(msgId, nodes) {
+        let found = new Set([msgId]);
         let queue = [msgId];
-        let seen = new Set(queue);
         while (queue.length > 0) {
             let parent = queue.pop();
             for (let child of nodes.filter(n => llmaParentId(n) == parent)) {
-                if (!seen.has(child.id)) {
-                    seen.add(child.id);
+                if (!found.has(child.id)) {
+                    found.add(child.id);
                     queue.push(child.id);
-                    count++;
                 }
             }
         }
-        return count;
+        return found;
+    }
+
+    /** How many messages of a stored chat hang under this one, on every branch: deleting it deletes them too. */
+    countBelow(msgId, nodes) {
+        return this.subtreeIds(msgId, nodes).size - 1;
+    }
+
+    /**
+     * The stored chat to delete a message from, once nothing is still being written there. A reply the page gave up on (its connection dropped) goes on being written
+     * when its turn runs no tools, and would come back after the delete. So when the page has the message, or one under it, that the chat does not store, the server
+     * is told to stop and what it then saves is waited for. `stopped` says a turn was ended.
+     */
+    async settledThread(threadId, msgId) {
+        let shown = Array.from(this.subtreeIds(msgId, LLMAState.allNodes || []));
+        let thread = await this.fetchThread(threadId);
+        let missing = () => shown.some(id => !thread.messages.some(m => m.id == id));
+        if (!missing()) {
+            return { thread: thread, stopped: false };
+        }
+        let reply = await llmaRequest('LLMAssistantStopGeneration', { threadId: threadId });
+        // Read again either way: a turn may have ended between the first read and the stop.
+        thread = await this.fetchThread(threadId);
+        // A stopped turn saves what it had a moment later. One with nothing to save never does, so the wait is short.
+        for (let attempt = 0; reply?.cancelled && attempt < 8 && missing(); attempt++) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+            thread = await this.fetchThread(threadId);
+        }
+        return { thread: thread, stopped: !!reply?.cancelled };
     }
 
     /** The question asked before a delete that takes other messages with it. */

@@ -1,4 +1,4 @@
-import { test, expect, send, lastAssistant, setScenarios, mockRequests, api, reopen, enableSessionTools, resetSessionTools } from './fixtures';
+import { test, expect, send, lastAssistant, setScenarios, mockRequests, clearRequests, api, reopen, enableSessionTools, resetSessionTools } from './fixtures';
 import type { Page } from '@playwright/test';
 
 // The per-message actions: copy, regenerate / retry, edit and resend, delete, branch from here.
@@ -406,6 +406,88 @@ test('with no clipboard API, Copy says whether the old copy command worked and g
     expect(await llm.evaluate(() => (window as any).copied)).toBe('plain words');
 });
 
+/** Makes the page give up on the streaming reply, as when its connection fails, while the server goes on writing it. */
+async function loseConnection(page: Page) {
+    await page.evaluate(() => {
+        let socket = (0, eval)('LLMAState')._activeSocket as WebSocket;
+        socket.onmessage = null;
+        (socket.onerror as () => void)();
+    });
+    await expect(page.locator('#llma-send-btn')).toBeVisible();
+}
+
+const WORDS = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ');
+
+test('deleting a reply the page lost is not undone by the server finishing it', async ({ llm }) => {
+    test.slow();
+    await setScenarios([{ match: 'lost reply', rounds: [{ text: WORDS, chunkDelayMs: 150 }] }]);
+    await send(llm, 'lost reply');
+    await expect(lastAssistant(llm)).toContainText('word3');
+    await loseConnection(llm);
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Delete').click();
+    await expect(replyRows(llm)).toHaveCount(0);
+    // Longer than the rest of the reply would have taken.
+    await llm.waitForTimeout(8000);
+    expect(await stored(llm)).toHaveLength(1);
+});
+
+test('deleting a question whose reply never reached the page stops that reply', async ({ llm }) => {
+    test.slow();
+    await clearRequests();
+    await setScenarios([{ match: 'silent start', rounds: [{ delayMs: 8000, text: 'too late' }] }]);
+    await send(llm, 'silent start');
+    await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+    await loseConnection(llm);
+    let question = userRows(llm).first();
+    await question.hover();
+    await action(llm, question, 'Delete').click();
+    await expect(userRows(llm)).toHaveCount(0);
+    await expect(llm.locator('#llma-announcer')).toContainText('Message deleted');
+    await llm.waitForTimeout(9000);
+    expect(await stored(llm)).toHaveLength(0);
+});
+
+for (let lost of [
+    { when: 'before its first word', round: { delayMs: 3000, text: 'arrived late' }, seen: '' },
+    { when: 'part way', round: { text: `${WORDS.slice(0, 80)} arrived late`, chunkDelayMs: 200 }, seen: 'word2' },
+]) {
+    test(`a reply the page lost ${lost.when} is drawn once the server has it`, async ({ llm }) => {
+        test.slow();
+        await clearRequests();
+        await setScenarios([{ match: 'late one', rounds: [lost.round] }]);
+        await send(llm, 'late one');
+        await expect.poll(() => mockRequests().then(requests => requests.length)).toBeGreaterThan(0);
+        if (lost.seen) {
+            await expect(lastAssistant(llm)).toContainText(lost.seen);
+        }
+        await loseConnection(llm);
+        await expect(llm.locator('.llma-msg-error')).toBeVisible();
+        await expect.poll(async () => (await stored(llm)).length, { timeout: 30_000 }).toBe(2);
+        // What every later action does: reads the chat and takes the server's tree.
+        await llm.evaluate(() => (0, eval)('llmaSaveActiveThread')());
+        await expect(lastAssistant(llm)).toContainText('arrived late');
+        await expect(llm.locator('.llma-msg-error')).toHaveCount(0);
+        await expect(replyRows(llm)).toHaveCount(1);
+        await expectSameTree(llm);
+    });
+}
+
+test('reading a chat takes its status as read, not what the list last said', async ({ llm }) => {
+    await exchange(llm, 'status', 'Mock reply');
+    let remove = action(llm, userRows(llm).first(), 'Delete');
+    for (let read of ['llmaReloadActiveThread()', 'llmaSwitchThread(LLMAState.activeThreadId)', 'llmaSaveActiveThread()']) {
+        await llm.evaluate(() => {
+            (0, eval)('LLMAState').threads[0].sessionStatus = 'running';
+            (0, eval)('llmaActions').syncTail();
+        });
+        await expect(remove).toHaveAttribute('aria-disabled', 'true');
+        await llm.evaluate(code => (0, eval)(code), read);
+        await expect(remove).toHaveAttribute('aria-disabled', 'false');
+    }
+});
+
 test.describe('a session working in the background', () => {
     test.beforeEach(async ({ llm }) => {
         await enableSessionTools(llm);
@@ -445,6 +527,16 @@ test.describe('a session working in the background', () => {
     });
 
     for (let route of ['LLMAssistantRegenerateWS', 'LLMAssistantEditMessageWS']) {
+        test(`${route} with a message that is not there leaves the turn running`, async ({ llm }) => {
+            let child = await workingSession(llm);
+            let done = await llm.evaluate(([name, body]) => new Promise<any>(resolve => {
+                (0, eval)('makeWSRequest')(name, body, (data: any) => data.done && resolve(data), 0, (error: string) => resolve({ error }));
+            }), [route, { threadId: child, messageId: 'no-such-message', content: 'new wording', model: 'mock-model' }] as const);
+            expect(done.error).toContain('not found');
+            expect((await api(llm, 'LLMAssistantGetThread', { threadId: child })).thread.sessionStatus).toBe('running');
+            await api(llm, 'LLMAssistantStopGeneration', { threadId: child });
+        });
+
         test(`${route} stops its turn first, so the new reply lands where it was asked for`, async ({ llm }) => {
             let child = await workingSession(llm);
             let before = (await api(llm, 'LLMAssistantGetThread', { threadId: child })).thread.messages;

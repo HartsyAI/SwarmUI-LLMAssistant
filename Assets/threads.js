@@ -60,6 +60,10 @@ function llmaAdoptServerTree(thread) {
     if (saved.length == 0 || (leaf && !leaf.unsaved && !ids.has(leaf.id))) {
         return;
     }
+    // What is on screen: the branch showing, less the replies the page already knows were never saved.
+    let drawn = LLMAState.messages.filter(n => !n.unsaved).map(n => n.id).join();
+    // A reply the page gave up on (taken for unsaved, or ended with an error) that the server went on to finish.
+    let finishedLate = (LLMAState.allNodes || []).some(n => ids.has(n.id) && (n.unsaved || (n.meta?.error && !saved.find(s => s.id == n.id).meta?.error)));
     let local = (LLMAState.allNodes || []).filter(n => !ids.has(n.id));
     for (let node of local) {
         llmaActions.markUnsaved(node);
@@ -67,7 +71,16 @@ function llmaAdoptServerTree(thread) {
     LLMAState.allNodes = saved.concat(local);
     LLMAState.activeLeafId = thread.activeLeafId || saved[saved.length - 1].id;
     LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, LLMAState.activeLeafId);
-    llmaActions.syncTail();
+    let changed = finishedLate || drawn != LLMAState.messages.map(n => n.id).join();
+    // A message being edited is not drawn over.
+    if (changed && !document.querySelector('#llma-messages textarea')) {
+        llmaRenderMessageHistory(LLMAState.messages);
+        llmaRebuildAssetsForThread();
+        llmaUpdateContextBar();
+    }
+    else {
+        llmaActions.syncTail();
+    }
 }
 
 function llmaChildrenOf(nodeId) {
@@ -778,6 +791,7 @@ async function llmaSwitchThread(threadId) {
         if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
         llmaCodeMode.onThreadLoaded(thread);
         llmaSessions.onThreadLoaded(thread);
+        llmaSessions.adoptStatus(thread);
         // Invalidate the exact token count — it's for the previous thread.
         LLMAState.exactTokenCount = null;
         LLMAState.exactTokenCountForLen = -1;
@@ -854,6 +868,7 @@ async function llmaReloadActiveThread() {
     if (typeof llmaSetApprovalMode === 'function') llmaSetApprovalMode(thread.approvalMode || 'auto', false);
     llmaRenderMessageHistory(LLMAState.messages);
     llmaSessions.onThreadLoaded(thread);
+    llmaSessions.adoptStatus(thread);
     llmaRebuildAssetsForThread();
     llmaUpdateContextBar();
     if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
@@ -955,6 +970,7 @@ async function llmaSaveActiveThread() {
     }
     // Trust the server's view of the thread.
     if (!LLMAState.isGenerating && saved.id == LLMAState.activeThreadId) {
+        llmaSessions.adoptStatus(saved);
         llmaAdoptServerTree(saved);
     }
     meta.title        = saved.title || meta.title;

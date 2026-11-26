@@ -133,6 +133,17 @@ class LLMASessions {
         }
     }
 
+    /** Takes the status of a chat just read into its row of the list, so nothing goes by an older one, and has the list watched while it works. */
+    adoptStatus(thread) {
+        let row = LLMAState.threads.find(t => t.id == thread.id);
+        if (!row || row.sessionStatus == thread.sessionStatus) {
+            return;
+        }
+        row.sessionStatus = thread.sessionStatus;
+        this.onThreadsLoaded(LLMAState.threads);
+        llmaActions.syncTail();
+    }
+
     /** Reads the list again. */
     async poll() {
         // Redrawing the list would throw away a name being typed into it.
