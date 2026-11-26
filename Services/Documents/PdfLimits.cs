@@ -19,8 +19,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 /// <summary>PdfPig builds every character of a page in memory before any text can be looked at, and a small file can be made to unpack, repeat or draw the same bytes millions of times. These
 /// keep what it is given to work on small: its decoders are bounded, a page's font maps are looked over, and the page is measured, its characters counted without being kept, before it is
 /// read. Where they follow the file they do it as PdfPig 0.1.16 does (references, arrays of one, its own tokenizer for character maps), because anything read differently is a way round.
-/// <para>These are <b>best effort</b>, against the ways found to make a small file expensive. They are not a guarantee against a hostile PDF: that needs the reading done in a separate
-/// process whose memory and time the system limits.</para></summary>
+/// <para>These are <b>best effort</b>, against the ways found to make a small file expensive, so that an ordinary reason can be given quickly. What protects the server from a hostile
+/// PDF is that all of this runs in a separate process with a memory and time limit (<see cref="PdfWorkerHost"/>).</para></summary>
 internal static class PdfLimits
 {
     /// <summary>The most bytes one packed stream may unpack to.</summary>

@@ -33,7 +33,7 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 
 Not built:
 
-- **A hard bound on PDF reading.** The limits in `Services/Documents/PdfLimits.cs` are best effort against known ways to make a small file expensive, and a tiny crafted file may still crash the server (the parser can be made to overflow its stack, which nothing in the process can catch). A guarantee needs extraction in a separate process with a memory and time limit.
+- **A sandbox for the PDF worker.** PDF files are read in a separate process with a memory and time limit (`Services/Documents/PdfWorkerHost.cs`), which contains crashes and exhaustion; that process still runs as the SwarmUI user, with the same access to files and the network.
 - Anything that reads `style` memory notes (the image rewrite does not use them yet).
 - The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
 - A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).
@@ -47,6 +47,7 @@ Not verified on real hardware or real services:
 - **Real embeddings.** Knowledge search and memory recall by meaning were exercised against a scripted embedding endpoint in the mock, not a real embedding model.
 - **Real prompt-style quality.** No built-in or user style, Ideogram 4 included, has been tried with a real image model and a real chat model. The mock proves wiring, validation and fallback only. The open real-model checks are in `docs/prompting/README.md` (Ideogram empty-`elements` fallback, Flux.3 inline `<bbox>` against BFL's form, Fibo 2 numeric boxes, escaping Swarm tags inside JSON strings).
 - **Real providers.** Tool-call round trips, usage fields and compaction were run against the mock LLM; a live provider matrix is Phase 13 below, not done.
+- **The PDF worker on macOS.** The separate process PDF files are read in was run on Windows and Linux, not on macOS.
 
 # LATER WORK (parked, not approved, order not agreed)
 

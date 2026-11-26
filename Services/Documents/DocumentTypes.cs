@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 
 /// <summary>How reading a document ended.</summary>
@@ -34,9 +36,11 @@ public sealed record DocumentLimits(int MaxPages, int MaxChars);
 public sealed record ExtractedDocument(DocumentStatus Status, string Kind, IReadOnlyList<string> Pages, int TotalPages, bool Truncated, IReadOnlyList<string> Warnings, string Error)
 {
     /// <summary>The whole text: the pages that have any, a blank line between them.</summary>
+    [JsonIgnore]
     public string Text => string.Join("\n\n", Pages.Where(p => p.Length > 0));
 
     /// <summary>Whether the document was read.</summary>
+    [JsonIgnore]
     public bool Success => Status == DocumentStatus.Ok;
 
     /// <summary>A result that says why there is no text.</summary>

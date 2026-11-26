@@ -230,6 +230,7 @@ public class LLMAssistantExtension : Extension
 
     public override void OnShutdown()
     {
+        Services.Documents.PdfWorkerHost.Shared.Shutdown();
         McpServerManager.Instance.DisposeAll();
         CoreBridge.Shutdown();
     }

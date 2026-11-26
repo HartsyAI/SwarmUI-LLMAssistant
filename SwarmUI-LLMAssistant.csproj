@@ -18,6 +18,16 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
+  <!-- The assembly is a program as well as the library SwarmUI loads: PDF files are read by running it again as a process of its own (Services/Documents/PdfWorker), so a file that
+       crashes the parser cannot end the server. This overrides the library output type SwarmUI.extension.props sets; the build then writes the runtimeconfig.json that starts it.
+       No native launcher is wanted: it is started with dotnet, the same way on every system. The settings file is given a fixed name (PdfWorker.RuntimeConfigName must match), because
+       core builds with its own TargetName, which names the assembly itself for the commit it was built from. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <UseAppHost>false</UseAppHost>
+    <ProjectRuntimeConfigFileName>SwarmExtensionLLMAssistant.runtimeconfig.json</ProjectRuntimeConfigFileName>
+  </PropertyGroup>
+
   <!-- Tests/ is its own project (own xunit/Test.Sdk references this Web SDK project doesn't carry) — without
        this, the SDK's default **/*.cs glob would also compile its sources into this assembly and fail. -->
   <ItemGroup>
