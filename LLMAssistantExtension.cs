@@ -162,6 +162,8 @@ public class LLMAssistantExtension : Extension
         OrphanedFileGC.Start();
         // Runs schedules on time (nothing happens until a user has one).
         Services.Schedules.ScheduleService.Start();
+        // Ends PDF workers and starts no more as soon as a shutdown begins, before core stops the web server, so a request still waiting is told why.
+        Program.PreShutdownEvent += Services.Documents.PdfWorkerHost.Shared.Shutdown;
         Logs.Info("[LLMAssistant] Initialized.");
     }
 
@@ -230,7 +232,6 @@ public class LLMAssistantExtension : Extension
 
     public override void OnShutdown()
     {
-        Services.Documents.PdfWorkerHost.Shared.Shutdown();
         McpServerManager.Instance.DisposeAll();
         CoreBridge.Shutdown();
     }

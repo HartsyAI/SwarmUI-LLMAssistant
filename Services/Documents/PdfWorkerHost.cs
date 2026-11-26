@@ -36,6 +36,12 @@ internal sealed class PdfWorkerHost
     /// <summary>What a user is told when the server stops while their file is being read.</summary>
     public const string ShutdownMessage = "The server is shutting down, so that PDF was not read.";
 
+    /// <summary>What a user is told when the system killed the worker (signal 9, which is what Linux does to a process when memory runs out).</summary>
+    public const string KilledMessage = "Reading that PDF was stopped by the system, which usually means the server was short of memory. Try again, or split it into smaller parts.";
+
+    /// <summary>What a user is told when the worker was asked to stop from outside (signal 2 or 15: Ctrl+C in the server's terminal reaches the worker too).</summary>
+    public const string InterruptedMessage = "Reading that PDF was interrupted before it finished. Try again.";
+
     /// <summary>How often a running worker's time, memory and cancellation are looked at, in milliseconds.</summary>
     private const int PollMs = 50;
 
@@ -55,7 +61,7 @@ internal sealed class PdfWorkerHost
     public TimeSpan TimeLimit = DocumentExtraction.Timeout;
 
     /// <summary>The limit on a worker's managed heap, in bytes.</summary>
-    public long HeapLimit = DefaultHeapLimit;
+    public long HeapLimit = HeapLimitFor(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes);
 
     /// <summary>The limit on a worker's working set, in bytes.</summary>
     public long MemoryLimit = DefaultMemoryLimit;
@@ -79,6 +85,10 @@ internal sealed class PdfWorkerHost
         string dotnet = Path.Combine(root, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet");
         return File.Exists(dotnet) ? dotnet : "dotnet";
     }
+
+    /// <summary>The heap limit where the runtime reports <paramref name="available"/> bytes: <see cref="DefaultHeapLimit"/>, or less where less is available. In a container the
+    /// runtime reports its own share of the container's memory, and a fixed figure above that would replace it, leaving the system to kill the worker.</summary>
+    public static long HeapLimitFor(long available) => available > 0 ? Math.Min(DefaultHeapLimit, available) : DefaultHeapLimit;
 
     /// <summary>The runtime settings the build writes beside the assembly.</summary>
     private string RuntimeConfig => Path.Combine(Path.GetDirectoryName(WorkerAssembly) ?? "", PdfWorker.RuntimeConfigName);
@@ -182,7 +192,7 @@ internal sealed class PdfWorkerHost
         }
         ReadOnlySpan<byte> received = reply.ToArray();
         bool ready = received.StartsWith(PdfWorker.Ready);
-        if (ready && process.HasExited && process.ExitCode == 0 && Parse(received[PdfWorker.Ready.Length..]) is ExtractedDocument result)
+        if (ready && process.HasExited && process.ExitCode == 0 && Parse(received[PdfWorker.Ready.Length..], limits) is ExtractedDocument result)
         {
             return result;
         }
@@ -192,6 +202,12 @@ internal sealed class PdfWorkerHost
         }
         string said = Said(errors);
         string how = $"exit code {(process.HasExited ? process.ExitCode : "none")}: {said}";
+        // On Linux and macOS a process ended by a signal reports 128 and the signal's number. Unless this host sent it (after a stack overflow, above all), it says nothing about the file.
+        if (!OperatingSystem.IsWindows() && !said.Contains(StackOverflowNote) && process.HasExited && process.ExitCode is 128 + 2 or 128 + 9 or 128 + 15)
+        {
+            Logs.Warning($"[LLMAssistant] The PDF reader process was stopped from outside, {how}");
+            return process.ExitCode == 128 + 9 ? Failed(DocumentStatus.TooLarge, KilledMessage) : Failed(DocumentStatus.Unsupported, InterruptedMessage);
+        }
         if (!ready)
         {
             return CannotStart(how);
@@ -229,12 +245,16 @@ internal sealed class PdfWorkerHost
         return Failed(DocumentStatus.Unsupported, CannotStartMessage);
     }
 
-    /// <summary>The result a worker wrote, or null when it is not one.</summary>
-    private static ExtractedDocument Parse(ReadOnlySpan<byte> json)
+    /// <summary>The result a worker wrote, or null when it is not one: it has to be what reading a PDF can give, within the limits the worker was asked to keep.</summary>
+    public static ExtractedDocument Parse(ReadOnlySpan<byte> json, DocumentLimits limits)
     {
         try
         {
-            return JsonSerializer.Deserialize<ExtractedDocument>(json) is { Pages: not null, Warnings: not null, Error: not null } result ? result : null;
+            return JsonSerializer.Deserialize<ExtractedDocument>(json) is { Kind: "pdf", Pages: not null, TotalPages: >= 0, Warnings: not null, Error: not null } result
+                && Enum.IsDefined(result.Status)
+                && result.Pages.Count <= limits.MaxPages && result.Pages.All(p => p is not null) && result.Pages.Sum(p => (long)p.Length) <= limits.MaxChars
+                && result.Warnings.All(w => w is not null)
+                ? result : null;
         }
         catch (JsonException)
         {

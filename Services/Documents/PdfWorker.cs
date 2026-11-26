@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text.Json;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
@@ -44,6 +45,8 @@ internal static class PdfWorker
         Stream errors = Console.OpenStandardError();
         // Nothing else may write into the reply.
         Console.SetOut(TextWriter.Null);
+        // Before the greeting: with a part of the parser missing or broken this is a reader that cannot start, and no file is blamed for it.
+        LoadParser();
         output.Write(Ready);
         output.Flush();
         // Made beforehand: there may be no memory left to make it with.
@@ -84,6 +87,21 @@ internal static class PdfWorker
         errors.Write(note);
         errors.Flush();
         return 1;
+    }
+
+    /// <summary>Loads every assembly of the parser that this one refers to, directly or through another of them, and throws when one is missing or is not an assembly. Left to
+    /// itself the runtime loads each only when reading first needs it.</summary>
+    private static void LoadParser()
+    {
+        Queue<Assembly> loaded = new([typeof(PdfWorker).Assembly]);
+        HashSet<string> named = [];
+        while (loaded.TryDequeue(out Assembly assembly))
+        {
+            foreach (AssemblyName reference in assembly.GetReferencedAssemblies().Where(r => r.Name.StartsWith("UglyToad.", StringComparison.Ordinal) && named.Add(r.Name)))
+            {
+                loaded.Enqueue(Assembly.Load(reference));
+            }
+        }
     }
 
     /// <summary>Returns once the server's process has ended.</summary>

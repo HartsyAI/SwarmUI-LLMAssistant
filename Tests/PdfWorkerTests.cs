@@ -14,7 +14,7 @@ public sealed class PdfWorkerTests : IDisposable
     private static readonly DocumentLimits Limits = new(200, 200_000);
 
     /// <summary>Limits with room for all of a <see cref="Slow"/> file's characters, so reading it is not cut short.</summary>
-    private static readonly DocumentLimits Unhurried = new(200, 100_000_000);
+    internal static readonly DocumentLimits Unhurried = new(200, 100_000_000);
 
     /// <summary>A folder of this test's own, removed after it.</summary>
     private readonly string _folder = Path.Combine(Path.GetTempPath(), $"llma-pdf-worker-{Guid.NewGuid():N}");
@@ -28,7 +28,7 @@ public sealed class PdfWorkerTests : IDisposable
     }
 
     /// <summary>A PDF that takes the parser seconds to read: pages of 190,000 characters each.</summary>
-    private static byte[] Slow(int pages = 20)
+    internal static byte[] Slow(int pages = 20)
     {
         byte[] page = Encoding.ASCII.GetBytes($"BT /F1 1 Tf 10 10 Td ({new string('a', 190_000)}) Tj ET");
         return DocumentFixtures.RawPdf([.. Enumerable.Repeat(page, pages)], true);
@@ -42,7 +42,7 @@ public sealed class PdfWorkerTests : IDisposable
         return (host, ids);
     }
 
-    private static void AssertEnded(int id)
+    internal static void AssertEnded(int id)
     {
         try
         {
@@ -55,7 +55,7 @@ public sealed class PdfWorkerTests : IDisposable
         }
     }
 
-    private static void AssertRefused(ExtractedDocument result, DocumentStatus status, string message)
+    internal static void AssertRefused(ExtractedDocument result, DocumentStatus status, string message)
     {
         Assert.True(result.Status == status, $"{result.Status}: {result.Error}");
         Assert.Equal(message, result.Error);
@@ -203,19 +203,91 @@ public sealed class PdfWorkerTests : IDisposable
     }
 
     /// <summary>What a worker needs from the folder core builds an extension into: the assembly under another file name, the runtime settings under their fixed name, and the parser.
-    /// Neither SwarmUI nor a package SwarmUI provides is there. Core's build also changes the name inside the assembly, which only a SwarmUI build shows (the documents browser spec).</summary>
-    private string Copy(string name)
+    /// Neither SwarmUI nor a package SwarmUI provides is there. Core's build also changes the name inside the assembly, which only a SwarmUI build shows (the documents browser spec).
+    /// <paramref name="within"/> names a folder of its own to put it in, and <paramref name="without"/> a file of the parser to leave out.</summary>
+    private string Copy(string name, string within = "", string without = null)
     {
-        Directory.CreateDirectory(_folder);
+        string folder = Path.Combine(_folder, within);
+        Directory.CreateDirectory(folder);
         string built = Path.GetDirectoryName(typeof(PdfWorkerHost).Assembly.Location);
-        File.Copy(Path.Combine(built, PdfWorker.RuntimeConfigName), Path.Combine(_folder, PdfWorker.RuntimeConfigName), true);
-        foreach (string parser in Directory.EnumerateFiles(built, "UglyToad.*.dll"))
+        File.Copy(Path.Combine(built, PdfWorker.RuntimeConfigName), Path.Combine(folder, PdfWorker.RuntimeConfigName), true);
+        Assert.True(without is null || File.Exists(Path.Combine(built, without)), $"{without} is not part of the build");
+        foreach (string parser in Directory.EnumerateFiles(built, "UglyToad.*.dll").Where(p => Path.GetFileName(p) != without))
         {
-            File.Copy(parser, Path.Combine(_folder, Path.GetFileName(parser)), true);
+            File.Copy(parser, Path.Combine(folder, Path.GetFileName(parser)), true);
         }
-        string assembly = Path.Combine(_folder, name);
+        string assembly = Path.Combine(folder, name);
         File.Copy(typeof(PdfWorkerHost).Assembly.Location, assembly, true);
         return assembly;
+    }
+
+    [Theory]
+    [InlineData("UglyToad.PdfPig.dll")]
+    [InlineData("UglyToad.PdfPig.Core.dll")]
+    [InlineData("UglyToad.PdfPig.DocumentLayoutAnalysis.dll")]
+    [InlineData("UglyToad.PdfPig.Fonts.dll")]
+    [InlineData("UglyToad.PdfPig.Tokenization.dll")]
+    [InlineData("UglyToad.PdfPig.Tokens.dll")]
+    public void A_build_missing_part_of_the_parser_is_a_reader_that_cannot_start(string missing)
+    {
+        PdfWorkerHost host = new() { WorkerAssembly = Copy("SwarmExtensionLLMAssistant-partial.dll", without: missing) };
+        AssertRefused(host.Read(DocumentFixtures.Pdf("good file"), Limits, CancellationToken.None), DocumentStatus.Unsupported, PdfWorkerHost.CannotStartMessage);
+    }
+
+    [Fact]
+    public void The_worker_starts_from_a_path_with_spaces_and_other_alphabets()
+        => AssertReads(new PdfWorkerHost { WorkerAssembly = Copy("SwarmExtension with spaces Über 試験-0123abcd.dll", within: "a folder, with spaces é 試験") });
+
+    [Theory]
+    [InlineData("KILL", DocumentStatus.TooLarge, PdfWorkerHost.KilledMessage)]
+    [InlineData("INT", DocumentStatus.Unsupported, PdfWorkerHost.InterruptedMessage)]
+    [InlineData("TERM", DocumentStatus.Unsupported, PdfWorkerHost.InterruptedMessage)]
+    public void A_worker_stopped_from_outside_is_not_blamed_on_the_file(string signal, DocumentStatus status, string message)
+    {
+        // Signals are how Linux and macOS end a process; Windows has none to send.
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+        PdfWorkerHost host = new()
+        {
+            Started = process =>
+            {
+                Thread.Sleep(1000);
+                using Process kill = Process.Start("kill", [$"-{signal}", process.Id.ToString()]);
+                kill.WaitForExit();
+            },
+        };
+        AssertRefused(host.Read(Slow(), Unhurried, CancellationToken.None), status, message);
+    }
+
+    [Theory]
+    [InlineData(0L, PdfWorkerHost.DefaultHeapLimit)]
+    [InlineData(64L * 1024 * 1024 * 1024, PdfWorkerHost.DefaultHeapLimit)]
+    [InlineData(135L * 1024 * 1024, 135L * 1024 * 1024)]
+    public void The_heap_limit_is_no_more_than_the_memory_there_is(long available, long limit)
+        => Assert.Equal(limit, PdfWorkerHost.HeapLimitFor(available));
+
+    [Theory]
+    [InlineData("\"Status\":0", "\"Status\":99")]
+    [InlineData("\"Kind\":\"pdf\"", "\"Kind\":null")]
+    [InlineData("\"Kind\":\"pdf\"", "\"Kind\":\"docx\"")]
+    [InlineData("[\"abc\",\"defg\"]", "null")]
+    [InlineData("\"abc\"", "null")]
+    [InlineData("\"defg\"", "\"defghijk\"")]
+    [InlineData("[\"abc\",\"defg\"]", "[\"\",\"\",\"\"]")]
+    [InlineData("\"TotalPages\":2", "\"TotalPages\":-1")]
+    [InlineData("[\"w\"]", "null")]
+    [InlineData("[\"w\"]", "[null]")]
+    [InlineData("\"Error\":\"\"", "\"Error\":null")]
+    [InlineData("\"Kind\":\"pdf\"", "\"Kind\":pdf")]
+    public void A_reply_that_could_not_be_a_pdfs_result_is_not_taken(string was, string now)
+    {
+        const string reply = """{"Status":0,"Kind":"pdf","Pages":["abc","defg"],"TotalPages":2,"Truncated":false,"Warnings":["w"],"Error":""}""";
+        DocumentLimits limits = new(2, 10);
+        Assert.NotNull(PdfWorkerHost.Parse(Encoding.UTF8.GetBytes(reply), limits));
+        Assert.Contains(was, reply);
+        Assert.Null(PdfWorkerHost.Parse(Encoding.UTF8.GetBytes(reply.Replace(was, now)), limits));
     }
 
     [Fact]
@@ -268,10 +340,10 @@ public sealed class PdfWorkerTests : IDisposable
     }
 
     /// <summary>Starts a worker as a host does and sends it a request, with nobody then watching over it.</summary>
-    private static Process StartByHand(PdfWorkerHost host, byte[] pdf, int timeLimitMs)
+    private static Process StartByHand(PdfWorkerHost host, byte[] pdf, int timeLimitMs, out Task<string> errors)
     {
         Process process = Process.Start(host.StartInfo());
-        _ = process.StandardError.ReadToEndAsync();
+        errors = process.StandardError.ReadToEndAsync();
         using BinaryWriter request = new(process.StandardInput.BaseStream);
         request.Write(200);
         request.Write(100_000_000);
@@ -281,11 +353,12 @@ public sealed class PdfWorkerTests : IDisposable
         return process;
     }
 
-    /// <summary>Waits for a worker that has to end itself, and checks it ended without a result.</summary>
-    private static async Task AssertEndsItself(Process process, Task<string> reply, int withinSeconds)
+    /// <summary>Waits for a worker that has to end itself, and checks it did so the way it means to: exit code 1, nothing on standard error (so it did not crash) and no result.</summary>
+    private static async Task AssertEndsItself(Process process, Task<string> reply, Task<string> errors, int withinSeconds)
     {
         await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(withinSeconds));
-        Assert.NotEqual(0, process.ExitCode);
+        Assert.Equal("", await errors);
+        Assert.Equal(1, process.ExitCode);
         Assert.DoesNotContain("\"Status\"", await reply);
     }
 
@@ -294,14 +367,14 @@ public sealed class PdfWorkerTests : IDisposable
     {
         // Standing in for the server: another worker, which waits for a request that never comes.
         using Process server = Process.Start(new PdfWorkerHost().StartInfo());
-        using Process process = StartByHand(new PdfWorkerHost { ServerId = server.Id }, Slow(60), 600_000);
+        using Process process = StartByHand(new PdfWorkerHost { ServerId = server.Id }, Slow(60), 600_000, out Task<string> errors);
         try
         {
             Task<string> reply = process.StandardOutput.ReadToEndAsync();
             await Task.Delay(TimeSpan.FromSeconds(1));
             Assert.False(process.HasExited, "the worker ended while its server was running");
             server.Kill();
-            await AssertEndsItself(process, reply, 30);
+            await AssertEndsItself(process, reply, errors, 30);
         }
         finally
         {
@@ -314,10 +387,10 @@ public sealed class PdfWorkerTests : IDisposable
     public async Task A_worker_whose_server_is_already_gone_ends_at_once()
     {
         // No process has this id.
-        using Process process = StartByHand(new PdfWorkerHost { ServerId = int.MaxValue - 1 }, Slow(60), 600_000);
+        using Process process = StartByHand(new PdfWorkerHost { ServerId = int.MaxValue - 1 }, Slow(60), 600_000, out Task<string> errors);
         try
         {
-            await AssertEndsItself(process, process.StandardOutput.ReadToEndAsync(), 30);
+            await AssertEndsItself(process, process.StandardOutput.ReadToEndAsync(), errors, 30);
         }
         finally
         {
@@ -328,10 +401,10 @@ public sealed class PdfWorkerTests : IDisposable
     [Fact]
     public async Task A_worker_nobody_stops_ends_itself_after_its_time_limit()
     {
-        using Process process = StartByHand(new PdfWorkerHost(), Slow(60), 100);
+        using Process process = StartByHand(new PdfWorkerHost(), Slow(60), 100, out Task<string> errors);
         try
         {
-            await AssertEndsItself(process, process.StandardOutput.ReadToEndAsync(), 30);
+            await AssertEndsItself(process, process.StandardOutput.ReadToEndAsync(), errors, 30);
         }
         finally
         {
@@ -346,14 +419,45 @@ public sealed class PdfWorkerTests : IDisposable
         try
         {
             Task<string> reply = process.StandardOutput.ReadToEndAsync();
-            _ = process.StandardError.ReadToEndAsync();
+            Task<string> errors = process.StandardError.ReadToEndAsync();
             process.StandardInput.BaseStream.Write([1, 0, 0, 0, 1, 0]);
             process.StandardInput.Close();
-            await AssertEndsItself(process, reply, 30);
+            await AssertEndsItself(process, reply, errors, 30);
         }
         finally
         {
             process.Kill();
+        }
+    }
+}
+
+/// <summary>Tests that change the host every request uses, so they run beside no other test.</summary>
+[CollectionDefinition(nameof(SharedPdfWorkerHostTests), DisableParallelization = true)]
+[Collection(nameof(SharedPdfWorkerHostTests))]
+public sealed class SharedPdfWorkerHostTests
+{
+    [Fact]
+    public async Task A_request_over_the_time_limit_is_answered_by_the_host_once_its_worker_has_ended()
+    {
+        PdfWorkerHost host = PdfWorkerHost.Shared;
+        // A request's limit and the host's are the same one; the request waits longer than that for the answer.
+        Assert.Equal(DocumentExtraction.Timeout, host.TimeLimit);
+        TimeSpan limit = TimeSpan.FromSeconds(1);
+        int id = 0;
+        try
+        {
+            host.TimeLimit = limit;
+            host.Started = process => id = process.Id;
+            ExtractedDocument result = await DocumentExtraction.ExtractAsync("slow.pdf", PdfWorkerTests.Slow(), PdfWorkerTests.Unhurried, CancellationToken.None, "user", limit);
+            // The host's answer, which names the kind, and not the request giving up on it; and by then the worker is gone.
+            PdfWorkerTests.AssertRefused(result, DocumentStatus.TooLarge, PdfWorkerHost.TimeMessage);
+            Assert.NotEqual(0, id);
+            PdfWorkerTests.AssertEnded(id);
+        }
+        finally
+        {
+            host.TimeLimit = DocumentExtraction.Timeout;
+            host.Started = null;
         }
     }
 }
