@@ -12,8 +12,12 @@
         const input = document.getElementById('llma-input');
         if (!input) return;
         let message = input.value?.trim();
-        if (!message && !LLMAState.attachedImage) return;
+        if (!message && !LLMAState.attachedImage && !llmaChatDocuments.hasPending()) return;
         if (LLMAState.isGenerating) return;
+        if (llmaChatDocuments.isReading()) {
+            llmaShowToast(translate('Still reading the attached document. Send again in a moment.'), 'info');
+            return;
+        }
 
         // Pre-flight: a missing model is the most common "silent" failure. Catch it here with a clear
         // message and a nudge to the model dropdown, rather than letting the WS fail opaquely. The
@@ -28,8 +32,10 @@
         }
 
         llmaCodeMode.hidePlanCard();
+        // The files attached in this chat; for a chat not made yet they move to it when it is made below.
+        const attachedIn = llmaChatDocuments.thread();
         // /compact summarizes the start of the chat now instead of sending a message.
-        if (!LLMAState.attachedImage && llmaContext.tryCommand(message)) {
+        if (!LLMAState.attachedImage && !llmaChatDocuments.hasPending() && llmaContext.tryCommand(message)) {
             input.value = '';
             input.style.height = 'auto';
             llmaUpdateCharCount('');
@@ -81,19 +87,22 @@
             llmaClearAttachment();
         }
 
+        const documents = llmaChatDocuments.take(attachedIn ?? LLMAState.activeThreadId);
+
         // Add user message (uses the served URL; no base64 in the in-memory message either). In the
         // branch model it hangs off the current active leaf and becomes the new leaf, mirroring the
         // server's AppendMessage so allNodes stays consistent without an extra round trip.
         const userMsg = {
-            id: userMsgId, role: 'user', content: message || (mediaPayload?.[0]?.mediaType?.startsWith('video/') ? '(video)' : '(image)'),
+            id: userMsgId, role: 'user', content: message || (!mediaPayload ? '(document)' : mediaPayload[0].mediaType?.startsWith('video/') ? '(video)' : '(image)'),
             timestamp: new Date().toISOString(),
             media: mediaPayload || undefined,
+            documents: documents || undefined,
             parentId: LLMAState.activeLeafId ?? null,
         };
         LLMAState.messages.push(userMsg);
         (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
         LLMAState.activeLeafId = userMsgId;
-        llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId);
+        llmaAppendMessageToDOM('user', userMsg.content, mediaForRender, userMsgId, undefined, documents);
         // mediaForRender is the uploaded {url, mediaType} entries, so a video renders as a player.
         // The previous exact count is stale now that a new message was added;
         // panel will show the heuristic until llmaRefreshExactTotalTokens() lands on data.done.
@@ -108,6 +117,11 @@
         payload.userMessageId = userMsgId;
         if (mediaPayload) {
             payload.media = mediaPayload;
+        }
+        if (documents) {
+            // The server takes the ids and builds the references from its own copies.
+            payload.documents = documents.map(d => d.id);
+            payload.message = payload.message || userMsg.content;
         }
         if (forced) {
             payload.forceToolId = forced.toolId;

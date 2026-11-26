@@ -309,7 +309,12 @@ class LLMAAccessibility {
                 wasOpen = open;
                 trigger.setAttribute('aria-expanded', String(open));
                 if (open && byKeyboard) {
-                    this.focusableIn(content)[0]?.focus();
+                    let first = this.focusableIn(content)[0];
+                    // A group of radios is one stop: the chosen one.
+                    if (first?.type == 'radio') {
+                        first = content.querySelector(`input[name="${first.name}"]:checked`) || first;
+                    }
+                    first?.focus();
                 }
                 else if (!open && (content.contains(document.activeElement) && document.activeElement != trigger)) {
                     trigger.focus();

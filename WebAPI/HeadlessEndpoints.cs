@@ -25,7 +25,8 @@ public static class HeadlessEndpoints
     }
 
     /// <summary>Runs one turn and waits for the whole reply: <c>{message}</c> in, the reply and what the tools did out. Request: <c>{message (required), threadId?, assistantId?, model?,
-    /// approvalMode?, dryRun?, temperature?, maxTokens?, seed?, loops?, enableThinking?, instructionId?, forceToolId?}</c>.
+    /// approvalMode?, dryRun?, temperature?, maxTokens?, seed?, loops?, enableThinking?, instructionId?, forceToolId?, documents?}</c> (<c>documents</c> lists ids from
+    /// <see cref="DocumentEndpoints.LLMAssistantUploadChatDocument"/>).
     /// <para>With a <c>threadId</c> it carries on that chat; without one it makes a chat (titled from the message) and returns its id, so the next call can continue it and the user can open it in
     /// the interface. <c>approvalMode</c> is <c>ask</c> (the default: tools that only read run, anything that changes something is refused, because nobody can approve it), <c>plan</c> or <c>auto</c>,
     /// and is never looser than the chat's own saved mode; it is not saved onto the chat. A chat that already has a reply being written is refused; one with a session working in the

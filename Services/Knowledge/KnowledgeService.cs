@@ -1,5 +1,6 @@
 using System.IO;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -139,6 +140,55 @@ public static class KnowledgeService
         {
             throw new KnowledgeLimitException($"That document is too long ({text.Length:N0} characters; at most {KnowledgeStore.MaxDocumentChars:N0}). Split it into parts.");
         }
+        return await StoreAsync(session, name, title, text.Length, KnowledgeText.Chunk(text), ct);
+    }
+
+    /// <summary>Adds a document from a file (PDF, Word, a web page or text): its text is read by the document extractors, under the page cap in the user's settings and the library's own
+    /// size limit, which refuses rather than cuts. A PDF's pieces remember their page. Returns the document and what the user should know about the reading (pages left out).</summary>
+    public static async Task<(KnowledgeDocument Document, IReadOnlyList<string> Warnings)> AddFileAsync(Session session, string fileName, string title, byte[] data, DocumentCaps caps, CancellationToken ct)
+    {
+        string name = Path.GetFileName((fileName ?? "").Replace('\\', '/')).Trim();
+        ExtractedDocument extraction = await DocumentExtraction.ExtractAsync(name, data, new DocumentLimits(caps.MaxPages, KnowledgeStore.MaxDocumentChars + 1), ct, session.User.UserID);
+        if (!extraction.Success)
+        {
+            throw new KnowledgeLimitException(extraction.Error);
+        }
+        if (TooLong(extraction))
+        {
+            throw new KnowledgeLimitException($"That document is too long (over {KnowledgeStore.MaxDocumentChars:N0} characters of text). Split it into parts.");
+        }
+        long chars = extraction.Pages.Sum(p => (long)p.Length);
+        List<KnowledgeChunk> chunks = ChunkExtraction(extraction);
+        return (await StoreAsync(session, name, title, (int)chars, chunks, ct), extraction.Warnings);
+    }
+
+    /// <summary>Whether a file is longer than the library takes. A file without pages that was cut at all is: tidying can leave less than the limit of a text that was cut at it, which
+    /// would add part of a document without saying so. A PDF can also be cut by its page cap, which the warnings say.</summary>
+    internal static bool TooLong(ExtractedDocument extraction)
+        => extraction.Pages.Sum(p => (long)p.Length) > KnowledgeStore.MaxDocumentChars || (extraction.TotalPages == 0 && extraction.Truncated);
+
+    /// <summary>The pieces of an extracted document: page by page for one with pages, so each piece knows its page, else along the text's own seams.</summary>
+    internal static List<KnowledgeChunk> ChunkExtraction(ExtractedDocument extraction)
+    {
+        if (extraction.TotalPages == 0)
+        {
+            return KnowledgeText.Chunk(extraction.Text);
+        }
+        List<KnowledgeChunk> chunks = [];
+        for (int page = 0; page < extraction.Pages.Count; page++)
+        {
+            foreach (KnowledgeChunk chunk in KnowledgeText.Chunk(extraction.Pages[page]))
+            {
+                chunks.Add(chunk with { Number = chunks.Count, Page = page + 1 });
+            }
+        }
+        return chunks;
+    }
+
+    /// <summary>Stores a document's pieces under its title, embedded when the user has a model set (a failure there is kept on the document, which keywords still find).</summary>
+    private static async Task<KnowledgeDocument> StoreAsync(Session session, string name, string title, int chars, List<KnowledgeChunk> chunks, CancellationToken ct)
+    {
+        User user = session.User;
         string cleanTitle = System.Text.RegularExpressions.Regex.Replace(string.IsNullOrWhiteSpace(title) ? Path.GetFileNameWithoutExtension(name) : title, @"\s+", " ").Trim();
         if (cleanTitle.Length == 0)
         {
@@ -148,7 +198,6 @@ public static class KnowledgeService
         {
             cleanTitle = cleanTitle[..120].TrimEnd();
         }
-        List<KnowledgeChunk> chunks = KnowledgeText.Chunk(text);
         KnowledgeSettings settings = GetSettings(user);
         List<float[]> vectors = null;
         string key = null;
@@ -157,7 +206,7 @@ public static class KnowledgeService
         {
             (vectors, key, error) = await EmbedAsync(session, settings, chunks, ct);
         }
-        return KnowledgeStore.Add(Root(user), cleanTitle, name, text.Length, chunks, vectors, key, error);
+        return KnowledgeStore.Add(Root(user), cleanTitle, name, chars, chunks, vectors, key, error);
     }
 
     /// <summary>Embeds pieces with the user's model: the vectors (unit length, in order) and what they were made with, or the reason it failed. Never throws except when cancelled.</summary>

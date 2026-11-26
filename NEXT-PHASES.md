@@ -18,6 +18,7 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 | Chat library | Full-text search across chats, pins, JSON import and export | #83 | Chat library |
 | Image tools | `list_image_models`, `list_loras`, `list_wildcards`, `list_presets`; `generate_image` batch and model choice; default image model | #84 | Image workflow tools |
 | Remote backend | A refused model list reports what the endpoint answered | #81 | Adding an LLM backend |
+| Documents | PDF, Word, web page and text files attached to chats and added to the knowledge library | #90 | Documents in chats |
 
 ## Decisions that still stand
 
@@ -32,11 +33,12 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 
 Not built:
 
+- **A hard bound on PDF reading.** The limits in `Services/Documents/PdfLimits.cs` are best effort against known ways to make a small file expensive, and a tiny crafted file may still crash the server (the parser can be made to overflow its stack, which nothing in the process can catch). A guarantee needs extraction in a separate process with a memory and time limit.
 - Anything that reads `style` memory notes (the image rewrite does not use them yet).
 - The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
 - A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).
 - Video styles for image-to-video workflows.
-- Documents in chats and the library (PDF, Word), a streaming headless route, and the rest of the later work below.
+- A streaming headless route, and the rest of the later work below.
 - A gap analysis against Hermes (as was done for OpenHarness in `HARNESS-ROADMAP.md`) to choose later slices from evidence. Which Hermes is meant was never confirmed (Nous Research's Hermes Agent is an unverified guess), so confirm it before researching.
 
 Not verified on real hardware or real services:
@@ -98,6 +100,8 @@ Goal: learn what the mock hides. Mostly a test suite plus a findings report; rea
 - Needs from the user: which providers, keys and a spend limit (see open questions).
 
 ## Phase 14: Documents (one shared module, two uses)
+
+**Built** (see the README, "Documents in chats" and "Knowledge library"). The text below is the first plan; what differs: documents are blocks of quoted text on the message that carries them (cut to fit, not chunked per question), there is no "Add to knowledge library" action on a chip, and test files are made in code instead of committed.
 
 Today attachments are images and video only (`Assets/chat/chat-attachments.js`, `Services/MediaResolver.cs`, `MediaStorageService`). The knowledge library takes pasted text and fetched web pages (text only).
 

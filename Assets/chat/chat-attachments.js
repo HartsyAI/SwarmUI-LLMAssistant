@@ -1,7 +1,8 @@
 /* ================================================================
    LLM Assistant - chat/chat-attachments.js
    Image and video attach/paste/drop, the quick-caption popover (images),
-   upload, and send-to-prompt-box integration.
+   upload, and send-to-prompt-box integration. Documents are handed to
+   chat-documents.js.
    ================================================================ */
 
 (function () {
@@ -26,11 +27,12 @@
     const LLMA_VIDEO_EXT_MIME = { mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
     const LLMA_VIDEO_MIMES = ['video/mp4', 'video/webm', 'video/quicktime'];
 
-    /** 'image', 'video' or null for a file. Video also matches by extension when the browser reports no type or a generic
-     *  application/octet-stream (common for .mov), the same fallback llmaVideoMime applies. */
+    /** 'image', 'video', 'document' or null for a file. Video also matches by extension when the browser reports no type or a generic
+     *  application/octet-stream (common for .mov), the same fallback llmaVideoMime applies. A document is asked about before video, since some systems call a .ts file a video. */
     function llmaAttachKind(file) {
         const type = (file?.type || '').toLowerCase();
         if (type.startsWith('image/')) return 'image';
+        if (llmaChatDocuments.isDocument(file)) return 'document';
         if (type.startsWith('video/')) return 'video';
         if ((!type || type === 'application/octet-stream') && LLMA_VIDEO_EXT_MIME[(file?.name || '').split('.').pop().toLowerCase()]) return 'video';
         return null;
@@ -63,11 +65,30 @@
         }
     }
 
-    /** Read an image or video file into the attachment state + show its preview. */
+    /** Whether the active chat model is known to take no images (unknown models are given the benefit of the doubt). */
+    function llmaCurrentModelRefusesImages() {
+        const model = (LLMAState.availableModels || []).find(m => m.id === LLMAState.currentModel);
+        return llmaIsVisionModel(model) === false;
+    }
+
+    /** Read an image or video file into the attachment state + show its preview; a document goes to the document list. */
     async function llmaHandleAttach(file) {
         const kind = llmaAttachKind(file);
-        if (!kind) return;
+        if (!kind) {
+            llmaShowToast(translate("That kind of file can't be attached."), 'info');
+            return;
+        }
         const attachFile = document.getElementById('llma-attach-file');
+        if (kind === 'document') {
+            llmaChatDocuments.add(file);
+            if (attachFile) attachFile.value = '';
+            return;
+        }
+        if (kind === 'image' && llmaCurrentModelRefusesImages()) {
+            llmaShowToast("This model doesn't support image input. Pick a vision model first.", 'info');
+            if (attachFile) attachFile.value = '';
+            return;
+        }
         if (kind === 'video') {
             if (!llmaCurrentModelTakesVideo()) {
                 llmaShowToast("This model doesn't support video input. Pick a video model such as MOSS-VL.", 'info');

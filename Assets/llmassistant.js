@@ -137,6 +137,8 @@ function llmaStartChatWithAssistant(assistantId, { persist = true } = {}) {
     if (typeof llmaUpdateMemoryToggleBtn === 'function') llmaUpdateMemoryToggleBtn();
     LLMAState.messages          = [];
     LLMAState.assets            = [];
+    // Files waiting in the chat just left stay with it.
+    llmaChatDocuments.renderPending();
     if (typeof llmaUpdateToolsToggleBtn === 'function') llmaUpdateToolsToggleBtn();
 
     // Clear rendered messages so the empty-chat CSS state kicks in
@@ -545,10 +547,8 @@ function llmaOpenModelPicker() {
     }
 }
 
-// Toggles the paperclip / attach button based on the active model's vision and video capability.
-// Tri-state vision: known-vision (enabled, normal tooltip), known-text-only (disabled, hint tooltip),
-// unknown (enabled, no change) — see llmaIsVisionModel for the fail-open semantics. Video is strict
-// (llmaIsVideoModel): the file picker only offers video files when the model says it takes video.
+// Sets what the paperclip / attach button offers for the active model. Documents are always offered (their text goes to any model). Images are offered unless the model is
+// known to take none — see llmaIsVisionModel for the fail-open semantics. Video is strict (llmaIsVideoModel): only when the model says it takes video.
 function llmaUpdateAttachAvailability() {
     const label = document.getElementById('llma-attach-label');
     if (!label) return;
@@ -556,21 +556,15 @@ function llmaUpdateAttachAvailability() {
     const cap = llmaIsVisionModel(model);
     const video = llmaIsVideoModel(model);
     const fileInput = document.getElementById('llma-attach-file');
-    if (cap === false && !video) {
-        label.classList.add('llma-attach-disabled');
-        label.setAttribute('aria-disabled', 'true');
-        label.title = translate("The current model doesn't support image input. Pick a vision model to attach images.");
-        if (fileInput) fileInput.accept = '';
+    const offered = [];
+    if (cap !== false) offered.push('image/*');
+    if (video) offered.push(LLMA_VIDEO_ACCEPT);
+    offered.push(llmaChatDocuments.accept());
+    if (fileInput) fileInput.accept = offered.join(',');
+    if (video) {
+        label.title = translate(cap === false ? 'Attach video or document' : 'Attach image, video or document');
     } else {
-        label.classList.remove('llma-attach-disabled');
-        label.removeAttribute('aria-disabled');
-        if (video) {
-            label.title = translate('Attach image or video');
-            if (fileInput) fileInput.accept = cap === false ? LLMA_VIDEO_ACCEPT : `image/*,${LLMA_VIDEO_ACCEPT}`;
-        } else {
-            label.title = translate('Attach image');
-            if (fileInput) fileInput.accept = 'image/*';
-        }
+        label.title = translate(cap === false ? 'Attach a document (this model takes no images)' : 'Attach image or document');
     }
 }
 
@@ -889,7 +883,7 @@ function llmaRenderAssistantPanel(assistantId) {
 
     const icon  = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
     const msgCount = LLMAState.messages.length;
-    const tokens   = llmaApproxTokens(LLMAState.messages);
+    const tokens   = llmaApproxTokens(LLMAState.messages) + llmaChatDocuments.tokens(LLMAState.messages);
 
     inner.innerHTML = `
         <div class="llma-panel-card">
@@ -968,7 +962,7 @@ function llmaUpdatePanelStats() {
         boxes[1].textContent = exact.toLocaleString();
     }
     else {
-        boxes[1].textContent = '~' + llmaApproxTokens(msgs);
+        boxes[1].textContent = '~' + (llmaApproxTokens(msgs) + llmaChatDocuments.tokens(msgs));
     }
 }
 
@@ -994,9 +988,11 @@ async function llmaRefreshExactTotalTokens() {
         if (!result || result.success === false) return;
         // Only apply if the conversation hasn't moved on since we requested.
         if ((LLMAState.messages || []).length !== snapshotLen) return;
-        LLMAState.exactTokenCount = Number(result.count) || 0;
+        // The count is of the messages' own words; attached documents are estimated on top, and the figure is then an estimate.
+        const documentTokens = llmaChatDocuments.tokens(msgs);
+        LLMAState.exactTokenCount = (Number(result.count) || 0) + documentTokens;
         LLMAState.exactTokenCountForLen = snapshotLen;
-        LLMAState.exactTokenCountIsExact = !!result.exact;
+        LLMAState.exactTokenCountIsExact = !!result.exact && documentTokens == 0;
         llmaUpdatePanelStats();
         llmaUpdateContextBar();
     } catch {
@@ -1536,6 +1532,7 @@ function llmaReadSettingsFromModal() {
     g.maxContextMessages = parseInt(document.getElementById('llma-s-context')?.value, 10)    || 0;
     g.loops              = llmaReadBoundedInt('llma-s-loops') || 0;
     g.imageMaxDimension  = parseInt(document.getElementById('llma-s-image-max')?.value, 10)  || 1536;
+    llmaChatDocuments.readSettings(g);
     g.contextWindow      = Math.max(0, parseInt(document.getElementById('llma-s-context-window')?.value, 10) || 0);
     g.autoCompact        = document.getElementById('llma-s-auto-compact')?.checked ?? true;
     g.compactThreshold   = parseFloat(document.getElementById('llma-s-compact-threshold')?.value) || 0.8;
@@ -1584,6 +1581,7 @@ function llmaWriteSettingsToModal() {
     llmaSetEl('llma-s-context',             g.maxContextMessages ?? 0);
     llmaSetEl('llma-s-loops',               g.loops              ?? 0);
     llmaSetEl('llma-s-image-max',           g.imageMaxDimension  ?? 1536);
+    llmaChatDocuments.writeSettings(g);
     llmaSetEl('llma-s-context-window',      g.contextWindow      ?? 0);
     llmaSetElChecked('llma-s-auto-compact', g.autoCompact        !== false);
     llmaSetEl('llma-s-compact-threshold',   g.compactThreshold   ?? 0.8);

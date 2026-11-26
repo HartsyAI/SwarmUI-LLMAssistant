@@ -40,7 +40,9 @@ class LLMAContext {
         for (let i = messages.length - 1; i > anchor; i--) {
             let reported = messages[i].meta?.usage?.contextTokens;
             if (reported > 0) {
-                return { tokens: reported + llmaApproxTokens(messages.slice(i + 1)), reported: true };
+                // The reported figure holds the documents sent up to that reply; only what later ones add to the bounded total is new.
+                let documents = llmaChatDocuments.tokens(messages) - llmaChatDocuments.tokens(messages.slice(0, i + 1));
+                return { tokens: reported + llmaApproxTokens(messages.slice(i + 1)) + documents, reported: true };
             }
         }
         let exact = typeof LLMAState.exactTokenCount == 'number' && LLMAState.exactTokenCountForLen == messages.length && anchor < 0;
@@ -48,7 +50,8 @@ class LLMAContext {
             return { tokens: LLMAState.exactTokenCount, reported: !!LLMAState.exactTokenCountIsExact };
         }
         let summaryTokens = anchor >= 0 ? Math.ceil((this.activeCompaction.summary || '').length / 4) : 0;
-        return { tokens: summaryTokens + llmaApproxTokens(messages.slice(anchor + 1)), reported: false };
+        // Files on summarized messages are still sent, so all of the chat's count.
+        return { tokens: summaryTokens + llmaApproxTokens(messages.slice(anchor + 1)) + llmaChatDocuments.tokens(messages), reported: false };
     }
 
     /** Redraws the bar above the chat: message count, a fill against the window, and the token figures. */

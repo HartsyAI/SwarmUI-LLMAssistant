@@ -74,27 +74,13 @@
             input.addEventListener('paste', e => llmaHandlePaste(e));
         }
 
-        // File attach. The label opens a file picker via the hidden input; intercept the click
-        // on the label so users on a confirmed text-only model get a toast instead of attaching
-        // an image the backend will silently ignore.
-        const attachLabel = document.getElementById('llma-attach-label');
-        if (attachLabel) {
-            attachLabel.addEventListener('click', (e) => {
-                if (attachLabel.getAttribute('aria-disabled') === 'true') {
-                    e.preventDefault();
-                    llmaShowToast("This model doesn't support image input. Pick a vision model first.", 'info');
-                }
-            });
-        }
+        // File attach. The label opens a file picker via the hidden input. Documents work with every model; an image or video the model can't take is refused by llmaHandleAttach.
         const attachFile = document.getElementById('llma-attach-file');
         if (attachFile) {
-            attachFile.addEventListener('change', () => {
-                if (attachFile.files?.length > 0) llmaHandleAttach(attachFile.files[0]);
-            });
+            attachFile.addEventListener('change', () => llmaAttachFiles([...(attachFile.files || [])]));
         }
 
-        // Drag & drop on input area. Honors the same gate as the paperclip — dropping an image
-        // onto a text-only model would just be silently discarded by the backend, so block early.
+        // Drag & drop on input area, through the same gate as the paperclip.
         const inputArea = document.querySelector('.llma-input-wrap');
         if (inputArea) {
             inputArea.addEventListener('dragover', e => { e.preventDefault(); inputArea.style.borderColor = 'var(--emphasis)'; });
@@ -102,25 +88,20 @@
             inputArea.addEventListener('drop', e => {
                 e.preventDefault();
                 inputArea.style.borderColor = '';
-                const files = e.dataTransfer?.files;
-                if (files?.length > 0) {
-                    for (const f of files) {
-                        // A video is gated by llmaHandleAttach (it toasts when the model takes no video).
-                        if (typeof llmaAttachKind === 'function' && llmaAttachKind(f) === 'video') {
-                            llmaHandleAttach(f);
-                            return;
-                        }
-                        if (f.type.startsWith('image/')) {
-                            if (attachLabel?.getAttribute('aria-disabled') === 'true') {
-                                llmaShowToast("This model doesn't support image input.", 'info');
-                                return;
-                            }
-                            llmaHandleAttach(f);
-                            return;
-                        }
-                    }
-                }
+                llmaAttachFiles([...(e.dataTransfer?.files || [])]);
             });
+        }
+    }
+
+    /** Attaches chosen or dropped files: every document, and the first image or video (a message carries one). File-private. */
+    function llmaAttachFiles(files) {
+        let pictured = false;
+        for (let file of files) {
+            let picture = ['image', 'video'].includes(llmaAttachKind(file));
+            if (!picture || !pictured) {
+                llmaHandleAttach(file);
+            }
+            pictured = pictured || picture;
         }
     }
 
@@ -327,6 +308,7 @@
                 id: newUserId, role: 'user', content: newContent,
                 parentId: original ? (original.parentId ?? null) : null,
                 media: original?.media,
+                documents: original?.documents,
                 timestamp: new Date().toISOString(),
                 editedFrom: msgId,
             };

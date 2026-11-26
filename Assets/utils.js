@@ -849,6 +849,12 @@ const LLMA_DEFAULT_SETTINGS = {
         // Recurrent-block passes for a looped model (Dory); 0 = the backend's default.
         loops:              0,
         imageMaxDimension:  1536,
+        // Attached documents (see chat-documents.js; the server holds each inside its own limits).
+        documentMaxMb:         10,
+        documentMaxPages:      200,
+        documentMaxChars:      200000,
+        documentMaxPerMessage: 5,
+        documentContextChars:  60000,
         // Context management: 0 = use the model's own window; summarize the start of a long chat near the limit.
         contextWindow:      0,
         autoCompact:        true,

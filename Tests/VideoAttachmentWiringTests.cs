@@ -23,11 +23,11 @@ public class VideoAttachmentWiringTests
     public void AttachInput_AcceptsImagesAndMp4WebmMov_WithATranslatedTitle()
     {
         string html = Read("Tabs", "Text2Image", "LLM Assistant.html");
-        Assert.Contains("id=\"llma-attach-file\" accept=\"image/*,video/mp4,video/webm,video/quicktime\"", html);
+        Assert.Contains("id=\"llma-attach-file\" accept=\"image/*,video/mp4,video/webm,video/quicktime,.pdf,.docx,", html);
         int label = html.IndexOf("id=\"llma-attach-label\"", StringComparison.Ordinal);
         int end = html.IndexOf('>', label);
         string tag = html[label..end];
-        Assert.Contains("title=\"Attach image or video\"", tag);
+        Assert.Contains("title=\"Attach image, video or document\"", tag);
         Assert.Contains("translate", html[(html.LastIndexOf('<', label))..end]);
     }
 
@@ -49,8 +49,11 @@ public class VideoAttachmentWiringTests
         Assert.True(fn >= 0);
         string body = js[fn..];
         Assert.Contains("llmaIsVideoModel(model)", body);
-        Assert.Contains("fileInput.accept = 'image/*';", body);
-        Assert.Contains("translate('Attach image or video')", body);
+        Assert.Contains("if (cap !== false) offered.push('image/*');", body);
+        Assert.Contains("if (video) offered.push(LLMA_VIDEO_ACCEPT);", body);
+        // Documents are text, so every model is offered them.
+        Assert.Contains("offered.push(llmaChatDocuments.accept());", body);
+        Assert.Contains("'Attach image, video or document'", body);
     }
 
     [Fact]
@@ -68,8 +71,10 @@ public class VideoAttachmentWiringTests
     public void Composer_GatesVideoDrops_WithAVideoSpecificToast()
     {
         string composer = Read("Assets", "chat", "chat-composer.js");
-        Assert.Contains("llmaAttachKind(f) === 'video'", composer);
+        // Drops and the file chooser go through the same function, and so through the same gates.
+        Assert.Contains("llmaAttachFiles([...(e.dataTransfer?.files || [])]);", composer);
         string attach = Read("Assets", "chat", "chat-attachments.js");
+        Assert.Contains("if (!llmaCurrentModelTakesVideo()) {", attach);
         Assert.Contains("This model doesn't support video input. Pick a video model such as MOSS-VL.", attach);
         Assert.Contains("LLMAssistantUploadChatVideo", attach);
         Assert.Contains("URL.revokeObjectURL(att.objectUrl)", attach);

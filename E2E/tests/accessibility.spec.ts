@@ -42,6 +42,13 @@ async function richChat(page: Page) {
     await expect(page.locator('#llma-send-btn')).toBeVisible();
 }
 
+/** Attaches text files with the paperclip and waits until the server has read them. */
+async function attachDocuments(page: Page, ...names: string[]) {
+    await page.locator('#llma-attach-file').setInputFiles(names.map(name => ({ name, mimeType: 'text/plain', buffer: Buffer.from(`The words of ${name}.`) })));
+    await expect(page.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(names.length, { timeout: 20_000 });
+    await expect(page.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+}
+
 /** Records everything the live region says from now on, so a message that the next one replaces is still seen. */
 async function listen(page: Page) {
     await page.evaluate(() => {
@@ -260,6 +267,22 @@ for (let theme of ['modern_dark', 'modern_light']) {
             finally {
                 await clearPrices(llm);
             }
+        });
+
+        test('attached documents have no violations', async ({ llm }) => {
+            await attachDocuments(llm, 'plans.txt', 'a-rather-long-name-for-a-document-that-has-to-be-cut-short.txt');
+            await audit(llm, 'documents in the composer');
+            await llm.locator('.llma-doc-chip-remove').first().hover();
+            await audit(llm, 'documents in the composer, a cross hovered');
+            await send(llm, 'read these');
+            await expect(lastAssistant(llm)).toContainText('Mock reply');
+            await expect(llm.locator('#llma-send-btn')).toBeVisible();
+            await expect(llm.locator('.llma-msg-row.user .llma-doc-chip')).toHaveCount(2);
+            await llm.mouse.move(0, 0);
+            await audit(llm, 'documents on a sent message');
+            await llm.setViewportSize({ width: 375, height: 740 });
+            await attachDocuments(llm, 'more.txt');
+            await audit(llm, 'phone: documents');
         });
 
         test('the first-run guide has no violations', async ({ llm }) => {
@@ -536,6 +559,35 @@ test('the first-run guide keeps keyboard focus when it redraws, and says what ha
     await expect(llm.locator('#llma-input')).toBeFocused();
 });
 
+test('documents are attached and removed from the keyboard, and keep the focus', async ({ llm }) => {
+    await listen(llm);
+    let attach = llm.locator('#llma-attach-label');
+    await attach.focus();
+    let chooser = llm.waitForEvent('filechooser');
+    await llm.keyboard.press('Enter');
+    await (await chooser).setFiles(['one.txt', 'two.txt'].map(name => ({ name, mimeType: 'text/plain', buffer: Buffer.from(name) })));
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(2, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await expect.poll(async () => (await heard(llm)).join(' ')).toContain('two.txt: attached');
+    await expect(llm.locator('#llma-document-chips [aria-live]')).toHaveCount(0);
+    await expect(llm.locator('#llma-document-chips')).not.toHaveAttribute('aria-live', /.*/);
+    await llm.getByRole('button', { name: 'Remove one.txt' }).focus();
+    await llm.keyboard.press('Enter');
+    await expect(llm.getByRole('button', { name: 'Remove two.txt' })).toBeFocused();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-document-chips')).toBeHidden();
+    await expect(attach).toBeFocused();
+});
+
+test('opening a popover of choices from the keyboard focuses the chosen one', async ({ llm }) => {
+    await llm.locator('#llma-enhance-btn').click();
+    await llm.locator('label[for="llma-enhance-chat-off"]').click();
+    await llm.keyboard.press('Escape');
+    await llm.locator('#llma-enhance-btn').focus();
+    await llm.keyboard.press('Enter');
+    await expect(llm.locator('#llma-enhance-chat-off')).toBeFocused();
+});
+
 test('usage figures work from the keyboard, and their popover gives focus back', async ({ llm }) => {
     await priceReplies(llm);
     try {
@@ -625,6 +677,12 @@ test('reduced motion stops the animations', async ({ llm }) => {
 
 test.describe('on a phone', () => {
     test.use({ viewport: { width: 375, height: 740 }, hasTouch: true });
+
+    test('a document chip\'s remove button is at least 44 pixels each way', async ({ llm }) => {
+        await attachDocuments(llm, 'plans.txt');
+        let box = (await llm.locator('.llma-doc-chip-remove').boundingBox())!;
+        expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(43.5);
+    });
 
     test('the first-run guide has controls at least 44 pixels each way', async ({ llm }) => {
         await openGuide(llm);

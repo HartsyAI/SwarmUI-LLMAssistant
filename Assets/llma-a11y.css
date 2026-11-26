@@ -83,7 +83,7 @@
 .llma-container :is(
     .llma-sidebar-label, .llma-threads-empty-sub, .llma-thread-group-label, .llma-thread-item, .llma-thread-rename, .llma-thread-del, .llma-thread-pin, .llma-thread-branch-toggle,
     .llma-thread-branch-loading, .llma-thread-branch-row, .llma-thread-branch-time, .llma-search-status, .llma-thread-snippet, .llma-thread-snippet-who, .llma-import-file, .llma-import-sample-who,
-    .llma-context-bar, .llma-thread-title, .llma-icon-btn:not(.llma-attach-disabled), .llma-menu-heading, .llma-menu-item, .llma-model-chip-caret,
+    .llma-context-bar, .llma-thread-title, .llma-icon-btn, .llma-menu-heading, .llma-menu-item, .llma-model-chip-caret,
     .llma-empty-greeting-sub, .llma-msg-meta, .llma-msg-action-btn:not([aria-disabled="true"]), .llma-branch-icon, .llma-branch-sep, .llma-branch-caret, .llma-branch-menu-time,
     .llma-input-hint, .llma-char-count, .llma-think-preview, .llma-think-body, .llma-msg-bubble blockquote,
     .llma-panel-header-label, .llma-panel-desc, .llma-panel-action-btn, .llma-stat-lbl, .llma-mem-header, .llma-mem-chip, .llma-panel-empty,
@@ -144,7 +144,9 @@
 .llma-container .text-danger { color: color-mix(in srgb, var(--bs-danger) 35%, var(--text-strong)) !important; }
 
 /* ── Small targets ─────────────────────────────────────────── */
-.llma-branch-nav, .llma-branch-label, .llma-usage-chip, .llma-usage-thread { min-width: 24px; min-height: 24px; }
+.llma-branch-nav, .llma-branch-label, .llma-usage-chip, .llma-usage-thread, .llma-doc-chip-remove { min-width: 24px; min-height: 24px; }
+/* Error red as the hovered cross on a chip is under 4.5:1. */
+.llma-container .llma-doc-chip-remove:hover { color: var(--text-strong); }
 
 /* ── Off-screen panels ─────────────────────────────────────── */
 /* A collapsed or closed panel is zero wide or off screen: it is hidden too, so Tab cannot walk into it and drag the layout sideways. */

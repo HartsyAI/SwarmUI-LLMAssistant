@@ -1,5 +1,6 @@
 /**
- * The Knowledge tab of the settings dialog: the user's own documents (see the README, "Knowledge library"), added from files (read in the browser as text), listed with how each is
+ * The Knowledge tab of the settings dialog: the user's own documents (see the README, "Knowledge library"), added from files (text is read in the browser; PDF and Word files are sent as
+ * they are and read on the server), listed with how each is
  * searchable, deleted, and tried with a search box that runs the same search the assistant's tool does. Also where the embedding model is chosen: a backend that can embed and a model id,
  * tried when saved. With none chosen, documents are searched by keywords alone and nothing is sent anywhere. Built from Bootstrap's list-group, badge and alert and SwarmUI's make*Input
  * helpers (as the other settings forms are), so it carries no styling of its own.
@@ -62,7 +63,7 @@ class LLMAKnowledgeSettings {
         totals.textContent = `${this.totals.documents ?? 0} ${translate('documents')} · ${this.totals.chunks ?? 0} / ${this.limits.chunks ?? 0} ${translate('pieces of text')}`;
         let list = document.getElementById('llma-knowledge-list');
         if (this.documents.length == 0) {
-            list.innerHTML = `<div class="text-muted py-2">${translate('No documents yet. Add text files (notes, manuals, Markdown, code) and the assistant can search them when its Search Knowledge tool is switched on.')}</div>`;
+            list.innerHTML = `<div class="text-muted py-2">${translate('No documents yet. Add files (PDF, Word, notes, manuals, Markdown, code) and the assistant can search them when its Search Knowledge tool is switched on.')}</div>`;
             return;
         }
         let html = '<ul class="list-group mb-2">';
@@ -88,29 +89,42 @@ class LLMAKnowledgeSettings {
         document.getElementById('llma-knowledge-files').click();
     }
 
-    /** Adds the chosen files, one request each, reading each as text in the browser. */
+    /** What the add route is sent for a file: PDF and Word files as they are (the server reads them), anything else as its text. */
+    async fileRequest(file) {
+        if (!/\.(pdf|docx?)$/i.test(file.name)) {
+            return { name: file.name, text: await file.text() };
+        }
+        if (file.size > llmaChatDocuments.cap('documentMaxMb') * 1024 * 1024) {
+            throw new Error(`${translate('The limit in MB is')} ${llmaChatDocuments.cap('documentMaxMb')}.`);
+        }
+        return { name: file.name, data: await llmaFileToBase64(file) };
+    }
+
+    /** Adds the chosen files, one request each. */
     async addFiles(files) {
         let added = 0;
+        let warnings = [];
         let list = [...files];
         for (let i = 0; i < list.length; i++) {
             let file = list[i];
             llmaShowToast(`${translate('Adding')} ${i + 1} / ${list.length}: ${file.name}`, 'info');
-            let text = '';
+            let request = null;
             try {
-                text = await file.text();
+                request = await this.fileRequest(file);
             }
-            catch {
-                llmaShowToast(`${translate('Could not read')} ${file.name}`, 'error');
+            catch (err) {
+                llmaShowToast(`${translate('Could not read')} ${file.name}. ${llmaShortError(err) || ''}`, 'error');
                 continue;
             }
-            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantAddKnowledge', { name: file.name, text: text }), `${translate('Could not add')} ${file.name}`);
+            let reply = await llmaUserAction(() => llmaRequest('LLMAssistantAddKnowledge', request), `${translate('Could not add')} ${file.name}`);
             if (reply) {
                 added++;
+                warnings.push(...(reply.warnings || []).map(w => `${file.name}: ${w}`));
             }
         }
         document.getElementById('llma-knowledge-files').value = '';
         if (added > 0) {
-            llmaShowToast(`${translate('Added')} ${added} ${added == 1 ? translate('document') : translate('documents')}.`, 'info');
+            llmaShowToast([`${translate('Added')} ${added} ${added == 1 ? translate('document') : translate('documents')}.`, ...warnings].join(' '), 'info');
         }
         await this.load();
     }
@@ -208,7 +222,8 @@ class LLMAKnowledgeSettings {
         }
         let html = `<div class="small text-muted mb-1">${translate(reply.mode == 'hybrid' ? 'Searched by meaning and words.' : 'Searched by words.')}${reply.embedError ? ` ${escapeHtml(translate('Meaning search failed'))}: ${escapeHtml(reply.embedError)}` : ''}</div><ul class="list-group">`;
         for (let r of reply.results) {
-            let heading = r.heading ? ` <small class="text-muted">${escapeHtml(r.heading)}</small>` : '';
+            let place = [r.page > 0 ? `${translate('page')} ${r.page}` : '', r.heading || ''].filter(p => p).join(' · ');
+            let heading = place ? ` <small class="text-muted">${escapeHtml(place)}</small>` : '';
             let how = `${r.keyword ? `<span class="badge text-bg-secondary">${translate('words')}</span> ` : ''}${r.semantic ? `<span class="badge text-bg-success">${translate('meaning')}</span>` : ''}`;
             let text = r.text.length > 320 ? r.text.slice(0, 320) + '…' : r.text;
             html += `<li class="list-group-item bg-transparent"><b>${escapeHtml(r.title)}</b>${heading} ${how}<br><small class="text-break">${escapeHtml(text)}</small></li>`;

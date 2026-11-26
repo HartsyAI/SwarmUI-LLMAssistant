@@ -1,4 +1,6 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Services.Knowledge;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
@@ -6,7 +8,7 @@ using SwarmUI.Accounts;
 namespace Hartsy.Extensions.LLMAssistant.WebAPI;
 
 /// <summary>The Knowledge tab's routes: list the library, add and delete documents, search it, and choose (and try) the embedding model. All need <c>llm_knowledge</c> and work on the caller's own
-/// library only; no request names a path, and a document is only ever added from text sent in the request.</summary>
+/// library only; no request names a path, and a document is only ever added from what the request itself sends (text, or a file's bytes).</summary>
 public static class KnowledgeEndpoints
 {
     /// <summary>The caller's documents, the totals against the limits, the embedding setting, and the providers that can embed.</summary>
@@ -39,18 +41,32 @@ public static class KnowledgeEndpoints
         ["embedError"] = doc.EmbedError,
     };
 
-    /// <summary>Adds a document from its text. Request: <c>{name, title?, text}</c> (the text is at most 1,000,000 characters and must be text). Reply: <c>{success, document}</c>; a document
-    /// that was added but could not be embedded still succeeds, with the reason in <c>document.embedError</c>.</summary>
+    /// <summary>Adds a document from its text, or from a file. Request: <c>{name, title?, text}</c> (the text is at most 1,000,000 characters and must be text), or <c>{name, title?,
+    /// data}</c> with the file as base64 (PDF with a text layer, Word .docx, a web page or text; the size and page caps in the settings apply, and the text limit is the same). Reply:
+    /// <c>{success, document, warnings?}</c>; a document that was added but could not be embedded still succeeds, with the reason in <c>document.embedError</c>.</summary>
     public static async Task<JObject> LLMAssistantAddKnowledge(Session session, JObject rawInput)
     {
         string text = rawInput["text"]?.ToString();
-        if (text is null)
+        bool file = rawInput["data"] is { Type: not JTokenType.Null };
+        if (text is null && !file)
         {
-            return Fail("text is required.");
+            return Fail("text is required (or data, for a file).");
         }
+        string name = rawInput["name"]?.ToString() ?? "";
         try
         {
-            KnowledgeDocument doc = await KnowledgeService.AddAsync(session, rawInput["name"]?.ToString() ?? "", rawInput["title"]?.ToString(), text, CancellationToken.None);
+            if (file)
+            {
+                DocumentCaps caps = DocumentCaps.From(SettingsService.GetMergedSettings(session.User));
+                (byte[] bytes, string error, _) = DocumentUpload.Decode(rawInput["data"], caps.MaxBytes);
+                if (error is not null)
+                {
+                    return Fail(error);
+                }
+                (KnowledgeDocument added, IReadOnlyList<string> warnings) = await KnowledgeService.AddFileAsync(session, name, rawInput["title"]?.ToString(), bytes, caps, CancellationToken.None);
+                return new JObject { ["success"] = true, ["document"] = Describe(added), ["warnings"] = new JArray(warnings) };
+            }
+            KnowledgeDocument doc = await KnowledgeService.AddAsync(session, name, rawInput["title"]?.ToString(), text, CancellationToken.None);
             return new JObject { ["success"] = true, ["document"] = Describe(doc) };
         }
         catch (KnowledgeLimitException ex)
@@ -63,7 +79,7 @@ public static class KnowledgeEndpoints
     public static Task<JObject> LLMAssistantDeleteKnowledge(Session session, string docId)
         => Task.FromResult(!string.IsNullOrEmpty(docId) && docId.All(Uri.IsHexDigit) && KnowledgeService.Delete(session.User, docId) ? new JObject { ["success"] = true } : Fail("There is no such document."));
 
-    /// <summary>Searches the library (the tab's test box, and the same search the tool does). Request: <c>{query, limit?}</c>. Reply: <c>{success, mode, results[{title, docId, piece, heading?, text, score, keyword, semantic}], embedError?}</c>.</summary>
+    /// <summary>Searches the library (the tab's test box, and the same search the tool does). Request: <c>{query, limit?}</c>. Reply: <c>{success, mode, results[{title, docId, piece, heading?, page, text, score, keyword, semantic}], embedError?}</c> (<c>page</c> is 0 unless the document is a PDF).</summary>
     public static async Task<JObject> LLMAssistantSearchKnowledge(Session session, JObject rawInput)
     {
         string query = rawInput["query"]?.ToString()?.Trim();
@@ -83,6 +99,7 @@ public static class KnowledgeEndpoints
                 ["docId"] = h.Chunk.DocId,
                 ["piece"] = h.Chunk.Number,
                 ["heading"] = h.Chunk.Heading,
+                ["page"] = h.Chunk.Page,
                 ["text"] = h.Chunk.Text,
                 ["score"] = Math.Round(h.Score, 4),
                 ["keyword"] = h.Keyword,

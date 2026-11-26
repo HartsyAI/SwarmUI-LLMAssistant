@@ -32,7 +32,7 @@
                 container.appendChild(note);
                 continue;
             }
-            llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta);
+            llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta, msg.documents);
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
                 const bubble = document.querySelector(`[data-msg-id="${msg.id}"] .llma-msg-bubble`);
                 if (bubble) llmaReplayToolCalls(bubble, msg.toolCalls);
@@ -46,6 +46,8 @@
             }
         }
         llmaRebuildAssetsForThread();
+        // Files waiting in the composer belong to the chat they were attached in.
+        llmaChatDocuments.renderPending();
         // Retry, or the way to the rest of a branch that stops short.
         llmaActions.syncTail();
         // Where a long chat's start was replaced by a summary.
@@ -234,8 +236,8 @@
     }
 
     /** Append a single message row (Claude-style: user right-aligned pill, assistant header+body).
-     *  `media` is an image URL/base64 string, one `{url, mediaType}` entry, or an array of entries (images and videos). */
-    function llmaAppendMessageToDOM(role, content, media, msgId, meta) {
+     *  `media` is an image URL/base64 string, one `{url, mediaType}` entry, or an array of entries (images and videos). `documents` are a user message's document references. */
+    function llmaAppendMessageToDOM(role, content, media, msgId, meta, documents) {
         const container = document.getElementById('llma-messages');
         if (!container) return null;
 
@@ -265,6 +267,7 @@
                 if (el) bubble.appendChild(el);
             }
             if (content) bubble.appendChild(document.createTextNode(content));
+            llmaChatDocuments.showInBubble(bubble, documents);
 
             const actions = llmaActions.buildBar(id, 'user');
 

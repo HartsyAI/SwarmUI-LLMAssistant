@@ -570,6 +570,51 @@ test('catching up with a late reply leaves a reader who scrolled away where they
     expect(await list.evaluate(e => e.scrollTop)).toBeLessThan(100);
 });
 
+test('a message\'s documents stay with it through edit, retry, branching and a redraw', async ({ llm }) => {
+    test.slow();
+    await setScenarios([{ match: 'with a file', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }]);
+    await llm.locator('#llma-attach-file').setInputFiles([{ name: 'plans.txt', mimeType: 'text/plain', buffer: Buffer.from('The launch is on Friday.') }]);
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await send(llm, 'with a file');
+    await expect(llm.locator('.llma-msg-error')).toBeVisible({ timeout: 20_000 });
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let chips = userRows(llm).locator('.llma-doc-chip');
+    await expect(chips).toContainText('plans.txt');
+    // Retry.
+    await setScenarios([{ match: 'with a file', rounds: [{ text: 'first answer' }] }, { match: 'new wording', rounds: [{ text: 'second answer' }] }]);
+    await llm.locator('.llma-msg-retry').click();
+    await expect(lastAssistant(llm)).toContainText('first answer');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect(chips).toContainText('plans.txt');
+    // Cancel puts the chip back; Save & resend carries it to the new branch.
+    let user = userRows(llm).first();
+    await user.hover();
+    await action(llm, user, 'Edit').click();
+    await user.locator('textarea').press('Escape');
+    await expect(chips).toContainText('plans.txt');
+    await user.hover();
+    await action(llm, user, 'Edit').click();
+    await user.locator('textarea').fill('new wording');
+    await user.locator('textarea').press('Control+Enter');
+    await expect(lastAssistant(llm)).toContainText('second answer');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect(chips).toContainText('plans.txt');
+    let messages = await stored(llm) as any[];
+    expect(messages.filter(m => m.role == 'user').map(m => m.documents?.[0]?.name)).toEqual(['plans.txt', 'plans.txt']);
+    // Branch from here, then a redraw from the server's tree.
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Branch from here').click();
+    await llm.evaluate(() => (0, eval)('llmaSaveActiveThread')());
+    await expect(chips).toContainText('plans.txt');
+    await llm.evaluate(() => (0, eval)('llmaReloadActiveThread')());
+    await expect(chips).toContainText('plans.txt');
+    // The request for the new branch carried the file's words.
+    let sent = (await mockRequests()).map(r => JSON.stringify(r.messages ?? [])).filter(text => text.includes('new wording'));
+    expect(sent[0]).toContain('The launch is on Friday.');
+});
+
 test('reading a chat takes its status as read, not what the list last said', async ({ llm }) => {
     await exchange(llm, 'status', 'Mock reply');
     let remove = action(llm, userRows(llm).first(), 'Delete');

@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using Hartsy.Extensions.LLMAssistant.Services.Sessions;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
@@ -41,6 +42,12 @@ public static class HeadlessTurnService
         bool dryRun = ChatEndpoints.ReadOptionalBool(request, "dryRun") == true;
         string approvalMode = ApprovalPolicy.IsValid((request["approvalMode"]?.ToString() ?? "").Trim().ToLowerInvariant()) ? ApprovalPolicy.Normalize(request["approvalMode"]?.ToString()) : ApprovalModes.Ask;
         JObject settings = SettingsService.GetMergedSettings(user);
+        // Settled before a chat is made, so a request naming a document that is not there leaves nothing behind.
+        (JArray documents, string documentError) = ChatDocuments.Resolve(user, request[ChatDocuments.Field], DocumentCaps.From(settings));
+        if (documentError is not null)
+        {
+            return Fail(documentError);
+        }
         string threadId = request["threadId"]?.ToString()?.Trim();
         JObject thread = null;
         bool created = false;
@@ -104,7 +111,7 @@ public static class HeadlessTurnService
             options["model"] = model;
             if (dryRun)
             {
-                return await DryRunAsync(session, thread, WithPendingMessage(thread, message), options, approvalMode, ct);
+                return await DryRunAsync(session, thread, WithPendingMessage(thread, message, documents), options, approvalMode, ct);
             }
             // A reply in flight (someone is using the chat in the interface) is not interleaved with; a session working in the background is stopped first, as for a typed message.
             if (BackgroundTurnService.IsLive(user.UserID, threadId))
@@ -116,7 +123,12 @@ public static class HeadlessTurnService
                 return Fail("A reply is already being written for this chat. Wait for it to finish, or stop it first.", threadId);
             }
             SessionManager.DeliverReports(user, threadId);
-            if (ThreadStorageService.AppendMessage(user, threadId, new JObject { ["role"] = Roles.User, ["content"] = message }) is null)
+            JObject userMessage = new() { ["role"] = Roles.User, ["content"] = message };
+            if (documents is not null)
+            {
+                userMessage[ChatDocuments.Field] = documents;
+            }
+            if (ThreadStorageService.AppendMessage(user, threadId, userMessage) is null)
             {
                 return Fail($"Chat '{threadId}' not found.");
             }
@@ -159,14 +171,19 @@ public static class HeadlessTurnService
     }
 
     /// <summary>A copy of the chat with the message added as the next user message, as it would be when the real turn runs. Nothing is saved, and the chat itself is not touched.</summary>
-    public static JObject WithPendingMessage(JObject thread, string message)
+    public static JObject WithPendingMessage(JObject thread, string message, JArray documents = null)
     {
         JObject copy = (JObject)thread.DeepClone();
         ThreadStorageService.EnsureTreeShape(copy);
         JArray messages = copy["messages"] as JArray ?? [];
         string leaf = copy["activeLeafId"]?.ToString();
         string id = "pending-" + Guid.NewGuid().ToString("N");
-        messages.Add(new JObject { ["id"] = id, ["role"] = Roles.User, ["content"] = message, ["parentId"] = string.IsNullOrEmpty(leaf) ? JValue.CreateNull() : new JValue(leaf) });
+        JObject pending = new() { ["id"] = id, ["role"] = Roles.User, ["content"] = message, ["parentId"] = string.IsNullOrEmpty(leaf) ? JValue.CreateNull() : new JValue(leaf) };
+        if (documents is not null)
+        {
+            pending[ChatDocuments.Field] = documents.DeepClone();
+        }
+        messages.Add(pending);
         copy["messages"] = messages;
         copy["activeLeafId"] = id;
         return copy;

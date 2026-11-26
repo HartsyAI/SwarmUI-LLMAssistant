@@ -74,6 +74,8 @@ public class LLMAssistantExtension : Extension
         ScriptFiles.Add("Assets/chat/chat-render.js");
         ScriptFiles.Add("Assets/chat/chat-toolcalls.js");
         ScriptFiles.Add("Assets/chat/chat-findbar.js");
+        // Documents attached to messages (used by chat-attachments.js, the composer and the knowledge tab).
+        ScriptFiles.Add("Assets/chat/chat-documents.js");
         ScriptFiles.Add("Assets/chat/chat-attachments.js");
         ScriptFiles.Add("Assets/chat/chat-composer.js");
         ScriptFiles.Add("Assets/chat/chat-pipeline.js");

@@ -2,6 +2,7 @@ using System.IO;
 using Newtonsoft.Json.Linq;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Hartsy.Extensions.LLMAssistant.Tools.BuiltIn;
 using SwarmUI.Utils;
 
@@ -139,6 +140,8 @@ public static class OrphanedFileGC
         // Chat-attached image uploads (per-thread subfolders).
         string uploadsRoot = MediaStorageService.GetAllUploadsRoot(user);
         deleted += SweepRoot(user, uploadsRoot, referenced, cutoff);
+        // Text of attached documents that no chat refers to (never sent, or the message was deleted).
+        deleted += SweepRoot(user, ChatDocumentStore.RootFor(user), referenced, cutoff);
         return deleted;
     }
 
@@ -196,7 +199,8 @@ public static class OrphanedFileGC
     /// the result's <c>fullPath</c>, with <c>url</c> as fallback for older entries), OR</item>
     /// <item>any <c>avatar</c> URL on any of the user's assistants (per-user and shared), OR</item>
     /// <item>any <c>media[].url</c> on any user message in any of the user's saved threads
-    /// (chat-attached image uploads).</item>
+    /// (chat-attached image uploads), OR</item>
+    /// <item>any <c>documents[].id</c> on a message (the stored text of an attached document).</item>
     /// </list>
     /// Anything else in the swept folders is fair game for deletion.</summary>
     private static HashSet<string> CollectReferencedPaths(User user)
@@ -228,6 +232,15 @@ public static class OrphanedFileGC
             if (thread?["messages"] is not JArray messages)
             {
                 continue;
+            }
+            // Attached documents: referenced via msg.documents[].id.
+            string documentRoot = ChatDocumentStore.RootFor(user);
+            foreach (string documentId in ChatDocuments.IdsIn(thread))
+            {
+                if (ChatDocumentStore.FileFor(documentRoot, documentId) is string documentPath)
+                {
+                    result.Add(documentPath.Replace('\\', '/'));
+                }
             }
             foreach (JToken msg in messages)
             {

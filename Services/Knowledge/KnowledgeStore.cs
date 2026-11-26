@@ -181,6 +181,7 @@ public static class KnowledgeStore
                 for (int i = 0; i < content.Chunks.Count; i++)
                 {
                     IndexedChunk chunk = IndexedChunk.Make(doc.Id, doc.Title, content.Chunks[i].Number, content.Chunks[i].Text, content.Chunks[i].Heading, Intern);
+                    chunk.Page = content.Chunks[i].Page;
                     if (content.Vectors is not null && i < content.Vectors.Count && content.Vectors[i] is { } vector)
                     {
                         chunk.Vector = vector;
@@ -283,7 +284,7 @@ public static class KnowledgeStore
             ChunkFileContent content = new();
             foreach (JObject piece in (json["chunks"] as JArray ?? []).OfType<JObject>())
             {
-                content.Chunks.Add(new KnowledgeChunk(piece["n"]?.Value<int>() ?? content.Chunks.Count, piece["text"]?.ToString() ?? "", piece["heading"]?.ToString() ?? ""));
+                content.Chunks.Add(new KnowledgeChunk(piece["n"]?.Value<int>() ?? content.Chunks.Count, piece["text"]?.ToString() ?? "", piece["heading"]?.ToString() ?? "", piece["page"]?.Value<int>() ?? 0));
                 if (piece["vec"]?.ToString() is { Length: > 0 } packed)
                 {
                     content.Vectors ??= [];
@@ -310,6 +311,10 @@ public static class KnowledgeStore
         for (int i = 0; i < chunks.Count; i++)
         {
             JObject piece = new() { ["n"] = chunks[i].Number, ["text"] = chunks[i].Text, ["heading"] = chunks[i].Heading };
+            if (chunks[i].Page > 0)
+            {
+                piece["page"] = chunks[i].Page;
+            }
             if (vectors is not null && i < vectors.Count && vectors[i] is { } vector)
             {
                 piece["vec"] = KnowledgeVectors.Pack(vector);

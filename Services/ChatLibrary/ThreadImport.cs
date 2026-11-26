@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using Newtonsoft.Json;
+using Hartsy.Extensions.LLMAssistant.Services.Documents;
 using Newtonsoft.Json.Linq;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.ChatLibrary;
@@ -236,7 +237,7 @@ public static class ThreadImport
         {
             warnings.Add($"{skipped} message{(skipped == 1 ? "" : "s")} left out: only text from you and the assistant is imported (tool calls, system and empty messages are not).");
         }
-        bool attachments = messages.OfType<JObject>().Any(m => m["media"] is JArray { Count: > 0 } || m["toolCalls"] is JArray { Count: > 0 });
+        bool attachments = messages.OfType<JObject>().Any(m => m["media"] is JArray { Count: > 0 } || m["toolCalls"] is JArray { Count: > 0 } || ChatDocuments.HasDocuments(m));
         if (attachments)
         {
             warnings.Add("Attachments and tool calls are not imported, only the text.");
@@ -262,6 +263,11 @@ public static class ThreadImport
             ["activeLeafId"] = leaf,
             ["importedAt"] = nowUtc.ToString("o")
         };
+        // The files are not imported, but the replies made from them are: the chat keeps the care taken with them. A file can only ever add this mark.
+        if (ChatDocuments.IsMarked(root) || messages.OfType<JObject>().Any(ChatDocuments.HasDocuments))
+        {
+            thread[ChatDocuments.ThreadFlag] = true;
+        }
         return new ThreadImportResult
         {
             Ok = true,
