@@ -221,6 +221,35 @@
                                     <span class="llma-thinking-toggle-name translate">Thinking</span>
                                     <span class="llma-thinking-toggle-label">Auto</span>
                                 </button>
+                                <!-- Automatic image-prompt rewriting for this chat, and a preview of it (rewrite-controls.js). -->
+                                <div class="llma-popover-anchor llma-enhance-anchor">
+                                    <button class="llma-thinking-toggle-btn" id="llma-enhance-btn" type="button" aria-haspopup="true" aria-expanded="false">
+                                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 13l7-7M9 2.5l.7 1.8 1.8.7-1.8.7L9 7.5l-.7-1.8L6.5 5l1.8-.7zM12.5 8l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                        <span class="llma-thinking-toggle-name translate">Enhance</span>
+                                        <span class="llma-thinking-toggle-label" id="llma-enhance-label">Off</span>
+                                    </button>
+                                    <div class="llma-enhance-popover" id="llma-enhance-popover" style="display:none;">
+                                        <div class="fw-semibold translate">Auto-enhance prompt</div>
+                                        <div class="small text-muted mb-2 translate">Rewrite the prompt for the image model before the assistant generates.</div>
+                                        <div class="small mb-1 translate">This chat</div>
+                                        <div class="btn-group btn-group-sm llma-segmented mb-2" role="group" aria-label="Auto-enhance prompt for this chat">
+                                            <input type="radio" class="btn-check" name="llma-enhance-chat" id="llma-enhance-chat-default" value="default" autocomplete="off" checked>
+                                            <label class="btn btn-outline-primary translate" for="llma-enhance-chat-default" title="Follow the assistant and the settings">Default</label>
+                                            <input type="radio" class="btn-check" name="llma-enhance-chat" id="llma-enhance-chat-on" value="on" autocomplete="off">
+                                            <label class="btn btn-outline-primary translate" for="llma-enhance-chat-on">On</label>
+                                            <input type="radio" class="btn-check" name="llma-enhance-chat" id="llma-enhance-chat-off" value="off" autocomplete="off">
+                                            <label class="btn btn-outline-primary translate" for="llma-enhance-chat-off">Off</label>
+                                        </div>
+                                        <label class="small mb-1 d-block translate" for="llma-enhance-all">All chats</label>
+                                        <select class="form-select form-select-sm mb-2" id="llma-enhance-all">
+                                            <option value="default" class="translate">Follow the main switch</option>
+                                            <option value="on" class="translate">On</option>
+                                            <option value="off" class="translate">Off</option>
+                                        </select>
+                                        <div class="small mb-2" id="llma-enhance-status" role="status"></div>
+                                        <button type="button" class="basic-button translate" id="llma-enhance-preview-btn">Preview rewrite</button>
+                                    </div>
+                                </div>
                                 <!-- Tool approval for this chat, in core's segmented-control markup. Ask: anything that changes something asks first.
                                      Auto: everything runs (the default). Plan: read-only, nothing is changed. -->
                                 <div class="btn-group btn-group-sm llma-segmented" role="group" aria-label="Tool approval" id="llma-approval-group">
@@ -311,6 +340,30 @@
                 <span class="llma-import-status" id="llma-import-status" role="status"></span>
                 <button class="basic-button translate" id="llma-import-cancel" type="button">Cancel</button>
                 <button class="basic-button translate" id="llma-import-confirm" type="button">Import chat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Prompt rewrite preview (rewrite-controls.js) ──────── -->
+    <div class="llma-overlay" id="llma-rewrite-overlay" style="display:none;" role="dialog" aria-modal="true" aria-label="Preview a prompt rewrite">
+        <div class="llma-modal llma-rewrite-modal">
+            <div class="llma-modal-header">
+                <h3 class="translate">Preview rewrite</h3>
+                <button class="llma-modal-close" id="llma-rewrite-preview-close" type="button" aria-label="Close preview">&times;</button>
+            </div>
+            <div class="llma-modal-body">
+                <label class="small mb-1 d-block translate" for="llma-rewrite-preview-prompt">Prompt</label>
+                <textarea class="auto-text-block mb-2" id="llma-rewrite-preview-prompt" rows="3"></textarea>
+                <label class="small mb-1 d-block translate" for="llma-rewrite-preview-model">Image model</label>
+                <input type="text" class="auto-text-block mb-2" id="llma-rewrite-preview-model" list="llma-rewrite-preview-models" autocomplete="off">
+                <datalist id="llma-rewrite-preview-models"></datalist>
+                <div class="small text-muted mb-2" id="llma-rewrite-preview-policy"></div>
+                <div class="small" id="llma-rewrite-preview-result" role="status"></div>
+            </div>
+            <div class="llma-modal-footer">
+                <span class="flex-grow-1 small text-muted translate">Nothing is generated.</span>
+                <button class="basic-button translate" id="llma-rewrite-preview-done" type="button">Close</button>
+                <button class="basic-button btn-primary translate" id="llma-rewrite-preview-run" type="button">Rewrite</button>
             </div>
         </div>
     </div>
@@ -454,6 +507,15 @@
                                 <span class="translate">Tune prompts for the chat model (Prompt styles)</span>
                             </label>
                             <div id="llma-asst-prompt-addendum-hint" class="small text-muted"></div>
+                        </div>
+                        <div class="llma-assist-prompt-style-section">
+                            <label class="small d-block mb-1 translate" for="llma-asst-auto-enhance" title="Whether the images this assistant makes have their prompts rewritten for the image model. A chat's own switch wins over this.">Auto-enhance prompt</label>
+                            <select class="form-select form-select-sm w-auto" id="llma-asst-auto-enhance">
+                                <option value="default" class="translate">Default (follow settings)</option>
+                                <option value="on" class="translate">On</option>
+                                <option value="off" class="translate">Off</option>
+                            </select>
+                            <div id="llma-asst-auto-enhance-hint" class="small text-muted"></div>
                         </div>
                         <div class="llma-assist-prompt-style-section">
                             <label class="llma-tools-master-toggle translate" title="When on (the default), the automatic memory extractor may save notes from chats with this assistant, if you have turned it on under Settings, Memory. Turn this off for an assistant whose chats should never be remembered.">

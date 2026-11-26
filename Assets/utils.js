@@ -15,6 +15,10 @@ const LLMAState = {
     activeThreadToolsEnabled: null,
     // Per-thread memory opt-out: false = "don't remember this chat"; null = follow the assistant and the master switch (see memory.js).
     activeThreadMemoryExtraction: null,
+    // Per-chat prompt rewrite switch: true/false, or null to follow the assistant and the settings (see rewrite-controls.js).
+    activeThreadAutoEnhance: null,
+    // The assistant the loaded chat belongs to, which its turns use; activeAssistantId (the selected one) can differ from it.
+    activeThreadAssistantId: null,
     activeAssistantId: null,
     messages:          [],
     threads:           [],
@@ -743,6 +747,12 @@ function llmaPopoverClickAway(popoverEl, triggerEl, onClose) {
     };
     setTimeout(() => document.addEventListener('click', handler, true), 10);
     return () => document.removeEventListener('click', handler, true);
+}
+
+// -- Chat Assistant --
+/** The assistant the open chat's turns and tool runs use: the chat's own, else (no chat yet) the selected one. */
+function llmaChatAssistantId() {
+    return (LLMAState.activeThreadId && LLMAState.activeThreadAssistantId) || LLMAState.activeAssistantId;
 }
 
 // -- Approximate Token Count --

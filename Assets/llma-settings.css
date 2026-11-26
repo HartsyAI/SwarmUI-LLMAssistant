@@ -507,6 +507,8 @@ input[type="color"]#llma-asst-color {
     overflow: auto;
     margin: 0.25rem 0;
 }
+/* A rewrite's warnings (Settings and the composer preview): the warning color pulled toward the text color, so it reads on dark and light themes. */
+.llma-rewrite-warning { color: color-mix(in srgb, var(--bs-warning) 65%, var(--text)); }
 
 /* ── Memory tab (memory.js): the notes manager. Bootstrap's list-group, badge and form classes do the styling; this is layout only. ── */
 .llma-memory-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }

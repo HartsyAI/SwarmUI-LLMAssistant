@@ -464,6 +464,8 @@ mark.llma-search-hit { background: color-mix(in srgb, var(--emphasis) 30%, trans
 
 /* Import preview. */
 .llma-import-modal { width: min(520px, 92%); }
+/* Two classes: beats the single-class .llma-modal phone width in llma-common.css. */
+.llma-modal.llma-rewrite-modal { width: min(760px, 94%); }
 .llma-import-title { font-size: 14px; font-weight: 600; color: var(--text-strong); overflow-wrap: anywhere; }
 .llma-import-facts { margin-top: 4px; font-size: 12px; color: var(--text-soft); }
 .llma-import-file { display: block; margin-top: 2px; font-size: 11px; opacity: 0.6; overflow-wrap: anywhere; }

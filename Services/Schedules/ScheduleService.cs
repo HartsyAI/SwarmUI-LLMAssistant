@@ -198,14 +198,18 @@ public static class ScheduleService
         return new ScheduleRunResult(true, runId, status, null);
     }
 
-    /// <summary>The chat a schedule's runs are listed under, made the first time it is needed (and again if the user deleted it). Its approval mode follows the schedule's.</summary>
+    /// <summary>The chat a schedule's runs are listed under, made the first time it is needed (and again if the user deleted it). Its approval mode follows the schedule's, and a new one takes the prompt rewrite switch of
+    /// the chat that made the schedule, which its runs then inherit.</summary>
     private static JObject EnsureHost(User user, JObject schedule, JObject settings)
     {
         string scheduleId = schedule[ScheduleFields.Id].ToString();
         JObject host = ThreadStorageService.GetThread(user, schedule[ScheduleFields.HostThreadId]?.ToString());
         string mode = ApprovalPolicy.Normalize(schedule[ScheduleFields.ApprovalMode]?.ToString());
+        JObject creator = null;
         if (host is null)
         {
+            string createdBy = schedule[ScheduleFields.CreatedBy]?.ToString();
+            creator = string.IsNullOrWhiteSpace(createdBy) ? null : ThreadStorageService.GetThread(user, createdBy);
             string assistant = schedule[ScheduleFields.AssistantId]?.ToString();
             if (string.IsNullOrWhiteSpace(assistant))
             {
@@ -224,6 +228,7 @@ public static class ScheduleService
         {
             thread[ScheduleFields.HostMarker] = scheduleId;
             thread["approvalMode"] = mode;
+            PromptRewrite.RewritePolicy.CopyChatSwitch(creator, thread);
             ThreadStorageService.MarkTitleClaimed(thread);
             return true;
         });
