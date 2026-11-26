@@ -169,6 +169,7 @@ public static class ScheduleService
             return Skipped(user, scheduleId, string.IsNullOrWhiteSpace(model) ? "No model is set for this schedule." : $"The model '{model}' is not available.", nowUtc);
         }
         SessionLimits limits = SessionLimits.From(settings);
+        MarkIfCreatorHasDocuments(user, schedule);
         JObject host = EnsureHost(user, schedule, settings);
         string hostId = host["id"].ToString();
         int keep = Math.Min(ScheduleLimits.KeepRuns, limits.MaxChildrenPerParent);
@@ -196,6 +197,24 @@ public static class ScheduleService
             return true;
         });
         return new ScheduleRunResult(true, runId, status, null);
+    }
+
+    /// <summary>Marks a schedule the assistant made that has no <see cref="ScheduleFields.FromDocuments"/> yet, when the chat that made it has a document within reach now: one saved before the
+    /// mark was kept, or whose chat took in a document since. Saved, so it holds after that chat is gone.</summary>
+    private static void MarkIfCreatorHasDocuments(User user, JObject schedule)
+    {
+        string createdBy = schedule[ScheduleFields.CreatedBy]?.ToString();
+        if (schedule[ScheduleFields.Source]?.ToString() != ScheduleSources.Assistant || schedule[ScheduleFields.FromDocuments] is not null || string.IsNullOrWhiteSpace(createdBy)
+            || ThreadStorageService.GetThread(user, createdBy) is not JObject creator || !Documents.ChatDocuments.ReachedByDocuments(user, creator))
+        {
+            return;
+        }
+        schedule[ScheduleFields.FromDocuments] = true;
+        ScheduleStore.Mutate(user, schedule[ScheduleFields.Id].ToString(), s =>
+        {
+            s[ScheduleFields.FromDocuments] = true;
+            return true;
+        });
     }
 
     /// <summary>The chat a schedule's runs are listed under, made the first time it is needed (and again if the user deleted it). Its approval mode follows the schedule's, and a new one takes the prompt rewrite switch of

@@ -33,6 +33,11 @@ public class OnboardingTests
 
         public bool Has(string kind, string id) => Items.ContainsKey((kind, id));
 
+        /// <summary>A snippet name a trusted workspace has.</summary>
+        public string Projects;
+
+        public bool InWorkspace(string kind, string id) => kind == StarterKinds.Snippet && id == Projects;
+
         public bool HasAssistant(string assistantId) => Items.ContainsKey((StarterKinds.Assistant, assistantId));
 
         public string AddAssistant(StarterAssistant assistant) => Add(StarterKinds.Assistant, assistant.Id, assistant.ChatInstruction);
@@ -206,6 +211,22 @@ public class OnboardingTests
     }
 
     [Fact]
+    public void A_command_only_a_workspace_has_is_reported_as_there_not_as_added_and_is_not_left_to_add()
+    {
+        FakeTarget user = new() { Projects = "video-prompt" };
+        (JArray added, JArray skipped) = StarterInstaller.Install(user);
+        Assert.Equal(Total - 1, added.Count);
+        Assert.Equal(StarterSkips.Workspace, Assert.Single(skipped)["code"].ToString());
+        JObject report = StarterInstaller.Describe(user);
+        JToken item = report["items"].Single(i => i["id"].ToString() == "video-prompt");
+        Assert.False((bool)item["installed"]);
+        Assert.True((bool)item["inWorkspace"]);
+        Assert.Equal(Total - 1, (int)report["installed"]);
+        Assert.Equal(1, (int)report["inWorkspace"]);
+        Assert.Equal(0, (int)report["missing"]);
+    }
+
+    [Fact]
     public void An_item_saved_by_something_else_meanwhile_is_reported_as_there_not_as_added_or_failed()
     {
         FakeTarget user = new() { Racing = "video-prompt" };
@@ -232,15 +253,15 @@ public class OnboardingTests
         PromptAsset skill = new(PromptAsset.KindSkill, "video-prompt", "", "", "", PromptAsset.ScopeShared, null, false);
         try
         {
-            Assert.False(StarterMatching.HasSnippet(none, [], root, "video-prompt"));
-            Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, [], root, "video-prompt"));
-            // A trusted workspace's, of either kind: a personal command would take its place there.
+            Assert.False(StarterMatching.HasSnippet(none, root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(new PromptAssetSet { Assets = [skill] }, root, "video-prompt"));
+            // A workspace's, of either kind: a personal command would take its place there.
             PromptAsset inProject = new(PromptAsset.KindCommand, "video-prompt", "", "", "", PromptAsset.ScopeWorkspace, null, false);
-            Assert.True(StarterMatching.HasSnippet(none, [inProject], root, "video-prompt"));
-            Assert.True(StarterMatching.HasSnippet(none, [skill], root, "video-prompt"));
-            Assert.False(StarterMatching.HasSnippet(none, [inProject], root, "enhance-prompt"));
+            Assert.True(StarterMatching.InWorkspace([inProject], "video-prompt"));
+            Assert.True(StarterMatching.InWorkspace([skill], "video-prompt"));
+            Assert.False(StarterMatching.InWorkspace([inProject], "enhance-prompt"));
             Assert.True(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindSkill, "video-prompt", "my skill", true, out _));
-            Assert.True(StarterMatching.HasSnippet(none, [], root, "video-prompt"));
+            Assert.True(StarterMatching.HasSnippet(none, root, "video-prompt"));
             Assert.False(PromptAssetService.Write(root, PromptAsset.ScopePersonal, PromptAsset.KindCommand, "video-prompt", "starter", true, out string shadow));
             Assert.Equal(PromptAssetService.AlreadyExists, shadow);
             string file = Path.Combine(root, "commands", "enhance-prompt.md");

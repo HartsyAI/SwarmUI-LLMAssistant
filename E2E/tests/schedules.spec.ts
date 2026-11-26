@@ -366,3 +366,33 @@ test('a schedule made from a chat with a document keeps its runs from saving mem
     let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
     expect(JSON.stringify(profile.notes)).not.toContain('SCHEDULE-POISON');
 });
+
+test('a schedule with no mark is held to its chat\'s documents once that chat has one, also after it is deleted', async ({ llm }) => {
+    // Made before the chat had a document, so saved with no mark, as one made by an earlier version is.
+    await setScenarios([
+        { match: 'RUN-TASK', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { category: 'fact', content: 'The user pays LATER-POISON.' } }] }, { text: 'run done' }] },
+        turn('MAKE-IT', [{ name: 'schedule_create', arguments: { title: 'Before the file', prompt: 'RUN-TASK please remember this', everyMinutes: 60, approvalMode: 'auto', model: 'mock-model' } }], 'made it'),
+        { regex: '.*', rounds: [{ text: 'read it' }] },
+    ]);
+    await send(llm, 'MAKE-IT');
+    await expect(lastAssistant(llm)).toContainText('made it');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    let made = ((await api(llm, 'LLMAssistantGetSchedules')).schedules as any[]).find(s => s.title == 'Before the file');
+    expect(made, 'the schedule was made').toBeTruthy();
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'later.txt', mimeType: 'text/plain', buffer: Buffer.from('words') });
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await send(llm, 'here is a file');
+    await expect(lastAssistant(llm)).toContainText('read it');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    for (let creatorThere of [true, false]) {
+        if (!creatorThere) {
+            expect((await api(llm, 'LLMAssistantDeleteThread', { threadId: made.createdBy })).success).toBe(true);
+        }
+        let run = await runNow(llm, made.id);
+        await waitStatus(llm, run.threadId, 'done');
+        expect(JSON.stringify((await thread(llm, run.threadId)).messages), `creator there: ${creatorThere}`).toContain('This chat holds an attached document');
+    }
+    let profile = await api(llm, 'LLMAssistantGetUserProfile', { includeNotes: true });
+    expect(JSON.stringify(profile.notes)).not.toContain('LATER-POISON');
+});

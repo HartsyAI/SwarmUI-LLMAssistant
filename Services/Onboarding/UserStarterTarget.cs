@@ -34,11 +34,21 @@ public sealed class UserStarterTarget(User user) : IStarterTarget
         }
         if (kind == StarterKinds.Snippet)
         {
-            _inWorkspaces ??= PromptAssetService.InTrustedWorkspaces(user);
-            return StarterMatching.HasSnippet(PromptAssetService.For(user, null), _inWorkspaces, PromptAssetService.RootFor(user, PromptAsset.ScopePersonal), id);
+            return StarterMatching.HasSnippet(PromptAssetService.For(user, null), PromptAssetService.RootFor(user, PromptAsset.ScopePersonal), id);
         }
         // The stored text itself, so a chat that cannot be read is left alone too.
         return user.GetGenericData(ThreadStorageService.DataName, ThreadStorageService.ThreadPrefix + id) is not null;
+    }
+
+    /// <inheritdoc/>
+    public bool InWorkspace(string kind, string id)
+    {
+        if (kind != StarterKinds.Snippet)
+        {
+            return false;
+        }
+        _inWorkspaces ??= PromptAssetService.InTrustedWorkspaces(user);
+        return StarterMatching.InWorkspace(_inWorkspaces, id);
     }
 
     /// <inheritdoc/>

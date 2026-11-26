@@ -384,6 +384,8 @@ async function llmaRunToolDirect(tool, args) {
         await llmaCreateThread(LLMAState.activeAssistantId);
     }
     const threadId = LLMAState.activeThreadId;
+    // No chat could be made (it said why): the call would have nowhere to be saved.
+    if (!threadId) return;
     llmaShowChatPanel();
     llmaOnboarding.onSend();
     const assistantId = llmaChatAssistantId();

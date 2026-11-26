@@ -204,9 +204,11 @@ class LLMAOnboarding {
             html += `<li class="list-group-item bg-transparent llma-onboarding-item" data-item="${escapeHtml(item.id)}" data-installed="${item.installed ? 'true' : 'false'}">`
                 + `<span class="text-break">${escapeHtml(item.title)} <small class="text-muted">${translate(kinds[item.kind] || item.kind)}</small></span>`
                 + (item.installed ? `<span class="badge text-bg-success">${translate('Added')}</span>` : '')
+                + (item.inWorkspace ? `<span class="badge text-bg-secondary" title="${escapeHtml(translate('Only chats in that workspace have it'))}">${translate('In a workspace')}</span>` : '')
                 + '</li>';
         }
-        let label = starter.missing == 0 ? 'Starter set added' : (starter.installed == 0 ? 'Add starter set' : 'Add what is missing');
+        let done = starter.inWorkspace > 0 ? 'Nothing left to add' : 'Starter set added';
+        let label = starter.missing == 0 ? done : (starter.installed == 0 ? 'Add starter set' : 'Add what is missing');
         return `${html}</ul><button type="button" class="basic-button mb-2" id="llma-onboarding-install"${starter.missing == 0 ? ' disabled' : ''}>${translate(label)}</button>`;
     }
 
@@ -267,7 +269,8 @@ class LLMAOnboarding {
             }
             else {
                 await this.reloadLists();
-                let problems = reply.skipped.filter(s => s.code != 'exists');
+                // What is there already, or in a workspace (its line says so), is no problem.
+                let problems = reply.skipped.filter(s => s.code != 'exists' && s.code != 'workspace');
                 this.result = `<div class="alert alert-${problems.length ? 'warning' : 'success'} py-2">${escapeHtml(translate('Added'))}: ${reply.added.length}`
                     + problems.map(s => `<br><small>${escapeHtml(s.title)}: ${escapeHtml(s.reason)}</small>`).join('')
                     + '</div>';

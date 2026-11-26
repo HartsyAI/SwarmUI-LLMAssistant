@@ -14,11 +14,14 @@ public static class StarterKinds
 /// <summary>Why an item was not added.</summary>
 public static class StarterSkips
 {
-    /// <summary>The codes: the user already has one by that name, may not make that kind, or saving it failed.</summary>
-    public const string Exists = "exists", Permission = "permission", Error = "error";
+    /// <summary>The codes: the user already has one by that name, one is in a workspace they trust, they may not make that kind, or saving it failed.</summary>
+    public const string Exists = "exists", Workspace = "workspace", Permission = "permission", Error = "error";
 
     /// <summary>What a target's add answers when the item turned out to be there after all (saved by something else meanwhile).</summary>
     public const string AlreadyThere = "You already have it.";
+
+    /// <summary>Why a command a trusted workspace has is not added.</summary>
+    public const string InAWorkspace = "A workspace you trust has one by this name, which a personal command would hide there.";
 }
 
 /// <summary>What counts as already having a starter item.</summary>
@@ -30,11 +33,13 @@ public static class StarterMatching
             || assistants.Properties().Any(p => p.Value is JObject own && string.Equals(own["name"]?.ToString().Trim(), starter.Name, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Whether the name of a starter command is in use: by a command, or by a skill (which a command of the same name would hide behind <c>/name</c>), among those the user can see
-    /// outside a chat (<paramref name="visible"/>), in a workspace they trust (<paramref name="inWorkspaces"/>, where a personal command would take its place), or as a file under their
-    /// own folder, which the list leaves out when it is too large to read.</summary>
-    public static bool HasSnippet(PromptAssetSet visible, IEnumerable<PromptAsset> inWorkspaces, string personalRoot, string name)
+    /// outside a chat (<paramref name="visible"/>) or as a file under their own folder, which the list leaves out when it is too large to read.</summary>
+    public static bool HasSnippet(PromptAssetSet visible, string personalRoot, string name)
         => visible.Get(PromptAsset.KindCommand, name) is not null || visible.Get(PromptAsset.KindSkill, name) is not null
-            || inWorkspaces.Any(a => a.Name == name) || (personalRoot is not null && PromptAssetService.NameTaken(personalRoot, name));
+            || (personalRoot is not null && PromptAssetService.NameTaken(personalRoot, name));
+
+    /// <summary>Whether a workspace's assets (<paramref name="inWorkspaces"/>) use the name, as a command or a skill: a personal command would take its place there.</summary>
+    public static bool InWorkspace(IEnumerable<PromptAsset> inWorkspaces, string name) => inWorkspaces.Any(a => a.Name == name);
 }
 
 /// <summary>One user's own items, as the starter set sees them. There is no way to replace or remove anything through it.</summary>
@@ -48,6 +53,10 @@ public interface IStarterTarget
 
     /// <summary>Whether the user can already see this item, their own or one shared with them: an assistant by id or name, a snippet's name as a command or a skill, a chat by id.</summary>
     bool Has(string kind, string id);
+
+    /// <summary>Whether a workspace the user trusts holds this item (only a snippet can be there). Asked of an item the user does not otherwise have: a chat in that workspace has
+    /// it, others do not.</summary>
+    bool InWorkspace(string kind, string id);
 
     /// <summary>Whether the user can see an assistant with exactly this id.</summary>
     bool HasAssistant(string assistantId);
@@ -87,18 +96,21 @@ public static class StarterInstaller
         }
     }
 
-    /// <summary>What the set holds and which of it the user has: <c>{items[{kind, id, title, installed}], total, installed, missing}</c>.</summary>
+    /// <summary>What the set holds and which of it the user has: <c>{items[{kind, id, title, installed, inWorkspace}], total, installed, inWorkspace, missing}</c>. <c>missing</c> is what an
+    /// install would try to add: neither had nor in a trusted workspace.</summary>
     public static JObject Describe(IStarterTarget target)
     {
         JArray items = [];
-        int installed = 0;
+        int installed = 0, elsewhere = 0;
         foreach ((string kind, string id, string title, _) in Items(target.UserId))
         {
             bool has = target.Has(kind, id);
+            bool inWorkspace = !has && target.InWorkspace(kind, id);
             installed += has ? 1 : 0;
-            items.Add(new JObject { ["kind"] = kind, ["id"] = id, ["title"] = title, ["installed"] = has });
+            elsewhere += inWorkspace ? 1 : 0;
+            items.Add(new JObject { ["kind"] = kind, ["id"] = id, ["title"] = title, ["installed"] = has, ["inWorkspace"] = inWorkspace });
         }
-        return new JObject { ["items"] = items, ["total"] = items.Count, ["installed"] = installed, ["missing"] = items.Count - installed };
+        return new JObject { ["items"] = items, ["total"] = items.Count, ["installed"] = installed, ["inWorkspace"] = elsewhere, ["missing"] = items.Count - installed - elsewhere };
     }
 
     /// <summary>Adds what is missing: <c>{added[{kind, id, title}], skipped[{kind, id, title, code, reason}]}</c>. One item that cannot be saved does not stop the others.</summary>
@@ -115,6 +127,10 @@ public static class StarterInstaller
                     if (target.Has(kind, id))
                     {
                         (code, reason) = (StarterSkips.Exists, StarterSkips.AlreadyThere);
+                    }
+                    else if (target.InWorkspace(kind, id))
+                    {
+                        (code, reason) = (StarterSkips.Workspace, StarterSkips.InAWorkspace);
                     }
                     else if (target.Refusal(kind) is { } refusal)
                     {

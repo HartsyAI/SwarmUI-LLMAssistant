@@ -803,3 +803,95 @@ test('deleting a message the saved chat does not hold says that, not that it was
     await expect(llm.locator('#llma-announcer')).toContainText('not in the saved chat');
     await expect(llm.locator('#llma-announcer')).not.toContainText('Message deleted');
 });
+
+test('a message whose chat could not be made stays in the composer, with what was attached', async ({ llm }) => {
+    await setScenarios([{ match: 'no chat yet', rounds: [{ text: 'now there is one' }] }]);
+    await llm.route('**/API/LLMAssistantCreateThread', route => route.fulfill({ json: { success: false, error: 'NO-CHAT' } }));
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'kept.txt', mimeType: 'text/plain', buffer: Buffer.from('words') });
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1, { timeout: 20_000 });
+    await expect(llm.locator('.llma-doc-chip-reading')).toHaveCount(0, { timeout: 20_000 });
+    await send(llm, 'no chat yet');
+    await expect(llm.locator('.llma-toast', { hasText: 'Failed to create chat' })).toBeVisible();
+    await expect(llm.locator('#llma-input')).toHaveValue('no chat yet');
+    await expect(llm.locator('#llma-document-chips .llma-doc-chip')).toHaveCount(1);
+    await expect(llm.locator('#llma-messages .llma-msg-row')).toHaveCount(0);
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await llm.unroute('**/API/LLMAssistantCreateThread');
+    await llm.locator('#llma-input').press('Enter');
+    await expect(lastAssistant(llm)).toContainText('now there is one');
+    expect((await stored(llm))[0].content).toBe('no chat yet');
+});
+
+test('a picture with no words is sent', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'a small square' }] }]);
+    let png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'square.png', mimeType: 'image/png', buffer: png });
+    await expect(llm.locator('#llma-attachment-preview img')).toBeVisible();
+    await send(llm, '');
+    await expect(lastAssistant(llm)).toContainText('a small square');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect(llm.locator('#llma-attachment-preview')).toBeHidden();
+    let message: any = (await stored(llm))[0];
+    expect(message.content).toBe('(image)');
+    expect(message.media).toHaveLength(1);
+});
+
+test('an edit of a message that is gone leaves no unsaved branch, and the wording goes to the composer', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'the reply' }] }]);
+    await exchange(llm, 'first one', 'the reply');
+    await exchange(llm, 'second one', 'the reply');
+    let listed = await api(llm, 'LLMAssistantGetThreads');
+    let question = userRows(llm).last();
+    await question.hover();
+    await action(llm, question, 'Edit').click();
+    await question.locator('textarea').fill('worded again');
+    // Deleted from somewhere else while it was being edited.
+    expect(await api(llm, 'LLMAssistantDeleteMessage', { threadId: listed.threads[0].id, messageId: await question.getAttribute('data-msg-id') })).toMatchObject({ success: true });
+    await question.locator('textarea').press('Control+Enter');
+    await expect(userRows(llm)).toHaveCount(1);
+    await expect(replyRows(llm)).toHaveCount(1);
+    await expect(llm.locator('#llma-input')).toHaveValue('worded again');
+    await expect(llm.locator('.llma-toast', { hasText: 'not found' })).toBeVisible();
+    await expect(llm.locator('.llma-msg-error')).toHaveCount(0);
+    await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
+    await expectSameTree(llm);
+});
+
+test('a refused edit of a message that is still there opens it again with the new wording', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'the reply' }] }]);
+    await llm.routeWebSocket(/LLMAssistantEditMessageWS/, socket => socket.onMessage(() => socket.send(JSON.stringify({ success: false, error: 'EDIT-REFUSED', refused: true }))));
+    await reopen(llm);
+    await exchange(llm, 'as first worded', 'the reply');
+    let question = userRows(llm).first();
+    await question.hover();
+    await action(llm, question, 'Edit').click();
+    await question.locator('textarea').fill('as worded second');
+    await question.locator('textarea').press('Control+Enter');
+    await expect(question.locator('textarea')).toHaveValue('as worded second');
+    await expect(llm.locator('.llma-toast', { hasText: 'EDIT-REFUSED' })).toBeVisible();
+    await expect(userRows(llm)).toHaveCount(1);
+    await expect(question.locator('textarea')).toBeFocused();
+    await expect(llm.locator('.llma-msg-error')).toHaveCount(0);
+    await expectSameTree(llm);
+    await question.getByRole('button', { name: 'Cancel' }).click();
+    await expect(question).toContainText('as first worded');
+});
+
+test('a refused regenerate leaves the chat as it is stored', async ({ llm }) => {
+    await setScenarios([{ regex: '.*', rounds: [{ text: 'the reply' }] }]);
+    await exchange(llm, 'first one', 'the reply');
+    await exchange(llm, 'second one', 'the reply');
+    let listed = await api(llm, 'LLMAssistantGetThreads');
+    // The question under the reply goes from somewhere else, and the reply with it.
+    expect(await api(llm, 'LLMAssistantDeleteMessage', { threadId: listed.threads[0].id, messageId: await userRows(llm).last().getAttribute('data-msg-id') })).toMatchObject({ success: true });
+    let reply = replyRows(llm).last();
+    await reply.hover();
+    await action(llm, reply, 'Regenerate').click();
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect(userRows(llm)).toHaveCount(1);
+    await expect(replyRows(llm)).toHaveCount(1);
+    await expect(llm.locator('.llma-toast', { hasText: 'not found' })).toBeVisible();
+    await expect(llm.locator('.llma-msg-error')).toHaveCount(0);
+    await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
+    await expectSameTree(llm);
+});

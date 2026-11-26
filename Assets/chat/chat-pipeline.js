@@ -69,6 +69,11 @@
         // Create thread if needed
         if (!LLMAState.activeThreadId) {
             await llmaCreateThread(LLMAState.activeAssistantId);
+            // No chat could be made (it said why): nothing is sent, and the message stays in the composer with its attachments.
+            if (!LLMAState.activeThreadId) {
+                llmaPutBackText(typed);
+                return;
+            }
         }
 
         // Hide welcome, show chat. Sending always means "take me to the latest"; re-arm auto-follow
@@ -123,6 +128,9 @@
         if (documents) {
             // The server takes the ids and builds the references from its own copies.
             payload.documents = documents.map(d => d.id);
+        }
+        // The server takes no empty message: one of attachments alone is sent under the words the page shows for it.
+        if (mediaPayload || documents) {
             payload.message = payload.message || userMsg.content;
         }
         if (forced) {
@@ -144,23 +152,32 @@
         llmaShowToast(error, 'error');
         llmaChatDocuments.giveBack(unsent.threadId, unsent.documents);
         // Another chat is on screen: only the documents have a place to wait there.
-        if (LLMAState.activeThreadId !== unsent.threadId) return;
-        const gone = llmaActions.subtreeIds(unsent.messageId, LLMAState.allNodes);
+        if ((LLMAState.activeThreadId || null) !== (unsent.threadId || null)) return;
+        llmaDropUnstored(unsent.messageId, unsent.parentId);
+        llmaRestoreAttachment(unsent.attachment);
+        llmaPutBackText(unsent.typed);
+    }
+
+    /** Takes a message the server did not store, and what hangs under it, off the chat, and shows the branch ending at leafId. */
+    function llmaDropUnstored(messageId, leafId) {
+        const gone = llmaActions.subtreeIds(messageId, LLMAState.allNodes);
         LLMAState.allNodes = LLMAState.allNodes.filter(n => !gone.has(n.id));
-        LLMAState.activeLeafId = unsent.parentId;
-        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, unsent.parentId);
+        LLMAState.activeLeafId = leafId;
+        LLMAState.messages = llmaComputeActivePath(LLMAState.allNodes, leafId);
         llmaRenderMessageHistory(LLMAState.messages);
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
         if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
-        llmaRestoreAttachment(unsent.attachment);
+    }
+
+    /** Puts text back into the composer, ahead of anything typed there since, and gives it the keyboard. */
+    function llmaPutBackText(text) {
         const input = document.getElementById('llma-input');
-        if (!input.value) {
-            input.value = unsent.typed;
-            input.style.height = 'auto';
-            input.style.height = Math.min(input.scrollHeight, 140) + 'px';
-            llmaUpdateCharCount(input.value);
-        }
+        if (!input) return;
+        input.value = input.value && text ? `${text}\n${input.value}` : text || input.value;
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 140) + 'px';
+        llmaUpdateCharCount(input.value);
         input.focus();
     }
 
@@ -529,6 +546,8 @@
 
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSendMessage    = llmaSendMessage;
+    window.llmaDropUnstored   = llmaDropUnstored;
+    window.llmaPutBackText    = llmaPutBackText;
     window.llmaBuildPayload   = llmaBuildPayload;
     window.llmaStreamResponse = llmaStreamResponse;
     window.llmaStopGeneration = llmaStopGeneration;

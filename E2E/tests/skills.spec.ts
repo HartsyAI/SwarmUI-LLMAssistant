@@ -279,12 +279,24 @@ test.describe('workspace skills and commands', () => {
         expect((await api(llm, 'LLMAssistantSetWorkspaceTrust', { workspaceId: 'user:default', trusted: true })).success).toBe(true);
         try {
             let result = await api(llm, 'LLMAssistantInstallStarterSet');
-            expect(result.skipped.find((s: any) => s.id == 'enhance-prompt'), JSON.stringify(result)).toMatchObject({ code: 'exists' });
+            expect(result.skipped.find((s: any) => s.id == 'enhance-prompt'), JSON.stringify(result)).toMatchObject({ code: 'workspace' });
+            expect(result.starter.items.find((i: any) => i.id == 'enhance-prompt')).toMatchObject({ installed: false, inWorkspace: true });
+            expect(result.starter).toMatchObject({ inWorkspace: 1, missing: 0, installed: result.starter.total - 1 });
             expect(result.added.map((a: any) => a.id)).toContain('video-prompt');
             let expanded = await api(llm, 'LLMAssistantExpandPromptAsset', { kind: 'command', name: 'enhance-prompt', threadId, arguments: 'go' });
             expect(expanded.text).toBe('From the project: go');
+            // The guide says where it is, and does not claim the whole set was added.
+            expect((await api(llm, 'LLMAssistantSetOnboarding', { action: 'run' })).success).toBe(true);
+            await reopen(llm);
+            await llm.locator('#llma-new-thread-btn').click();
+            let item = llm.locator('#llma-onboarding li[data-item="enhance-prompt"]');
+            await expect(item).toContainText('In a workspace');
+            await expect(item).not.toContainText('Added');
+            await expect(llm.locator('#llma-onboarding-install')).toHaveText('Nothing left to add');
+            await expect(llm.locator('#llma-onboarding-install')).toBeDisabled();
         }
         finally {
+            await api(llm, 'LLMAssistantSetOnboarding', { action: 'skip' });
             for (let assistantId of ['starter-general', 'starter-prompt-helper', 'starter-researcher']) {
                 await api(llm, 'LLMAssistantDeleteAssistant', { assistantId, scope: 'personal' });
             }
