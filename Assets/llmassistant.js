@@ -1269,8 +1269,12 @@ function llmaRenderWelcomeAssistants() {
 }
 
 // -- Settings Modal --
-/** The tabs holding something "Reset All Defaults" puts back. Chats, memory, knowledge and schedules are stored apart and kept. */
-let LLMA_SETTINGS_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp', 'skills', 'prompt-styles', 'usage', 'companion'];
+/**
+ * The tabs holding something the reset button puts back. A user who may write the shared settings resets that shared layer, and their own
+ * settings stay; anyone else resets their own. Chats, memory, knowledge, schedules and skill files are stored apart and kept either way.
+ */
+let LLMA_SETTINGS_SHARED_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp'];
+let LLMA_SETTINGS_OWN_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'skills', 'prompt-styles', 'usage', 'companion'];
 
 /** The tabs whose fields "Save & Close" saves. */
 let LLMA_SETTINGS_SAVE_TABS = ['general', 'companion'];
@@ -1280,7 +1284,7 @@ let llmaSettingsDirty = false;
 
 /**
  * Shows each footer button only where it applies: "Save & Close" on the tabs it saves, and on any tab while something it saves (their fields,
- * or the price table) is unsaved; "Reset All Defaults" on the tabs it resets. The footer goes when neither applies.
+ * or the price table) is unsaved; the reset button, named for what it resets, on the tabs it resets. The footer goes when neither applies.
  */
 function llmaUpdateSettingsFooter() {
     let tab = document.querySelector('.llma-modal-tab.active')?.dataset.tab;
@@ -1290,8 +1294,13 @@ function llmaUpdateSettingsFooter() {
     if (!footer || !save || !reset) {
         return;
     }
+    let shared = !!LLMAState.canWriteShared;
     let canSave = LLMA_SETTINGS_SAVE_TABS.includes(tab) || llmaSettingsDirty || llmaUsageSettings.dirty;
-    let canReset = LLMA_SETTINGS_RESET_TABS.includes(tab);
+    let canReset = (shared ? LLMA_SETTINGS_SHARED_RESET_TABS : LLMA_SETTINGS_OWN_RESET_TABS).includes(tab);
+    reset.textContent = translate(shared ? 'Reset Shared Defaults' : 'Reset My Defaults');
+    reset.title = translate(shared
+        ? 'Puts the settings every user shares back to their defaults: shared assistants, tools, hooks, MCP servers and the image limit. Your own settings are kept.'
+        : 'Puts your own settings back to their defaults, removing your assistants, tool changes, hooks, prompt style changes, prices and workspace trust. Chats, memory, knowledge, schedules and skills are kept.');
     save.style.display = canSave ? '' : 'none';
     reset.style.display = canReset ? '' : 'none';
     footer.style.display = canSave || canReset ? '' : 'none';

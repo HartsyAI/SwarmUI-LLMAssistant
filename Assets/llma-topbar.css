@@ -130,6 +130,7 @@
 .llma-topbar:not(.llma-bar-compact) .llma-model-select-wrap .select2-container,
 .llma-topbar:not(.llma-bar-compact) .llma-model-select-b-wrap { flex: 0 1 240px; min-width: 90px; }
 .llma-topbar:not(.llma-bar-compact) .llma-model-select-b-wrap .select2-container { flex: 1 1 auto; }
+.llma-topbar:not(.llma-bar-compact) .llma-topbar-left { min-width: 240px; }
 .llma-topbar:not(.llma-bar-compact) .llma-thread-title { min-width: 130px; }
 
 /* Refresh-model-list button next to the dropdown. Spins while a refresh is in flight so the

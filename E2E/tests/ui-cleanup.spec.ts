@@ -44,7 +44,7 @@ for (let size of [{ width: 1366, height: 768 }, { width: 1440, height: 900 }, { 
         await openSettings(llm);
         for (let name of ['general', 'tools', 'companion']) {
             await tab(llm, name).click();
-            await expect(llm.locator('#llma-settings-reset')).toBeInViewport({ ratio: 1 });
+            await expect(llm.locator(name == 'companion' ? '#llma-settings-save' : '#llma-settings-reset')).toBeInViewport({ ratio: 1 });
             await expect(llm.locator('#llma-settings-close')).toBeInViewport({ ratio: 1 });
             await expect(tab(llm, name)).toBeInViewport({ ratio: 0.9 });
         }
@@ -70,21 +70,37 @@ test('on a phone the settings tabs are one row that scrolls, and the tab showing
     await expect(tab(llm, 'companion')).toBeInViewport({ ratio: 1 });
 });
 
-test('each footer button shows only where it applies', async ({ llm }) => {
-    await openSettings(llm);
-    let save = llm.locator('#llma-settings-save');
-    let reset = llm.locator('#llma-settings-reset');
-    let expected: Record<string, [boolean, boolean]> = {
-        general: [true, true], assistants: [false, true], tools: [false, true], hooks: [false, true], mcp: [false, true], skills: [false, true],
-        'prompt-styles': [false, true], schedules: [false, false], knowledge: [false, false], memory: [false, false], usage: [false, true], companion: [true, true]
-    };
-    for (let [name, [saves, resets]] of Object.entries(expected)) {
-        await tab(llm, name).click();
-        await expect(save, `Save & Close on ${name}`).toBeVisible({ visible: saves });
-        await expect(reset, `Reset on ${name}`).toBeVisible({ visible: resets });
-        await expect(llm.locator('.llma-settings-footer'), `footer on ${name}`).toBeVisible({ visible: saves || resets });
-    }
-});
+// Who may write the shared settings resets those (their own stay); anyone else resets their own. Each shows where it changes something.
+const SAVE_ON = ['general', 'companion'];
+const RESET_ON = {
+    shared: ['general', 'assistants', 'tools', 'hooks', 'mcp'],
+    own: ['general', 'assistants', 'tools', 'hooks', 'skills', 'prompt-styles', 'usage', 'companion']
+};
+const TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp', 'skills', 'prompt-styles', 'schedules', 'knowledge', 'memory', 'usage', 'companion'];
+
+for (let layer of ['shared', 'own'] as const) {
+    test(`each footer button shows only where it applies, resetting the ${layer} settings`, async ({ llm }) => {
+        if (layer == 'own') {
+            await llm.route('**/API/LLMAssistantGetAssistants', async route => {
+                let response = await route.fetch();
+                await route.fulfill({ response, json: { ...await response.json(), canWriteShared: false } });
+            });
+            await reopen(llm);
+        }
+        await openSettings(llm);
+        let save = llm.locator('#llma-settings-save');
+        let reset = llm.locator('#llma-settings-reset');
+        await expect(reset).toHaveText(layer == 'own' ? 'Reset My Defaults' : 'Reset Shared Defaults');
+        for (let name of TABS) {
+            await tab(llm, name).click();
+            let saves = SAVE_ON.includes(name);
+            let resets = RESET_ON[layer].includes(name);
+            await expect(save, `Save & Close on ${name}`).toBeVisible({ visible: saves });
+            await expect(reset, `Reset on ${name}`).toBeVisible({ visible: resets });
+            await expect(llm.locator('.llma-settings-footer'), `footer on ${name}`).toBeVisible({ visible: saves || resets });
+        }
+    });
+}
 
 test('an unsaved change can still be saved from any tab', async ({ llm }) => {
     await openSettings(llm);
@@ -190,6 +206,13 @@ test('compare mode shows that it is on, also after a popover closes, and leaves 
     for (let width of [1440, 1480, 1600]) {
         await llm.setViewportSize({ width: width, height: 900 });
         await expect.poll(async () => (await llm.locator('#llma-thread-title').boundingBox())!.width).toBeGreaterThanOrEqual(120);
+        // The title has its room to itself: the model selects start after it ends.
+        let title = (await llm.locator('#llma-thread-title').boundingBox())!;
+        let selects = (await llm.locator('#llma-model-select-wrap').boundingBox())!;
+        expect(title.x + title.width).toBeLessThanOrEqual(selects.x + 0.5);
+        for (let box of await llm.locator('#llma-model-select-wrap > *:visible').evaluateAll(all => all.map(el => el.getBoundingClientRect().toJSON()))) {
+            expect(box.width == 0 || box.x >= title.x + title.width - 0.5).toBe(true);
+        }
         let bar = (await llm.locator('.llma-topbar').boundingBox())!;
         let last = (await llm.locator('#llma-asst-toggle').boundingBox())!;
         expect(last.x + last.width).toBeLessThanOrEqual(bar.x + bar.width);
@@ -302,14 +325,14 @@ test('a call waiting for permission says so, and a refused one is not told as do
 });
 
 test('an allowed call is told as running, then done', async ({ llm }) => {
-    await setScenarios([{ match: 'note it', rounds: [{ toolCalls: [{ name: 'memory_write', arguments: { content: 'Likes tea.' } }] }, { text: 'Noted.' }] }]);
+    await setScenarios([{ match: 'note it', rounds: [{ toolCalls: [{ name: 'file_write', arguments: { path: `ui-cleanup-${Date.now()}.txt`, content: 'tea', overwrite: true } }] }, { text: 'Noted.' }] }]);
     await setMode(llm, 'ask');
     await send(llm, 'note it');
     let summary = llm.locator('.llma-tool-group-summary');
-    await expect(summary).toHaveText('Memory Write needs permission');
+    await expect(summary).toHaveText('File Write needs permission');
     await llm.locator('.llma-tool-approval button[data-decision="allow"]').click();
     await expect(lastAssistant(llm)).toContainText('Noted.');
-    await expect(summary).toHaveText('Used Memory Write');
+    await expect(summary).toHaveText('Wrote a file');
     await setMode(llm, 'auto');
 });
 
@@ -432,7 +455,7 @@ test('the guide\'s buttons sit under what scrolls, not over it', async ({ llm })
 // ---- the phone's message box ----
 
 test.describe('on a touch phone', () => {
-    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
     test('the message box is the text and two rows of buttons, with no keyboard hint', async ({ llm }) => {
         await expect(llm.locator('#llma-input')).toBeVisible();

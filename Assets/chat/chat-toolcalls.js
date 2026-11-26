@@ -800,4 +800,5 @@
     window.llmaRenderToolApproval = llmaRenderToolApproval;
     window.llmaRenderDiff       = llmaRenderDiff;
     window.llmaReplayReply      = llmaReplayReply;
+    window.llmaReplyRounds      = llmaReplyRounds;
 })();
