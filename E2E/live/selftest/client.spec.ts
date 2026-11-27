@@ -29,6 +29,26 @@ async function neverEnding(frames: object[] = []) {
     };
 }
 
+test('a route that does not answer in time is reported as given up', async () => {
+    let server = http.createServer((request, response) => {
+        if (request.url === '/API/GetNewSession') {
+            response.end(JSON.stringify({ session_id: 'test' }));
+        }
+    });
+    await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+    let client = new SwarmClient(`http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    let givenUp = 0;
+    client.onGivenUp = () => givenUp++;
+    try {
+        await expect(client.call('Slow', {}, 300)).rejects.toThrow();
+        expect(givenUp).toBe(1);
+    }
+    finally {
+        server.closeAllConnections();
+        server.close();
+    }
+});
+
 test('a reply that never ends fails at its time limit', async () => {
     test.setTimeout(10_000);
     let server = await neverEnding();

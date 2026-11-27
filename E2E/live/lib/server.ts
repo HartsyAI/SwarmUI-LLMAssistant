@@ -118,6 +118,8 @@ export type Cleanup = {
     failures: string[];
     /** Things that may be left although the run could not find them. */
     warnings: string[];
+    /** Images left on purpose (LLMA_LIVE_KEEP_IMAGE). */
+    kept: string[];
 };
 
 /** Reads a chat's saved image results before it goes. A turn that was just stopped saves its reply a little later, so a chat with an
@@ -155,7 +157,7 @@ async function recordKnowledge(client: SwarmClient, state: RunState, warnings: s
 
 /** Deletes what the run made, and nothing else. */
 export async function deleteCreated(client: SwarmClient): Promise<Cleanup> {
-    let result: Cleanup = { deleted: { threads: 0, presets: 0, knowledge: 0, images: 0 }, failures: [], warnings: [] };
+    let result: Cleanup = { deleted: { threads: 0, presets: 0, knowledge: 0, images: 0 }, failures: [], warnings: [], kept: [] };
     let remove = async (kind: keyof Cleanup['deleted'], id: string, action: () => Promise<boolean>) => {
         try {
             if (await action()) {
@@ -203,7 +205,14 @@ export async function deleteCreated(client: SwarmClient): Promise<Cleanup> {
         });
     }
     // Read again: the chats above may have added images.
-    for (let image of config.keepImage ? [] : readState()!.created.images) {
+    let images = readState()!.created.images;
+    if (config.keepImage) {
+        // Kept images stop being the run's to delete, so no later run reports them as left behind.
+        result.kept = images;
+        updateState(s => s.created.images = []);
+        return result;
+    }
+    for (let image of images) {
         await remove('images', image, async () => {
             await client.ok('DeleteImage', { path: image });
             return true;

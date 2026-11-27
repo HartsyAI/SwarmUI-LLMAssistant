@@ -49,6 +49,7 @@ The paid image API backend enabled on the same server was not used.
 | 4 | Local engine | Free GPU memory kept falling over a run while the model stayed loaded and new chats were made: 3.7 GB before the second scenario, 1.1 GB by the Stop scenario, 0.3 GB before the rewrites. Nothing failed, and the cause was not investigated (Reuse Chat Memory keeping one cache per chat is a guess). Other programs share the GPU. | backlog, engine: investigate |
 | 5 | Local engine | `cachedTokens` was 0 on every turn, with Reuse Chat Memory on. Whether the prompt is reused and not reported was not checked. | backlog, engine |
 | 6 | Usage | A turn stopped mid-stream got no usage from the local engine, so the reply has no token figures. | backlog |
+| 7 | Local engine | Stopping a reply while the model was still loading did not stop the load: the model was listed as loaded afterwards. Whether the stopped reply then ran was not checked. | backlog, engine |
 
 ## Local engine (HartsyInference GGUF), Qwen3 4B
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { SwarmClient } from '../lib/client';
-import { timing } from '../lib/config';
+import { config, timing } from '../lib/config';
 import { deleteCreated, unloadWhatWasLoaded } from '../lib/server';
 import { hold, newState, readState, settleUsage, writeState } from '../lib/state';
 import type { Hold, RunState } from '../lib/state';
@@ -82,6 +82,21 @@ test('says that an image or a document may remain when it cannot be found', asyn
     let result = await deleteCreated(swarm({}).client);
     expect(result.warnings.join(' ')).toMatch(/An image may remain.*t1/);
     expect(result.warnings.join(' ')).toMatch(/knowledge document .* may still appear/);
+});
+
+test('keeps the images when asked to, and no longer lists them as the run\'s', async () => {
+    run({ created: { threads: ['t1'], presets: [], knowledge: [], images: [] }, imageCalls: ['t1'] });
+    let { client, did } = swarm({ threads: { t1: made('View/local/raw/mine.png') } });
+    config.keepImage = true;
+    try {
+        let result = await deleteCreated(client);
+        expect(result.kept).toEqual(['raw/mine.png']);
+    }
+    finally {
+        config.keepImage = false;
+    }
+    expect(did).toEqual(['LLMAssistantDeleteThread t1']);
+    expect(readState()!.created.images).toEqual([]);
 });
 
 test('unloads the chat model and frees its own image backend when only the run can have loaded them', async () => {

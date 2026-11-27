@@ -20,9 +20,8 @@ export default async function globalTeardown() {
             lines.push(`NOT deleted, remove by hand: ${cleanup.failures.join('; ')}`);
         }
         lines.push(...cleanup.warnings);
-        let kept = readState()!.created.images;
-        if (config.keepImage && kept.length > 0) {
-            lines.push(`Kept because LLMA_LIVE_KEEP_IMAGE=1: ${kept.join(', ')}`);
+        if (cleanup.kept.length > 0) {
+            lines.push(`Kept because LLMA_LIVE_KEEP_IMAGE=1: ${cleanup.kept.join(', ')}`);
         }
         lines.push(...await unloadWhatWasLoaded(client));
     }

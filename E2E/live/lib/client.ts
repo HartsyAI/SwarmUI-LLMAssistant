@@ -3,9 +3,24 @@
 export class SwarmClient {
     private sessionId = '';
 
+    /** Told when a request is given up at its time limit: SwarmUI may still be working on it. */
+    onGivenUp: () => void = () => { };
+
     constructor(readonly baseUrl: string) { }
 
     private async post(route: string, body: object, timeoutMs: number): Promise<any> {
+        try {
+            return await this.send(route, body, timeoutMs);
+        }
+        catch (error: any) {
+            if (error?.name === 'TimeoutError') {
+                this.onGivenUp();
+            }
+            throw error;
+        }
+    }
+
+    private async send(route: string, body: object, timeoutMs: number): Promise<any> {
         let response = await fetch(`${this.baseUrl}/API/${route}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

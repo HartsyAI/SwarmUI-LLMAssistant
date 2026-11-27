@@ -185,6 +185,7 @@ export class Live {
                 }, options.timeoutMs ?? config.turnTimeoutMs);
         }
         catch (error) {
+            updateState(s => s.cutOff = true);
             await this.stop(threadId).catch(() => { });
             throw error;
         }
@@ -224,12 +225,13 @@ export const test = base.extend<{ live: Live }>({
         let missing = notConfigured();
         base.skip(missing !== null, missing ?? '');
         let client = new SwarmClient(config.baseUrl);
+        client.onGivenUp = () => updateState(s => s.cutOff = true);
         let live = new Live(client, await checkBackends(client), testInfo);
         let before = readState()!;
         let mine = new Set(Object.values(before.created).flat());
         await use(live);
-        // A scenario that did not finish may have left a request that is still loading the model; clean-up waits for it.
-        if (testInfo.status !== 'passed' && testInfo.status !== 'skipped') {
+        // A scenario cut off by Playwright gave up whatever it was waiting for, which may still be loading the model.
+        if (testInfo.status === 'timedOut' || testInfo.status === 'interrupted') {
             updateState(s => s.cutOff = true);
         }
         // A scenario's chats are stopped as soon as it ends, so a failed one leaves no reply running for the next.
