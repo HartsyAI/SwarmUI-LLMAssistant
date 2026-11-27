@@ -358,6 +358,8 @@ class LLMAMessageActions {
             row.appendChild(later);
         }
         container.appendChild(row);
+        // Taking the old row out moved the view up: it stays with the latest, unless the user has scrolled up to read.
+        llmaScrollToBottom();
         if (held) {
             Array.from(row.children).find(b => b.className == held)?.focus({ preventScroll: true });
         }
