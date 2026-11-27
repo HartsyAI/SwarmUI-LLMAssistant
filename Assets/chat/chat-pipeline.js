@@ -442,6 +442,8 @@
                 }
                 llmaA11y.announceFailure(message);
                 llmaFinishStreamState();
+                // The error block and the Retry row came in under what was showing: follow them, unless the user has scrolled up to read.
+                llmaScrollToBottom();
                 if (data?.refused && opts.refused) {
                     opts.refused(message);
                 }
@@ -452,6 +454,7 @@
             llmaActions.noteFailure(assistantMsg.parentId, ex);
             llmaA11y.announceFailure(ex);
             llmaSetStreaming(false);
+            llmaScrollToBottom();
         }
     }
 

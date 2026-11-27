@@ -382,6 +382,19 @@ test('after a reload a failed reply still says what happened, and the message co
     await expect(llm.locator('#llma-ctx-label')).toHaveText('2 messages');
 });
 
+test('a failure below what is showing is followed into view, with the backend\'s words and Retry', async ({ llm }) => {
+    await llm.setViewportSize({ width: 390, height: 844 });
+    let refusal = 'Not enough free host RAM to safely load model.gguf: it needs about 8,403 MB and 3,401 MB are free. Close other programs or pick a smaller model.';
+    await setScenarios([{ match: 'no room', rounds: [{ error: { status: 500, message: refusal } }] }]);
+    for (let turn of [1, 2]) {
+        await send(llm, `no room ${turn}`);
+        await expect(userRows(llm)).toHaveCount(turn);
+        await expect(llm.locator('#llma-send-btn')).toBeVisible({ timeout: 20_000 });
+        await expect(llm.locator('.llma-msg-retry')).toBeInViewport({ ratio: 1 });
+        await expect(llm.locator('.llma-msg-error-detail').last()).toBeInViewport({ ratio: 1 });
+    }
+});
+
 test('only real memory failures are called that, and system memory is told from graphics memory', async ({ llm }) => {
     let titles = await llm.evaluate(errors => errors.map(e => (0, eval)('llmaHumanizeError')(e).title), [
         'Not enough free host RAM to safely load model.gguf: it needs 4012 MB.',
