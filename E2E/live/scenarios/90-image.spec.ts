@@ -1,6 +1,6 @@
 import { test, expect, config, MAX_ROUNDS, PROMPT_ALLOWANCE } from '../lib/live';
 import type { TurnResult } from '../lib/live';
-import { listBackends, listImageModels, usedWithin } from '../lib/guard';
+import { checkBackends, listBackends, listImageModels, usedWithin } from '../lib/guard';
 import { objection } from '../lib/image-approval';
 import { defaultImagePreset, imagePath } from '../lib/images';
 import { pngSpread } from '../lib/png';
@@ -8,7 +8,8 @@ import { unloadOwnChatModel } from '../lib/server';
 import { updateState } from '../lib/state';
 
 test('an image is generated through the assistant, with its prompt rewritten', async ({ live }) => {
-    test.setTimeout(config.idleTimeoutMs + config.imageTimeoutMs + 180_000);
+    // The wait for the server and the turn, and up to eight minutes around them for the unload (which may wait for a load) and the checks.
+    test.setTimeout(config.idleTimeoutMs + config.imageTimeoutMs + 480_000);
     if (!config.imageModel) {
         live.skip('LLMA_LIVE_IMAGE_MODEL is not set.');
     }
@@ -33,7 +34,7 @@ test('an image is generated through the assistant, with its prompt rewritten', a
     }
     let wanted = { model: config.imageModel, prompt: `a red lighthouse on a cliff at dawn, run ${live.runId}`, backend: live.guard.image[0] };
     let request = { model: wanted.model, images: 1, params: { steps: 12, width: 768, height: 768, exactbackendid: wanted.backend }, prompt: wanted.prompt };
-    let allowed = 0;
+    let allowed: string[] = [];
     let approved: string[] = [];
     let refused: string[] = [];
     // The rewrite inside the generation reports no usage, so its worst case stays counted. The turn holds its own rounds.
@@ -48,19 +49,19 @@ test('an image is generated through the assistant, with its prompt rewritten', a
                 estimate: MAX_ROUNDS * (PROMPT_ALLOWANCE.tools + config.maxReplyTokens),
                 timeoutMs: config.imageTimeoutMs,
                 approve: a => {
-                    let why = a.name !== 'generate_image' ? `it is ${a.name}` : allowed > 0 ? 'one image was already allowed' : objection(a.arguments, wanted);
+                    let why = a.name !== 'generate_image' ? `it is ${a.name}` : allowed.length > 0 ? 'one image was already allowed' : objection(a.arguments, wanted);
                     if (why) {
                         refused.push(`${a.name} ${JSON.stringify(a.arguments)}: ${why}`);
                         return 'deny';
                     }
-                    allowed++;
+                    allowed.push(a.id);
                     approved.push(JSON.stringify(a.arguments));
                     // Recorded before the answer is sent, so clean-up knows an image may exist even if nothing more is heard.
-                    updateState(s => s.imageCalls.push(threadId));
+                    updateState(s => s.imageCalls.push({ threadId, callId: a.id, at: new Date().toISOString() }));
                     return 'allow';
                 }
             });
-        let results = result.toolResults.filter(r => r.name === 'generate_image' && !r.result?.denied);
+        let results = result.toolResults.filter(r => r.name === 'generate_image' && allowed.includes(r.id));
         let made = results.find(r => r.result?.success === true)?.result;
         // Recorded before anything can fail, so the image is deleted whatever else happens.
         let urls: string[] = made ? made.imageUrls ?? [made.imageUrl] : [];
@@ -68,8 +69,8 @@ test('an image is generated through the assistant, with its prompt rewritten', a
         if (refused.length > 0) {
             live.note(`Denied: ${refused.join('; ')}`.slice(0, 600));
         }
-        live.note(`Allowed ${allowed} call(s) with ${approved.join('; ') || 'nothing'}. Result: ${JSON.stringify(made ?? results[0]?.result ?? 'none').slice(0, 600)}`);
-        expect(allowed, 'the model made the call that was asked for').toBe(1);
+        live.note(`Allowed ${allowed.length} call(s) with ${approved.join('; ') || 'nothing'}. Result: ${JSON.stringify(made ?? results[0]?.result ?? 'none').slice(0, 600)}`);
+        expect(allowed.length, 'the model made the call that was asked for').toBe(1);
         live.expectFinished(result);
         expect(made, `an image: ${JSON.stringify(results).slice(0, 600)}`).toBeTruthy();
         expect(made.model).toBe(config.imageModel);
@@ -84,7 +85,9 @@ test('an image is generated through the assistant, with its prompt rewritten', a
     }
     finally {
         // Checked however the turn ended: no backend that should not take the request was used since it was sent.
-        let used = usedWithin(await listBackends(live.client), live.guard.bystanders, (Date.now() - since) / 1000);
+        // A backend added meanwhile counts too; one that is not acceptable at all fails the scenario's own check afterwards.
+        let added = (await checkBackends(live.client).catch(() => null))?.bystanders ?? [];
+        let used = usedWithin(await listBackends(live.client), [...new Set([...live.guard.bystanders, ...added])], (Date.now() - since) / 1000);
         expect.soft(used, 'backends used during the image turn that should not take it (by this run or someone else)').toEqual([]);
     }
 });

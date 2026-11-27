@@ -11,8 +11,8 @@ export type RunState = {
     images: number;
     /** What this run made and has not deleted yet. Only these are ever deleted. */
     created: { threads: string[]; presets: string[]; knowledge: string[]; images: string[] };
-    /** The chats in which an image call was allowed, so an image of theirs that cannot be found is reported. */
-    imageCalls: string[];
+    /** The image calls the run allowed: only their images are the run's, and one that cannot be found is reported. */
+    imageCalls: { threadId: string; callId: string; at: string }[];
     /** Whether the run began adding a knowledge document, and whether one is being added with its id not yet known. */
     knowledgeStarted: boolean;
     knowledgePending: boolean;
@@ -48,6 +48,11 @@ export function newState(): RunState {
         cutOff: false,
         notes: []
     };
+}
+
+/** Whether a run's record still names something that may be left behind. */
+export function hasLeftovers(state: RunState): boolean {
+    return Object.values(state.created).some(list => list.length > 0) || state.knowledgePending === true;
 }
 
 export function readState(): RunState | null {

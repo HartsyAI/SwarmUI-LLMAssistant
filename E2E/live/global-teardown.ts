@@ -28,19 +28,26 @@ export default async function globalTeardown() {
     catch (error: any) {
         lines.push(`Clean-up failed: ${error.message}. Left to delete: ${JSON.stringify(readState()!.created)}`);
     }
+    let bystanders = readState()!.bystanders;
     try {
-        await checkBackends(client);
-        let state = readState()!;
-        // Only an image call of the run could have reached one; a request that ended late shows here.
-        if (state.imageCalls.length > 0) {
-            let used = usedWithin(await listBackends(client), state.bystanders, (Date.now() - Date.parse(state.startedAt)) / 1000);
+        // One added while the run went on is looked at too.
+        bystanders = [...new Set([...bystanders, ...(await checkBackends(client)).bystanders])];
+    }
+    catch (error: any) {
+        problems.push(`The backends could not be accepted at the end of the run: ${error.message}`);
+    }
+    try {
+        let first = readState()!.imageCalls[0];
+        // Only an image call of the run could have reached one, from the first that was allowed; a request that ended late shows here.
+        if (first) {
+            let used = usedWithin(await listBackends(client), bystanders, (Date.now() - Date.parse(first.at)) / 1000);
             if (used.length > 0) {
-                problems.push(`Backend ${used.join(', ')}, which should not take the run's requests, was used during the run (by this run or by someone else).`);
+                problems.push(`Backend ${used.join(', ')}, which should not take the run's requests, was used since the run's first image call (by this run or by someone else).`);
             }
         }
     }
     catch (error: any) {
-        problems.push(`The backends could not be accepted at the end of the run: ${error.message}`);
+        problems.push(`Whether another backend was used could not be checked: ${error.message}`);
     }
     updateState(s => s.notes.push(...lines, ...problems));
     if (problems.length > 0) {

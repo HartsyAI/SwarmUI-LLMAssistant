@@ -111,14 +111,16 @@ test('approves only the image call that was asked for, pinned to the one backend
 });
 
 test('reads the images a chat made from its saved tool calls', () => {
-    let call = (name: string, result: object) => ({ name, result });
+    let call = (name: string, result: object, id = 'ours') => ({ id, name, result });
     let thread = { messages: [{ role: 'user' }, { role: 'assistant', toolCalls: [
         call('generate_image', { success: true, imageUrl: 'View/local/raw/a%20b.png' }),
         call('generate_image', { success: true, imageUrl: 'View/local/raw/c.png', imageUrls: ['View/local/raw/c.png', 'Output/raw/d 100%.png'] }),
         call('generate_image', { success: false, error: 'stopped' }),
-        call('file_read', { success: true, imageUrl: 'View/local/raw/not-ours.png' })
+        call('file_read', { success: true, imageUrl: 'View/local/raw/not-ours.png' }),
+        call('generate_image', { success: true, imageUrl: 'View/local/raw/approved-by-a-person.png' }, 'theirs')
     ] }] };
-    expect(imagesInThread(thread)).toEqual(['raw/a b.png', 'raw/c.png', 'raw/d 100%.png']);
+    expect(imagesInThread(thread, ['ours'])).toEqual(['raw/a b.png', 'raw/c.png', 'raw/d 100%.png']);
+    expect(imagesInThread(thread, [])).toEqual([]);
     expect(imagePath('/View/local/raw/e.png')).toBe('raw/e.png');
 });
 

@@ -2,10 +2,8 @@ import { test, expect } from '@playwright/test';
 import type { FullConfig, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { SwarmClient } from '../lib/client';
 import { RUN_DIR } from '../lib/config';
-import { assistantParameter } from '../lib/assistants';
-import { newState, readState, setAsideUnreadable, writeState } from '../lib/state';
+import { hasLeftovers, newState, readState, setAsideUnreadable, writeState } from '../lib/state';
 import LiveReport from '../reporter';
 
 test('a record cut off while being written is set aside, and a whole one is left', () => {
@@ -40,10 +38,8 @@ test('an interrupted run does not read as clean', async () => {
     expect(text).toContain('not a complete result');
 });
 
-test('reads a generation parameter from the assistant or the nearest one it extends', async () => {
-    let assistants: Record<string, any> = { child: { extends: 'parent' }, parent: { parameters: { autoCompact: false } }, own: { extends: 'parent', parameters: { autoCompact: true } } };
-    let client = { ok: async (_route: string, body: any) => ({ assistant: assistants[body.assistantId] }) } as unknown as SwarmClient;
-    expect(await assistantParameter(client, 'child', 'autoCompact')).toBe(false);
-    expect(await assistantParameter(client, 'own', 'autoCompact')).toBe(true);
-    expect(await assistantParameter(client, 'missing', 'autoCompact')).toBeUndefined();
+test('a record is kept while something may be left: a thing not deleted, or a document still being added', () => {
+    expect(hasLeftovers(newState())).toBe(false);
+    expect(hasLeftovers({ ...newState(), knowledgePending: true })).toBe(true);
+    expect(hasLeftovers({ ...newState(), created: { threads: ['t'], presets: [], knowledge: [], images: [] } })).toBe(true);
 });

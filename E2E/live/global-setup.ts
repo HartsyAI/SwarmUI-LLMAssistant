@@ -3,7 +3,7 @@ import { SwarmClient } from './lib/client';
 import { config, notConfigured, RUN_DIR } from './lib/config';
 import { checkBackends, listBackends, listImageModels } from './lib/guard';
 import { listChatModels } from './lib/server';
-import { newState, readState, setAsideUnreadable, writeState } from './lib/state';
+import { hasLeftovers, newState, readState, setAsideUnreadable, writeState } from './lib/state';
 
 /** Checks the backends before anything is asked of any model, and starts the run's record. Throwing here runs no scenario. */
 export default async function globalSetup() {
@@ -14,11 +14,11 @@ export default async function globalSetup() {
     let previous = readState();
     // An earlier run's record and report are never read as this run's.
     fs.rmSync(`${RUN_DIR}/report.md`, { force: true });
-    if (previous && Object.values(previous.created).some(list => list.length > 0)) {
+    if (previous && hasLeftovers(previous)) {
         // This run deletes only its own things, so the earlier run's record is kept for whoever removes them.
         let kept = `${RUN_DIR}/leftover-${previous.runId}.json`;
         fs.renameSync(`${RUN_DIR}/state.json`, kept);
-        console.warn(`An earlier run (${previous.runId}) did not delete everything it made. This run leaves it alone; see ${kept}: ${JSON.stringify(previous.created)}`);
+        console.warn(`An earlier run (${previous.runId}) may have left something behind. This run leaves it alone; see ${kept}: ${JSON.stringify(previous.created)}${previous.knowledgePending ? ', and a knowledge document that was still being added' : ''}`);
     }
     fs.rmSync(`${RUN_DIR}/state.json`, { force: true });
     let missing = notConfigured();

@@ -122,18 +122,17 @@ export type Cleanup = {
     kept: string[];
 };
 
-/** Reads a chat's saved image results before it goes. A turn that was just stopped saves its reply a little later, so a chat with an
- * allowed image call is given that time. */
-async function recordImages(client: SwarmClient, threadId: string, imageAllowed: boolean, warnings: string[]) {
-    let deadline = Date.now() + (imageAllowed ? timing.settleMs : 0);
-    while (true) {
+/** Before a chat goes, reads what the image calls the run allowed in it made. A turn that was just stopped saves its reply a little
+ * later, so the calls are given that time to appear. */
+async function recordImages(client: SwarmClient, threadId: string, callIds: string[], warnings: string[]) {
+    let deadline = Date.now() + timing.settleMs;
+    while (callIds.length > 0) {
         let thread = (await client.ok('LLMAssistantGetThread', { threadId })).thread;
-        let paths = imagesInThread(thread);
-        let answered = (thread.messages ?? []).some((m: any) => (m.toolCalls ?? []).some((c: any) => c.name === 'generate_image'));
-        if (paths.length > 0 || answered || Date.now() >= deadline) {
-            updateState(s => s.created.images = [...new Set([...s.created.images, ...paths])]);
-            if (imageAllowed && paths.length === 0) {
-                warnings.push(`An image may remain in your image history: an image call was allowed in chat ${threadId}, but the chat holds no address of an image.`);
+        let saved = new Set((thread.messages ?? []).flatMap((m: any) => (m.toolCalls ?? []).map((c: any) => c.id)));
+        if (callIds.every(id => saved.has(id)) || Date.now() >= deadline) {
+            updateState(s => s.created.images = [...new Set([...s.created.images, ...imagesInThread(thread, callIds)])]);
+            if (callIds.some(id => imagesInThread(thread, [id]).length === 0)) {
+                warnings.push(`An image may remain in your image history: an image call was allowed in chat ${threadId}, but the chat holds no address of its image.`);
             }
             return;
         }
@@ -177,7 +176,7 @@ export async function deleteCreated(client: SwarmClient): Promise<Cleanup> {
         await remove('threads', id, async () => {
             await client.call('LLMAssistantStopGeneration', { threadId: id });
             // Read first: once the chat is gone, nothing says which images it made.
-            await recordImages(client, id, state.imageCalls.includes(id), result.warnings);
+            await recordImages(client, id, state.imageCalls.filter(c => c.threadId === id).map(c => c.callId), result.warnings);
             await client.ok('LLMAssistantDeleteThread', { threadId: id });
             return true;
         });
@@ -221,6 +220,11 @@ export async function deleteCreated(client: SwarmClient): Promise<Cleanup> {
     return result;
 }
 
+/** The local engine reports as loaded only a GGUF on CUDA; any other model of its reads "not loaded" even while it is in memory. */
+function loadedStateUnknown(model: any): boolean {
+    return model.provider === 'hartsy-local' && (!String(model.metadata?.device ?? '').startsWith('cuda') || !String(model.id).toLowerCase().endsWith('.gguf'));
+}
+
 /** Unloads the chat model when only this run can have loaded what is loaded, and the server is seen to be unused. The route unloads
  * every provider's models, so one other loaded model is reason enough to leave them all. Returns what it did, or null for nothing. */
 export async function unloadOwnChatModel(client: SwarmClient): Promise<string | null> {
@@ -230,6 +234,9 @@ export async function unloadOwnChatModel(client: SwarmClient): Promise<string | 
     }
     if (state.anyModelWasLoaded) {
         return 'A chat model was loaded before the run, so nothing was unloaded.';
+    }
+    if ((await listChatModels(client)).some(loadedStateUnknown)) {
+        return 'Nothing was unloaded: SwarmUI cannot say whether every local model is loaded (one is not on CUDA, or is a checkpoint folder). Unload from the top bar if you want it gone.';
     }
     let listLoaded = async () => (await listChatModels(client)).filter(m => m.is_loaded === true).map(m => m.id as string);
     let loaded = await listLoaded();
