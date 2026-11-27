@@ -532,6 +532,11 @@ test('a failed reply offers Regenerate again once another message has been sent 
     await expect(replyRows(llm)).toHaveCount(2);
     await failed.hover();
     await expect(failed.getByRole('button', { name: 'Regenerate' })).toBeVisible();
+    // And it asks again for the message it failed to answer.
+    await setScenarios([{ match: 'breaks', rounds: [{ text: 'mended' }] }]);
+    await failed.getByRole('button', { name: 'Regenerate' }).click();
+    await expect(lastAssistant(llm)).toContainText('mended');
+    await expect(userRows(llm)).toHaveCount(1);
 });
 
 test('a failure below what is showing is followed into view, with the backend\'s words and Retry', async ({ llm }) => {
