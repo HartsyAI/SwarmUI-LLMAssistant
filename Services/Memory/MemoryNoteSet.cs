@@ -100,6 +100,7 @@ public sealed class MemoryNoteSet
                     note.ThreadId ??= "";
                     note.Created ??= "";
                     note.LastUsed ??= "";
+                    note.LastRewrite ??= "";
                     note.Origin ??= MemoryOrigins.Explicit;
                     set.Notes.Add(note);
                 }
@@ -323,6 +324,27 @@ public sealed class MemoryNoteSet
         Notes.Remove(victim);
         evicted.Add(victim.Id);
         return true;
+    }
+
+    /// <summary>Records that a prompt rewrite was given these notes at <paramref name="now"/> (<see cref="MemoryNote.LastRewrite"/>), as coarsely as <see cref="MarkUsed"/>. Returns whether anything changed.</summary>
+    public bool MarkRewritten(IEnumerable<string> ids, DateTime now)
+    {
+        bool changed = false;
+        HashSet<string> wanted = [.. ids];
+        foreach (MemoryNote note in Notes)
+        {
+            if (!wanted.Contains(note.Id))
+            {
+                continue;
+            }
+            DateTime? last = note.LastRewriteAt;
+            if (last is null || now.ToUniversalTime() - last.Value.ToUniversalTime() >= TimeSpan.FromHours(UsedRefreshHours))
+            {
+                note.LastRewrite = now.ToUniversalTime().ToString("o");
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     /// <summary>Marks notes as used at <paramref name="now"/>, but only those not marked in the last <see cref="UsedRefreshHours"/> hours. Returns whether anything changed (so the caller

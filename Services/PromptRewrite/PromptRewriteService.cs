@@ -60,9 +60,15 @@ public static class PromptRewriteService
         string model = await LLMModelLookup.ResolveEffectiveModelIdAsync(WritingModel(request.RewriteModel, settings.Model, chatModel), session);
         // That model's chat-model style and the user's style notes go into its instructions (see PromptRewriter.BuildSystem).
         LlmAddendum addendum = await LlmAddendumService.DescribeUnvariedAsync(user, session, AddendumSettings.ForUser(user), model, ["rewrite"]);
-        request = request with { RewriteModel = model, Addendum = addendum.Text, StyleNotes = MemoryService.StyleNotes(user, request.Prompt) };
+        (string notes, List<string> noteIds) = MemoryService.StyleNotes(user, request.Prompt);
+        request = request with { RewriteModel = model, Addendum = addendum.Text, StyleNotes = notes };
         RewriteGenerate generate = DispatcherGenerate(request, settings, session);
         RewriteResult result = await RewriteWithStyleAsync(user?.UserID, style, request, settings, generate, ct);
+        // Only a rewrite that asked the writing model (now, or for the cached answer) counts for the notes: a prompt left as it was never sent them.
+        if (noteIds.Count > 0 && result.Usage is not null)
+        {
+            MemoryService.StoreFor(user).MarkRewritten(noteIds);
+        }
         return result with { Via = resolution.Via, Reason = resolution.Reason, StyleScope = style.Scope, StyleId = style.Id };
     }
 

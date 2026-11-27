@@ -135,6 +135,29 @@ test('a model with no tool calling is warned about once per chat, and a model th
     await expect(llm.locator('.llma-msg-row.assistant')).toHaveCount(3);
     await expect(llm.locator('#llma-stop-btn')).toBeHidden();
     await expect(warning).toHaveCount(0);
+    // Two lanes warned about at once (the mock has one model with no tools, so the page is told directly): one notice names both.
+    await llm.evaluate(() => {
+        (window as any).llmaWarnToolsUnsupported('two-lanes', 'first-model');
+        (window as any).llmaWarnToolsUnsupported('two-lanes', 'second-model');
+    });
+    await expect(warning).toHaveCount(1);
+    await expect(warning).toContainText('first-model, second-model');
+});
+
+test('a refused caption-to-prompt send leaves no message behind and gives the image back', async ({ llm }) => {
+    // The server refuses it: the chat is deleted behind the page's back after the image is attached.
+    let threadId = (await api(llm, 'LLMAssistantCreateThread')).thread.id;
+    await llm.evaluate(id => (window as any).llmaSwitchThread(id), threadId);
+    await llm.locator('#llma-attach-file').setInputFiles({ name: 'one.png', mimeType: 'image/png', buffer: Buffer.from(PNG.split(',')[1], 'base64') });
+    await llm.route('**/API/LLMAssistantUploadChatImage', async route => {
+        let response = await route.fetch();
+        await api(llm, 'LLMAssistantDeleteThread', { threadId: threadId });
+        await route.fulfill({ response: response });
+    });
+    await llm.getByRole('button', { name: 'Use as Prompt' }).click();
+    await expect(llm.locator('.llma-toast.error')).toContainText('not found');
+    await expect(llm.locator('.llma-msg-row')).toHaveCount(0);
+    await expect(llm.locator('#llma-attachment-preview img')).toHaveCount(1);
 });
 
 test('a refused send removes the image uploaded for it, and a stored one keeps it', async ({ llm }) => {

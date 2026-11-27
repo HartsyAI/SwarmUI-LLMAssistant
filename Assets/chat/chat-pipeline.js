@@ -160,14 +160,20 @@
     /** The chats and models already warned about, so the warning is shown once for each. */
     let llmaToolWarningsShown = new Set();
 
-    /** Says once per chat and model that a reply offers tools to a model whose backend says it has no tool calling of its own. */
+    /** The tool warning last shown: its chat, the models it names and when its toast goes. */
+    let llmaLastToolWarning = { threadId: null, models: [], until: 0 };
+
+    /** Says once per chat and model that a reply offers tools to a model whose backend says it has no tool calling of its own. A warning still on screen for the same chat (the other lane of a compare turn) is
+     *  shown again naming both, since a new toast takes the old one's place. */
     function llmaWarnToolsUnsupported(threadId, model) {
         let key = `${threadId} ${model}`;
         if (llmaToolWarningsShown.has(key)) {
             return;
         }
         llmaToolWarningsShown.add(key);
-        llmaShowToast(`${model}: ${translate('This model has no built-in tool support, so it may not use the tools offered to it.')}`, 'info');
+        let still = llmaLastToolWarning.threadId == threadId && Date.now() < llmaLastToolWarning.until ? llmaLastToolWarning.models : [];
+        llmaLastToolWarning = { threadId: threadId, models: still.concat(model), until: Date.now() + LLMA_CONSTANTS.TOAST_DURATION_MS };
+        llmaShowToast(`${llmaLastToolWarning.models.join(', ')}: ${translate('No built-in tool support, so the tools offered may go unused.')}`, 'info');
     }
 
     /** Takes a message the server did not store, and what hangs under it, off the chat, and shows the branch ending at leafId. */
@@ -574,6 +580,7 @@
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSendMessage    = llmaSendMessage;
     window.llmaDropUnstored   = llmaDropUnstored;
+    window.llmaTakeBack       = llmaTakeBack;
     window.llmaPutBackText    = llmaPutBackText;
     window.llmaWarnToolsUnsupported = llmaWarnToolsUnsupported;
     window.llmaBuildPayload   = llmaBuildPayload;

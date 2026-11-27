@@ -403,16 +403,23 @@
     async function llmaDoCaptionPrompt() {
         const captionMsg = 'Describe this image for use as an image generation prompt.';
         const userMsgId = llmaGenerateId();
+        const attachment = LLMAState.attachedImage;
         const upload = await llmaUploadAttachedImage(userMsgId);
         if (!upload) return;
-        LLMAState.messages.push({ id: userMsgId, role: 'user', content: captionMsg, timestamp: new Date().toISOString(), media: [upload] });
+        // It hangs off the active leaf and becomes the new one, as a sent message does.
+        let userMsg = { id: userMsgId, role: 'user', content: captionMsg, timestamp: new Date().toISOString(), media: [upload], parentId: LLMAState.activeLeafId ?? null };
+        LLMAState.messages.push(userMsg);
+        (LLMAState.allNodes = LLMAState.allNodes || []).push(userMsg);
+        LLMAState.activeLeafId = userMsgId;
         llmaAppendMessageToDOM('user', captionMsg, upload, userMsgId);
         llmaClearAttachment();
         const payload = llmaBuildPayload(captionMsg, 'caption');
         // The id the image was uploaded under: the server stores the message under it, and removes the upload if it refuses the message.
         payload.userMessageId = userMsgId;
         payload.media = [upload];
-        llmaStreamResponse(payload, text => llmaSendToPromptBox(text));
+        // A refused message leaves the chat and the image goes back to the composer; nothing was typed for it.
+        let refused = error => llmaTakeBack({ threadId: payload.threadId, messageId: userMsgId, parentId: userMsg.parentId, typed: '', documents: null, attachment: attachment }, error);
+        llmaStreamResponse(payload, text => llmaSendToPromptBox(text), { refused });
     }
 
     /** Push text into the main SwarmUI prompt box. */

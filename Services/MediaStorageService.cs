@@ -234,8 +234,9 @@ public static class MediaStorageService
         return false;
     }
 
-    /// <summary>Deletes what was uploaded for a chat message that was then refused and never stored. The files are found by the two ids they were saved under, never by an address the request sends, and one that a stored message
-    /// refers to is kept (a refused request can name the id of an older message). Best effort: a failure is logged and the daily sweep (<see cref="OrphanedFileGC"/>) removes what is left.</summary>
+    /// <summary>Deletes what was uploaded for a chat message that was then refused and never stored. The files are found by the two ids they were saved under, never by an address the request sends, only for a chat of
+    /// <paramref name="user"/>'s own (users can share one output folder), and one that a stored message refers to is kept (a refused request can name the id of an older message). Best effort: a failure is logged, and the daily
+    /// sweep (<see cref="OrphanedFileGC"/>) removes what is left.</summary>
     public static void DiscardUnsent(User user, string threadId, string messageId)
     {
         if (user is null)
@@ -244,7 +245,12 @@ public static class MediaStorageService
         }
         try
         {
-            DiscardUnsentIn(GetAllUploadsRoot(user), threadId, messageId, () => OrphanedFileGC.CollectReferencedPaths(user));
+            // Under the chats' write lock, so no message can come to refer to a file between the look and the deletion. The chat itself is not changed.
+            ThreadStorageService.Mutate(user, threadId, _ =>
+            {
+                DiscardUnsentIn(GetAllUploadsRoot(user), threadId, messageId, () => OrphanedFileGC.CollectReferencedPaths(user));
+                return false;
+            });
         }
         catch (Exception ex)
         {

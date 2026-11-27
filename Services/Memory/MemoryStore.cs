@@ -314,6 +314,21 @@ public sealed partial class MemoryStore
         }
     }
 
+    /// <summary>Records that a prompt rewrite was given these notes (see <see cref="MemoryNoteSet.MarkRewritten"/>), writing only as <see cref="MarkUsed"/> does.</summary>
+    public bool MarkRewritten(IEnumerable<string> ids)
+    {
+        lock (Gate)
+        {
+            Loaded loaded = LoadLocked();
+            if (loaded.Status != MemoryLoadStatus.Ok || !loaded.Set.MarkRewritten(ids, Clock()))
+            {
+                return false;
+            }
+            Storage.Save(NotesKey, loaded.Set.Serialize());
+            return true;
+        }
+    }
+
     /// <summary>What a vector is a vector of: a short hash of the note's text.</summary>
     public static string TextHash(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text ?? "")))[..16];
 

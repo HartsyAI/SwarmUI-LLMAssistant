@@ -109,34 +109,92 @@ public class WritingModelAndUploadTests : IDisposable
     }
 
     [Fact]
-    public void Only_style_notes_reach_the_rewrite_and_they_count_as_used()
+    public void Only_style_notes_reach_the_rewrite_and_reading_them_changes_nothing()
     {
         MemoryStore store = Notes(("style", "Likes film grain <b>always</b>"), ("fact", "Lives in Lyon"), ("preference", "Prefers tea"), ("preferred_name", "Sam"));
 
-        string block = MemoryService.StyleNotesFrom(store, MemoryControls.Default, "a lighthouse");
+        (string block, List<string> ids) = MemoryService.StyleNotesFrom(store, MemoryControls.Default, "a lighthouse");
 
         Assert.Contains("- [style] Likes film grain ＜b＞always＜/b＞", block);
         Assert.Contains("<style_notes>", block);
         Assert.DoesNotContain("Lyon", block);
         Assert.DoesNotContain("tea", block);
         Assert.DoesNotContain("Sam", block);
-        Assert.Equal(["style"], store.Load().Notes.Where(n => n.LastUsedAt is not null).Select(n => n.Kind));
+        Assert.Equal([store.Load().Notes.Single(n => n.Kind == MemoryKinds.Style).Id], ids);
+        Assert.All(store.Load().Notes, n => Assert.True(n.LastUsedAt is null && n.LastRewriteAt is null));
     }
 
     [Fact]
-    public void Paused_recall_sends_no_note_and_marks_none_used()
+    public void Paused_recall_sends_no_note()
     {
         MemoryStore store = Notes(("style", "Likes film grain"));
 
-        Assert.Equal("", MemoryService.StyleNotesFrom(store, new MemoryControls(false, true, 0, false), "a lighthouse"));
-        Assert.All(store.Load().Notes, n => Assert.Null(n.LastUsedAt));
+        (string block, List<string> ids) = MemoryService.StyleNotesFrom(store, new MemoryControls(false, true, 0, false), "a lighthouse");
+        Assert.Equal("", block);
+        Assert.Empty(ids);
         // Paused saving and the admin's extractor switch do not stop saved notes being read.
-        Assert.Contains("film grain", MemoryService.StyleNotesFrom(store, new MemoryControls(true, false, 0, true), "a lighthouse"));
+        Assert.Contains("film grain", MemoryService.StyleNotesFrom(store, new MemoryControls(true, false, 0, true), "a lighthouse").Block);
     }
 
     [Fact]
     public void No_style_note_means_no_block()
-        => Assert.Equal("", MemoryService.StyleNotesFrom(Notes(("fact", "Lives in Lyon")), MemoryControls.Default, "a lighthouse"));
+        => Assert.Equal("", MemoryService.StyleNotesFrom(Notes(("fact", "Lives in Lyon")), MemoryControls.Default, "a lighthouse").Block);
+
+    // ---- Retention and the rewrite's use of a note ----
+
+    private static readonly DateTime Start = new(2026, 11, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    /// <summary>A store holding a fact and a style note, both saved on <see cref="Start"/>, whose clock reads the day <paramref name="day"/> gives.</summary>
+    private static MemoryStore Aged(Func<int> day)
+    {
+        MemoryStore store = new(new Storage()) { Clock = () => Start.AddDays(day()) };
+        Assert.True(store.Write("fact", "Lives in Lyon", MemoryOrigins.User, "").Saved);
+        Assert.True(store.Write("style", "Likes film grain", MemoryOrigins.User, "").Saved);
+        return store;
+    }
+
+    [Fact]
+    public void Rewrites_while_the_user_is_away_from_chat_do_not_cost_them_other_notes()
+    {
+        int day = 0;
+        MemoryStore store = Aged(() => day);
+        string style = store.Load().Notes.Single(n => n.Kind == MemoryKinds.Style).Id;
+        // A month of images and no chat.
+        for (day = 1; day <= 30; day++)
+        {
+            store.MarkRewritten([style]);
+        }
+        day = 31;
+
+        // The first chat reply back: the away guard still sees that memory was not in use, forgets nothing and starts every note's time again.
+        Assert.Null(store.ApplyRetention(30, lazy: true));
+        Assert.Equal(2, store.Load().Notes.Count);
+        Assert.All(store.Load().Notes, n => Assert.Equal(Start.AddDays(31), n.LastUsedAt.Value.ToUniversalTime()));
+    }
+
+    [Fact]
+    public void A_note_a_rewrite_was_given_lately_is_not_forgotten_as_unused()
+    {
+        int day = 0;
+        MemoryStore store = Aged(() => day);
+        Assert.True(store.Write("preference", "Prefers tea", MemoryOrigins.User, "").Saved);
+        List<MemoryNote> saved = store.Load().Notes;
+        day = 30;
+        store.MarkRewritten([saved.Single(n => n.Kind == MemoryKinds.Style).Id]);
+        // The user is chatting, so the sweep runs.
+        store.MarkUsed([saved.Single(n => n.Kind == MemoryKinds.Preference).Id]);
+        day = 31;
+
+        MemoryChangeSet forgotten = store.ApplyRetention(30, lazy: true);
+
+        Assert.Equal("Lives in Lyon", (string)Assert.Single(forgotten.Changes).Before["text"]);
+        Assert.Equal(["preference", "style"], store.Load().Notes.Select(n => n.Kind).Order());
+        // Its protection ends like anyone's.
+        day = 61;
+        store.MarkUsed([saved.Single(n => n.Kind == MemoryKinds.Preference).Id]);
+        Assert.Single(store.ApplyRetention(30, lazy: true).Changes);
+        Assert.Equal(["preference"], store.Load().Notes.Select(n => n.Kind));
+    }
 
     // ---- The task a one-shot request is ----
 

@@ -193,7 +193,7 @@ public sealed partial class MemoryStore
     /// <summary>Called by <see cref="Clear"/>, under the lock.</summary>
     private void BumpEpoch() => Epochs.GetOrCreateValue(Gate).Value++;
 
-    /// <summary>Whether two stored notes are the same note apart from when it was last used (which recall refreshes without anyone changing the note).</summary>
+    /// <summary>Whether two stored notes are the same note apart from when it was last used (which recall and the prompt rewrite refresh without anyone changing the note).</summary>
     private static bool SameExceptUse(JObject a, JObject b)
     {
         if (a is null || b is null)
@@ -202,8 +202,11 @@ public sealed partial class MemoryStore
         }
         JObject x = (JObject)a.DeepClone();
         JObject y = (JObject)b.DeepClone();
-        x.Remove("lastUsed");
-        y.Remove("lastUsed");
+        foreach (JObject note in new[] { x, y })
+        {
+            note.Remove("lastUsed");
+            note.Remove("lastRewrite");
+        }
         return JToken.DeepEquals(x, y);
     }
 
