@@ -1,6 +1,7 @@
 import { test, expect, config, MAX_ROUNDS, PROMPT_ALLOWANCE } from '../lib/live';
 import { listBackends, listImageModels } from '../lib/guard';
 import { pngSpread } from '../lib/png';
+import { unloadOwnChatModel } from '../lib/server';
 import { updateState } from '../lib/state';
 
 /** The only generation settings an approved call may carry. Anything else (another model, a refiner, a backend type) could send the
@@ -50,6 +51,11 @@ test('an image is generated through the assistant, with its prompt rewritten', a
     let toolConfig = (await live.client.ok('LLMAssistantGetToolConfig', { toolId: 'generate_image' })).config;
     if (toolConfig?.defaultPreset) {
         live.skip(`The image tool has a default preset ("${toolConfig.defaultPreset}"), whose settings the suite cannot check.`);
+    }
+    // Earlier scenarios leave the chat model in memory, which would count against the room the image needs. The turn loads it again.
+    let unloaded = await unloadOwnChatModel(live.client);
+    if (unloaded) {
+        live.note(unloaded);
     }
     await live.whenIdle('image');
     let threadId = await live.createChat('image', { tools: true, autoEnhance: 'on' });

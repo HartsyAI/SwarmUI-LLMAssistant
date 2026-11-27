@@ -109,6 +109,22 @@ export async function deleteCreated(client: SwarmClient): Promise<string[]> {
     return failures;
 }
 
+/** Unloads the chat model when this run is what loaded it and nothing is generating. Returns what it did, or null when there was nothing to do. */
+export async function unloadOwnChatModel(client: SwarmClient): Promise<string | null> {
+    let state = readState();
+    if (!state?.usedLlm) {
+        return null;
+    }
+    if (state.llmWasLoaded) {
+        return 'The chat model was loaded before the run, so it was left loaded.';
+    }
+    if (await generationsIdle(client)) {
+        return 'The chat model was left loaded: SwarmUI was busy.';
+    }
+    let reply = await client.ok('LLMAssistantUnloadModels', {}, 120_000);
+    return `Unloaded the chat model (${reply.freed} of ${reply.providers} LLM providers freed something).`;
+}
+
 /** Frees only what the run loaded, and only while nothing else is generating. Returns what it did. */
 export async function unloadWhatWasLoaded(client: SwarmClient): Promise<string[]> {
     let state = readState();
@@ -116,17 +132,9 @@ export async function unloadWhatWasLoaded(client: SwarmClient): Promise<string[]
     if (!state) {
         return done;
     }
-    if (state.usedLlm && !state.llmWasLoaded) {
-        if (await generationsIdle(client)) {
-            done.push('The chat model was left loaded: SwarmUI was busy at the end of the run.');
-        }
-        else {
-            let reply = await client.ok('LLMAssistantUnloadModels', {}, 120_000);
-            done.push(`Unloaded the chat model (${reply.freed} of ${reply.providers} LLM providers freed something).`);
-        }
-    }
-    else if (state.usedLlm) {
-        done.push('The chat model was loaded before the run, so it was left loaded.');
+    let unloaded = await unloadOwnChatModel(client);
+    if (unloaded) {
+        done.push(unloaded);
     }
     if (state.usedImageBackends && state.emptyImageBackends.length > 0 && !await generationsIdle(client)) {
         for (let backend of await listBackends(client)) {
