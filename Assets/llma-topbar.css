@@ -162,14 +162,14 @@
 }
 .llma-model-select:hover { border-color: var(--border-color); }
 .llma-model-select:focus { border-color: var(--emphasis); }
-/* Compare ("VS") toggle — sits to the left of the model pill(s) by default; lights up when
-   side-by-side mode is on. */
+/* Compare ("VS") toggle — sits to the left of the model pill(s) by default; filled like a selected segment when side-by-side mode is on
+   (the accent as the icon's colour read as switched off on a light theme). */
 .llma-compare-toggle[aria-pressed="true"],
 .llma-compare-toggle[aria-pressed="true"]:hover {
     opacity: 1;
-    color: var(--emphasis);
+    color: var(--text-strong);
     border-color: var(--emphasis);
-    background: color-mix(in srgb, var(--emphasis) 22%, transparent);
+    background: var(--llma-accent-fill);
 }
 /* When compare mode is active, the toggle slides BETWEEN the two model pills so it reads as
    "model A vs model B". Uses flex order so no DOM reshuffle is needed (see chat-compare.js). */

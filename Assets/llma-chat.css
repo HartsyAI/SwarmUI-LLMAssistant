@@ -899,6 +899,8 @@ video.llma-msg-image {
     gap: 4px;
 }
 .llma-input-actions-left { flex-wrap: wrap; }
+/* Where the right-hand buttons take a row of their own they stay on the right, so the model chip's list (opening leftwards from it) is whole. */
+.llma-input-actions-right { margin-left: auto; }
 /* Claude-style "/" tools button — opens the tool picker without typing a slash. Bottom-left row. */
 .llma-tools-btn {
     width: 32px;
@@ -1019,8 +1021,10 @@ video.llma-msg-image {
     .llma-input-actions-right { display: contents; }
     .llma-attach-label { order: 1; }
     .llma-approval-group, .llma-workspace-select, .llma-chip-anchor, .llma-send-btn, .llma-stop-btn { order: 2; }
-    /* Send, and the model chip before it, keep to the right of their row. */
-    .llma-chip-anchor { margin-left: auto; }
+    /* Send, and the model chip before it, keep to the right of their row. The chip takes what the row has left and cuts its text short,
+       so two model names (compare mode) do not push Send onto a third row. */
+    .llma-model-compact .llma-chip-anchor { display: flex; flex: 1 1 0; justify-content: flex-end; min-width: 90px; margin-left: auto; }
+    .llma-chip-anchor .llma-model-chip { min-width: 0; max-width: min(200px, 100%); }
     .llma-model-compact .llma-chip-anchor ~ .llma-send-btn, .llma-model-compact .llma-chip-anchor ~ .llma-stop-btn { margin-left: 0; }
 }
 /* A touch keyboard has no Shift+Enter or "/" shortcut to point out, and a phone has no version badge to keep clear of. */

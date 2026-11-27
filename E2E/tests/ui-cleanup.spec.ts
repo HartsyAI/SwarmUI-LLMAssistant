@@ -164,6 +164,14 @@ test('a narrow window picks the model from the chip, whose list opens beside it'
         await llm.keyboard.press('Escape');
         await expect(list).toBeHidden();
     }
+    // With the panel beside it the message box is narrow and the chip's buttons take a second row: the list still opens whole.
+    await llm.setViewportSize({ width: 1100, height: 768 });
+    await llm.locator('#llma-asst-toggle').click();
+    await expect(llm.locator('.llma-panel-name')).toBeVisible();
+    await llm.locator('#llma-model-chip').click();
+    await expect(llm.locator('#llma-model-select-wrap')).toBeInViewport({ ratio: 1 });
+    await llm.keyboard.press('Escape');
+    await llm.locator('#llma-asst-toggle').click();
     await llm.locator('#llma-model-chip').click();
     await llm.locator('#llma-model-select-wrap .select2-selection').click();
     await llm.locator('.select2-results__option', { hasText: 'mock-model-b' }).click();
@@ -463,20 +471,37 @@ test('the guide\'s buttons sit under what scrolls, not over it', async ({ llm })
 test.describe('on a touch phone', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
+    /** How many rows the message box's buttons take. */
+    let buttonRows = (page: Page) => page.locator('.llma-input-actions').evaluate(actions => {
+        let middles = Array.from(actions.querySelectorAll<HTMLElement>('button, label.btn, .llma-attach-label'))
+            .filter(el => el.checkVisibility({ visibilityProperty: true }))
+            .map(el => el.getBoundingClientRect()).filter(box => box.width > 1)
+            .map(box => Math.round((box.top + box.bottom) / 2));
+        return middles.sort((a, b) => a - b).filter((y, i, all) => i == 0 || y - all[i - 1] > 10).length;
+    });
+
     test('the message box is the text and two rows of buttons, with no keyboard hint', async ({ llm }) => {
         await expect(llm.locator('#llma-input')).toBeVisible();
         await expect(llm.locator('#llma-input-hint')).toBeHidden();
-        let rows = await llm.locator('.llma-input-actions').evaluate(actions => {
-            let middles = Array.from(actions.querySelectorAll<HTMLElement>('button, label.btn, .llma-attach-label'))
-                .filter(el => el.checkVisibility({ visibilityProperty: true }))
-                .map(el => el.getBoundingClientRect()).filter(box => box.width > 1)
-                .map(box => Math.round((box.top + box.bottom) / 2));
-            return middles.sort((a, b) => a - b).filter((y, i, all) => i == 0 || y - all[i - 1] > 10).length;
-        });
-        expect(rows).toBe(2);
+        expect(await buttonRows(llm)).toBe(2);
         expect((await llm.locator('.llma-input-wrap').boundingBox())!.height).toBeLessThan(165);
         await expect(llm.locator('#llma-send-btn')).toBeInViewport({ ratio: 1 });
         await expect(llm.locator('#llma-model-chip')).toBeInViewport({ ratio: 1 });
+        // Compare mode names two models on the chip, which cuts them short rather than push Send onto a third row.
+        await llm.evaluate(() => (0, eval)('llmaToggleCompareMode')(true));
+        await llm.evaluate(() => {
+            let second = document.getElementById('llma-model-select-b') as HTMLSelectElement;
+            second.value = 'mock-model-b';
+            second.dispatchEvent(new Event('change'));
+        });
+        await expect(llm.locator('#llma-model-chip-text')).toContainText(' vs ');
+        for (let width of [390, 360]) {
+            await llm.setViewportSize({ width: width, height: 844 });
+            expect(await buttonRows(llm)).toBe(2);
+            await expect(llm.locator('#llma-send-btn')).toBeInViewport({ ratio: 1 });
+            await expect(llm.locator('#llma-model-chip')).toBeInViewport({ ratio: 1 });
+        }
+        await llm.evaluate(() => (0, eval)('llmaToggleCompareMode')(false));
     });
 });
 
