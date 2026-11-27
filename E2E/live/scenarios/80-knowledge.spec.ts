@@ -5,6 +5,8 @@ import { updateState } from '../lib/state';
 const TARGET = 'Quillon, a grey tabby feline, sleeps on warm radiators and refuses kibble.';
 const DECOY = 'Quarterly invoices must reach accounting before Friday afternoon.';
 const QUERY = 'cat meal preferences';
+/** The most results the search gives. */
+const LIMIT = 10;
 
 test('knowledge search finds a document by meaning with the embedding model', async ({ live }) => {
     // The wait for the server, then two additions and a search, each allowed the usual time.
@@ -35,14 +37,15 @@ test('knowledge search finds a document by meaning with the embedding model', as
     };
     let target = await add('', TARGET);
     let decoy = await add(' other', DECOY);
-    let found = await live.client.ok('LLMAssistantSearchKnowledge', { query: QUERY, limit: 10 }, config.turnTimeoutMs);
+    let found = await live.client.ok('LLMAssistantSearchKnowledge', { query: QUERY, limit: LIMIT }, config.turnTimeoutMs);
     let ids: string[] = found.results.map((r: any) => r.docId);
     live.note(`Search mode ${found.mode}, ${found.results.length} results, target at ${ids.indexOf(target) + 1}, decoy at ${ids.indexOf(decoy) + 1 || 'none'}${found.embedError ? `, embedding error: ${found.embedError}` : ''}.`);
     expect(found.embedError ?? null).toBeNull();
     let mine = found.results.find((r: any) => r.docId === target);
     let others = library.documents?.length ?? 0;
-    if (!mine && others > 0) {
-        live.skip(`The target is not in the first ${found.results.length} results of a library with ${others} other documents, so this library cannot show whether search by meaning works.`);
+    // Only a full list can have crowded the target out; with room left, its absence is a failure.
+    if (!mine && others > 0 && found.results.length >= LIMIT) {
+        live.skip(`Your ${others} other documents fill all ${LIMIT} results without the target, so this library cannot show whether search by meaning works.`);
     }
     expect(mine, 'the document is among the results').toBeTruthy();
     expect(mine.keyword, 'no word of the query is in it').toBe(false);
