@@ -63,8 +63,9 @@ test('changed settings save, persist and show again when the dialog reopens', as
     await expect(llm.locator('#llma-s-max-tokens')).toHaveValue('2048');
     await expect(llm.locator('#llma-s-markdown')).not.toBeChecked();
     await expect(llm.locator('#llma-s-temperature_rangeslider')).toHaveValue('1.1');
-    // put the defaults back for the specs that follow
-    await llm.locator('#llma-settings-reset').click();
+    // Put Markdown back for the specs that follow. The reset button does not: here it resets the shared layer, and these are the user's own.
+    let restored = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ ui: { markdownEnabled: true } }) });
+    expect(restored.settings.ui.markdownEnabled).toBe(true);
 });
 
 test('companion settings: toggles and the persona and corner dropdowns', async ({ llm }) => {

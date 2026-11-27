@@ -58,7 +58,8 @@ test('a chat started in Code mode is saved as one and shows in the list with a b
     // The chat list has no kind filter of its own: both kinds are listed, told apart by the badge.
     await expect(llm.locator('#llma-sidebar').getByRole('radio')).toHaveCount(0);
     await expect(llm.locator('#llma-sidebar').getByText('Code', { exact: true })).toHaveCount(0);
-    await expect(items.filter({ has: llm.locator('.llma-thread-mode-badge') })).toContainText('coding');
+    // The badge is on the chat that is open, which is the coding one.
+    await expect(llm.locator('.llma-thread-item.active .llma-thread-mode-badge')).toHaveText('code');
 });
 
 test('opening a chat takes the mode, workspace panel and approval of that chat, and the mode of a chat can be changed and is kept', async ({ llm }) => {

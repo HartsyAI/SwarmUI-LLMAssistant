@@ -77,7 +77,8 @@
 /* On a phone, or a very short window, the tabs are one row that scrolls sideways instead of wrapping over most of the dialog. */
 @media (max-width: 680px), (max-height: 500px) {
     .llma-modal-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
-    .llma-modal-tabs .nav-link { flex: none; white-space: nowrap; padding: 8px 12px; font-size: 14px; }
+    /* No overlap of the strip's border: a strip that scrolls clips it, cutting a pixel off the tab showing. */
+    .llma-modal-tabs .nav-link { flex: none; white-space: nowrap; margin-bottom: 0; padding: 8px 12px; font-size: 14px; }
 }
 
 /* Modal body — scrollbar inherits SwarmUI's global ::-webkit-scrollbar style from site.css */
