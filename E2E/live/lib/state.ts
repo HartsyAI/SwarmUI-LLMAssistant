@@ -23,6 +23,8 @@ export type RunState = {
     /** Backends accepted only because they cannot take the run's requests. */
     bystanders: string[];
     usedLlm: boolean;
+    /** Whether a scenario ended with a request that may still be loading its model. */
+    cutOff: boolean;
     notes: string[];
 };
 
@@ -43,6 +45,7 @@ export function newState(): RunState {
         imageBackendToFree: null,
         bystanders: [],
         usedLlm: false,
+        cutOff: false,
         notes: []
     };
 }
@@ -51,9 +54,36 @@ export function readState(): RunState | null {
     return fs.existsSync(FILE) ? JSON.parse(fs.readFileSync(FILE, 'utf8')) : null;
 }
 
+/** Replaces the record whole: a run killed while writing leaves the earlier one. */
 export function writeState(state: RunState) {
     fs.mkdirSync(RUN_DIR, { recursive: true });
-    fs.writeFileSync(FILE, JSON.stringify(state, null, 2));
+    fs.writeFileSync(`${FILE}.tmp`, JSON.stringify(state, null, 2));
+    for (let attempt = 0; ; attempt++) {
+        try {
+            fs.renameSync(`${FILE}.tmp`, FILE);
+            return;
+        }
+        catch (error) {
+            // On Windows a scanner can hold a file just written for a moment.
+            if (attempt >= 20) {
+                throw error;
+            }
+            Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+        }
+    }
+}
+
+/** Moves a record that cannot be read out of the way, so it does not stop every later run. Returns where it went, or null. */
+export function setAsideUnreadable(): string | null {
+    try {
+        readState();
+        return null;
+    }
+    catch {
+        let kept = path.join(RUN_DIR, `leftover-unreadable-${Date.now().toString(36)}.json`);
+        fs.renameSync(FILE, kept);
+        return kept;
+    }
 }
 
 /** Reads, changes and saves the state. */

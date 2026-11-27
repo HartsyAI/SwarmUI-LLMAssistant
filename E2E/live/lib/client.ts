@@ -66,26 +66,39 @@ export class SwarmClient {
         let sessionId = await this.session();
         let socket = new WebSocket(`${this.baseUrl.replace(/^http/, 'ws')}/API/${route}`);
         await new Promise<void>((resolve, reject) => {
-            let failure: Error | null = null;
+            let ended = false;
             // Frames are handled one after another, so a handler that calls a route cannot be overtaken by the next frame.
             let handled: Promise<void> = Promise.resolve();
-            let timer = setTimeout(() => {
-                failure = new Error(`${route}: no end of the reply after ${Math.round(timeoutMs / 1000)}s`);
-                socket.close();
-            }, timeoutMs);
+            // Fails at once. SwarmUI reads nothing from the socket while a route runs, so the close asked for here may not be answered
+            // until the work is done, and the caller has to be able to stop it before then.
+            let fail = (error: Error) => {
+                if (!ended) {
+                    ended = true;
+                    clearTimeout(timer);
+                    socket.close();
+                    reject(error);
+                }
+            };
+            let timer = setTimeout(() => fail(new Error(`${route}: no end of the reply after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs);
             socket.addEventListener('open', () => socket.send(JSON.stringify({ session_id: sessionId, ...body })));
             socket.addEventListener('message', event => {
-                handled = handled.then(async () => onFrame(JSON.parse(String(event.data)))).catch(error => {
-                    failure ??= error;
-                    socket.close();
-                });
+                handled = handled.then(async () => {
+                    if (!ended) {
+                        await onFrame(JSON.parse(String(event.data)));
+                    }
+                }).catch(fail);
             });
             socket.addEventListener('error', () => {
-                failure ??= new Error(`${route}: the WebSocket failed`);
+                handled = handled.then(() => fail(new Error(`${route}: the WebSocket failed`)));
             });
             socket.addEventListener('close', () => {
-                clearTimeout(timer);
-                handled.then(() => failure ? reject(failure) : resolve());
+                handled.then(() => {
+                    if (!ended) {
+                        ended = true;
+                        clearTimeout(timer);
+                        resolve();
+                    }
+                });
             });
         });
     }

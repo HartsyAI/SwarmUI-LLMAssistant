@@ -3,10 +3,14 @@ import { SwarmClient } from './lib/client';
 import { config, notConfigured, RUN_DIR } from './lib/config';
 import { checkBackends, listBackends, listImageModels } from './lib/guard';
 import { listChatModels } from './lib/server';
-import { newState, readState, writeState } from './lib/state';
+import { newState, readState, setAsideUnreadable, writeState } from './lib/state';
 
 /** Checks the backends before anything is asked of any model, and starts the run's record. Throwing here runs no scenario. */
 export default async function globalSetup() {
+    let unreadable = setAsideUnreadable();
+    if (unreadable) {
+        console.warn(`The record of an earlier run could not be read; it may list things that run did not delete. See ${unreadable}.`);
+    }
     let previous = readState();
     // An earlier run's record and report are never read as this run's.
     fs.rmSync(`${RUN_DIR}/report.md`, { force: true });

@@ -7,6 +7,8 @@ const DECOY = 'Quarterly invoices must reach accounting before Friday afternoon.
 const QUERY = 'cat meal preferences';
 
 test('knowledge search finds a document by meaning with the embedding model', async ({ live }) => {
+    // The wait for the server, then two additions and a search, each allowed the usual time.
+    test.setTimeout(config.idleTimeoutMs + 3 * config.turnTimeoutMs + 120_000);
     if (!config.embedModel) {
         live.skip('LLMA_LIVE_EMBED_MODEL is not set.');
     }

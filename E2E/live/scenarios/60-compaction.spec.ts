@@ -1,4 +1,5 @@
 import { test, expect, config, PROMPT_ALLOWANCE } from '../lib/live';
+import { assistantParameter } from '../lib/assistants';
 import { updateState } from '../lib/state';
 
 /** The summarizer reads at most this much of each message (CompactionPlanner.BuildTranscript), which keeps this scenario cheap. */
@@ -9,14 +10,13 @@ const MESSAGE_LIMIT = 95_000;
 const FILLER = 'We went over the garden plan again: the beds along the south wall, the order of planting, and who waters on which day. ';
 
 test('a chat near the window is summarized before the reply', async ({ live }) => {
+    // The wait for the server, two dry runs and the import (two minutes each at most), then a turn allowed twice the usual time.
+    test.setTimeout(config.idleTimeoutMs + 3 * 120_000 + 2 * config.turnTimeoutMs + 120_000);
     await live.whenIdle();
     let probe = await live.createChat('compaction probe', { tools: false });
     let dry = await live.client.ok('LLMAssistantRunTurn', { threadId: probe, message: 'hello', model: config.chatModel, dryRun: true }, 120_000);
     let settings = (await live.client.ok('LLMAssistantGetSettings')).settings;
     let parameters = settings.parameters ?? {};
-    if (parameters.autoCompact === false) {
-        live.skip('Shorten Long Chats is off in your settings, and the suite changes no settings.');
-    }
     let window = dry.contextWindow as number;
     if (!window) {
         live.skip('No context window is known for the model, so a chat is never summarized on its own.');
@@ -44,6 +44,13 @@ test('a chat near the window is summarized before the reply', async ({ live }) =
     let question = 'In one sentence: what is my project called and what is its budget?';
     let before = await live.client.ok('LLMAssistantRunTurn', { threadId, message: question, model: config.chatModel, dryRun: true }, 120_000);
     live.note(`Window ${window}, threshold ${threshold}, estimate ${before.estimatedPromptTokens} tokens; dry run says wouldCompact ${before.wouldCompact}.`);
+    if (!before.wouldCompact) {
+        let chat = (await live.client.ok('LLMAssistantGetThread', { threadId })).thread;
+        let off = parameters.autoCompact === false ? 'your settings' : (await assistantParameter(live.client, chat.assistantId, 'autoCompact')) === false ? 'the assistant' : null;
+        if (off) {
+            live.skip(`Shorten Long Chats is off in ${off}, and the suite changes no settings.`);
+        }
+    }
     expect(before.wouldCompact, 'the dry run foresees the summary').toBe(true);
     // The summary reads about four clipped messages and writes at most 1,500 tokens. If it fails, the reply is sent the whole chat, so
     // that is what is held for the reply (the estimate with room for its error).

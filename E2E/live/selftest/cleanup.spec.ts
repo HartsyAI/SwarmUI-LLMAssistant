@@ -5,7 +5,7 @@ import { deleteCreated, unloadWhatWasLoaded } from '../lib/server';
 import { hold, newState, readState, settleUsage, writeState } from '../lib/state';
 import type { Hold, RunState } from '../lib/state';
 
-Object.assign(timing, { sampleMs: 0, retryMs: 5, settleMs: 40 });
+Object.assign(timing, { sampleMs: 0, retryMs: 5, settleMs: 40, loadMs: 200 });
 
 const MODEL = 'SDXL/sd_xl_base_1.0.safetensors';
 
@@ -14,6 +14,8 @@ type Server = {
     presets?: string[];
     knowledge?: { id: string; title: string }[];
     loaded?: string[];
+    /** How many times the models are listed before the loaded ones show. */
+    loadingFor?: number;
     gpus?: number[];
     resourcesHidden?: boolean;
     imageModel?: string | null;
@@ -22,6 +24,7 @@ type Server = {
 /** A SwarmUI holding these things; <c>did</c> lists every call that changes something. */
 function swarm(server: Server) {
     let did: string[] = [];
+    let listed = 0;
     let reply = async (route: string, body: any = {}): Promise<any> => {
         if (route === 'LLMAssistantGetThread') {
             return { thread: server.threads?.[body.threadId] ?? { messages: [] } };
@@ -33,7 +36,8 @@ function swarm(server: Server) {
             return { documents: server.knowledge ?? [] };
         }
         if (route === 'LLMAssistantGetModels') {
-            return { models: ['chat-model', 'other-model'].map(id => ({ id, is_loaded: (server.loaded ?? []).includes(id) })) };
+            let done = ++listed > (server.loadingFor ?? 0);
+            return { models: ['chat-model', 'other-model'].map(id => ({ id, is_loaded: done && (server.loaded ?? []).includes(id) })) };
         }
         if (route === 'GetGlobalStatus' || route === 'GetCurrentStatus') {
             return { status: { live_gens: 0 } };
@@ -115,6 +119,20 @@ for (let [name, state, server] of [
         expect(did).toEqual([]);
     });
 }
+
+test('waits for a load that a cut-off request started, then unloads it', async () => {
+    run({ cutOff: true });
+    let { client, did } = swarm({ loaded: ['chat-model'], loadingFor: 3 });
+    await unloadWhatWasLoaded(client);
+    expect(did).toEqual(['LLMAssistantUnloadModels']);
+});
+
+test('says so when such a load is never seen', async () => {
+    run({ cutOff: true });
+    let { client, did } = swarm({});
+    expect((await unloadWhatWasLoaded(client)).join(' ')).toContain('could still finish');
+    expect(did).toEqual([]);
+});
 
 test('keeps the larger figure when a usage report is missing or incomplete', async () => {
     run({});

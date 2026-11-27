@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Reporter, TestCase, TestResult } from '@playwright/test/reporter';
+import type { FullConfig, FullResult, Reporter, Suite, TestCase, TestResult } from '@playwright/test/reporter';
 import { config, RUN_DIR } from './lib/config';
 import { readState } from './lib/state';
 
@@ -10,6 +10,17 @@ type Row = { title: string; status: string; seconds: number; notes: string[] };
 export default class LiveReport implements Reporter {
     private rows: Row[] = [];
     private problems: string[] = [];
+    private planned = 0;
+
+    onBegin(_config: FullConfig, suite: Suite) {
+        this.planned = suite.allTests().length;
+    }
+
+    onEnd(result: FullResult) {
+        if (result.status === 'interrupted' || result.status === 'timedout') {
+            this.problems.push(`The run was ${result.status === 'timedout' ? 'cut off by its time limit' : 'interrupted'}: it is not a complete result.`);
+        }
+    }
 
     onTestEnd(test: TestCase, result: TestResult) {
         let annotations = result.annotations ?? test.annotations;
@@ -35,7 +46,7 @@ export default class LiveReport implements Reporter {
         let lines = [
             '# Live smoke report',
             '',
-            `${new Date().toISOString()}: ${count('passed')} passed, ${count('failed') + count('timedOut')} failed, ${count('skipped')} skipped.`,
+            `${new Date().toISOString()}: ${count('passed')} passed, ${count('failed') + count('timedOut')} failed, ${count('skipped')} skipped, ${count('interrupted')} interrupted, ${Math.max(0, this.planned - this.rows.length)} not run.`,
             `Chat model: ${config.chatModel || '(not set)'}. Image model: ${config.imageModel || '(not set)'}. Embedding model: ${config.embedModel || '(not set)'}.`,
         ];
         if (state) {

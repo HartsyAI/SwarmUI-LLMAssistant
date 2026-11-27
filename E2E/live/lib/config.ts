@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const RUN_DIR = process.env.LLMA_LIVE_RUN_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.run', 'live');
 
 /** Pauses of the clean-up and the busy check. The self-test shortens them. */
-export const timing = { sampleMs: 2000, retryMs: 5000, settleMs: 90_000 };
+export const timing = { sampleMs: 2000, retryMs: 5000, settleMs: 90_000, loadMs: 90_000 };
 
 function text(name: string): string {
     return (process.env[name] ?? '').trim();

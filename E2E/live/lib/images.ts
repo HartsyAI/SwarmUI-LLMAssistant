@@ -1,3 +1,4 @@
+import { assistantChain } from './assistants';
 import type { SwarmClient } from './client';
 
 /** The path DeleteImage takes, from the address a generation reports. The address may or may not be percent-encoded. */
@@ -33,16 +34,6 @@ export async function defaultImagePreset(client: SwarmClient, assistantId: strin
     if (own) {
         return own;
     }
-    let seen = new Set<string>();
-    // The server follows at most five assistants up the chain.
-    for (let id = assistantId || 'default'; id && !seen.has(id) && seen.size < 5;) {
-        seen.add(id);
-        let assistant = (await client.ok('LLMAssistantGetAssistant', { assistantId: id })).assistant;
-        let preset = assistant?.toolConfig?.generate_image?.defaultPreset;
-        if (preset) {
-            return preset;
-        }
-        id = assistant?.extends ?? '';
-    }
-    return null;
+    let chain = await assistantChain(client, assistantId);
+    return chain.map(assistant => assistant.toolConfig?.generate_image?.defaultPreset).find(preset => preset) ?? null;
 }

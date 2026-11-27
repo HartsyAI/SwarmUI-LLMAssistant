@@ -8,7 +8,7 @@ import { unloadOwnChatModel } from '../lib/server';
 import { updateState } from '../lib/state';
 
 test('an image is generated through the assistant, with its prompt rewritten', async ({ live }) => {
-    test.setTimeout(config.idleTimeoutMs + config.imageTimeoutMs + 60_000);
+    test.setTimeout(config.idleTimeoutMs + config.imageTimeoutMs + 180_000);
     if (!config.imageModel) {
         live.skip('LLMA_LIVE_IMAGE_MODEL is not set.');
     }

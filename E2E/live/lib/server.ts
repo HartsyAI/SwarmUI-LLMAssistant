@@ -222,9 +222,15 @@ export async function unloadOwnChatModel(client: SwarmClient): Promise<string | 
     if (state.anyModelWasLoaded) {
         return 'A chat model was loaded before the run, so nothing was unloaded.';
     }
-    let loaded: string[] = (await listChatModels(client)).filter(m => m.is_loaded === true).map(m => m.id);
+    let listLoaded = async () => (await listChatModels(client)).filter(m => m.is_loaded === true).map(m => m.id as string);
+    let loaded = await listLoaded();
+    // A model is not listed as loaded until its load is done, which can be after the request that started it was given up.
+    for (let deadline = Date.now() + timing.loadMs; loaded.length === 0 && state.cutOff && Date.now() < deadline;) {
+        await pause(timing.retryMs);
+        loaded = await listLoaded();
+    }
     if (loaded.length === 0) {
-        return null;
+        return state.cutOff ? 'No chat model was seen loaded; a load that a cut-off request started could still finish.' : null;
     }
     let others = loaded.filter(id => id !== config.chatModel);
     if (others.length > 0) {

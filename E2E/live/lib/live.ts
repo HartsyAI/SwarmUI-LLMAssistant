@@ -228,6 +228,10 @@ export const test = base.extend<{ live: Live }>({
         let before = readState()!;
         let mine = new Set(Object.values(before.created).flat());
         await use(live);
+        // A scenario that did not finish may have left a request that is still loading the model; clean-up waits for it.
+        if (testInfo.status !== 'passed' && testInfo.status !== 'skipped') {
+            updateState(s => s.cutOff = true);
+        }
         // A scenario's chats are stopped as soon as it ends, so a failed one leaves no reply running for the next.
         for (let threadId of readState()!.created.threads.filter(id => !mine.has(id))) {
             await client.call('LLMAssistantStopGeneration', { threadId }).catch(() => { });
