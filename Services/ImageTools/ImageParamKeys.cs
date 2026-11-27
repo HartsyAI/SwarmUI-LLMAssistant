@@ -27,13 +27,17 @@ public static class ImageParamKeys
         }
     }
 
+    /// <summary>The request handed to core's lookup, which providers of special parameter names read: one with no session and nothing set (ComfyUI's logs an error for every name when given none).
+    /// Made once, since making one advances core's request counter.</summary>
+    private static readonly Lazy<T2IParamInput> LookupContext = new(() => new T2IParamInput(null));
+
     /// <summary>What core calls this key: the id of the parameter it names, following core's aliases; the cleaned key itself when core does not know it (or cannot be asked).</summary>
     public static string CoreId(string key)
     {
         string clean = T2IParamTypes.CleanTypeName(key ?? "");
         try
         {
-            T2IParamType type = T2IParamTypes.GetType(key ?? "", null);
+            T2IParamType type = T2IParamTypes.GetType(key ?? "", LookupContext.Value);
             if (type is not null)
             {
                 return type.ID;
@@ -41,7 +45,7 @@ public static class ImageParamKeys
         }
         catch (Exception)
         {
-            // A provider of special parameter names that wants a request to look at: the cleaned name is the fallback.
+            // A provider of special parameter names that wants more of a request than this one holds: the cleaned name is the fallback.
         }
         return clean;
     }

@@ -33,8 +33,6 @@ class LLMALibrary {
         this.debounceMs = 250;
         /** How many chats to ask for at a time. */
         this.pageSize = 20;
-        /** The Chats/Code filter the results were asked for with ('all', 'chat' or 'code'), so a change of filter asks again. */
-        this.resultsMode = 'all';
         /** Per chat, the pin requests in flight ({ tail, pending }), chained so they reach the server in the order they were clicked. */
         this.pinQueue = new Map();
         /** The file being imported, as text, while its preview is open. */
@@ -104,10 +102,6 @@ class LLMALibrary {
         if (!this.hasMore || this.loading || !this.results) {
             return;
         }
-        if (this.resultsMode != llmaCodeMode.filter) {
-            this.refresh();
-            return;
-        }
         this.loading = true;
         llmaRenderThreadList(LLMAState.threads);
         await this.fetchPage(this.query, this.seq, this.results.length);
@@ -117,16 +111,8 @@ class LLMALibrary {
     async fetchPage(query, seq, offset) {
         let reply = null;
         let failed = false;
-        let requestedMode = 'all';
         try {
-            let args = { query, limit: this.pageSize, offset };
-            // The Chats/Code filter is asked of the server too, so a page is not mostly chats that are not shown.
-            let filter = llmaCodeMode.filter;
-            if (filter == 'chat' || filter == 'code') {
-                args.mode = filter;
-            }
-            requestedMode = filter;
-            reply = await llmaRequest('LLMAssistantSearchThreads', args);
+            reply = await llmaRequest('LLMAssistantSearchThreads', { query, limit: this.pageSize, offset });
             failed = !reply || reply.success == false;
         }
         catch (e) {
@@ -145,7 +131,6 @@ class LLMALibrary {
             let results = Array.isArray(reply.results) ? reply.results : [];
             this.results = offset == 0 ? results : (this.results || []).concat(results);
             this.total = reply.total || 0;
-            this.resultsMode = requestedMode;
             this.hasMore = !!reply.hasMore;
             this.partial = !!reply.partial;
         }
@@ -155,11 +140,7 @@ class LLMALibrary {
     /** The chats to list while searching, best first, as sidebar rows: the server's results once they are in, until then the chats whose title has the query. */
     visibleThreads(threads) {
         // Sessions that were archived are not listed, so they are not found either.
-        let shown = threads.filter(t => t.sessionStatus != 'archived' && llmaCodeMode.showsThread(t));
-        // The filter changed since these results were asked for: ask again (the old ones stay until the new arrive).
-        if (this.results && this.resultsMode != llmaCodeMode.filter && !this.loading) {
-            this.refresh();
-        }
+        let shown = threads.filter(t => t.sessionStatus != 'archived');
         if (this.results) {
             let byId = new Map(shown.map(t => [t.id, t]));
             return this.results.map(r => byId.get(r.threadId)).filter(Boolean);

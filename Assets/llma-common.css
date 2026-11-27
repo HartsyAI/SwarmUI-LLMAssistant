@@ -36,6 +36,31 @@
 @keyframes llma-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 @keyframes llma-toast-out { from { opacity: 1; } to { opacity: 0; } }
 
+/* ── Form controls ─────────────────────────────────────────── */
+/* Bootstrap's form classes paint their own white and dark text, whatever the theme: the theme's colours instead. */
+.llma-container .form-control,
+.llma-container .form-control:focus,
+.llma-container .form-select,
+.llma-container .form-select:focus {
+    background-color: var(--background-soft);
+    color: var(--text);
+}
+.llma-container .form-control,
+.llma-container .form-select { border-color: var(--light-border); }
+.llma-container .form-control:focus,
+.llma-container .form-select:focus { border-color: var(--emphasis); }
+.llma-container .form-control::placeholder { color: var(--text-soft); opacity: 0.8; }
+.llma-container .form-control:disabled,
+.llma-container .form-select:disabled { background-color: var(--background); color: var(--text-soft); }
+/* Bootstrap draws the select's arrow in near-black: a grey that shows on light and dark. */
+.llma-container .form-select {
+    --bs-form-select-bg-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23888' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3E%3C/svg%3E");
+}
+.llma-container .form-select option,
+.llma-container .form-select optgroup { background-color: var(--background-soft); color: var(--text); }
+.llma-container .form-check:not(.form-switch) .form-check-input:not(:checked),
+.llma-container .llma-memory-row > .form-check-input:not(:checked) { background-color: var(--background-soft); border-color: var(--border-color); }
+
 /* ── Empty State ───────────────────────────────────────────── */
 .llma-empty-state {
     text-align: center;

@@ -62,7 +62,7 @@ public static class OnboardingChecks
         {
             return new("model", title, CheckStatus.Warn, $"{i.Setup.Models} to choose from, but your preferred model '{i.Setup.PreferredModel}' is not one of them.", "Pick another model in the chat's model list.");
         }
-        return new("model", title, CheckStatus.Ok, $"{i.Setup.Models} to choose from, in the model list above the chat.");
+        return new("model", title, CheckStatus.Ok, $"{i.Setup.Models} to choose from in the chat's model list.");
     }
 
     /// <summary>Are there tools this user can use.</summary>

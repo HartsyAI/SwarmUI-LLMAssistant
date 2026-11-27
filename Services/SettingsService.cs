@@ -214,8 +214,9 @@ public static class SettingsService
         lock (SettingsLock)
         {
             JObject defaults = DefaultSettings;
-            // An admin's switch that turned the automatic extractor off for everyone survives a reset to the defaults (which would switch it on again for everyone).
-            defaults.Merge(KeepKeys(GetSettings(), PrivacySharedKeys));
+            // An admin's switch that turned the automatic extractor off for everyone survives a reset to the defaults (which would switch it on again for
+            // everyone), and so do the folders the admin allowed as workspaces: they say where on the server code chats may work, not how the extension behaves.
+            defaults.Merge(KeepKeys(GetSettings(), [.. PrivacySharedKeys, WorkspaceService.RootsKey]));
             GenericDataCache.Save(Program.Sessions.GenericSharedUser, DataName, ConfigKey, defaults.ToString(Formatting.None));
             return defaults;
         }

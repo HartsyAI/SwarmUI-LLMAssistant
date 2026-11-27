@@ -289,6 +289,17 @@ test('a settings save cannot write allowed folders', async ({ llm }) => {
     await api(llm, 'LLMAssistantResetSettings');
 });
 
+test('a reset of the shared settings keeps the folders an admin allowed', async ({ llm }) => {
+    fs.mkdirSync(extraRoot, { recursive: true });
+    expect((await api(llm, 'LLMAssistantSaveWorkspaceRoot', { id: 'kept', path: extraRoot, label: 'Kept' })).success).toBe(true);
+    let reply = await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
+    expect(reply.success).toBe(true);
+    // The reply says nothing of the folders: who may reset is not always who may see their paths.
+    expect(reply.settings.workspaceRoots).toBeUndefined();
+    expect(JSON.stringify(reply)).not.toContain(path.basename(extraRoot));
+    expect((await api(llm, 'LLMAssistantGetWorkspaceRoots')).roots.map((r: any) => r.id)).toContain('kept');
+});
+
 test('shell_exec still works, now through the shared process runner', async ({ llm }) => {
     // shell_exec starts in SwarmUI's Data folder, which the harness's private root does not have.
     fs.mkdirSync(path.join(os.tmpdir(), `llma-e2e-swarm-root-${process.env.E2E_SWARM_PORT || 17801}`, 'Data'), { recursive: true });

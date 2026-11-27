@@ -11,6 +11,9 @@
 /** Matches a fenced code block or a code span in Markdown: what is inside is text to keep, whatever it looks like. Its two groups are the fence and the span's backticks. */
 const LLMA_CODE_PATTERN = '(?:^|(?<=\\n))[ \\t]*(`{3,}|~{3,})[\\s\\S]*?(?:\\n[ \\t]*\\1[`~]*[ \\t]*(?=\\n|$)|$)|(`+)(?:(?!\\n[ \\t]*\\n)[\\s\\S])*?\\2';
 
+/** Where this browser keeps why a message was left without a reply, as [messageId, error] pairs, newest last. */
+let LLMA_REPLY_FAILURES_KEY = 'llma.replyFailures';
+
 /** The actions a user takes on one message of the chat. */
 class LLMAMessageActions {
     constructor() {
@@ -35,11 +38,12 @@ class LLMAMessageActions {
                 button.setAttribute('aria-disabled', this.busy() ? 'true' : 'false');
             }
             bar.appendChild(button);
+            return button;
         };
         add('copy', 'Copy', () => llmaCopyMessage(msgId));
         if (role == 'assistant') {
             add('markdown', 'Copy as Markdown', () => this.copyMarkdown(msgId));
-            add('regen', 'Regenerate', () => llmaRegenerateMessage(msgId), true);
+            add('regen', 'Regenerate', () => llmaRegenerateMessage(msgId), true).classList.add('llma-msg-regen');
         }
         add('fork', 'Branch from here', () => llmaForkFromMessage(msgId), true);
         if (role == 'assistant') {
@@ -166,6 +170,68 @@ class LLMAMessageActions {
         }
     }
 
+    /** The failures kept by <c>noteFailure</c>, by the id of the message that got no reply. Empty when storage is blocked. */
+    failures() {
+        try {
+            return new Map(JSON.parse(localStorage.getItem(LLMA_REPLY_FAILURES_KEY)) || []);
+        }
+        catch {
+            return new Map();
+        }
+    }
+
+    /**
+     * Keeps why a message got no reply, so the page can still say it after a reload (the server saves nothing for such a reply). The newest 50
+     * are kept. With no error (a reply arrived, or the user stopped it) what was kept for the message is forgotten.
+     */
+    noteFailure(messageId, error) {
+        let kept = this.failures();
+        if (!kept.delete(messageId) && !error) {
+            return;
+        }
+        if (error) {
+            kept.set(messageId, String(llmaShortError(error) || '').slice(0, 2000));
+        }
+        try {
+            localStorage.setItem(LLMA_REPLY_FAILURES_KEY, JSON.stringify(Array.from(kept).slice(-50)));
+        }
+        catch {
+            // Blocked or full storage: after a reload the page only says there is no reply.
+        }
+    }
+
+    /** Whether something under this message already says on screen why it has no reply: the failed or stopped reply, still there until a reload. */
+    saidBelow(container, messageId) {
+        let next = container.querySelector(`[data-msg-id="${CSS.escape(messageId)}"]`)?.nextElementSibling;
+        for (; next; next = next.nextElementSibling) {
+            if (next.querySelector('.llma-msg-error, .llma-msg-stopped')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Hides Regenerate on a failed or stopped reply still shown under this message: Retry, beside it, asks for the same thing. */
+    hideRegenerateBelow(container, messageId) {
+        let next = container.querySelector(`[data-msg-id="${CSS.escape(messageId)}"]`)?.nextElementSibling;
+        for (; next; next = next.nextElementSibling) {
+            next.classList.add('llma-msg-under-retry');
+        }
+    }
+
+    /** What stands beside Retry under a message with no reply: the failure this browser saw, else that there is no reply. */
+    noReplyNote(messageId) {
+        let note = createDiv(null, 'llma-msg-tail-note');
+        let error = this.failures().get(messageId);
+        if (error) {
+            note.innerHTML = llmaErrorBlockHtml(error);
+        }
+        else {
+            note.textContent = translate('This message has no reply.');
+        }
+        return note;
+    }
+
     /** The ids of this message and of every message under it, among these. */
     subtreeIds(msgId, nodes) {
         let found = new Set([msgId]);
@@ -275,6 +341,10 @@ class LLMAMessageActions {
         let old = container.querySelector(':scope > .llma-msg-tail');
         let held = old?.contains(document.activeElement) ? document.activeElement.className : null;
         old?.remove();
+        // A reply that was under Retry offers Regenerate again once Retry has moved on, as when another message is sent after it.
+        for (let under of container.querySelectorAll(':scope > .llma-msg-under-retry')) {
+            under.classList.remove('llma-msg-under-retry');
+        }
         let last = LLMAState.messages[LLMAState.messages.length - 1];
         // A session at work in the background has its reply on the way: asking again would start a second one.
         if (this.busy() || !LLMAState.activeThreadId || !last || last.unsaved || llmaCompareSiblings(last.id).length >= 2) {
@@ -286,6 +356,9 @@ class LLMAMessageActions {
             return;
         }
         let row = createDiv(null, 'llma-msg-tail');
+        if (canRetry && !canContinue && !this.saidBelow(container, last.id)) {
+            row.appendChild(this.noReplyNote(last.id));
+        }
         if (canRetry) {
             let retry = llmaCreateActionBtn(translate('Retry'), () => llmaRegenerateMessage(last.id), 'basic-button llma-msg-retry');
             retry.type = 'button';
@@ -298,6 +371,11 @@ class LLMAMessageActions {
             row.appendChild(later);
         }
         container.appendChild(row);
+        if (canRetry) {
+            this.hideRegenerateBelow(container, last.id);
+        }
+        // Taking the old row out moved the view up: it stays with the latest, unless the user has scrolled up to read.
+        llmaScrollToBottom();
         if (held) {
             Array.from(row.children).find(b => b.className == held)?.focus({ preventScroll: true });
         }

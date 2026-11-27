@@ -206,7 +206,7 @@ Anthropic describes the compatibility endpoint as meant for testing and comparin
 
    ![Assistant gallery](Assets/screenshots/welcome-gallery.png)
 
-2. Pick a model from the dropdown in the top bar.
+2. Pick a model from the dropdown in the top bar (on a narrow screen, from the model chip beside the message box).
 3. Type. `Enter` sends, `Shift+Enter` makes a newline, `/` opens the tool picker, and the paperclip (or a drag-and-drop) attaches an image or a [document](#documents).
 4. Everything else (parameters, export, settings, the assistant panel) hangs off the top bar and the right-hand panel.
 
@@ -230,9 +230,9 @@ Anthropic describes the compatibility endpoint as meant for testing and comparin
 
 **Left sidebar**: chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
 
-**Top bar**: thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings.
+**Top bar**: thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings. Where the bar is too narrow for them (a phone, or a narrow window), the model picker with compare, refresh and unload moves into the model chip beside the message box (in the top bar while the assistant gallery shows, which has no message box).
 
-**Right panel**: the active assistant (with capability badges), live message/token counters, and the thread's Assets index.
+**Right panel**: the active assistant (with capability badges) and the thread's Assets index.
 
 Both split bars are draggable and remember their width; double-click resets them.
 
@@ -258,7 +258,7 @@ Click the compare icon next to the model picker, choose a second model, and send
 
 ### Long chats <a id="long-chats"></a>
 
-The bar above the chat shows how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own.
+The bar above the chat shows, as **Context**, how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own.
 
 When a chat reaches **80%** of the window (`Shorten At`), the start of it is replaced, for the next request, by a short **summary** the model writes (`Shorten Long Chats`, on by default). The newest messages are kept as they are. You can also type **`/compact`** in the composer to do it now, and add what the summary should dwell on (`/compact keep the file names`). A marker row in the chat shows where the summary ends and opens to show its text.
 
@@ -270,7 +270,7 @@ When a chat reaches **80%** of the window (`Shorten At`), the start of it is rep
 
 ### Usage and cost <a id="usage-and-cost"></a>
 
-Under each reply is its token count, and its cost once you have given that model a price. The bar above the chat shows the same for the whole chat (every branch and compare lane, since each one was billed). Click either figure for the details: input, cached and output tokens, the price used, and the totals for **this session** (since the browser tab first opened the page), **today** and **this week** (from Monday, in your browser's time zone, or in UTC when the server does not know that zone). A server that sends a running total with every streamed event is counted once, by its last report. `Show Token Count` in `Settings > General` hides the figures.
+Under each reply is its token count (**Reply**), and its cost once you have given that model a price. The bar above the chat shows the same for the whole chat (**Chat total**: every branch and compare lane, since each one was billed). Click either figure for the details: input, cached and output tokens, the price used, and the totals for **this session** (since the browser tab first opened the page), **today** and **this week** (from Monday, in your browser's time zone, or in UTC when the server does not know that zone). A server that sends a running total with every streamed event is counted once, by its last report. `Show Token Count` in `Settings > General` hides the figures.
 
 - **Prices are yours to enter**, in `Settings > Usage`: input, output and cached input **per million tokens** for each model id, plus a currency label. No price table ships with the extension. The model id must match the model list exactly, and the table does not tell two backends offering the same id apart. A cached price left empty charges cached input as ordinary input. Premiums some providers charge for *writing* a cache, per-request fees and tiered prices are not modelled, so treat a cost as a close guide rather than your bill.
 - **A model with no price shows tokens only.** A chat or period that mixes priced and unpriced replies shows the cost of the priced ones and says so.
@@ -301,7 +301,7 @@ Under each message (shown on hover, on keyboard focus, and always on a touch scr
 | **Copy** | any message | Copies plain text. A reply's Markdown marks and its reasoning are left out; math stays as written. | none (changes nothing) |
 | **Copy as Markdown** | replies | Copies the reply's Markdown source, without the reasoning. | none (`LLMAssistantGetThread` returns each message's `content`) |
 | **Regenerate** | replies | Asks again. The new reply is a sibling of the old one, which stays. | `LLMAssistantRegenerateWS` with the reply's id |
-| **Retry** | under a last message of yours that has no reply | Asks for a reply to it: after a request that failed or was stopped before any text (neither saves a reply). **Regenerate** on such a failed reply does the same. | `LLMAssistantRegenerateWS` with the user message's id |
+| **Retry** | under a last message of yours that has no reply | Asks for a reply to it: after a request that failed or was stopped before any text (neither saves a reply). After a reload the row also says what failed, as this browser saw it, else that the message has no reply. A failed or stopped reply directly under that message offers no **Regenerate** of its own beside it; once another message follows, it does again. | `LLMAssistantRegenerateWS` with the user message's id |
 | **Edit** | your messages | **Save & resend** (`Ctrl/Cmd+Enter`) sends the new wording as a sibling branch. The messages after the old one leave the view and are kept on its branch. **Cancel** or `Esc` changes nothing. | `LLMAssistantEditMessageWS` (`LLMAssistantEditMessage` rewrites the text in place and sends nothing) |
 | **Branch from here** | any message | Shows the chat up to this message; your next message starts a new branch there. **Show later messages**, under it, goes back. | `LLMAssistantSetActiveLeaf` |
 | **Delete** | any message | Removes the message **and every message under it, on every branch**. It asks first when that is more than the one message. | `LLMAssistantDeleteMessage` |
@@ -437,7 +437,7 @@ The **code tools** let the assistant work on files the way a coding assistant do
 - **shows a plan card** after a reply made in **Plan** mode: *Accept plan* switches the chat to Ask and tells the assistant to carry the plan out; *Keep planning* dismisses it;
 - **shows edits as diffs** in the transcript (`code_edit` results), and a failed code tool has no *Retry* (a standalone retry would run outside the chat's workspace).
 
-The chat list gets an **All / Chats / Code** filter (for users who can use code mode), and a coding session carries a *code* badge. The mode is saved on the chat, so reopening it brings the panel back; a mode chosen before the first message applies to the chat that message creates.
+A coding session carries a *code* badge in the chat list. The mode is saved on the chat, so reopening it brings the panel back; a mode chosen before the first message applies to the chat that message creates.
 
 **Changes tab.** Every file the assistant changed with `code_write` or `code_edit` is listed with a *new*, *edited* or *deleted* badge and its added and removed line counts, and opens as a diff. The first time a chat's tools change a file, its earlier content is saved aside (up to 5 MB per file, 100 MB and 300 files per chat; a bigger file is still changed but cannot be reverted, and says so). What the tab shows is that saved original compared with the file as it is now, so ten edits to one file are one change, and a file edited back to how it was is no change. **Revert** puts one file back (a file the assistant created is deleted); **Revert all** does every one. A file that changed *after* the assistant last wrote it (you edited it, or a command did) is not overwritten without asking. The saved originals live under `Output/<user>/llm_assistant/changes/<chat id>/` and are removed with the chat. Changing the chat's workspace starts the list over. **Not tracked:** anything a `code_bash` command changes, and edits made outside the chat.
 
@@ -1174,7 +1174,7 @@ they were sent with.
 |---|---|---|
 | `LLMAssistantGetSettings` | none | `{success, settings, canWriteShared}` |
 | `LLMAssistantSaveSettings` | `settings` (object or JSON string), `scope?` | `{success, settings, scope}` |
-| `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}`. A reset keeps what is about memory: your own `memoryExtraction`, `memoryPause` and `memoryRetention` (personal reset), and an admin's `memoryAdmin` switch (shared reset), so it never starts saving again or switches the extractor back on for everyone |
+| `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}`. A reset keeps what is about memory: your own `memoryExtraction`, `memoryPause` and `memoryRetention` (personal reset), and an admin's `memoryAdmin` switch (shared reset), so it never starts saving again or switches the extractor back on for everyone. A shared reset also keeps the allowed workspace folders |
 | `LLMAssistantGetAuditLog` | `max?` (default 200, cap 5000) | `{success, enabled, entries[]}`, admin only |
 | `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
 | `LLMAssistantGetModels` | none | `{success, models[], warnings[]}`; providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |

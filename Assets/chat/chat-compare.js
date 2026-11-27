@@ -74,12 +74,12 @@
     function llmaLaneHeadHtml(model, device, lane) {
         const name = llmaModelName(model);
         const dev = device || llmaGetModelDevice(model) || 'cloud';
-        const full = dev && dev !== 'cloud' ? `${name} · ${dev}` : name;
+        let full = dev && dev != 'cloud' ? `${name} · ${llmaDeviceLabel(dev)}` : name;
         const nameEl = `<span class="llma-compare-model" title="${llmaEscapeHtml(full)}">${llmaEscapeHtml(name)}</span>`;
         const opts = llmaModelDeviceOptions(model);
         // A single option (or lane index unknown) → read-only badge; nothing to switch between.
         if (opts.length < 2 || typeof lane !== 'number') {
-            return `${nameEl}<span class="llma-compare-device" title="${llmaEscapeHtml(translate('Runs on'))} ${llmaEscapeHtml(dev)}">${llmaEscapeHtml(dev)}</span>`;
+            return `${nameEl}<span class="llma-compare-device" title="${llmaEscapeHtml(translate('Runs on'))} ${llmaEscapeHtml(dev)}">${llmaEscapeHtml(llmaDeviceLabel(dev))}</span>`;
         }
         // Preselect: the lane's saved override if valid, else the device this column used.
         const pref = LLMAState.laneBackends ? LLMAState.laneBackends[lane] : null;
@@ -89,7 +89,7 @@
         const optHtml = opts.map(o => {
             const val = `${o.backendId}|${o.device}`;
             const isSel = o.backendId === sel.backendId && o.device === sel.device;
-            return `<option value="${llmaEscapeHtml(val)}"${isSel ? ' selected' : ''}>${llmaEscapeHtml(o.device)}</option>`;
+            return `<option value="${llmaEscapeHtml(val)}"${isSel ? ' selected' : ''}>${llmaEscapeHtml(llmaDeviceLabel(o.device))}</option>`;
         }).join('');
         return `${nameEl}` +
             `<select class="llma-compare-device-sel" data-lane="${lane}" title="${llmaEscapeHtml(translate('Run this lane on a specific GPU / device (applies to the next message). Put the two lanes on different devices to generate at the same time.'))}">${optHtml}</select>`;
@@ -124,7 +124,7 @@
         const b = llmaLaneDeviceInfo(1, LLMAState.compareModelB);
         if (a && b && a.device === b.device && a.device !== 'cloud' && a.backendId === b.backendId) {
             if (typeof llmaShowToast === 'function') {
-                llmaShowToast(`${translate('Both lanes are on')} ${a.device}: ${translate("they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.")}`, 'info');
+                llmaShowToast(`${translate('Both lanes are on')} ${llmaDeviceLabel(a.device)}: ${translate("they'll run one after another. Put one on a different device (e.g. cpu) to generate at the same time.")}`, 'info');
             }
         }
     }
@@ -203,7 +203,10 @@
         if (typeof llmaUpdateModelChip == 'function') llmaUpdateModelChip();
         const toggle = document.getElementById('llma-compare-toggle');
         const wrap   = document.getElementById('llma-model-select-b-wrap');
-        if (toggle) toggle.classList.toggle('active', LLMAState.compareMode);
+        // aria-pressed carries the look too: closing any popover takes `active` off every icon button.
+        if (toggle) {
+            toggle.setAttribute('aria-pressed', LLMAState.compareMode);
+        }
         if (wrap)   wrap.style.display = LLMAState.compareMode ? '' : 'none';
         const container = document.getElementById('llma-container');
         if (container) container.classList.toggle('llma-compare-on', LLMAState.compareMode);
@@ -215,8 +218,7 @@
         }
     }
 
-    /** Fill the lane-B select from the loaded model list (grouped by provider, device in the label).
-     *  Also stamps device sublabels onto lane A's options so both pills read "model · device". */
+    /** Fill the lane-B select from the loaded model list, grouped by provider, with the same labels as lane A's. */
     function llmaPopulateCompareSelect() {
         const models = LLMAState.availableModels || [];
         const selB = document.getElementById('llma-model-select-b');
@@ -226,16 +228,10 @@
             const prov = m.provider || 'unknown';
             (byProvider[prov] = byProvider[prov] || []).push(m);
         }
-        const optionFor = (m) => {
-            const dev = (m.metadata && m.metadata.device) ? m.metadata.device : '';
-            const base = llmaEscapeHtml(m.name || m.id);
-            const label = dev ? `${base} · ${dev}` : base;
-            return `<option value="${llmaEscapeHtml(m.id)}" data-device="${llmaEscapeHtml(dev || 'cloud')}">${label}</option>`;
-        };
         const provKeys = Object.keys(byProvider);
         const html = provKeys.length === 1
-            ? models.map(optionFor).join('')
-            : provKeys.map(p => `<optgroup label="${llmaEscapeHtml(p)}">${byProvider[p].map(optionFor).join('')}</optgroup>`).join('');
+            ? models.map(llmaModelOptionHtml).join('')
+            : provKeys.map(p => `<optgroup label="${llmaEscapeHtml(p)}">${byProvider[p].map(llmaModelOptionHtml).join('')}</optgroup>`).join('');
         selB.innerHTML = html;
         // Default lane B to a DIFFERENT model than lane A when possible (comparison is pointless otherwise).
         let target = LLMAState.compareModelB;
@@ -298,6 +294,10 @@
 
         // One controller per lane handles its own column's incremental render.
         const ctls = lanes.map(L => llmaMakeLaneController(L, startTime));
+        for (let i = 0; i < lanes.length; i++) {
+            lanes[i].renderer = ctls[i].renderer;
+            lanes[i].isDone = ctls[i].isDone;
+        }
 
         let finalized = false;
         const finalizeGroup = () => {
@@ -314,7 +314,6 @@
             if (typeof llmaRebuildAssetsForThread === 'function') llmaRebuildAssetsForThread();
             if (typeof llmaSaveActiveThread === 'function') llmaSaveActiveThread();
             if (typeof llmaUpdateContextBar === 'function') llmaUpdateContextBar();
-            if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
             if (typeof llmaRefreshExactTotalTokens === 'function') llmaRefreshExactTotalTokens();
         };
 
@@ -374,6 +373,7 @@
         const renderer = llmaMakeStreamRenderer(() => bubble);
 
         return {
+            renderer,
             isDone: () => done,
             status(data) {
                 if (data.status === 'loading_model') llmaShowLoadStatusInBubble(bubble, `Loading model ${data.model || ''}…`);
@@ -416,6 +416,7 @@
                 const cleanFull = (typeof llmaStripToolTags === 'function') ? llmaStripToolTags(fullRaw) : fullRaw;
                 L.node.content = cleanFull;
                 L.node.rawContent = fullRaw;
+                llmaActions.noteFailure(L.node.parentId, null);
                 L.node.meta = Object.assign({}, L.node.meta, { genTime: elapsed, model: L.model, device: L.device });
                 if (data.usage) L.node.meta.usage = data.usage;
                 if (data.truncated) L.node.meta.truncated = true;
@@ -433,7 +434,7 @@
                 if (data.failure && typeof llmaAppendErrorToBubble === 'function') llmaAppendErrorToBubble(bubble, data.failure);
                 const metaEl = L.col && L.col.querySelector('.llma-msg-meta');
                 if (metaEl) {
-                    const devLabel = (L.device && L.device !== 'cloud') ? `${L.device} · ` : '';
+                    let devLabel = (L.device && L.device != 'cloud') ? `${llmaDeviceLabel(L.device)} · ` : '';
                     metaEl.textContent = `${devLabel}${elapsed}s${data.truncated ? ' · ' + translate('truncated') : ''}${data.stopReason === 'length' ? ' · ' + translate('cut off (max tokens)') : ''}`;
                     metaEl.classList.toggle('llma-msg-meta-truncated', data.stopReason === 'length');
                 }
@@ -454,6 +455,7 @@
                 }
                 else {
                     llmaActions.markUnsaved(L.node);
+                    llmaActions.noteFailure(L.node.parentId, err);
                 }
                 llmaA11y.announceFailure(err);
             },
@@ -465,9 +467,20 @@
     function llmaCompareHandleStop() {
         const lanes = LLMAState._streamingLanes;
         if (!lanes || !lanes.length) return false;
-        for (const L of lanes) {
+        // A lane that failed with nothing saved has its reason kept for the message both were asked: stopping the other leaves it.
+        let failed = lanes.some(L => L.isDone() && L.node.unsaved);
+        for (let L of lanes) {
+            // A lane that finished or failed keeps what it drew (asset cards and diagrams included).
+            if (L.isDone()) {
+                continue;
+            }
+            L.renderer?.flushRender();
             if (L.node && L.bubble) {
                 L.bubble.querySelector('.llma-typing')?.remove();
+                llmaSettleToolCalls(L.bubble, L.node);
+                if (!failed) {
+                    llmaActions.noteFailure(L.node.parentId, null);
+                }
             }
             // A lane stopped before anything arrived saved no reply.
             if (L.node && !L.node.content && !(L.node.toolCalls || []).length) {
@@ -593,7 +606,7 @@
         for (const node of sibs) {
             const model = (node.meta && node.meta.model) || '';
             const dev = (node.meta && node.meta.device) || '';
-            const label = dev && dev !== 'cloud' ? `${llmaModelName(model)} · ${dev}` : llmaModelName(model);
+            let label = dev && dev != 'cloud' ? `${llmaModelName(model)} · ${llmaDeviceLabel(dev)}` : llmaModelName(model);
             const col = document.createElement('div');
             col.className = 'llma-compare-col';
             col.dataset.msgId = node.id;
@@ -613,8 +626,8 @@
             if (typeof llmaPostRenderMermaid === 'function') llmaPostRenderMermaid(bubble);
             // A lane that failed keeps its text, with the error under it, as it showed while streaming.
             if (node.meta && node.meta.error && typeof llmaErrorBlockHtml === 'function') bubble.insertAdjacentHTML('afterend', llmaErrorBlockHtml(node.meta.error));
-            if (Array.isArray(node.toolCalls) && node.toolCalls.length && typeof llmaReplayToolCalls === 'function') {
-                llmaReplayToolCalls(bubble, node.toolCalls);
+            if (Array.isArray(node.toolCalls) && node.toolCalls.length && typeof llmaReplayReply == 'function') {
+                llmaReplayReply(bubble, node);
             }
             const metaEl = col.querySelector('.llma-msg-meta');
             if (metaEl) {

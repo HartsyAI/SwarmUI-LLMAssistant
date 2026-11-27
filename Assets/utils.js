@@ -201,8 +201,8 @@ async function llmaLoadVendoredLibs() {
 /**
  * Incrementally filters `openTag...closeTag` spans (including a still-open, unclosed span) out of a
  * streamed text feed WITHOUT ever re-scanning previously-processed text; only a small tail (shorter than
- * either tag) is carried across `feed()` calls to catch a tag split across a chunk boundary. Mirrors the
- * tail-window scan, applied bidirectionally (open AND close).
+ * either tag) is carried across `feed()` calls to catch a tag split across a chunk boundary. Outside a span
+ * the tail is only what could be the start of the opening tag; `finalText()` gives it back when the text ends.
  * Replaces the old per-tick `streamingText.replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '')`, which
  * re-scanned the entire accumulated message on every render.
  */
@@ -216,9 +216,12 @@ function llmaMakeHiddenSpanFilter(openTag, closeTag) {
             if (!hidden) {
                 const idx = buf.indexOf(openTag);
                 if (idx === -1) {
-                    const safeLen = Math.max(0, buf.length - (openTag.length - 1));
-                    visible += buf.slice(0, safeLen);
-                    buf = buf.slice(safeLen);
+                    let held = Math.min(buf.length, openTag.length - 1);
+                    while (held > 0 && !openTag.startsWith(buf.slice(buf.length - held))) {
+                        held--;
+                    }
+                    visible += buf.slice(0, buf.length - held);
+                    buf = buf.slice(buf.length - held);
                     return;
                 }
                 visible += buf.slice(0, idx);
@@ -238,7 +241,7 @@ function llmaMakeHiddenSpanFilter(openTag, closeTag) {
             }
         }
     }
-    return { feed, visibleText: () => visible };
+    return { feed, visibleText: () => visible, finalText: () => visible + (hidden ? '' : buf) };
 }
 
 /**
@@ -266,10 +269,12 @@ function llmaMakeStreamRenderer(getBubble) {
         }
         return textContainer;
     };
-    const renderNow = () => {
+    // ended: nothing more comes for this segment, so all of it is drawn and no reasoning block in it is still "thinking".
+    let renderNow = (ended = false) => {
         const tc = ensureTextContainer();
         if (!tc) return;
-        llmaSetRenderedHtml(tc, llmaRenderMarkdown(filter.visibleText().trim(), { streaming: true }));
+        let text = ended ? filter.finalText() : filter.visibleText();
+        llmaSetRenderedHtml(tc, llmaRenderMarkdown(text.trim(), { streaming: !ended }));
         lastRender = performance.now();
     };
     // Scales up (capped) as the segment grows; re-render cost (markdown parse + sanitize) grows with
@@ -284,10 +289,10 @@ function llmaMakeStreamRenderer(getBubble) {
     return {
         appendChunk(text) { rawText += text; filter.feed(text); schedule(); },
         // Draws the segment that is ending first, so a chunk still waiting for its render is not dropped.
-        breakSegment() { if (rawText) renderNow(); clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
+        breakSegment() { if (rawText) renderNow(true); clearPendingRender(); textContainer = null; rawText = ''; filter = llmaMakeHiddenSpanFilter(openTag, closeTag); },
         cancelPendingRender: clearPendingRender,
-        // Renders all the text received so far now, so a failing stream shows what it already has.
-        flushRender() { clearPendingRender(); if (rawText) renderNow(); },
+        // Renders all the text received now, so a stream that failed or was stopped shows what it already has.
+        flushRender() { clearPendingRender(); if (rawText) renderNow(true); },
         ensureTextContainer,
         getRawText: () => rawText,
     };
@@ -548,6 +553,46 @@ function llmaGenerateId() {
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+// -- Model labels --
+/**
+ * A short, consistent label for a backend's device or placement text: "cuda:0" and "GPU cuda" both read "GPU 0". A device reached through
+ * another API says which ("Vulkan GPU 0", "Metal GPU"), so it is not taken for the CUDA device of the same number. Text naming no device
+ * we know is kept.
+ * @param {string} device - A device key ("cuda:0", "vulkan:1", "cpu", "cloud") or the engine's placement ("GPU cuda", "Split cuda:0 + cuda:1", "Offload on cuda").
+ * @returns {string} The label.
+ */
+function llmaDeviceLabel(device) {
+    let text = (device || '').trim();
+    // The numbers named for each API, in the order the APIs appear. A CUDA key with no number is the first card; another API's stays bare.
+    let apis = new Map();
+    for (let found of text.matchAll(/\b(cuda|vulkan|metal)(?::(\d+(?:\+\d+)*))?/gi)) {
+        let api = found[1].toLowerCase();
+        let number = found[2] || (api == 'cuda' ? '0' : '');
+        apis.set(api, [...(apis.get(api) || []), ...(number ? [number] : [])]);
+    }
+    if (apis.size == 0) {
+        return text.toLowerCase() == 'cpu' ? 'CPU' : text;
+    }
+    let label = Array.from(apis, ([api, numbers]) => {
+        let name = api == 'cuda' ? 'GPU' : `${api.charAt(0).toUpperCase()}${api.slice(1)} GPU`;
+        return numbers.length > 0 ? `${name} ${numbers.join('+')}` : name;
+    }).join(' + ');
+    return /offload/i.test(text) ? `${label} ${translate('offload')}` : label;
+}
+
+/**
+ * One option of a model select: the model's name and, once the engine holds it, where it was placed. The full placement and its reason are the tooltip.
+ * @param {object} model - A model as the model list gives it.
+ * @returns {string} The option's HTML.
+ */
+function llmaModelOptionHtml(model) {
+    let placed = model.metadata?.placement || '';
+    let label = llmaEscapeHtml(model.name || model.id) + (placed ? ` · ${llmaEscapeHtml(llmaDeviceLabel(placed))}` : '');
+    let why = [placed, model.metadata?.placement_reason].filter(part => part).join(': ');
+    let title = why ? ` title="${llmaEscapeHtml(why)}"` : '';
+    return `<option value="${llmaEscapeHtml(model.id)}"${title}>${label}</option>`;
+}
+
 // -- Vision capability inference --
 // Best-effort, fail-open: returns true ONLY when the model is confidently vision-capable.
 // Unknown models return null so the UI can keep the paperclip enabled (no regression for
@@ -596,11 +641,30 @@ function llmaShortError(err) {
     try { return String(err); } catch { return null; }
 }
 
+/**
+ * What kind of memory a failure says ran short. Only the words backends use for running out count: a message that merely names a GPU
+ * ("cuda:0") or holds "oom" inside another word is not a memory failure.
+ * @param {string} low - The failure's message, lower-cased.
+ * @returns {?string} 'ram' (system memory), 'vram' (graphics memory), 'other' (it does not say which), or null.
+ */
+function llmaMemoryErrorKind(low) {
+    let ranShort = /\bout of (?:\w+ )?memory\b|\bout of vram\b|outof(?:device|host)?memory|out_of_(?:\w+_)?memory|\boom\b|\bbad_alloc\b|\bcannot allocate memory\b|\ballocation failed\b|\bno placement fits\b/.test(low)
+        || /\b(?:not enough|insufficient)\b[^.]{0,40}\b(?:memory|ram|vram)\b/.test(low)
+        || /\b(?:failed|unable) to allocate\b.{0,60}?(?:memory|buffer|tensor|vram|\bram\b|\b[kmg]i?b\b|\bbytes\b)/.test(low);
+    if (!ranShort) {
+        return null;
+    }
+    if (/\b(?:host|system|cpu) (?:ram|memory)\b|out_of_host_memory|outofhostmemory|\bbad_alloc\b|system\.outofmemoryexception|\bcannot allocate memory\b/.test(low)) {
+        return 'ram';
+    }
+    return /vram|cuda|cublas|vulkan|\bgpu\b|video memory|device[ _]memory|outofdevicememory|\bno placement fits\b/.test(low) ? 'vram' : 'other';
+}
+
 // Maps a raw error (server string, WS transport event, or thrown exception) to a friendly
 // { title, hint, detail } triple. The goal: never show a bare opaque "WebSocket error" again,
 // recognized failures get a plain-language title plus an actionable hint, while unrecognized ones
 // surface the raw text as the title (so we never hide real detail). `detail` is the raw string,
-// kept for a hover tooltip / console.
+// kept for a hover tooltip / console; `showDetail` also writes it in the error block.
 function llmaHumanizeError(raw) {
     const text = (llmaShortError(raw) || '').toString().trim();
     const low  = text.toLowerCase();
@@ -616,9 +680,21 @@ function llmaHumanizeError(raw) {
         return make('Couldn’t reach the LLM backend',
             'The connection dropped before a reply came back. Make sure SwarmUI and at least one LLM backend are running (Server > Backends), then try again.');
     }
+    // Before the checks that look for numbers such as 401 or 429, which a message full of memory sizes can hold.
+    let memory = llmaMemoryErrorKind(low);
+    if (memory) {
+        let found = memory == 'ram'
+            ? make('Not enough system memory (RAM)', 'Close other programs or unload other models to free system RAM, or pick a smaller model, then retry.')
+            : memory == 'vram'
+                ? make('The GPU ran out of memory (VRAM)', 'Try a smaller model, lower Max Tokens / Context in the parameters popover, or free up VRAM, then retry.')
+                : make('The model ran out of memory', 'Try a smaller model, or lower Max Tokens / Context in the parameters popover, then retry.');
+        // The backend says how much is missing and where: that stays on screen.
+        found.showDetail = true;
+        return found;
+    }
     if (low.includes('no model') || low.includes('model not found') || low.includes('no such model') || low.includes('unknown model') || low.includes('model is required') || low.includes('no provider')) {
         return make('No usable model',
-            'Pick a model from the dropdown at the top of the chat. If the list is empty, start an LLM backend under Server > Backends and click the refresh icon.');
+            'Pick a model in the chat\'s model list. If the list is empty, start an LLM backend under Server > Backends and click the refresh icon.');
     }
     if (low.includes('no llm backend') || low.includes('no backend') || low.includes('backend is running') || low.includes('not running') || low.includes('no running')) {
         return make('No LLM backend is running',
@@ -631,10 +707,6 @@ function llmaHumanizeError(raw) {
     if (low.includes('permission') || low.includes('not allowed') || low.includes('forbidden') || low.includes('403')) {
         return make('You don’t have permission for this',
             'Ask an admin to grant the relevant llm_* permission for your account.');
-    }
-    if (low.includes('out of memory') || low.includes('oom') || low.includes('cuda') || low.includes('vram') || low.includes('cublas') || low.includes('allocat')) {
-        return make('The model ran out of memory',
-            'Try a smaller model, lower Max Tokens / Context in the parameters popover, or free up VRAM, then retry.');
     }
     if (low.includes('timeout') || low.includes('timed out')) {
         return make('The request timed out',

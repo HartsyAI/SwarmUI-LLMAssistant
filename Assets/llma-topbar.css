@@ -92,25 +92,22 @@
     gap: 6px;
     flex-shrink: 0;
 }
-/* Compact model-menu trigger: hidden by default (wide bar shows the inline selects). */
-.llma-model-menu-btn { display: none; }
-
-/* ── Responsive: collapse the model selects into a popover when the top bar is narrow ──────────
-   The two 240px pills + VS toggle can't fit next to the centered title on a narrow bar. A ResizeObserver
-   (llmaSetupModelMenu) adds .llma-bar-compact to the top bar below a width threshold; the inline row then
-   becomes a right-anchored popover opened by the model-menu button. Class-based (not a container query) so
-   the top bar doesn't become a stacking context, which would trap the other top-bar popovers. */
-.llma-bar-compact .llma-model-menu-btn { display: inline-flex; }
-.llma-bar-compact .llma-model-anchor .llma-model-select-wrap {
+/* ── One model picker for each width ──────────────────────────────────────────
+   While the top bar is wide enough it holds the selects, and the composer's model chip is hidden. Below that a ResizeObserver
+   (llmaSetupModelMenu) adds .llma-model-compact to the container, which shows the chip, and moves the same selects into its popover.
+   Class-based (not a container query) so the top bar doesn't become a stacking context, which would trap its other popovers. */
+.llma-chip-anchor { display: none; }
+.llma-model-compact .llma-chip-anchor { display: block; }
+.llma-chip-anchor .llma-model-select-wrap {
     display: none;
     position: absolute;
-    top: calc(100% + 6px);
+    bottom: calc(100% + 6px);
     right: 0;
     z-index: 200;
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
-    width: 280px;
+    width: min(280px, calc(100vw - 100px));
     padding: 10px;
     background: var(--background-soft);
     border: 1px solid var(--border-color);
@@ -118,16 +115,30 @@
     box-shadow: 0 8px 28px color-mix(in srgb, var(--black) 40%, transparent);
     animation: llma-popover-in 0.14s ease;
 }
-.llma-bar-compact .llma-model-anchor.llma-model-open .llma-model-select-wrap { display: flex; }
+.llma-chip-anchor.llma-model-open .llma-model-select-wrap { display: flex; }
 /* Full-width controls inside the popover (override the fixed 240px pill + select2 width). */
-.llma-bar-compact .llma-model-anchor .llma-model-select,
-.llma-bar-compact .llma-model-anchor .llma-model-select-b-wrap,
-.llma-bar-compact .llma-model-anchor .llma-model-select-b-wrap .llma-model-select { width: 100%; }
-.llma-topbar.llma-bar-compact .llma-model-anchor .select2-container { width: 100% !important; }
-/* VS toggle + refresh + unload become full-width rows so the stacked layout reads cleanly. */
-.llma-bar-compact .llma-model-anchor .llma-compare-toggle,
-.llma-bar-compact .llma-model-anchor .llma-model-refresh,
-.llma-bar-compact .llma-model-anchor .llma-model-unload { width: 100%; border: 1px solid var(--light-border); }
+.llma-chip-anchor .llma-model-select-wrap .llma-model-select,
+.llma-chip-anchor .llma-model-select-wrap .llma-model-select-b-wrap { width: 100%; max-width: none; }
+.llma-chip-anchor .llma-model-select-wrap .select2-container { width: 100% !important; }
+/* VS toggle + refresh + unload become full-width rows, each saying what it does. In the top bar, with its room, the icons stand alone. */
+.llma-model-btn-label { display: none; }
+.llma-chip-anchor .llma-model-btn-label { display: inline; font-size: 13px; }
+.llma-chip-anchor .llma-model-select-wrap .llma-icon-btn { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; border: 1px solid var(--light-border); border-radius: 8px; }
+/* While no chat shows, the chip stands in the top bar (llmaPlaceModelPicker): its list opens downwards, across the bar's own width. */
+.llma-model-compact .llma-topbar { position: relative; }
+.llma-model-compact .llma-topbar .llma-model-anchor,
+.llma-model-compact .llma-topbar .llma-chip-anchor { position: static; }
+.llma-topbar .llma-chip-anchor .llma-model-select-wrap { top: calc(100% + 4px); bottom: auto; right: 8px; }
+.llma-chip-anchor .llma-model-select-wrap .llma-compare-toggle[aria-pressed="true"] { border-color: var(--emphasis); }
+/* With the bar's room to spare they keep their size; when it runs short (two models beside the title) the selects give way, not the title. */
+.llma-topbar:not(.llma-bar-compact) .llma-topbar-right,
+.llma-topbar:not(.llma-bar-compact) .llma-model-anchor,
+.llma-topbar:not(.llma-bar-compact) .llma-model-select-wrap { flex-shrink: 1; min-width: 0; }
+.llma-topbar:not(.llma-bar-compact) .llma-model-select-wrap .select2-container,
+.llma-topbar:not(.llma-bar-compact) .llma-model-select-b-wrap { flex: 0 1 240px; min-width: 90px; }
+.llma-topbar:not(.llma-bar-compact) .llma-model-select-b-wrap .select2-container { flex: 1 1 auto; }
+.llma-topbar:not(.llma-bar-compact) .llma-topbar-left { min-width: 240px; }
+.llma-topbar:not(.llma-bar-compact) .llma-thread-title { min-width: 130px; }
 
 /* Refresh-model-list button next to the dropdown. Spins while a refresh is in flight so the
    user gets feedback during a multi-second scan of a populated Models/ folder. */
@@ -158,11 +169,14 @@
 }
 .llma-model-select:hover { border-color: var(--border-color); }
 .llma-model-select:focus { border-color: var(--emphasis); }
-/* Compare ("VS") toggle — sits to the left of the model pill(s) by default; lights up when
-   side-by-side mode is on. */
-.llma-compare-toggle.active {
-    color: var(--emphasis);
-    background: color-mix(in srgb, var(--emphasis) 16%, transparent);
+/* Compare ("VS") toggle — sits to the left of the model pill(s) by default; filled like a selected segment when side-by-side mode is on
+   (the accent as the icon's colour read as switched off on a light theme). */
+.llma-compare-toggle[aria-pressed="true"],
+.llma-compare-toggle[aria-pressed="true"]:hover {
+    opacity: 1;
+    color: var(--text-strong);
+    border-color: var(--emphasis);
+    background: var(--llma-accent-fill);
 }
 /* When compare mode is active, the toggle slides BETWEEN the two model pills so it reads as
    "model A vs model B". Uses flex order so no DOM reshuffle is needed (see chat-compare.js). */
@@ -170,6 +184,7 @@
 .llma-compare-on .llma-model-select-wrap .llma-model-select    { order: 1; }
 .llma-compare-on .llma-model-select-wrap .llma-model-select-b-wrap { order: 3; }
 .llma-compare-on .llma-model-select-wrap .llma-model-refresh   { order: 4; }
+.llma-compare-on .llma-model-select-wrap .llma-model-unload    { order: 5; }
 /* Segmented controls (Bootstrap btn-group + btn-check, the markup core uses) in the theme's colours. Bootstrap sets its blue on each
    .btn-outline-primary itself, so the button variables are overridden on the buttons, not inherited from the group. */
 .llma-segmented .btn {
@@ -193,8 +208,8 @@
 /* Searchable select2 model pickers — size them to the enlarged header and our fixed pill width, and
    theme with SwarmUI vars so they match the rest of the dark UI. select2 replaces the native <select>
    with its own container; the dropdown panel itself is appended to <body> and keeps the theme's styling. */
-.llma-topbar .select2-container { width: 240px !important; vertical-align: middle; }
-.llma-topbar .select2-container--bootstrap-5 .select2-selection {
+.llma-model-select-wrap .select2-container { width: 240px !important; vertical-align: middle; }
+.llma-model-select-wrap .select2-container--bootstrap-5 .select2-selection {
     min-height: 38px;
     display: flex;
     align-items: center;
@@ -203,11 +218,11 @@
     border-color: var(--light-border) !important;
     background: var(--background-soft) !important;   /* SOLID */
 }
-.llma-topbar .select2-container--bootstrap-5 .select2-selection__rendered { color: var(--text) !important; }
+.llma-model-select-wrap .select2-container--bootstrap-5 .select2-selection__rendered { color: var(--text) !important; }
 /* Themed dropdown caret + placeholder so the closed pill matches the dark UI. */
-.llma-topbar .select2-container--bootstrap-5 .select2-selection__arrow b { border-color: var(--text-soft) transparent transparent transparent !important; }
-.llma-topbar .select2-container--bootstrap-5 .select2-selection__placeholder { color: var(--text-soft) !important; }
-/* The open dropdown panel is appended to <body>, outside .llma-topbar — theme it via the tagged class
+.llma-model-select-wrap .select2-container--bootstrap-5 .select2-selection__arrow b { border-color: var(--text-soft) transparent transparent transparent !important; }
+.llma-model-select-wrap .select2-container--bootstrap-5 .select2-selection__placeholder { color: var(--text-soft) !important; }
+/* The open dropdown panel is appended to <body>, outside .llma-model-select-wrap — theme it via the tagged class
    (dropdownCssClass) so the list, search box, and options use SwarmUI's dark theme vars, not select2's
    default light styling. !important is required: the bootstrap-5 select2 theme uses selectors of equal
    specificity and loads after this file, so plain rules lose (that's why the search box stayed white). */
@@ -257,6 +272,7 @@
 }
 /* One-shot attention pulse — used when the user tries to send without a model selected. */
 .llma-model-select.llma-flash,
+.llma-model-select-wrap .select2-container.llma-flash .select2-selection,
 .llma-model-chip.llma-flash {
     animation: llma-flash-pulse 1.1s ease;
 }
@@ -328,6 +344,7 @@
 /* ── Context Bar ────────────────────────────────────────────── */
 .llma-context-bar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     padding: 4px 14px;

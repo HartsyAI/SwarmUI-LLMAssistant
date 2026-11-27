@@ -48,10 +48,6 @@
 .llma-diff .llma-diff-del { color: var(--bs-danger, #d4533b); }
 .llma-diff .llma-diff-hunk { color: var(--text-soft); }
 
-.llma-thread-mode-filter {
-    margin: 0 0.5rem 0.4rem;
-}
-
 /* The four tabs sit on one line and are the size of the rest of the panel, not of a page-level tab strip; a panel narrower than they are scrolls. */
 .llma-code-tabs {
     flex-wrap: nowrap;
