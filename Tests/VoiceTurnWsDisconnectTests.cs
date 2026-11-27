@@ -30,7 +30,12 @@ namespace Hartsy.Extensions.LLMAssistant.Tests;
 /// cancellation token promptly; (c) the same abort, while something is actively awaiting that exact token
 /// (standing in for a long-running tool handler: the route hands <c>turnCancel.Token</c> to <c>ToolTurnRunner</c>,
 /// which forwards it into every dispatched tool call; see that test's own comment), also observes cancellation.
-/// All three run in well under the 10-second budget; see each test's own timing notes.</para></summary>
+/// All three run in well under the 10-second budget; see each test's own timing notes.</para>
+///
+/// <para>Runs beside no other test class: the cancellation arrives through the thread pool, and test classes running in parallel keep every pool thread busy, so a wall-clock budget
+/// would measure how long they hold those threads rather than how promptly the watcher cancels.</para></summary>
+[CollectionDefinition(nameof(VoiceTurnWsDisconnectTests), DisableParallelization = true)]
+[Collection(nameof(VoiceTurnWsDisconnectTests))]
 public class VoiceTurnWsDisconnectTests : IDisposable
 {
     /// <summary>Accepts the TCP connections the socket pairs run over.</summary>
