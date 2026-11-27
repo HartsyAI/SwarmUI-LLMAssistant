@@ -1,6 +1,6 @@
 import { test as base, expect, send, lastAssistant, setScenarios, mockRequests, api, clearKnowledge, clearMemory, resetKnowledgeTool, useDocumentCaps, reopen, turn, toolResults, BUILTINS, useEmbeddingModel, enableSessionTools, resetSessionTools } from './fixtures';
 import type { Page } from '@playwright/test';
-import { pdf, docx } from './document-files';
+import { pdf, docx, crashingPdf } from './document-files';
 
 // Documents attached to chat messages and added to the knowledge library: PDF, Word and text files read on the server, sent to the model as quoted data, within caps.
 
@@ -141,6 +141,24 @@ test('a file over the size limit, a scanned PDF and damaged files are refused wi
         let extracted = await api(llm, 'LLMAssistantExtractDocument', { name, data: buffer.toString('base64') });
         expect(extracted, name).toMatchObject({ success: false, status });
     }
+});
+
+test('a PDF that crashes the reader is refused wherever it is read, and the server keeps running', async ({ llm }) => {
+    let crash = { name: 'crash.pdf', mimeType: 'application/pdf', buffer: crashingPdf() };
+    for (let route of ['LLMAssistantUploadChatDocument', 'LLMAssistantExtractDocument']) {
+        let reply = await api(llm, route, { name: crash.name, data: base64(crash) });
+        expect(reply, route).toMatchObject({ success: false, status: 'malformed' });
+        expect(reply.error, route).toContain('crashed the PDF reader');
+    }
+    let added = await api(llm, 'LLMAssistantAddKnowledge', { name: crash.name, data: base64(crash) });
+    expect(added.success).toBe(false);
+    expect(added.error).toContain('crashed the PDF reader');
+    await llm.locator('#llma-attach-file').setInputFiles(crash);
+    await expect(llm.locator('.llma-toast')).toContainText('crashed the PDF reader', { timeout: 20_000 });
+    await expect(chips(llm)).toHaveCount(0);
+    // The same server, still there, reads the next file.
+    await attach(llm, [pdfFile('next.pdf', ['Still reading'])]);
+    await expect(chips(llm)).toContainText('next.pdf');
 });
 
 test('a long document is cut to the room a reply has, with a marker', async ({ llm }) => {

@@ -147,7 +147,7 @@ public static class ProcessRunner
     }
 
     /// <summary>Kills a process and everything it started, ignoring one that already ended.</summary>
-    private static void KillTree(Process process)
+    internal static void KillTree(Process process)
     {
         try
         {

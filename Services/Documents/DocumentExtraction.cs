@@ -13,6 +13,10 @@ public static class DocumentExtraction
     /// <summary>How long one extraction may take, and how long a request waits for its turn.</summary>
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
+    /// <summary>How much longer than its time limit a request waits for an extraction to answer. One that ends itself at the limit, as the PDF worker's host does, so gets to say why,
+    /// and to have ended its process, before the request gives up.</summary>
+    private static readonly TimeSpan StopMargin = TimeSpan.FromSeconds(15);
+
     /// <summary>Whose turn it is. A turn ends only when its extraction really does, so one that runs on after its time is up cannot be joined by ever more.</summary>
     private static readonly DocumentGate Gate = new(3);
 
@@ -49,7 +53,11 @@ public static class DocumentExtraction
     }
 
     /// <summary><see cref="Extract"/> on another thread, within <see cref="Timeout"/>. <paramref name="owner"/> (a user's id) has one file read at a time.</summary>
-    public static async Task<ExtractedDocument> ExtractAsync(string fileName, byte[] data, DocumentLimits limits, CancellationToken ct, string owner = null)
+    public static Task<ExtractedDocument> ExtractAsync(string fileName, byte[] data, DocumentLimits limits, CancellationToken ct, string owner = null)
+        => ExtractAsync(fileName, data, limits, ct, owner, Timeout);
+
+    /// <summary>The same with another time limit than <see cref="Timeout"/>, so that tests need not wait that long.</summary>
+    internal static async Task<ExtractedDocument> ExtractAsync(string fileName, byte[] data, DocumentLimits limits, CancellationToken ct, string owner, TimeSpan timeLimit)
     {
         IDisposable turn = await Gate.EnterAsync(owner, Timeout, ct);
         if (turn is null)
@@ -66,7 +74,7 @@ public static class DocumentExtraction
         }, TaskScheduler.Default);
         try
         {
-            return await work.WaitAsync(Timeout, ct);
+            return await work.WaitAsync(timeLimit + StopMargin, ct);
         }
         catch (TimeoutException)
         {

@@ -82,6 +82,29 @@ public static class DocumentFixtures
         return file.ToArray();
     }
 
+    /// <summary>A tiny PDF that overflows the parser's stack while it is being opened, before any check of ours can run: the page tree's only entry is an object that refers to itself.
+    /// Reading it ends the process that does, so it must only ever be given to a worker.</summary>
+    public static byte[] StackOverflowAtOpen()
+    {
+        MemoryStream file = new();
+        List<long> offsets = [];
+        void Text(string s) => file.Write(Encoding.ASCII.GetBytes(s));
+        Text("%PDF-1.4\n");
+        foreach (string body in new[] { "<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>", "3 0 R" })
+        {
+            offsets.Add(file.Position);
+            Text($"{offsets.Count} 0 obj\n{body}\nendobj\n");
+        }
+        long xref = file.Position;
+        Text($"xref\n0 {offsets.Count + 1}\n0000000000 65535 f \n");
+        foreach (long offset in offsets)
+        {
+            Text($"{offset:D10} 00000 n \n");
+        }
+        Text($"trailer\n<< /Size {offsets.Count + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return file.ToArray();
+    }
+
     /// <summary>The bytes packed as a flate stream holds them.</summary>
     public static byte[] Deflate(byte[] data)
     {

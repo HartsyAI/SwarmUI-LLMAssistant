@@ -9,7 +9,11 @@ public sealed class DocumentExtractorTests
 {
     private static readonly DocumentLimits Limits = new(200, 200_000);
 
-    private static ExtractedDocument Read(string name, byte[] data, DocumentLimits limits = null) => DocumentExtraction.Extract(name, data, limits ?? Limits);
+    /// <summary>Reads a file. A PDF is read in this process, because these tests are about the parser and what holds it back (and measure what it allocates); <see cref="PdfWorkerTests"/>
+    /// covers the separate process the server reads one in.</summary>
+    private static ExtractedDocument Read(string name, byte[] data, DocumentLimits limits = null) => data.AsSpan().StartsWith("%PDF-"u8)
+        ? new PdfDocumentExtractor().ReadInThisProcess(data, limits ?? Limits, CancellationToken.None)
+        : DocumentExtraction.Extract(name, data, limits ?? Limits);
 
     private static byte[] Utf8(string text) => Encoding.UTF8.GetBytes(text);
 
@@ -774,7 +778,11 @@ public sealed class DocumentExtractorTests
 
     [Fact]
     public void The_content_decides_a_pdf_whatever_it_is_called()
-        => Assert.Equal("pdf", Read("notes.txt", DocumentFixtures.Pdf("really a pdf")).Kind);
+    {
+        ExtractedDocument doc = DocumentExtraction.Extract("notes.txt", DocumentFixtures.Pdf("really a pdf"), Limits);
+        Assert.Equal("pdf", doc.Kind);
+        Assert.Contains("really a pdf", doc.Text);
+    }
 
     [Fact]
     public async Task Extraction_runs_off_the_caller_and_can_be_cancelled()
