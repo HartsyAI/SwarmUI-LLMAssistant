@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Hartsy.Extensions.LLMAssistant.LLMs;
+using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
@@ -55,7 +56,9 @@ public static class PromptRewriteService
         PromptStyle style = resolution.Style;
         RewriteSettings settings = RewriteSettings.ForUser(user);
         string model = string.IsNullOrWhiteSpace(request.RewriteModel) ? settings.Model : request.RewriteModel.Trim();
-        request = request with { RewriteModel = model };
+        // The writing model's chat-model style and the user's style notes go into its instructions (see PromptRewriter.BuildSystem).
+        LlmAddendum addendum = await LlmAddendumService.DescribeUnvariedAsync(user, session, AddendumSettings.ForUser(user), model, ["rewrite"]);
+        request = request with { RewriteModel = model, Addendum = addendum.Text, StyleNotes = MemoryService.StyleNotes(user, request.Prompt) };
         RewriteGenerate generate = DispatcherGenerate(request, settings, session);
         RewriteResult result = await RewriteWithStyleAsync(user?.UserID, style, request, settings, generate, ct);
         return result with { Via = resolution.Via, Reason = resolution.Reason, StyleScope = style.Scope, StyleId = style.Id };
@@ -159,10 +162,10 @@ public static class PromptRewriteService
         };
     }
 
-    /// <summary>The part of the cache key that is not the prompt: the style (and a hash of everything in it that shapes the answer, so editing a style makes new rewrites), the size, the limits and the negative.</summary>
+    /// <summary>The part of the cache key that is not the prompt: the style (and a hash of everything that shapes the instructions and the answer, so editing a style, a chat-model style or a style note makes new rewrites), the size, the limits and the negative.</summary>
     private static string StyleKey(PromptStyle style, RewriteRequest request, RewriteSettings settings)
     {
-        string content = $"{style.Format}|{style.Formatter}|{style.Negative}|{string.Join(',', style.Supports)}|{style.Body}";
+        string content = $"{style.Format}|{style.Formatter}|{style.Negative}|{string.Join(',', style.Supports)}|{style.Body}|{request.Addendum}|{request.StyleNotes}";
         string hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(content)))[..12];
         return $"{style.Id}|{style.Scope}|{hash}|{request.Width}x{request.Height}|{settings.MaxTokens}|{settings.Temperature:R}|{request.Negative?.Trim()}";
     }

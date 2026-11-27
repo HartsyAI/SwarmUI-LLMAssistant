@@ -245,7 +245,9 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 32 => "BF16",
                 _ => null
             };
-            facts = new GgufModelFacts(context > 0 && context <= int.MaxValue ? (int)context : -1, family, quantization);
+            string template = metadata.GetString("tokenizer.chat_template");
+            bool? takesTools = string.IsNullOrWhiteSpace(template) ? null : HartsyInference.LLM.ChatTemplates.HermesToolPrompt.TemplateOffersTools(template);
+            facts = new GgufModelFacts(context > 0 && context <= int.MaxValue ? (int)context : -1, family, quantization, takesTools);
         }
         catch (Exception ex)
         {
@@ -1137,6 +1139,7 @@ public class HartsyLocalLLMProvider : LLMProviderBackend
                 info.ContextLength = facts.ContextLength;
                 info.Family = facts.Family;
                 info.Quantization = facts.Quantization;
+                info.SupportsTools = facts.TemplateTakesTools;
                 AddPlacementAndCapabilities(info, file, placed);
                 models.Add(info);
             }

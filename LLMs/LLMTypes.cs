@@ -80,6 +80,8 @@ public class LLMModelInfo
     public string Quantization;
     /// <summary>Whether the model is currently resident (loaded) on its backend.</summary>
     public bool IsLoaded;
+    /// <summary>Whether the backend says the model has tool calling of its own: true, false, or null when it cannot say. A chat that offers tools to a model that says false warns the user.</summary>
+    public bool? SupportsTools;
     /// <summary>Free-form provider-specific metadata (eg device, vision capability) surfaced to the UI.</summary>
     public Dictionary<string, string> Metadata = [];
 

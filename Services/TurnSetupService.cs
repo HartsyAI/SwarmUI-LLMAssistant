@@ -17,7 +17,8 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 /// <param name="WouldCompact">For a dry run: whether the reply would summarize the start of the chat first (which a dry run does not do).</param>
 /// <param name="ContextWindow">The model's window in tokens, or 0 when it is not known.</param>
 /// <param name="Addendum">What the chat-model prompt style added to the system prompt (see <see cref="LlmAddendumService"/>), or null.</param>
-public sealed record PreparedTurn(ExtendedLLMInput Input, List<JObject> EnabledTools, string AssistantId, JObject Thread, bool WouldCompact = false, int ContextWindow = 0, LlmAddendum Addendum = null);
+/// <param name="ToolsUnsupportedModel">The model that answers when the turn offers tools to it and its backend says it has no tool calling of its own, else null (see <see cref="TurnSetupService.ToolsUnsupportedBy"/>).</param>
+public sealed record PreparedTurn(ExtendedLLMInput Input, List<JObject> EnabledTools, string AssistantId, JObject Thread, bool WouldCompact = false, int ContextWindow = 0, LlmAddendum Addendum = null, string ToolsUnsupportedModel = null);
 
 /// <summary>Builds the request for one reply in a chat: the instructions, the tools, the history and the parameters. One builder for a reply on a chat socket and for a
 /// session working in the background, so the two never differ in what a model is told or offered (skills, code tools, project instructions, summaries).</summary>
@@ -89,6 +90,10 @@ public static class TurnSetupService
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         ChatEndpoints.ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
         ChatEndpoints.AttachTools(input, enabledTools, session, assistantId, forceToolId);
-        return ct.IsCancellationRequested ? null : new PreparedTurn(input, enabledTools, assistantId, thread, wouldCompact, ContextWindowService.Resolve(modelInfo, settings), addendum);
+        return ct.IsCancellationRequested ? null : new PreparedTurn(input, enabledTools, assistantId, thread, wouldCompact, ContextWindowService.Resolve(modelInfo, settings), addendum, ToolsUnsupportedBy(modelInfo, enabledTools));
     }
+
+    /// <summary>The id of <paramref name="model"/> when <paramref name="enabledTools"/> offers it a tool and its backend says it has no tool calling of its own; null otherwise, and when the backend cannot say.</summary>
+    internal static string ToolsUnsupportedBy(LLMModelInfo model, List<JObject> enabledTools)
+        => model?.SupportsTools == false && enabledTools.Count > 0 ? model.Id : null;
 }

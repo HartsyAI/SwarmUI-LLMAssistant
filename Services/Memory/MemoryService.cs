@@ -648,7 +648,42 @@ public static class MemoryService
         return MemoryRecall.Render(chosen);
     }
 
-    /// <summary>The variables an instruction's <c>{{...}}</c> placeholders are filled from. <c>{{userProfile}}</c> is the notes block (the name kept for the assistants and saved
+    /// <summary>The <c>style</c> notes block for a rewrite of <paramref name="prompt"/> by <paramref name="user"/> (see <see cref="StyleNotesFrom"/>), or empty. A retention sweep that is due runs first, as before a chat reply: marking
+    /// these notes used ahead of it would hide that the user had been away, and the sweep would then forget the notes that were only waiting.</summary>
+    public static string StyleNotes(User user, string prompt)
+    {
+        if (user is null)
+        {
+            return "";
+        }
+        MemoryControls controls = MemoryControls.ForUser(user);
+        if (controls.RecallPaused)
+        {
+            return "";
+        }
+        MemoryStore store = StoreFor(user);
+        RunRetentionIfDue(store, user.UserID, controls.RetentionDays, false);
+        return StyleNotesFrom(store, controls, prompt);
+    }
+
+    /// <summary>The <c>style</c> notes of <paramref name="store"/> as a block for the prompt rewrite: nothing while recall is paused; chosen by the words of <paramref name="prompt"/> when there are too many to show whole, as for a chat
+    /// (no embedding call is made); and the notes shown count as used.</summary>
+    internal static string StyleNotesFrom(MemoryStore store, MemoryControls controls, string prompt)
+    {
+        if (controls.RecallPaused)
+        {
+            return "";
+        }
+        List<MemoryNote> notes = [.. store.Load().Notes.Where(n => n.Kind == MemoryKinds.Style)];
+        List<MemoryNote> chosen = MemoryRecall.Select(notes, new MemoryRecallRequest(MemoryNoteSet.Truncate(prompt ?? "", MaxQueryChars)));
+        if (chosen.Count > 0)
+        {
+            store.MarkUsed(chosen.Select(n => n.Id));
+        }
+        return MemoryRecall.RenderStyle(chosen);
+    }
+
+    /// <summary>The variables an instruction's <c>{{...}}</c> placeholders are filled from.<c>{{userProfile}}</c> is the notes block (the name kept for the assistants and saved
     /// prompts that use it). Called when assembling a system prompt; <paramref name="recall"/> is null when the instruction does not use the notes or no turn is being answered.</summary>
     public static Dictionary<string, string> BuildPromptVariables(User user, JObject assistant, MemoryRecallRequest recall = null)
     {

@@ -409,6 +409,8 @@
         llmaAppendMessageToDOM('user', captionMsg, upload, userMsgId);
         llmaClearAttachment();
         const payload = llmaBuildPayload(captionMsg, 'caption');
+        // The id the image was uploaded under: the server stores the message under it, and removes the upload if it refuses the message.
+        payload.userMessageId = userMsgId;
         payload.media = [upload];
         llmaStreamResponse(payload, text => llmaSendToPromptBox(text));
     }

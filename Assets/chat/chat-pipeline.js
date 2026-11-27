@@ -158,6 +158,19 @@
         llmaPutBackText(unsent.typed);
     }
 
+    /** The chats and models already warned about, so the warning is shown once for each. */
+    let llmaToolWarningsShown = new Set();
+
+    /** Says once per chat and model that a reply offers tools to a model whose backend says it has no tool calling of its own. */
+    function llmaWarnToolsUnsupported(threadId, model) {
+        let key = `${threadId} ${model}`;
+        if (llmaToolWarningsShown.has(key)) {
+            return;
+        }
+        llmaToolWarningsShown.add(key);
+        llmaShowToast(`${model}: ${translate('This model has no built-in tool support, so it may not use the tools offered to it.')}`, 'info');
+    }
+
     /** Takes a message the server did not store, and what hangs under it, off the chat, and shows the branch ending at leafId. */
     function llmaDropUnstored(messageId, leafId) {
         const gone = llmaActions.subtreeIds(messageId, LLMAState.allNodes);
@@ -281,6 +294,10 @@
                         const titleEl = document.getElementById('llma-thread-title');
                         if (titleEl) titleEl.textContent = data.titleUpdated;
                     }
+                    return;
+                }
+                if (data.toolsUnsupported) {
+                    llmaWarnToolsUnsupported(payload.threadId, data.toolsUnsupported);
                     return;
                 }
                 // The automatic memory extractor saved something after this reply (see MemoryExtractionService): a small notice with Undo, nothing more.
@@ -548,6 +565,7 @@
     window.llmaSendMessage    = llmaSendMessage;
     window.llmaDropUnstored   = llmaDropUnstored;
     window.llmaPutBackText    = llmaPutBackText;
+    window.llmaWarnToolsUnsupported = llmaWarnToolsUnsupported;
     window.llmaBuildPayload   = llmaBuildPayload;
     window.llmaStreamResponse = llmaStreamResponse;
     window.llmaStopGeneration = llmaStopGeneration;

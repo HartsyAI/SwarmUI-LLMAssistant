@@ -322,6 +322,10 @@
         try {
             LLMAState._activeSocket = makeWSRequest('LLMAssistantSendMessageWS', wsPayload, data => {
                 takenUp(data);
+                if (data.toolsUnsupported) {
+                    llmaWarnToolsUnsupported(wsPayload.threadId, data.toolsUnsupported);
+                    return;
+                }
                 // Every compare event is lane-tagged; route to the right column. Default to lane 0 for safety.
                 const lane = (typeof data.lane === 'number' && data.lane >= 0 && data.lane < ctls.length) ? data.lane : 0;
                 const ctl = ctls[lane];

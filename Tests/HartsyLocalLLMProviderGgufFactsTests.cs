@@ -65,6 +65,27 @@ public class HartsyLocalLLMProviderGgufFactsTests : IDisposable
         Assert.Equal("F16", facts.Quantization);
     }
 
+    [Theory]
+    [InlineData("qwen3-4b.jinja", true)]
+    [InlineData("llama-3.2-1b-instruct.jinja", true)]
+    [InlineData("phi-3-mini-4k-instruct.jinja", false)]
+    [InlineData("mistral-7b-instruct-v0.3.jinja", false)]
+    public void SaysWhetherTheChatTemplateTakesTools(string fixture, bool takesTools)
+    {
+        string template = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "chat_templates", fixture));
+        string path = WriteGguf(Path.Combine(_dir, "template.gguf"), ("general.architecture", "llama"), ("tokenizer.chat_template", template));
+
+        Assert.Equal(takesTools, HartsyLocalLLMProvider.ReadGgufModelFacts(path).TemplateTakesTools);
+    }
+
+    [Fact]
+    public void SaysNothingAboutToolsWithoutAChatTemplate()
+    {
+        string path = WriteGguf(Path.Combine(_dir, "plain.gguf"), ("general.architecture", "llama"));
+
+        Assert.Null(HartsyLocalLLMProvider.ReadGgufModelFacts(path).TemplateTakesTools);
+    }
+
     [Fact]
     public void MissingFileReturnsEmptyFacts()
     {
