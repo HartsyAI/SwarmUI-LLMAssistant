@@ -51,10 +51,10 @@ function unique(word: string) {
     return `${word}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-/** Runs a prompt rewrite on the image model with no style of its own and gives the system prompt the writing model was sent. */
-async function rewriteSystemPrompt(page: Page, prompt: string): Promise<string> {
+/** Runs a prompt rewrite (through the cache) on the image model with no style of its own and gives the system prompt the writing model was sent. */
+async function rewriteSystemPrompt(page: Page, prompt: string, writer = A): Promise<string> {
     await clearRequests();
-    let reply = await api(page, 'LLMAssistantRewritePrompt', { prompt: prompt, imageModel: IMAGE_MODEL, model: A });
+    let reply = await api(page, 'LLMAssistantRewritePrompt', { prompt: prompt, imageModel: IMAGE_MODEL, rewriteModel: writer, fresh: false });
     expect(reply.success, JSON.stringify(reply)).toBe(true);
     return await systemPromptOf(prompt);
 }
@@ -111,6 +111,10 @@ test('a prompt rewrite carries the writing model\'s style and the style notes, a
     expect(system).toContain('WRITER ADDENDUM.');
     expect(system).toContain('- [style] Likes heavy film grain');
     expect(system).not.toContain('Lyon');
+    // Another writing model gets its own style, not this one.
+    let other = await rewriteSystemPrompt(llm, prompt, B);
+    expect(other).not.toContain('WRITER ADDENDUM.');
+    expect(other).toContain('film grain');
 
     // The same prompt again, with recall paused: the cached rewrite made with the notes does not answer it.
     expect((await api(llm, 'LLMAssistantSetMemoryControls', { recallPaused: true })).success).toBe(true);

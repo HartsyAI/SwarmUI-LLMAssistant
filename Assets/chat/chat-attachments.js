@@ -403,7 +403,7 @@
     async function llmaDoCaptionPrompt() {
         const captionMsg = 'Describe this image for use as an image generation prompt.';
         const userMsgId = llmaGenerateId();
-        const attachment = LLMAState.attachedImage;
+        let attachment = LLMAState.attachedImage;
         const upload = await llmaUploadAttachedImage(userMsgId);
         if (!upload) return;
         // It hangs off the active leaf and becomes the new one, as a sent message does.
