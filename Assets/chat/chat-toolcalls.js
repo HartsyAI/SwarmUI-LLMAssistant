@@ -592,7 +592,7 @@
             resultWrap.appendChild(pre);
         } else if (success && name.startsWith('session_') && typeof llmaSessions != 'undefined') {
             llmaSessions.renderResultCard(resultWrap, name, result);
-        } else if (name === 'shell_exec' || name === 'code_bash') {
+        } else if ((name === 'shell_exec' || name === 'code_bash') && (result.exitCode != null || result.killed)) {
             const info = document.createElement('div');
             info.className = 'llma-tool-result-fileinfo';
             const exitTxt = result.killed ? translate('killed (timeout)') : `${translate('exit')} ${result.exitCode}`;
@@ -643,11 +643,12 @@
             resultWrap.appendChild(pre);
         }
 
-        // Retry affordance — only when the call failed AND the wrapper has the original args.
+        // Retry affordance — only when the call failed AND the wrapper has the original args. Not for a call the user refused, nor for one the
+        // turn ended without a result of its own (it may have been waiting for permission): Retry runs the tool without asking.
         // Re-runs via LLMAssistantExecuteTool (the standalone tool runner) and shows the new
         // result in place. Does NOT amend the conversation history server-side — purely a manual
         // "did the tool start working?" check the user can fire without re-prompting the LLM.
-        if (!success && callBubble && !result.denied && !name.startsWith('code_')) {
+        if (!success && callBubble && !result.denied && !result.unfinished && !name.startsWith('code_')) {
             const retryBtn = document.createElement('button');
             retryBtn.className = 'basic-button llma-tool-retry-btn';
             retryBtn.type = 'button';
@@ -724,7 +725,7 @@
                 continue;
             }
             if (row.classList.contains('waiting')) {
-                call.result = { success: false, error: translate('The turn was stopped before this tool finished.') };
+                call.result = { success: false, unfinished: true, error: translate('The turn was stopped before this tool finished.') };
                 llmaRenderToolResult(bubble, { id: call.id, name: call.name, result: call.result });
                 continue;
             }

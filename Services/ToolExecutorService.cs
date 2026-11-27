@@ -69,6 +69,8 @@ public static class ToolExecutorService
     public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default,
         ToolApprovalGate gate = null, string callId = null, ToolHookRunner hooks = null, Action<string, string> output = null)
     {
+        // Whether the call is with the approval gate, which may be waiting for the user: a Stop then ends a call that was never allowed to run.
+        bool atGate = false;
         try
         {
             JObject tool = ToolRegistryService.GetTool(toolId, user: session?.User);
@@ -143,7 +145,9 @@ public static class ToolExecutorService
             {
                 // A call that is riskier than its tool usually is (wildcard samples) is always asked about: "allow for this chat" was given for the usual calls.
                 ToolRisk callRisk = handler.RiskForCall(tool, args);
+                atGate = true;
                 JObject refusal = await gate.CheckAsync(toolId, callRisk, args, callId, ct, forceAsk || callRisk != handler.RiskFor(tool));
+                atGate = false;
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);
@@ -209,6 +213,10 @@ public static class ToolExecutorService
         catch (OperationCanceledException)
         {
             JObject cancelled = Error("Tool execution timed out or was cancelled.");
+            if (atGate)
+            {
+                cancelled["unfinished"] = true;
+            }
             // Still audit cancellations — long-running shell/file operations that get killed are
             // exactly the events an admin would want to see post-incident.
             AuditLogService.RecordToolCall(GetHandlerIdSafe(toolId, session), toolId, session?.User, assistantId, threadId, args, cancelled);

@@ -292,7 +292,11 @@ test('a settings save cannot write allowed folders', async ({ llm }) => {
 test('a reset of the shared settings keeps the folders an admin allowed', async ({ llm }) => {
     fs.mkdirSync(extraRoot, { recursive: true });
     expect((await api(llm, 'LLMAssistantSaveWorkspaceRoot', { id: 'kept', path: extraRoot, label: 'Kept' })).success).toBe(true);
-    expect((await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' })).success).toBe(true);
+    let reply = await api(llm, 'LLMAssistantResetSettings', { scope: 'shared' });
+    expect(reply.success).toBe(true);
+    // The reply says nothing of the folders: who may reset is not always who may see their paths.
+    expect(reply.settings.workspaceRoots).toBeUndefined();
+    expect(JSON.stringify(reply)).not.toContain(path.basename(extraRoot));
     expect((await api(llm, 'LLMAssistantGetWorkspaceRoots')).roots.map((r: any) => r.id)).toContain('kept');
 });
 

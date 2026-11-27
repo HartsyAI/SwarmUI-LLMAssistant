@@ -211,11 +211,11 @@ class LLMAMessageActions {
         return false;
     }
 
-    /** Takes Regenerate off a failed or stopped reply still shown under this message: Retry, beside it, asks for the same thing. */
-    dropRegenerateBelow(container, messageId) {
+    /** Hides Regenerate on a failed or stopped reply still shown under this message: Retry, beside it, asks for the same thing. */
+    hideRegenerateBelow(container, messageId) {
         let next = container.querySelector(`[data-msg-id="${CSS.escape(messageId)}"]`)?.nextElementSibling;
         for (; next; next = next.nextElementSibling) {
-            next.querySelector('.llma-msg-regen')?.remove();
+            next.classList.add('llma-msg-under-retry');
         }
     }
 
@@ -341,6 +341,10 @@ class LLMAMessageActions {
         let old = container.querySelector(':scope > .llma-msg-tail');
         let held = old?.contains(document.activeElement) ? document.activeElement.className : null;
         old?.remove();
+        // A reply that was under Retry offers Regenerate again once Retry has moved on, as when another message is sent after it.
+        for (let under of container.querySelectorAll(':scope > .llma-msg-under-retry')) {
+            under.classList.remove('llma-msg-under-retry');
+        }
         let last = LLMAState.messages[LLMAState.messages.length - 1];
         // A session at work in the background has its reply on the way: asking again would start a second one.
         if (this.busy() || !LLMAState.activeThreadId || !last || last.unsaved || llmaCompareSiblings(last.id).length >= 2) {
@@ -368,7 +372,7 @@ class LLMAMessageActions {
         }
         container.appendChild(row);
         if (canRetry) {
-            this.dropRegenerateBelow(container, last.id);
+            this.hideRegenerateBelow(container, last.id);
         }
         // Taking the old row out moved the view up: it stays with the latest, unless the user has scrolled up to read.
         llmaScrollToBottom();

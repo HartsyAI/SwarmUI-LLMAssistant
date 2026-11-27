@@ -421,9 +421,14 @@ test('Stop settles a call that was waiting, as it reads after a reload', async (
     await expect(llm.locator('.llma-tool-approval')).toHaveCount(0);
     // Nor is the reply still shown as on its way.
     await expect(llm.locator('.llma-typing')).toHaveCount(0);
+    // The call was never allowed to run, so there is no button that would run it, now or from what the server saved.
+    await expect(llm.locator('.llma-tool-result-bubble.error')).toHaveCount(1);
+    await expect(llm.locator('.llma-tool-retry-btn')).toHaveCount(0);
     await llm.waitForTimeout(2000);
     await reopen(llm);
     await expect(summary).toHaveText('File Write failed');
+    await expect(llm.locator('.llma-tool-result-bubble.error')).toHaveCount(1);
+    await expect(llm.locator('.llma-tool-retry-btn')).toHaveCount(0);
     await setMode(llm, 'auto');
 });
 
@@ -442,6 +447,31 @@ test('Stop does not call a tool that was under way failed, nor leave it running'
         };
     });
     expect(told).toEqual({ summary: 'Generate Image unfinished at Stop', status: 'stopped', result: null, marks: [], spinners: 0, running: false });
+});
+
+test('a command that never ran says why, not an exit code, and one that failed keeps its exit code', async ({ llm }) => {
+    let shown = await llm.evaluate(() => ['shell_exec', 'code_bash'].flatMap(name => [
+        { success: false, denied: true, error: 'DECLINED-WHY' },
+        { success: false, unfinished: true, error: 'STOPPED-WHY' },
+        { success: false, exitCode: 2, stderr: 'boom', command: 'false' },
+        { success: false, killed: true, command: 'sleep 999' }
+    ].map((result, i) => {
+        let bubble = document.createElement('div');
+        let call = { id: `${name}-${i}`, name: name, arguments: { command: 'x' } };
+        (0, eval)('llmaRenderToolCall')(bubble, call);
+        (0, eval)('llmaRenderToolResult')(bubble, { id: call.id, name: name, result: result });
+        return { text: bubble.querySelector('.llma-tool-result-bubble')!.textContent!, retry: !!bubble.querySelector('.llma-tool-retry-btn') };
+    })));
+    for (let at of [0, 4]) {
+        expect(shown[at].text).toContain('DECLINED-WHY');
+        expect(shown[at + 1].text).toContain('STOPPED-WHY');
+        expect(shown[at].text + shown[at + 1].text).not.toContain('[exit');
+        expect(shown[at + 2].text).toContain('[exit 2]');
+        expect(shown[at + 3].text).toContain('killed (timeout)');
+        expect([shown[at].retry, shown[at + 1].retry]).toEqual([false, false]);
+    }
+    // A shell command that ran and failed can still be run again by hand.
+    expect([shown[2].retry, shown[3].retry]).toEqual([true, true]);
 });
 
 test('an allowed call is told as running, then done', async ({ llm }) => {
@@ -486,6 +516,22 @@ test('after a reload a failed reply still says what happened, and the message co
     await expect(lastAssistant(llm)).toContainText('It fits now.');
     await expect(llm.locator('.llma-msg-tail')).toHaveCount(0);
     await expect(llm.locator('#llma-ctx-label')).toHaveText('2 messages');
+});
+
+test('a failed reply offers Regenerate again once another message has been sent after it', async ({ llm }) => {
+    await setScenarios([{ match: 'breaks', rounds: [{ error: { status: 500, message: 'mock upstream failure' } }] }, { match: 'moving on', rounds: [{ text: 'moved on' }] }]);
+    await send(llm, 'breaks');
+    await expect(llm.locator('.llma-msg-retry')).toBeVisible({ timeout: 20_000 });
+    let failed = replyRows(llm).first();
+    await failed.hover();
+    await expect(failed.getByRole('button', { name: 'Regenerate' })).toHaveCount(0);
+    await send(llm, 'moving on');
+    await expect(lastAssistant(llm)).toContainText('moved on');
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await expect(llm.locator('.llma-msg-retry')).toHaveCount(0);
+    await expect(replyRows(llm)).toHaveCount(2);
+    await failed.hover();
+    await expect(failed.getByRole('button', { name: 'Regenerate' })).toBeVisible();
 });
 
 test('a failure below what is showing is followed into view, with the backend\'s words and Retry', async ({ llm }) => {

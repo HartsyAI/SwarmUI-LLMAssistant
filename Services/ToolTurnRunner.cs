@@ -285,6 +285,8 @@ public static class ToolTurnRunner
             JObject stub = new()
             {
                 ["success"] = false,
+                // No result of its own: the chat then offers no manual Retry, as the call may never have been allowed to run.
+                ["unfinished"] = true,
                 ["error"] = failure is not null ? "The turn failed before this tool could run."
                     : truncated ? "The round limit was reached before this tool could run." : "The turn was stopped before this tool finished.",
             };
