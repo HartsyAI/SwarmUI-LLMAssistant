@@ -1,0 +1,130 @@
+import { test, expect } from '@playwright/test';
+import type { SwarmClient } from '../lib/client';
+import { timing } from '../lib/config';
+import { deleteCreated, unloadWhatWasLoaded } from '../lib/server';
+import { hold, newState, readState, settleUsage, writeState } from '../lib/state';
+import type { Hold, RunState } from '../lib/state';
+
+Object.assign(timing, { sampleMs: 0, retryMs: 5, settleMs: 40 });
+
+const MODEL = 'SDXL/sd_xl_base_1.0.safetensors';
+
+type Server = {
+    threads?: Record<string, any>;
+    presets?: string[];
+    knowledge?: { id: string; title: string }[];
+    loaded?: string[];
+    gpus?: number[];
+    resourcesHidden?: boolean;
+    imageModel?: string | null;
+};
+
+/** A SwarmUI holding these things; <c>did</c> lists every call that changes something. */
+function swarm(server: Server) {
+    let did: string[] = [];
+    let reply = async (route: string, body: any = {}): Promise<any> => {
+        if (route === 'LLMAssistantGetThread') {
+            return { thread: server.threads?.[body.threadId] ?? { messages: [] } };
+        }
+        if (route === 'GetMyUserData') {
+            return { presets: (server.presets ?? []).map(title => ({ title })) };
+        }
+        if (route === 'LLMAssistantGetKnowledge') {
+            return { documents: server.knowledge ?? [] };
+        }
+        if (route === 'LLMAssistantGetModels') {
+            return { models: ['chat-model', 'other-model'].map(id => ({ id, is_loaded: (server.loaded ?? []).includes(id) })) };
+        }
+        if (route === 'GetGlobalStatus' || route === 'GetCurrentStatus') {
+            return { status: { live_gens: 0 } };
+        }
+        if (route === 'GetServerResourceInfo') {
+            return server.resourcesHidden ? { error: 'no permission' }
+                : { system_ram: { free: 2e10 }, gpus: Object.fromEntries((server.gpus ?? [0]).map((use, i) => [i, { utilization_gpu: use, free_memory: 1e10 }])) };
+        }
+        if (route === 'ListBackends') {
+            return Object.fromEntries(['2', '3'].map(id => [id, { id, type: 'hartsyinference', current_model: server.imageModel === undefined ? MODEL : server.imageModel }]));
+        }
+        if (route !== 'LLMAssistantStopGeneration') {
+            did.push(`${route} ${body.threadId ?? body.path ?? body.docId ?? body.preset ?? body.backend ?? ''}`.trim());
+        }
+        return { success: true, freed: 1, providers: 1 };
+    };
+    return { client: { call: reply, ok: reply } as unknown as SwarmClient, did };
+}
+
+function run(change: Partial<RunState>) {
+    writeState({ ...newState(), runId: 'run1', usedLlm: true, ...change });
+}
+
+const made = (url: string) => ({ messages: [{ role: 'assistant', toolCalls: [{ name: 'generate_image', result: { success: true, imageUrl: url } }] }] });
+
+test('deletes only what the run made, finding images and documents it never recorded, and counts only what was there', async () => {
+    run({
+        created: { threads: ['t1', 't2'], presets: ['never-saved'], knowledge: [], images: [] },
+        imageCalls: ['t1'], knowledgeStarted: true, knowledgePending: true
+    });
+    let { client, did } = swarm({ threads: { t1: made('View/local/raw/late%20one.png') }, knowledge: [{ id: 'k1', title: 'Live smoke run1' }, { id: 'k2', title: 'My notes' }, { id: 'k3', title: 'Live smoke run0' }] });
+    let result = await deleteCreated(client);
+    expect(did).toEqual(['LLMAssistantDeleteThread t1', 'LLMAssistantDeleteThread t2', 'LLMAssistantDeleteKnowledge k1', 'DeleteImage raw/late one.png']);
+    expect(result.deleted).toEqual({ threads: 2, presets: 0, knowledge: 1, images: 1 });
+    expect(result.warnings).toEqual([]);
+    expect(result.failures).toEqual([]);
+    expect(readState()!.created).toEqual({ threads: [], presets: [], knowledge: [], images: [] });
+});
+
+test('says that an image or a document may remain when it cannot be found', async () => {
+    run({ created: { threads: ['t1'], presets: [], knowledge: [], images: [] }, imageCalls: ['t1'], knowledgeStarted: true, knowledgePending: true });
+    let result = await deleteCreated(swarm({}).client);
+    expect(result.warnings.join(' ')).toMatch(/An image may remain.*t1/);
+    expect(result.warnings.join(' ')).toMatch(/knowledge document .* may still appear/);
+});
+
+test('unloads the chat model and frees its own image backend when only the run can have loaded them', async () => {
+    run({ imageCalls: ['t1'], imageBackendToFree: '2' });
+    let { client, did } = swarm({ loaded: ['chat-model'] });
+    await unloadWhatWasLoaded(client);
+    expect(did).toEqual(['LLMAssistantUnloadModels', 'FreeBackendMemory 2']);
+});
+
+for (let [name, state, server] of [
+    ['a model was loaded before the run', { anyModelWasLoaded: true }, { loaded: ['chat-model'] }],
+    ['another model is loaded now', {}, { loaded: ['chat-model', 'other-model'] }],
+    ['GPU use cannot be seen', {}, { loaded: ['chat-model'], resourcesHidden: true }],
+    ['no GPU is reported', {}, { loaded: ['chat-model'], gpus: [] }],
+    ['one of two GPUs is busy', {}, { loaded: ['chat-model'], gpus: [0, 95] }]
+] as [string, Partial<RunState>, Server][]) {
+    test(`leaves the chat model loaded when ${name}`, async () => {
+        run(state);
+        let { client, did } = swarm(server);
+        await unloadWhatWasLoaded(client);
+        expect(did).toEqual([]);
+    });
+}
+
+for (let [name, state, server] of [
+    ['no image call was allowed', { imageBackendToFree: '2' }, {}],
+    ['it held a model before the run', { imageCalls: ['t1'] }, {}],
+    ['it holds another model now', { imageCalls: ['t1'], imageBackendToFree: '2' }, { imageModel: 'Other/model.safetensors' }],
+    ['a GPU is busy', { imageCalls: ['t1'], imageBackendToFree: '2' }, { gpus: [90] }]
+] as [string, Partial<RunState>, Server][]) {
+    test(`leaves the image backend alone when ${name}`, async () => {
+        run(state);
+        let { client, did } = swarm(server);
+        await unloadWhatWasLoaded(client);
+        expect(did).toEqual([]);
+    });
+}
+
+test('keeps the larger figure when a usage report is missing or incomplete', async () => {
+    run({});
+    let held = () => hold(4, 1000) as Hold;
+    let used = () => [readState()!.requests, readState()!.tokens];
+    settleUsage(held(), undefined);
+    expect(used()).toEqual([4, 1000]);
+    settleUsage(held(), { rounds: 1, promptTokens: 90, completionTokens: 10, incomplete: true });
+    expect(used()).toEqual([8, 2000]);
+    settleUsage(held(), { rounds: 1, promptTokens: 90, completionTokens: 10 }, { requests: 1, tokens: 50 });
+    expect(used()).toEqual([10, 2150]);
+    expect(hold(100, 1)).toContain('request cap');
+});

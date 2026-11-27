@@ -33,6 +33,8 @@ export type GuardResult = {
 
 const LOCAL_LLM = 'llmassistant-hartsy-local';
 const REMOTE_LLM = 'llmassistant-openai';
+/** Core's own llama.cpp backend: runs on SwarmUI's machine. The extension does not send it requests. */
+const CORE_LOCAL_LLM = 'localllama';
 /** Run their model in or beside SwarmUI on its own machine. */
 const LOCAL_IMAGE = ['hartsyinference', 'comfyui_selfstart', 'auto_webui_selfstart'];
 /** Reached by address: local only when the address is this machine and the user vouches for what listens there. */
@@ -72,6 +74,11 @@ function vouchedLocal(backend: Backend): boolean {
     return config.trustedBackends.includes(backend.id) && isThisMachine(backend.settings.Address);
 }
 
+/** Which of these backends finished a request within the last <c>seconds</c> (with a margin for rounding). */
+export function usedWithin(backends: Backend[], ids: string[], seconds: number): string[] {
+    return backends.filter(b => ids.includes(b.id) && b.everUsed && b.secondsSinceUsed <= seconds + 5).map(b => b.id);
+}
+
 /** Every installed model name SwarmUI lists for a folder, for example "API Models". */
 export async function listImageModels(client: SwarmClient, folder = ''): Promise<string[]> {
     let reply = await client.call('ListModels', { path: folder, depth: 8, subtype: 'Stable-Diffusion' });
@@ -92,6 +99,9 @@ export async function checkBackends(client: SwarmClient): Promise<GuardResult> {
         let name = `backend ${backend.id} "${backend.title}" (${backend.type})`;
         if (backend.type === LOCAL_LLM) {
             result.llm.push(backend.id);
+        }
+        else if (backend.type === CORE_LOCAL_LLM) {
+            continue;
         }
         else if (backend.type === REMOTE_LLM || backend.features.includes('llm')) {
             if (!vouchedLocal(backend)) {

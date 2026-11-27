@@ -1,8 +1,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Where a run keeps its state, report and Playwright output. Under E2E/.run, which is gitignored. */
-export const RUN_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.run', 'live');
+/** Where a run keeps its state and report. Under E2E/.run, which is gitignored. The offline self-test points it elsewhere, so it
+ * never touches a real run's record. */
+export const RUN_DIR = process.env.LLMA_LIVE_RUN_DIR || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '.run', 'live');
+
+/** Pauses of the clean-up and the busy check. The self-test shortens them. */
+export const timing = { sampleMs: 2000, retryMs: 5000, settleMs: 90_000 };
 
 function text(name: string): string {
     return (process.env[name] ?? '').trim();
@@ -36,7 +40,9 @@ export const config = {
     idleTimeoutMs: num('LLMA_LIVE_IDLE_TIMEOUT_S', 600) * 1000,
     turnTimeoutMs: num('LLMA_LIVE_TURN_TIMEOUT_S', 300) * 1000,
     imageTimeoutMs: num('LLMA_LIVE_IMAGE_TIMEOUT_S', 720) * 1000,
-    keepImage: text('LLMA_LIVE_KEEP_IMAGE') === '1'
+    keepImage: text('LLMA_LIVE_KEEP_IMAGE') === '1',
+    /** Whether turns with tools may run while MCP tools are offered (a reading one runs unasked, and may be metered). */
+    allowMcp: text('LLMA_LIVE_ALLOW_MCP') === '1'
 };
 
 /** Why the suite cannot run at all, or null when it can. */

@@ -11,12 +11,18 @@ export type RunState = {
     images: number;
     /** What this run made and has not deleted yet. Only these are ever deleted. */
     created: { threads: string[]; presets: string[]; knowledge: string[]; images: string[] };
-    /** Whether the chat model was in memory before the run, so the run only unloads what it loaded. */
-    llmWasLoaded: boolean;
-    /** Local image backends that held no model before the run. */
-    emptyImageBackends: string[];
+    /** The chats in which an image call was allowed, so an image of theirs that cannot be found is reported. */
+    imageCalls: string[];
+    /** Whether the run began adding a knowledge document, and whether one is being added with its id not yet known. */
+    knowledgeStarted: boolean;
+    knowledgePending: boolean;
+    /** Whether any chat model was in memory before the run; if so, nothing is unloaded. */
+    anyModelWasLoaded: boolean;
+    /** The image backend the run makes its image on, when it held no model before the run. */
+    imageBackendToFree: string | null;
+    /** Backends accepted only because they cannot take the run's requests. */
+    bystanders: string[];
     usedLlm: boolean;
-    usedImageBackends: boolean;
     notes: string[];
 };
 
@@ -30,10 +36,13 @@ export function newState(): RunState {
         tokens: 0,
         images: 0,
         created: { threads: [], presets: [], knowledge: [], images: [] },
-        llmWasLoaded: false,
-        emptyImageBackends: [],
+        imageCalls: [],
+        knowledgeStarted: false,
+        knowledgePending: false,
+        anyModelWasLoaded: false,
+        imageBackendToFree: null,
+        bystanders: [],
         usedLlm: false,
-        usedImageBackends: false,
         notes: []
     };
 }
@@ -60,9 +69,19 @@ export function updateState(change: (state: RunState) => void): RunState {
 
 /** Room set aside under the run's caps before a model is asked for something. */
 export type Hold = {
-    /** Replaces the estimate with what happened. A figure left out keeps its estimate. */
-    settle(requests?: number, tokens?: number): void;
+    /** Replaces the estimate with what happened. A figure left out keeps its estimate; with <c>incomplete</c> counts the larger of the two stays. */
+    settle(requests?: number, tokens?: number, incomplete?: boolean): void;
 };
+
+/** The token counts SwarmUI reports for a turn. */
+export type Usage = { rounds: number; promptTokens: number; completionTokens: number; incomplete?: boolean };
+
+/** Settles a hold from a turn's reported usage; without a report the estimate stays. <c>extra</c> is what the report does not cover. */
+export function settleUsage(held: Hold, usage: Usage | undefined, extra: { requests: number; tokens: number } = { requests: 0, tokens: 0 }) {
+    if (usage) {
+        held.settle(usage.rounds + extra.requests, usage.promptTokens + usage.completionTokens + extra.tokens, usage.incomplete === true);
+    }
+}
 
 /** Counts <c>requests</c> and <c>tokens</c> against the caps. Returns the reason when there is no room (and counts nothing). */
 export function hold(requests: number, tokens: number, images = 0): Hold | string {
@@ -82,10 +101,11 @@ export function hold(requests: number, tokens: number, images = 0): Hold | strin
         s.images += images;
     });
     return {
-        settle(actualRequests?: number, actualTokens?: number) {
+        settle(actualRequests?: number, actualTokens?: number, incomplete = false) {
+            let settled = (estimate: number, actual?: number) => actual === undefined ? estimate : incomplete ? Math.max(estimate, actual) : actual;
             updateState(s => {
-                s.requests += (actualRequests ?? requests) - requests;
-                s.tokens += (actualTokens ?? tokens) - tokens;
+                s.requests += settled(requests, actualRequests) - requests;
+                s.tokens += settled(tokens, actualTokens) - tokens;
             });
         }
     };

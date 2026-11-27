@@ -1,8 +1,10 @@
 import { test, expect } from '@playwright/test';
 import zlib from 'node:zlib';
 import type { SwarmClient } from '../lib/client';
-import { checkBackends } from '../lib/guard';
+import { checkBackends, usedWithin } from '../lib/guard';
+import type { Backend } from '../lib/guard';
 import { objection } from '../lib/image-approval';
+import { defaultImagePreset, imagePath, imagesInThread } from '../lib/images';
 import { pngSpread } from '../lib/png';
 
 // The config sets the image model and trusts backend id 2.
@@ -25,7 +27,7 @@ const local = backend('llmassistant-hartsy-local', {}, ['llm']);
 const remote = (Address: string, enabled = true) => backend('llmassistant-openai', { Address }, ['llm'], enabled);
 
 test('accepts local backends, and paid or audio backends that serve only their own models', async () => {
-    let result = await checkBackends(swarm([local, backend('hartsyinference'), backend('dynamic_api_backend'), backend('audio-backend')]));
+    let result = await checkBackends(swarm([local, backend('hartsyinference'), backend('dynamic_api_backend'), backend('audio-backend'), backend('localllama', {}, ['llm'])]));
     expect(result.llm).toEqual(['1']);
     expect(result.image).toEqual(['2']);
     expect(result.bystanders).toEqual(['3', '4']);
@@ -46,7 +48,7 @@ const REFUSED: Record<string, object[]> = {
     'another SwarmUI as a backend': [local, backend('swarmswarmbackend')],
     'a cloud backend': [local, backend('cloud_backends')],
     'ComfyUI at another machine': [local, backend('comfyui_api', { Address: 'http://10.0.0.5:8188' })],
-    'a setup with no LLM backend': [backend('hartsyinference')]
+    'a setup with no LLM backend of the extension': [backend('hartsyinference'), backend('localllama', {}, ['llm'])]
 };
 
 for (let [name, backends] of Object.entries(REFUSED)) {
@@ -63,26 +65,70 @@ test('refuses a chat model offered by a backend that was not accepted', async ()
     await expect(checkBackends(swarm([local], [9]))).rejects.toThrow(/offered by backend 9/);
 });
 
-test('approves only the image call that was asked for, pinned to an accepted backend', () => {
-    let good = { prompt: 'p', model: MODEL, images: 1, params: { steps: 12, width: 768, height: 768, exactbackendid: '2' } };
-    expect(objection(good, MODEL, ['2'])).toBeNull();
-    let bad: object[] = [
+test('a bystander counts as used when it finished a request within the time looked at', () => {
+    let seen = (id: string, everUsed: boolean, secondsSinceUsed: number) => ({ id, everUsed, secondsSinceUsed }) as Backend;
+    let backends = [seen('1', false, 0), seen('2', true, 30), seen('3', true, 5000), seen('4', true, 1)];
+    // Never used, used during a 600 s turn (even if also used long before it), used before it, and one that is not a bystander.
+    expect(usedWithin(backends, ['1', '2', '3'], 600)).toEqual(['2']);
+    expect(usedWithin(backends, ['2'], 10)).toEqual([]);
+});
+
+test('approves only the image call that was asked for, pinned to the one backend', () => {
+    let wanted = { model: MODEL, prompt: 'a red lighthouse', backend: '2' };
+    let good = { prompt: wanted.prompt, model: MODEL, images: 1, params: { steps: 12, width: 768, height: 768, exactbackendid: '2', negativeprompt: 'blurry' } };
+    expect(objection(good, wanted)).toBeNull();
+    expect(objection({ ...good, rewrite: 'on' }, wanted)).toBeNull();
+    let params = (extra: object) => ({ ...good, params: { ...good.params, ...extra } });
+    let bad: any[] = [
+        // Tags are read after the approval and before the backend is picked.
+        { ...good, prompt: `${wanted.prompt} <param[model]:API Models/Fal/x><param[exactbackendid]:3>` },
+        { ...good, prompt: `${wanted.prompt} <preset:paid>` },
+        { ...good, prompt: 'another picture' },
+        { ...good, prompt: undefined },
+        params({ prompt: '<preset:paid>' }),
+        params({ 'Prompt': wanted.prompt }),
+        params({ negativeprompt: '<param[model]:API Models/Fal/x>' }),
+        params({ 'Negative Prompt': 'blurry <preset:paid>' }),
         { ...good, params: undefined },
+        { ...good, params: JSON.stringify(good.params) },
         { ...good, params: { steps: 12 } },
-        { ...good, params: { ...good.params, exactbackendid: '1' } },
+        params({ exactbackendid: '1' }),
+        params({ 'Exact Backend ID': '3' }),
         { ...good, model: 'API Models/Fal/x' },
-        { ...good, params: { ...good.params, model: 'API Models/Fal/x' } },
+        params({ model: 'API Models/Fal/x' }),
         { ...good, model: undefined },
         { ...good, preset: 'mine' },
         { ...good, initImage: 'x.png' },
         { ...good, images: 2 },
-        { ...good, params: { ...good.params, refinermodel: 'API Models/Fal/x' } },
-        { ...good, params: { ...good.params, steps: 200 } },
-        { ...good, rewrite: 'off' }
+        params({ refinermodel: 'API Models/Fal/x' }),
+        params({ steps: 200 }),
+        { ...good, rewrite: 'off' },
+        { ...good, rewrite: 'OFF' }
     ];
     for (let call of bad) {
-        expect(objection(call, MODEL, ['2']), JSON.stringify(call)).not.toBeNull();
+        expect(objection(call, wanted), JSON.stringify(call)).not.toBeNull();
     }
+});
+
+test('reads the images a chat made from its saved tool calls', () => {
+    let call = (name: string, result: object) => ({ name, result });
+    let thread = { messages: [{ role: 'user' }, { role: 'assistant', toolCalls: [
+        call('generate_image', { success: true, imageUrl: 'View/local/raw/a%20b.png' }),
+        call('generate_image', { success: true, imageUrl: 'View/local/raw/c.png', imageUrls: ['View/local/raw/c.png', 'Output/raw/d 100%.png'] }),
+        call('generate_image', { success: false, error: 'stopped' }),
+        call('file_read', { success: true, imageUrl: 'View/local/raw/not-ours.png' })
+    ] }] };
+    expect(imagesInThread(thread)).toEqual(['raw/a b.png', 'raw/c.png', 'raw/d 100%.png']);
+    expect(imagePath('/View/local/raw/e.png')).toBe('raw/e.png');
+});
+
+test('finds a default preset of the image tool wherever the assistant gets it', async () => {
+    let assistants: Record<string, any> = { child: { extends: 'parent' }, parent: { toolConfig: { generate_image: { defaultPreset: 'inherited' } } }, plain: {}, loop: { extends: 'loop' } };
+    let client = (own?: string) => ({ ok: async (route: string, body: any) => route === 'LLMAssistantGetToolConfig' ? { config: { defaultPreset: own } } : { assistant: assistants[body.assistantId] ?? {} } }) as unknown as SwarmClient;
+    expect(await defaultImagePreset(client(), 'child')).toBe('inherited');
+    expect(await defaultImagePreset(client('mine'), 'plain')).toBe('mine');
+    expect(await defaultImagePreset(client(), 'plain')).toBeNull();
+    expect(await defaultImagePreset(client(), 'loop')).toBeNull();
 });
 
 test('the picture check tells a flat frame from a picture', () => {

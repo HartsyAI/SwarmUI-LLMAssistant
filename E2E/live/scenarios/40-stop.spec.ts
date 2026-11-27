@@ -1,7 +1,9 @@
-import { test, expect, config, PROMPT_ALLOWANCE } from '../lib/live';
+import { test, expect, config, settleUsage, PROMPT_ALLOWANCE } from '../lib/live';
 
 const STOP_AFTER_CHUNKS = 12;
 const LONG_REPLY = 900;
+/** A loaded model answers a few words well within this; one still writing the stopped story does not. */
+const NEXT_SECONDS = 20;
 
 test('Stop ends a streaming reply, keeps what was written and frees the model', async ({ live }) => {
     await live.whenIdle();
@@ -32,7 +34,9 @@ test('Stop ends a streaming reply, keeps what was written and frees the model', 
     let held = live.reserve(1, PROMPT_ALLOWANCE.plain + 20);
     let started = Date.now();
     let next = await live.client.ok('LLMAssistantRunTurn', { threadId: await live.createChat('after stop', { tools: false }), message: 'Reply with the single word: ready', model: config.chatModel, maxTokens: 20, enableThinking: false }, config.turnTimeoutMs);
-    held.settle(next.usage?.rounds, next.usage ? next.usage.promptTokens + next.usage.completionTokens : undefined);
-    live.note(`The next request answered in ${((Date.now() - started) / 1000).toFixed(1)}s.`);
+    let took = (Date.now() - started) / 1000;
+    settleUsage(held, next.usage);
+    live.note(`The next request answered in ${took.toFixed(1)}s.`);
     expect(next.response.length).toBeGreaterThan(0);
+    expect(took, 'the next request was not held up').toBeLessThan(NEXT_SECONDS);
 });

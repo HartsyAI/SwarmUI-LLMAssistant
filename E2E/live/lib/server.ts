@@ -1,19 +1,27 @@
 import type { SwarmClient } from './client';
-import { config } from './config';
+import { config, timing } from './config';
 import { listBackends } from './guard';
+import { imagesInThread } from './images';
 import { readState, updateState } from './state';
+import type { RunState } from './state';
 
 const GB = 1024 ** 3;
 
-export async function chatModelInfo(client: SwarmClient): Promise<any | null> {
-    let reply = await client.ok('LLMAssistantGetModels');
-    return (reply.models ?? []).find((m: any) => m.id === config.chatModel) ?? null;
+const pause = (ms: number) => new Promise(done => setTimeout(done, ms));
+
+export async function listChatModels(client: SwarmClient): Promise<any[]> {
+    return (await client.ok('LLMAssistantGetModels')).models ?? [];
 }
 
-/** Whether SwarmUI has no image work waiting, loading or running, for any user. Null when it will not say. */
-async function generationsIdle(client: SwarmClient): Promise<string | null> {
+export async function chatModelInfo(client: SwarmClient): Promise<any | null> {
+    return (await listChatModels(client)).find((m: any) => m.id === config.chatModel) ?? null;
+}
+
+/** Whether SwarmUI has image work waiting, loading or running. <c>everyone</c> says whether every user's work was visible. */
+async function generations(client: SwarmClient): Promise<{ busy: string | null; everyone: boolean }> {
     let global = await client.call('GetGlobalStatus');
-    if (global.error) {
+    let everyone = !global.error;
+    if (!everyone) {
         // Without the right to see every user's work, this session's own is all there is to look at.
         global = await client.ok('GetCurrentStatus');
     }
@@ -21,137 +29,241 @@ async function generationsIdle(client: SwarmClient): Promise<string | null> {
     if (global.backend_status?.any_loading) {
         busy.push('a backend is loading');
     }
-    return busy.length > 0 ? `SwarmUI is busy (${busy.join(', ')})` : null;
+    return { busy: busy.length > 0 ? `SwarmUI is busy (${busy.join(', ')})` : null, everyone };
 }
 
-/** Why the server is not ready for a GPU scenario, or null when it is. Reads memory and GPU use through SwarmUI's own resource route;
- * a model request from another program does not show in SwarmUI's counters, so free memory and GPU use are looked at too. */
-export async function busyReason(client: SwarmClient, kind: 'llm' | 'image'): Promise<{ reason: string | null; seen: string }> {
-    let busy = await generationsIdle(client);
-    if (busy) {
-        return { reason: busy, seen: busy };
+type Look = {
+    /** Image work in SwarmUI, or null. */
+    busy: string | null;
+    /** The least free system RAM and the most free memory on one GPU over the samples; Infinity when not visible. */
+    ram: number;
+    vram: number;
+    /** The use of the busiest GPU (the median sample). */
+    util: number;
+    /** Whether everyone's work and the use of the GPUs could be seen. Without that, nothing proves the server is unused. */
+    known: boolean;
+};
+
+/** Looks at the server through SwarmUI's own routes. A model request from another program does not show in SwarmUI's counters, so
+ * memory and GPU use are looked at too. */
+async function look(client: SwarmClient): Promise<Look> {
+    let work = await generations(client);
+    let seen: Look = { busy: work.busy, ram: Infinity, vram: Infinity, util: 0, known: false };
+    if (work.busy) {
+        return seen;
     }
-    let loaded = kind === 'llm' && (await chatModelInfo(client))?.is_loaded === true;
-    let minRam = kind === 'image' ? config.minFreeRamImageGb : config.minFreeRamGb;
-    let minVram = kind === 'image' ? config.minFreeVramImageGb : config.minFreeVramGb;
-    let free = { ram: Infinity, vram: Infinity };
     let utils: number[] = [];
     for (let sample = 0; sample < 3; sample++) {
         let info = await client.call('GetServerResourceInfo');
         if (info.error) {
-            return { reason: null, seen: 'memory and GPU use not visible to this user, so not checked' };
+            return seen;
         }
-        free.ram = Math.min(free.ram, info.system_ram.free / GB);
+        seen.ram = Math.min(seen.ram, info.system_ram.free / GB);
         let gpus = Object.values<any>(info.gpus ?? {});
         if (gpus.length > 0) {
-            free.vram = Math.min(free.vram, Math.max(...gpus.map(g => g.free_memory / GB)));
-            utils.push(Math.min(...gpus.map(g => g.utilization_gpu)));
+            seen.vram = Math.min(seen.vram, Math.max(...gpus.map(g => g.free_memory / GB)));
+            utils.push(Math.max(...gpus.map(g => g.utilization_gpu)));
         }
         if (sample < 2) {
-            await new Promise(done => setTimeout(done, 2000));
+            await pause(timing.sampleMs);
         }
     }
-    let util = utils.length > 0 ? utils.sort((a, b) => a - b)[Math.floor(utils.length / 2)] : 0;
-    let seen = `free RAM ${free.ram.toFixed(1)} GB, free VRAM ${free.vram === Infinity ? 'unknown' : `${free.vram.toFixed(1)} GB`}, GPU use ${util}%${loaded ? ', chat model already loaded' : ''}`;
+    seen.util = utils.length > 0 ? utils.sort((a, b) => a - b)[Math.floor(utils.length / 2)] : 0;
+    seen.known = work.everyone && utils.length === 3;
+    return seen;
+}
+
+/** Why the server is not ready for a GPU scenario, or null when it is. */
+export async function busyReason(client: SwarmClient, kind: 'llm' | 'image'): Promise<{ reason: string | null; seen: string }> {
+    let now = await look(client);
+    if (now.busy) {
+        return { reason: now.busy, seen: now.busy };
+    }
+    let loaded = kind === 'llm' && (await chatModelInfo(client))?.is_loaded === true;
+    let minRam = kind === 'image' ? config.minFreeRamImageGb : config.minFreeRamGb;
+    let minVram = kind === 'image' ? config.minFreeVramImageGb : config.minFreeVramGb;
+    let gb = (value: number) => value === Infinity ? 'unknown' : `${value.toFixed(1)} GB`;
+    let seen = `free RAM ${gb(now.ram)}, free VRAM ${gb(now.vram)}, GPU use ${now.util}%${loaded ? ', chat model already loaded' : ''}${now.known ? '' : ' (not everything is visible to this user)'}`;
     // A chat model that is already in memory needs no more of it.
-    if (!loaded && free.ram < minRam) {
-        return { reason: `free system RAM is ${free.ram.toFixed(1)} GB, under the ${minRam} GB wanted`, seen };
+    if (!loaded && now.ram < minRam) {
+        return { reason: `free system RAM is ${now.ram.toFixed(1)} GB, under the ${minRam} GB wanted`, seen };
     }
-    if (!loaded && free.vram < minVram) {
-        return { reason: `free GPU memory is ${free.vram.toFixed(1)} GB, under the ${minVram} GB wanted`, seen };
+    if (!loaded && now.vram < minVram) {
+        return { reason: `free GPU memory is ${now.vram.toFixed(1)} GB, under the ${minVram} GB wanted`, seen };
     }
-    if (util > config.maxGpuUtil) {
-        return { reason: `the GPU is ${util}% busy, over the ${config.maxGpuUtil}% allowed`, seen };
+    if (now.util > config.maxGpuUtil) {
+        return { reason: `a GPU is ${now.util}% busy, over the ${config.maxGpuUtil}% allowed`, seen };
     }
     return { reason: null, seen };
 }
 
-/** Deletes what the run made and still lists. Returns one line per thing it could not delete. */
-export async function deleteCreated(client: SwarmClient): Promise<string[]> {
-    let failures: string[] = [];
-    let remove = async (kind: keyof NonNullable<ReturnType<typeof readState>>['created'], id: string, action: () => Promise<void>) => {
+/** Why memory must not be freed now, or null when the server is seen to be unused. Waits a little for it to settle. */
+async function inUse(client: SwarmClient): Promise<string | null> {
+    let reason: string | null = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+        let now = await look(client);
+        reason = now.busy ?? (!now.known ? 'whether the server is in use cannot be seen' : now.util > config.maxGpuUtil ? `a GPU is ${now.util}% busy` : null);
+        if (!reason || (!now.busy && !now.known)) {
+            return reason;
+        }
+        await pause(timing.retryMs);
+    }
+    return reason;
+}
+
+export type Cleanup = {
+    /** How many things of each kind were there and are now deleted. */
+    deleted: { threads: number; presets: number; knowledge: number; images: number };
+    /** Things the run still lists because deleting them failed. */
+    failures: string[];
+    /** Things that may be left although the run could not find them. */
+    warnings: string[];
+};
+
+/** Reads a chat's saved image results before it goes. A turn that was just stopped saves its reply a little later, so a chat with an
+ * allowed image call is given that time. */
+async function recordImages(client: SwarmClient, threadId: string, imageAllowed: boolean, warnings: string[]) {
+    let deadline = Date.now() + (imageAllowed ? timing.settleMs : 0);
+    while (true) {
+        let thread = (await client.ok('LLMAssistantGetThread', { threadId })).thread;
+        let paths = imagesInThread(thread);
+        let answered = (thread.messages ?? []).some((m: any) => (m.toolCalls ?? []).some((c: any) => c.name === 'generate_image'));
+        if (paths.length > 0 || answered || Date.now() >= deadline) {
+            updateState(s => s.created.images = [...new Set([...s.created.images, ...paths])]);
+            if (imageAllowed && paths.length === 0) {
+                warnings.push(`An image may remain in your image history: an image call was allowed in chat ${threadId}, but the chat holds no address of an image.`);
+            }
+            return;
+        }
+        await pause(timing.retryMs);
+    }
+}
+
+/** Finds knowledge documents by the run id in their title: one whose adding timed out has no recorded id. */
+async function recordKnowledge(client: SwarmClient, state: RunState, warnings: string[]) {
+    if (!state.knowledgeStarted) {
+        return;
+    }
+    let library = await client.ok('LLMAssistantGetKnowledge');
+    let found: string[] = (library.documents ?? []).filter((d: any) => String(d.title).includes(`Live smoke ${state.runId}`)).map((d: any) => d.id);
+    let unrecorded = found.filter(id => !state.created.knowledge.includes(id));
+    updateState(s => s.created.knowledge = [...s.created.knowledge, ...unrecorded]);
+    if (state.knowledgePending && unrecorded.length === 0) {
+        warnings.push(`A knowledge document titled "Live smoke ${state.runId}..." may still appear: adding it did not finish.`);
+    }
+}
+
+/** Deletes what the run made, and nothing else. */
+export async function deleteCreated(client: SwarmClient): Promise<Cleanup> {
+    let result: Cleanup = { deleted: { threads: 0, presets: 0, knowledge: 0, images: 0 }, failures: [], warnings: [] };
+    let remove = async (kind: keyof Cleanup['deleted'], id: string, action: () => Promise<boolean>) => {
         try {
-            await action();
+            if (await action()) {
+                result.deleted[kind]++;
+            }
             updateState(s => s.created[kind] = s.created[kind].filter(other => other !== id));
         }
         catch (error: any) {
-            failures.push(`${kind} ${id}: ${error.message}`);
+            result.failures.push(`${kind} ${id}: ${error.message}`);
         }
     };
     let state = readState();
     if (!state) {
-        return failures;
+        return result;
     }
     for (let id of state.created.threads) {
         await remove('threads', id, async () => {
             await client.call('LLMAssistantStopGeneration', { threadId: id });
+            // Read first: once the chat is gone, nothing says which images it made.
+            await recordImages(client, id, state.imageCalls.includes(id), result.warnings);
             await client.ok('LLMAssistantDeleteThread', { threadId: id });
+            return true;
         });
     }
     for (let title of state.created.presets) {
         await remove('presets', title, async () => {
             let mine = await client.ok('GetMyUserData');
-            if ((mine.presets ?? []).some((p: any) => p.title === title)) {
-                await client.ok('DeletePreset', { preset: title });
+            if (!(mine.presets ?? []).some((p: any) => p.title === title)) {
+                return false;
             }
+            await client.ok('DeletePreset', { preset: title });
+            return true;
         });
     }
-    for (let id of state.created.knowledge) {
+    try {
+        await recordKnowledge(client, readState()!, result.warnings);
+    }
+    catch (error: any) {
+        result.failures.push(`knowledge documents of this run could not be listed: ${error.message}`);
+    }
+    for (let id of readState()!.created.knowledge) {
         await remove('knowledge', id, async () => {
             await client.ok('LLMAssistantDeleteKnowledge', { docId: id });
+            return true;
         });
     }
-    for (let image of config.keepImage ? [] : state.created.images) {
+    // Read again: the chats above may have added images.
+    for (let image of config.keepImage ? [] : readState()!.created.images) {
         await remove('images', image, async () => {
             await client.ok('DeleteImage', { path: image });
+            return true;
         });
     }
-    return failures;
+    return result;
 }
 
-/** Unloads the chat model when this run is what loaded it and the server is quiet: nothing generating and the GPU not busy, which is
- * the only sign of a chat reply someone else is waiting for. Returns what it did, or null when there was nothing to do. */
+/** Unloads the chat model when only this run can have loaded what is loaded, and the server is seen to be unused. The route unloads
+ * every provider's models, so one other loaded model is reason enough to leave them all. Returns what it did, or null for nothing. */
 export async function unloadOwnChatModel(client: SwarmClient): Promise<string | null> {
     let state = readState();
     if (!state?.usedLlm) {
         return null;
     }
-    if (state.llmWasLoaded) {
-        return 'The chat model was loaded before the run, so it was left loaded.';
+    if (state.anyModelWasLoaded) {
+        return 'A chat model was loaded before the run, so nothing was unloaded.';
     }
-    if ((await chatModelInfo(client))?.is_loaded !== true) {
+    let loaded: string[] = (await listChatModels(client)).filter(m => m.is_loaded === true).map(m => m.id);
+    if (loaded.length === 0) {
         return null;
     }
-    let busy = (await busyReason(client, 'llm')).reason;
-    for (let attempt = 0; busy && attempt < 5; attempt++) {
-        await new Promise(done => setTimeout(done, 5000));
-        busy = (await busyReason(client, 'llm')).reason;
+    let others = loaded.filter(id => id !== config.chatModel);
+    if (others.length > 0) {
+        return `Nothing was unloaded: a model this run does not use is loaded too (${others.join(', ')}).`;
     }
-    if (busy) {
-        return `The chat model was left loaded: ${busy}.`;
+    let reason = await inUse(client);
+    if (reason) {
+        return `The chat model was left loaded: ${reason}.`;
     }
     let reply = await client.ok('LLMAssistantUnloadModels', {}, 120_000);
     return `Unloaded the chat model (${reply.freed} of ${reply.providers} LLM providers freed something).`;
 }
 
-/** Frees only what the run loaded, and only while nothing else is generating. Returns what it did. */
+const plain = (name: unknown) => String(name ?? '').toLowerCase().replace(/\.safetensors$/, '');
+
+/** Frees the one image backend the run made its image on, if it was empty before and holds the run's model now. */
+async function freeOwnImageModel(client: SwarmClient): Promise<string | null> {
+    let state = readState()!;
+    // Without an allowed image call the run loaded no image model.
+    if (!state.imageBackendToFree || state.imageCalls.length === 0) {
+        return null;
+    }
+    let backend = (await listBackends(client)).find(b => b.id === state.imageBackendToFree);
+    if (!backend?.currentModel || plain(backend.currentModel) !== plain(config.imageModel)) {
+        return null;
+    }
+    let reason = await inUse(client);
+    if (reason) {
+        return `Image backend ${backend.id} still holds the run's model: ${reason}.`;
+    }
+    await client.ok('FreeBackendMemory', { system_ram: false, backend: backend.id }, 120_000);
+    return `Freed the GPU memory of image backend ${backend.id}, which held no model before the run.`;
+}
+
+/** Frees only what the run loaded, and only while the server is unused. Returns what it did. */
 export async function unloadWhatWasLoaded(client: SwarmClient): Promise<string[]> {
-    let state = readState();
-    let done: string[] = [];
-    if (!state) {
-        return done;
+    if (!readState()) {
+        return [];
     }
-    let unloaded = await unloadOwnChatModel(client);
-    if (unloaded) {
-        done.push(unloaded);
-    }
-    if (state.usedImageBackends && state.emptyImageBackends.length > 0 && !await generationsIdle(client)) {
-        for (let backend of await listBackends(client)) {
-            if (state.emptyImageBackends.includes(backend.id) && backend.currentModel) {
-                await client.ok('FreeBackendMemory', { system_ram: false, backend: backend.id }, 120_000);
-                done.push(`Freed the GPU memory of image backend ${backend.id}, which held no model before the run.`);
-            }
-        }
-    }
-    return done;
+    let done = [await unloadOwnChatModel(client), await freeOwnImageModel(client)];
+    return done.filter(line => line !== null);
 }

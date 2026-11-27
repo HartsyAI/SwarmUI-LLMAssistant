@@ -45,8 +45,9 @@ test('a chat near the window is summarized before the reply', async ({ live }) =
     let before = await live.client.ok('LLMAssistantRunTurn', { threadId, message: question, model: config.chatModel, dryRun: true }, 120_000);
     live.note(`Window ${window}, threshold ${threshold}, estimate ${before.estimatedPromptTokens} tokens; dry run says wouldCompact ${before.wouldCompact}.`);
     expect(before.wouldCompact, 'the dry run foresees the summary').toBe(true);
-    // The summary reads about four clipped messages and writes at most 1,500 tokens.
-    let result = await live.chatTurn(threadId, question, { summary: { tokens: Math.ceil(4 * CLIP / 4) + 2500 }, estimate: PROMPT_ALLOWANCE.plain + 3000 + config.maxReplyTokens, timeoutMs: 2 * config.turnTimeoutMs });
+    // The summary reads about four clipped messages and writes at most 1,500 tokens. If it fails, the reply is sent the whole chat, so
+    // that is what is held for the reply (the estimate with room for its error).
+    let result = await live.chatTurn(threadId, question, { summary: { tokens: Math.ceil(4 * CLIP / 4) + 2500 }, estimate: Math.ceil(before.estimatedPromptTokens * 1.2) + PROMPT_ALLOWANCE.plain + config.maxReplyTokens, timeoutMs: 2 * config.turnTimeoutMs });
     let failed = result.frames.find(f => f.compactionFailed);
     expect(failed?.compactionFailed, 'the summary was written').toBeUndefined();
     expect(result.frames.some(f => f.compacting), 'a compacting frame').toBe(true);

@@ -5,10 +5,10 @@ import { config, notConfigured } from './config';
 import { checkBackends } from './guard';
 import type { GuardResult } from './guard';
 import { busyReason, chatModelInfo } from './server';
-import { hold, readState, updateState } from './state';
+import { hold, readState, settleUsage, updateState } from './state';
 import type { Hold } from './state';
 
-export { expect, config };
+export { expect, config, settleUsage };
 
 /** A rough token count (four characters a token), for holding room under the cap before a request. */
 export const roughTokens = (text: string) => Math.ceil(text.length / 4);
@@ -118,8 +118,23 @@ export class Live {
         return dry.tools ?? [];
     }
 
+    /** Skips a turn with tools while MCP tools are offered: one that only reads runs without asking, and its server may charge. */
+    refuseUnaskedMcp(offered: string[]) {
+        let mcp = offered.filter(id => id.startsWith('mcp__'));
+        if (mcp.length > 0 && !config.allowMcp) {
+            this.skip(`MCP tools are offered (${mcp.slice(0, 3).join(', ')}), and a reading one would run unasked. Set LLMA_LIVE_ALLOW_MCP=1 if none of them costs money.`);
+        }
+    }
+
+    /** The most one prompt rewrite can cost: two attempts and a negative prompt, each up to the settings' token cap. */
+    async rewriteCap(): Promise<{ requests: number; tokens: number; named: string }> {
+        let settings = (await this.client.ok('LLMAssistantGetSettings')).settings;
+        return { requests: 3, tokens: 3 * ((settings.promptRewrite?.maxTokens ?? 2048) + 1500), named: settings.promptRewrite?.model ?? '' };
+    }
+
     async requireTool(threadId: string, tool: string) {
         let offered = await this.offeredTools(threadId);
+        this.refuseUnaskedMcp(offered);
         if (!offered.includes(tool)) {
             this.skip(`The tool "${tool}" is not offered to your active assistant (switch it on in Settings > Tools and in the assistant). The suite changes no settings.`);
         }
@@ -176,8 +191,7 @@ export class Live {
         finally {
             result.seconds = (Date.now() - started) / 1000;
             result.visible = stripThinking(result.text);
-            let usage = result.done?.usage;
-            held.settle(usage ? usage.rounds + summary.requests : undefined, usage ? usage.promptTokens + usage.completionTokens + summary.tokens : undefined);
+            settleUsage(held, result.done?.usage, summary);
         }
         return result;
     }
@@ -218,5 +232,7 @@ export const test = base.extend<{ live: Live }>({
         for (let threadId of readState()!.created.threads.filter(id => !mine.has(id))) {
             await client.call('LLMAssistantStopGeneration', { threadId }).catch(() => { });
         }
+        // A backend added while the scenario ran fails it here.
+        await checkBackends(client);
     }
 });

@@ -18,7 +18,7 @@ Scenarios ran with the composer's Thinking switch off. The local engine is the o
 
 ## Results
 
-One full run: 8 passed, 3 failed, 1 skipped in 4.6 minutes, 18 model requests, about 52,000 tokens, 1 image. The three failures are the two defects below. Afterwards the run's 11 chats, 2 presets and image were gone and the models it loaded were unloaded.
+One full run: 8 passed, 3 failed, 1 skipped in 4.6 minutes, 18 model requests, about 52,000 tokens, 1 image. The three failures are the two defects below. Afterwards the run's 11 chats, 1 preset and 1 image were gone and the models it loaded were unloaded.
 
 | Scenario | Result | Measured |
 |---|---|---|
@@ -43,7 +43,7 @@ The paid image API backend enabled on the same server was not used.
 
 | # | Where | What happens | Tag |
 |---|---|---|---|
-| 1 | Automatic prompt rewrite, and `LLMAssistantRewritePrompt` without `rewriteModel` | With no rewriting model set, the request carries no model name. The local engine answers `LLM model '' not found in the LLM model folder(s)`, so the rewrite falls back and the prompt is used as written. The image the assistant made was generated from the unrewritten prompt. Naming the model works. Workaround: choose a rewriting model in the *Try a rewrite* box. | fix now (fix open) |
+| 1 | Automatic prompt rewrite, and `LLMAssistantRewritePrompt` without `rewriteModel` | With no rewriting model set, the request carries no model name. The local engine answers `LLM model '' not found in the LLM model folder(s)`, so the rewrite falls back and the prompt is used as written. The image the assistant made was generated from the unrewritten prompt. Naming the model works. Workaround: in the *Try a rewrite* box choose a model and press *Use this chat model by default*. | fix now (fix open) |
 | 2 | Headless dry run (`estimatedPromptTokens`) | Tool definitions are not counted. The same message gives an estimate of 868 with 0 tools and with 11, while the real turns counted 811 and 4,129 prompt tokens: with tools on the estimate is 0.21 of the real figure. The "larger than the model's window" warning is built on the same figure. | fix now (fix open) |
 | 3 | Long chats | The summarizer is given only the first 6,000 characters of each message, so the rest of a long message is not in the summary (a code at the end of a 34,407-character message was lost). Deliberate in `CompactionPlanner.BuildTranscript`; the README does not say so. | backlog |
 | 4 | Local engine | Free GPU memory kept falling over a run while the model stayed loaded and new chats were made: 3.7 GB before the second scenario, 1.1 GB by the Stop scenario, 0.3 GB before the rewrites. Nothing failed, and the cause was not investigated (Reuse Chat Memory keeping one cache per chat is a guess). Other programs share the GPU. | backlog, engine: investigate |
