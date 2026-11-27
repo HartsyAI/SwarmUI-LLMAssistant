@@ -258,7 +258,7 @@ Click the compare icon next to the model picker, choose a second model, and send
 
 ### Long chats <a id="long-chats"></a>
 
-The bar above the chat shows how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own. An estimate in the bar covers the conversation only; the server's own estimate, which decides when to shorten a chat no reply has reported a count for, adds the instructions and the offered tools' definitions.
+The bar above the chat shows how many **tokens** the conversation holds, out of the model's **context window**. The count is what the model itself reported for its last reply (a `~` in front means it is an estimate, for a provider that reports none). The window is what you set in `Settings > General > Context`, else what the model's own listing says; a model that states none (many local endpoints do not) shows the count without a limit, and is never shortened on its own.
 
 When a chat reaches **80%** of the window (`Shorten At`), the start of it is replaced, for the next request, by a short **summary** the model writes (`Shorten Long Chats`, on by default). The newest messages are kept as they are. You can also type **`/compact`** in the composer to do it now, and add what the summary should dwell on (`/compact keep the file names`). A marker row in the chat shows where the summary ends and opens to show its text.
 
@@ -266,6 +266,7 @@ When a chat reaches **80%** of the window (`Shorten At`), the start of it is rep
 - A summary applies only while the messages it covers are exactly the start of the branch showing. Fork the chat before it, or edit one of those messages, and the summary quietly stops applying (the full history is sent again). A later compaction builds on the earlier summary rather than starting over.
 - If writing the summary fails, the reply goes ahead with the whole chat and the failure is shown. Compare mode applies an existing summary but does not start one.
 - The summary is written by the chat's own model, with no tools, in a request of its own, so it cannot call anything and does not disturb the chat's prompt cache beyond the one time the history changes.
+- Until a reply reports a count (and just after a summary), the server estimates the chat's size to decide whether to shorten it. That estimate counts the instructions and the offered tools' definitions too, unless those fill the window by themselves, where no summary would help. A `~` figure in the bar covers the conversation only.
 
 ### Usage and cost <a id="usage-and-cost"></a>
 
