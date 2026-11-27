@@ -309,7 +309,7 @@
 .llma-messages[aria-busy="true"] > .llma-msg-row.assistant:last-child .llma-msg-actions,
 .llma-messages[aria-busy="true"] > .llma-compare-row:last-child .llma-msg-actions { display: none; }
 /* Retry stands under a reply that failed or was stopped: that reply offers no Regenerate beside it. */
-.llma-msg-under-retry .llma-msg-regen { display: none; }
+.llma-msg-under-retry .llma-msg-action-btn.llma-msg-regen { display: none; }
 
 /* Branch indicator — shown when a message has sibling branches (edit / regenerate). A labeled pill
    (⑂ ‹ Branch k / n › ▾) that stays visible (outside the hover-faded actions) so it reads as a
