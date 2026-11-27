@@ -311,6 +311,11 @@ public sealed class MemoryNoteSet
                 continue;
             }
             DateTime time = candidate.LastUsedAt ?? candidate.CreatedAt;
+            // A prompt rewrite's use counts here too: a style note the rewrite is given every day is not the least recently used.
+            if (candidate.LastRewriteAt > time)
+            {
+                time = candidate.LastRewriteAt.Value;
+            }
             if (victim is null || time < victimTime)
             {
                 victim = candidate;

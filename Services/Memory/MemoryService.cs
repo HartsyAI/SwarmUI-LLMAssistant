@@ -296,6 +296,7 @@ public static class MemoryService
         ["threadId"] = note.ThreadId,
         ["created"] = note.Created,
         ["lastUsed"] = note.LastUsed,
+        ["lastRewrite"] = note.LastRewrite,
         ["pinned"] = note.Pinned,
         ["slot"] = note.Slot,
         ["negative"] = note.Negative

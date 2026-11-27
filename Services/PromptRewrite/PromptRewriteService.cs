@@ -5,6 +5,7 @@ using Hartsy.Extensions.LLMAssistant.Services.Memory;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
 using SwarmUI.Accounts;
 using SwarmUI.Core;
+using SwarmUI.Utils;
 
 namespace Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
 
@@ -67,7 +68,15 @@ public static class PromptRewriteService
         // Only a rewrite that asked the writing model (now, or for the cached answer) counts for the notes: a prompt left as it was never sent them.
         if (noteIds.Count > 0 && result.Usage is not null)
         {
-            MemoryService.StoreFor(user).MarkRewritten(noteIds);
+            try
+            {
+                MemoryService.StoreFor(user).MarkRewritten(noteIds);
+            }
+            catch (Exception ex)
+            {
+                // The rewrite is done and still returned: only the record of the notes' use is lost.
+                Logs.Warning($"[LLMAssistant] Could not record the style notes a rewrite used for {user.UserID}: {ex.Message}");
+            }
         }
         return result with { Via = resolution.Via, Reason = resolution.Reason, StyleScope = style.Scope, StyleId = style.Id };
     }

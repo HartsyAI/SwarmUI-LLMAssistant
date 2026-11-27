@@ -316,7 +316,7 @@ class LLMAMemorySettings {
             + `<div class="d-flex align-items-center gap-2 flex-wrap mb-1"><label for="llma-memret-days" class="small mb-0">${translate('Forget notes not used for')}</label>`
             + `<input type="number" class="form-control llma-memory-days" id="llma-memret-days" min="${r.min}" max="${r.max}" step="1" placeholder="${escapeHtml(translate('off'))}" value="${r.unusedDays > 0 ? r.unusedDays : ''}">`
             + `<span class="small">${translate('days')}</span><button type="button" class="basic-button" id="llma-memret-save">${translate('Save')}</button> <span class="small text-muted" id="llma-memret-out"></span></div>`
-            + `<div class="small text-muted">${translate('Off when empty. A note counts as used when it is put in a reply\'s prompt or read by the assistant\'s memory tool (or from when it was saved, if never used). After you have been away for longer than this, nothing is forgotten when you come back: every note starts counting again. Pinned notes and your name, pronouns, bio and current work are never forgotten. What is forgotten is listed under Recent automatic changes, where Undo brings it back.')}</div><hr>`;
+            + `<div class="small text-muted">${translate('Off when empty. A note counts as used when it is put in a reply\'s prompt or read by the assistant\'s memory tool (or from when it was saved, if never used). A style note also is not forgotten while prompt rewrites are given it. After you have been away for longer than this, nothing is forgotten when you come back: every note starts counting again. Pinned notes and your name, pronouns, bio and current work are never forgotten. What is forgotten is listed under Recent automatic changes, where Undo brings it back.')}</div><hr>`;
         document.getElementById('llma-memret-save').addEventListener('click', async () => {
             let raw = document.getElementById('llma-memret-days').value.trim();
             let days = raw === '' ? 0 : Number(raw);
@@ -591,7 +591,9 @@ class LLMAMemorySettings {
         let kind = note.negative ? 'dislike' : (note.slot ? (LLMAMemorySettings.SLOT_LABELS[note.slot] || note.slot) : note.kind);
         let pinned = note.pinned ? ` <span class="badge text-bg-info llma-memory-pinned" title="${escapeHtml(translate('Always in the assistant\'s prompt.'))}">${translate('pinned')}</span>` : '';
         let saved = note.created ? new Date(note.created).toLocaleDateString() : '';
-        let used = note.lastUsed ? `${translate('last used')} ${new Date(note.lastUsed).toLocaleDateString()}` : translate('never used');
+        // A prompt rewrite that was given the note used it too: the later of the two times is shown.
+        let usedAt = [note.lastUsed, note.lastRewrite].filter(time => time).sort().pop();
+        let used = usedAt ? `${translate('last used')} ${new Date(usedAt).toLocaleDateString()}` : translate('never used');
         let origin = LLMAMemorySettings.ORIGIN_LABELS[note.origin] || note.origin || '';
         let pin = note.slot ? '' : `<button type="button" class="basic-button llma-memory-pin" aria-pressed="${note.pinned ? 'true' : 'false'}">${translate(note.pinned ? 'Unpin' : 'Pin')}</button>`;
         return `<li class="list-group-item bg-transparent llma-memory-note" data-note-id="${escapeHtml(note.id)}"><div class="llma-memory-row">`
