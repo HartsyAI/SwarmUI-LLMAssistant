@@ -16,6 +16,7 @@ test('knowledge search finds a document by meaning with the embedding model', as
         text: `Notes of run ${live.runId}. Our household feline, a grey tabby named Quillon, sleeps on the radiator and refuses dry food.` }, config.turnTimeoutMs);
     let docId = added.document.id as string;
     updateState(s => s.created.knowledge.push(docId));
+    expect(added.document.embedded, `the document was embedded (${added.document.embedError ?? 'no reason given'})`).toBe(true);
     let found = await live.client.ok('LLMAssistantSearchKnowledge', { query: 'What does the pet cat like to eat?', limit: 10 }, config.turnTimeoutMs);
     live.note(`Search mode ${found.mode}, ${found.results.length} results${found.embedError ? `, embedding error: ${found.embedError}` : ''}.`);
     expect(found.embedError ?? null).toBeNull();

@@ -11,7 +11,10 @@ export default async function globalSetup() {
     // An earlier run's record and report are never read as this run's.
     fs.rmSync(`${RUN_DIR}/report.md`, { force: true });
     if (previous && Object.values(previous.created).some(list => list.length > 0)) {
-        console.warn(`An earlier run (${previous.runId}) did not delete everything it made. This run leaves it alone: ${JSON.stringify(previous.created)}`);
+        // This run deletes only its own things, so the earlier run's record is kept for whoever removes them.
+        let kept = `${RUN_DIR}/leftover-${previous.runId}.json`;
+        fs.renameSync(`${RUN_DIR}/state.json`, kept);
+        console.warn(`An earlier run (${previous.runId}) did not delete everything it made. This run leaves it alone; see ${kept}: ${JSON.stringify(previous.created)}`);
     }
     fs.rmSync(`${RUN_DIR}/state.json`, { force: true });
     let missing = notConfigured();

@@ -192,6 +192,8 @@ export class Live {
     expectFinished(result: TurnResult) {
         expect(result.errors, 'error frames').toEqual([]);
         expect(result.done, 'the done frame').not.toBeNull();
+        // Each chat has a title already, so a title request would be one the caps never saw.
+        expect.soft(result.frames.filter(f => f.titleUpdated), 'no title was asked of the model').toEqual([]);
         expect.soft(result.done?.usage?.promptTokens ?? 0, 'usage: prompt tokens').toBeGreaterThan(0);
         expect.soft(result.done?.usage?.completionTokens ?? 0, 'usage: completion tokens').toBeGreaterThan(0);
         let usage = result.done?.usage;

@@ -26,7 +26,9 @@ $env:LLMA_LIVE_IMAGE_MODEL = "SDXL/sd_xl_base_1.0.safetensors"
 npm run test:live
 ```
 
-One scenario: add its file name, as in `npm run test:live -- 40-stop`. The report is printed at the end and saved to `E2E/.run/live/report.md`.
+One scenario: add its file name, as in `npm run test:live -- 40-stop`. The report is printed at the end and saved to `E2E/.run/live/report.md`. Do not wrap a run in a time limit that kills it: clean-up and unloading happen at the end.
+
+`npm run test:live-selftest` checks the suite's own safety rules (which backends it refuses, which image call it approves) offline, with no server and no model.
 
 ## What is checked
 
@@ -75,5 +77,5 @@ A turn's request and token figures are held under the cap before it is sent and 
 - **Only SwarmUI's API** is used, never an engine or model server directly.
 - **No settings are changed**, no backend is added, edited, restarted or removed. Each chat has its own switches (tools, Ask mode, memory off, rewrite).
 - **Your data.** Every chat runs in Ask mode and every approval but the one a scenario asks for is denied. With tools on, a model can still run **read-only** tools of your assistant without asking, `web_search` among them, which reaches the network.
-- **Clean-up** deletes only the chats, preset, knowledge document and image that this run made. If a run is killed, `E2E/.run/live/state.json` lists what is left; the next run names it and does not delete it.
-- **A shared server.** Each GPU scenario waits until SwarmUI has no generation waiting or running and memory and GPU use leave room. A chat model request from elsewhere shows only as GPU use, so avoid running it beside heavy use. The suite unloads the chat model (all LLM providers' models) before the image and at the end, and only if it was not loaded before the run.
+- **Clean-up** deletes only the chats, preset, knowledge document and image that this run made. If a run is killed, `E2E/.run/live/state.json` lists what is left; the next run names it, keeps that record as `leftover-<run>.json` and deletes nothing of it.
+- **A shared server.** Each GPU scenario waits until SwarmUI has no generation waiting or running and memory and GPU use leave room. A chat model request from elsewhere shows only as GPU use, so avoid running it beside heavy use. The suite unloads the chat model (all LLM providers' models) before the image and at the end, only if it was not loaded before the run and the GPU is quiet. It cannot tell whose request loaded a model in the meantime.

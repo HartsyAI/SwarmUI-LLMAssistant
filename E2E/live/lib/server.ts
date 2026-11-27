@@ -109,7 +109,8 @@ export async function deleteCreated(client: SwarmClient): Promise<string[]> {
     return failures;
 }
 
-/** Unloads the chat model when this run is what loaded it and nothing is generating. Returns what it did, or null when there was nothing to do. */
+/** Unloads the chat model when this run is what loaded it and the server is quiet: nothing generating and the GPU not busy, which is
+ * the only sign of a chat reply someone else is waiting for. Returns what it did, or null when there was nothing to do. */
 export async function unloadOwnChatModel(client: SwarmClient): Promise<string | null> {
     let state = readState();
     if (!state?.usedLlm) {
@@ -118,8 +119,16 @@ export async function unloadOwnChatModel(client: SwarmClient): Promise<string | 
     if (state.llmWasLoaded) {
         return 'The chat model was loaded before the run, so it was left loaded.';
     }
-    if (await generationsIdle(client)) {
-        return 'The chat model was left loaded: SwarmUI was busy.';
+    if ((await chatModelInfo(client))?.is_loaded !== true) {
+        return null;
+    }
+    let busy = (await busyReason(client, 'llm')).reason;
+    for (let attempt = 0; busy && attempt < 5; attempt++) {
+        await new Promise(done => setTimeout(done, 5000));
+        busy = (await busyReason(client, 'llm')).reason;
+    }
+    if (busy) {
+        return `The chat model was left loaded: ${busy}.`;
     }
     let reply = await client.ok('LLMAssistantUnloadModels', {}, 120_000);
     return `Unloaded the chat model (${reply.freed} of ${reply.providers} LLM providers freed something).`;
