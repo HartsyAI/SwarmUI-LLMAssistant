@@ -59,8 +59,6 @@ Ordered by leverage. "Seam" is where it slots in today.
 | 14 | **Run non-interactively / dry run** (done in Phase 11: `LLMAssistantRunTurn`, its `dryRun`, and the setup check, see the README, "Setup check and headless turns") | `-p` with json streams, `--dry-run` readiness report | HTTP API exists; no readiness check | New route |
 | 15 | **Artifacts and code interpreter** (not built; `code_bash` in code mode runs commands in a workspace, which is not a sandboxed interpreter) | React/HTML/Mermaid artifacts, sandboxed code exec (LibreChat) | Asset index with HTML/SVG/Mermaid preview; no code execution | Part of Code mode |
 
-Known follow-up (prompt styles, P2, still open): the chat-model style addendum is added by `TurnSetupService` and the compare lanes only. The voice endpoints, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite build their own system prompt and do not get it.
-
 Not worth copying: chat-channel gateways (OpenHarness's `ohmo` for Telegram/Slack), plugin marketplaces, 54 slash commands. They do not fit a SwarmUI tab.
 
 ## 3. Code mode
@@ -108,12 +106,12 @@ Each step shipped on its own and is useful without the next.
 
 ## 5. Risks that were to be settled before step 5 (status as of 2026-11-24)
 
-- **Local small models are unreliable tool callers.** Code mode should show a warning when the selected model has no native tool-call support in its template, and refuse plan/auto there. *Not built, as far as a search of code mode's front end and the setup check found on 2026-11-24: nothing warns about or refuses a model that cannot call tools. The README lists tool calling on small models under Known limitations.*
+- **Local small models are unreliable tool callers.** Code mode should show a warning when the selected model has no native tool-call support in its template, and refuse plan/auto there. *Partly built: a chat that offers tools to a model whose backend says it has no tool calling of its own shows a notice (README, Tool calling). Nothing refuses plan or auto for such a model, and a backend that cannot say gets no notice.*
 - **Windows shell quoting.** `ShellExecTool` builds `cmd.exe /c` and `sh -c` strings by hand. A code-grade `bash` tool needs real argument handling and process-tree kill on cancel. *Addressed: the code tools and `shell_exec` both run through `ProcessRunner`, which kills the whole process tree on a timeout or Stop (README, "Code tools and workspaces").*
 - **Multi-user.** A shared server with a workspace root means one user's agent can touch another's files unless roots are per-user. Default to a per-user directory under `Output/` and make arbitrary roots an admin-only setting. *Done: each user's workspaces live under their own `Output/<user>/llm_assistant/workspaces/`, and extra folders need `llm_workspace_roots` (ADMINS).*
 
 ## 6. What is not built, and what is not verified
 
-Not built (from this roadmap): artifacts and a sandboxed code interpreter (gap 15); LSP and notebook tools; MCP resources, prompts and sampling (the client is tools-only); per-user MCP servers; skills that restrict tools, and skills from a URL or marketplace; a webhook trigger for schedules; a warning for models that cannot call tools; the chat-model addendum on the voice, one-shot and image-rewrite paths.
+Not built (from this roadmap): artifacts and a sandboxed code interpreter (gap 15); LSP and notebook tools; MCP resources, prompts and sampling (the client is tools-only); per-user MCP servers; skills that restrict tools, and skills from a URL or marketplace; a webhook trigger for schedules.
 
 Not verified on real hardware or real services: the local GGUF engine is not covered by the e2e suite (it needs a GPU), and CUDA has not been run for MOSS-VL; the knowledge library and memory recall have been exercised against a scripted mock, not a real embedding model; no prompt style (Ideogram 4 included) has been tried with a real image model and a real chat model, only with the mock LLM and header-only model files. See "What is not built / not verified" in `NEXT-PHASES.md`.

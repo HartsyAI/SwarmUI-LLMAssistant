@@ -157,6 +157,25 @@
         llmaPutBackText(unsent.typed);
     }
 
+    /** The chats and models already warned about, so the warning is shown once for each. */
+    let llmaToolWarningsShown = new Set();
+
+    /** The tool warning last shown: its chat, the models it names and when its toast goes. */
+    let llmaLastToolWarning = { threadId: null, models: [], until: 0 };
+
+    /** Says once per chat and model that a reply offers tools to a model whose backend says it has no tool calling of its own. A warning still on screen for the same chat (the other lane of a compare turn) is
+     *  shown again naming both, since a new toast takes the old one's place. */
+    function llmaWarnToolsUnsupported(threadId, model) {
+        let key = `${threadId} ${model}`;
+        if (llmaToolWarningsShown.has(key)) {
+            return;
+        }
+        llmaToolWarningsShown.add(key);
+        let still = llmaLastToolWarning.threadId == threadId && Date.now() < llmaLastToolWarning.until ? llmaLastToolWarning.models : [];
+        llmaLastToolWarning = { threadId: threadId, models: still.concat(model), until: Date.now() + LLMA_CONSTANTS.TOAST_DURATION_MS };
+        llmaShowToast(`${llmaLastToolWarning.models.join(', ')}: ${translate('No built-in tool support, so the tools offered may go unused.')}`, 'info');
+    }
+
     /** Takes a message the server did not store, and what hangs under it, off the chat, and shows the branch ending at leafId. */
     function llmaDropUnstored(messageId, leafId) {
         const gone = llmaActions.subtreeIds(messageId, LLMAState.allNodes);
@@ -280,6 +299,10 @@
                         const titleEl = document.getElementById('llma-thread-title');
                         if (titleEl) titleEl.textContent = data.titleUpdated;
                     }
+                    return;
+                }
+                if (data.toolsUnsupported) {
+                    llmaWarnToolsUnsupported(payload.threadId, data.toolsUnsupported);
                     return;
                 }
                 // The automatic memory extractor saved something after this reply (see MemoryExtractionService): a small notice with Undo, nothing more.
@@ -557,7 +580,9 @@
     // --- Public API (called by sibling files + other chat/ modules) ---
     window.llmaSendMessage    = llmaSendMessage;
     window.llmaDropUnstored   = llmaDropUnstored;
+    window.llmaTakeBack       = llmaTakeBack;
     window.llmaPutBackText    = llmaPutBackText;
+    window.llmaWarnToolsUnsupported = llmaWarnToolsUnsupported;
     window.llmaBuildPayload   = llmaBuildPayload;
     window.llmaStreamResponse = llmaStreamResponse;
     window.llmaStopGeneration = llmaStopGeneration;

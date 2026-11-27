@@ -234,6 +234,57 @@ public static class MediaStorageService
         return false;
     }
 
+    /// <summary>Deletes what was uploaded for a chat message that was then refused and never stored. The files are found by the two ids they were saved under, never by an address the request sends, only for a chat of
+    /// <paramref name="user"/>'s own (users can share one output folder), and one that a stored message refers to is kept (a refused request can name the id of an older message). Best effort: a failure is logged, and the daily
+    /// sweep (<see cref="OrphanedFileGC"/>) removes what is left.</summary>
+    public static void DiscardUnsent(User user, string threadId, string messageId)
+    {
+        if (user is null)
+        {
+            return;
+        }
+        try
+        {
+            // Under the chats' write lock, so no message can come to refer to a file between the look and the deletion. The chat itself is not changed.
+            ThreadStorageService.Mutate(user, threadId, _ =>
+            {
+                DiscardUnsentIn(GetAllUploadsRoot(user), threadId, messageId, () => OrphanedFileGC.CollectReferencedPaths(user));
+                return false;
+            });
+        }
+        catch (Exception ex)
+        {
+            Logs.Warning($"[LLMAssistant] Could not remove the upload of a refused message for {user.UserID}: {ex.Message}");
+        }
+    }
+
+    /// <summary>The host-independent core of <see cref="DiscardUnsent"/>, under <paramref name="uploadsRoot"/>. <paramref name="referenced"/> gives the full paths (with <c>/</c>) that stored data refers to, and is asked only when
+    /// there is a file to delete. Returns how many files were deleted.</summary>
+    internal static int DiscardUnsentIn(string uploadsRoot, string threadId, string messageId, Func<HashSet<string>> referenced)
+    {
+        // Ids with nothing usable in them were saved under a made-up name, so there is nothing to find by them.
+        string safeThread = SanitizeIdComponent(threadId, fallback: null);
+        string safeMessage = SanitizeIdComponent(messageId, fallback: null);
+        if (safeThread is null || safeMessage is null)
+        {
+            return 0;
+        }
+        string stem = Path.GetFullPath(Path.Combine(uploadsRoot, safeThread, safeMessage));
+        List<string> found = [.. MimeToExt.Values.Concat(VideoMimeToExt.Values).Distinct().Select(ext => stem + ext).Where(File.Exists)];
+        if (found.Count == 0)
+        {
+            return 0;
+        }
+        HashSet<string> kept = referenced();
+        int deleted = 0;
+        foreach (string file in found.Where(f => !kept.Contains(f.Replace('\\', '/'))))
+        {
+            File.Delete(file);
+            deleted++;
+        }
+        return deleted;
+    }
+
     /// <summary>Strict sanitizer: keep alnum, dash, underscore. Falls back to a synthetic id if
     /// nothing usable remains.</summary>
     internal static string SanitizeIdComponent(string raw, string fallback)

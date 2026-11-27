@@ -103,6 +103,11 @@ public sealed class MemoryNote
     [JsonProperty("lastUsed")]
     public string LastUsed = "";
 
+    /// <summary>When a prompt rewrite was last given the note (UTC, ISO 8601), or empty. It keeps the note from being forgotten as unused, and is kept apart from <see cref="LastUsed"/> because making images is not
+    /// using memory: only chats say whether the user has been away from it (see <see cref="MemoryStore.ApplyRetention"/>).</summary>
+    [JsonProperty("lastRewrite", DefaultValueHandling = DefaultValueHandling.Ignore)]
+    public string LastRewrite = "";
+
     /// <summary>Whether the note is always in the prompt, whatever the turn is about.</summary>
     [JsonProperty("pinned")]
     public bool Pinned;
@@ -122,4 +127,8 @@ public sealed class MemoryNote
     /// <summary>The time the note was last used, or null.</summary>
     [JsonIgnore]
     public DateTime? LastUsedAt => DateTime.TryParse(LastUsed, null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime t) ? t : null;
+
+    /// <summary>The time a prompt rewrite was last given the note, or null.</summary>
+    [JsonIgnore]
+    public DateTime? LastRewriteAt => DateTime.TryParse(LastRewrite, null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime t) ? t : null;
 }

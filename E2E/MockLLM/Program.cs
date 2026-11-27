@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 // A scripted OpenAI-compatible server for browser e2e tests. No model, no GPU.
 //
-//   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated)
+//   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated and no tool support)
 //   POST   /v1/chat/completions    streaming (SSE) or plain; the reply comes from the active scenario; a request naming no model is refused (400)
 //   PUT    /__scenarios            replace the scenario list (JSON array of rules, see below)
 //   GET    /__requests             every request body seen, oldest first
@@ -155,8 +155,8 @@ app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
 app.MapGet("/v1/models", () => Results.Json(new
 {
     @object = "list",
-    // mock-model states a small window (so a long scripted chat crosses the compaction threshold); mock-model-b states none.
-    data = new object[] { new { id = "mock-model", @object = "model", owned_by = "mock", context_length = 4000 }, new { id = "mock-model-b", @object = "model", owned_by = "mock" } }
+    // mock-model states a small window (so a long scripted chat crosses the compaction threshold); mock-model-b states none, and says (as OpenRouter would) that it takes no tools.
+    data = new object[] { new { id = "mock-model", @object = "model", owned_by = "mock", context_length = 4000 }, new { id = "mock-model-b", @object = "model", owned_by = "mock", supported_parameters = new[] { "temperature" } } }
 }));
 
 app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>

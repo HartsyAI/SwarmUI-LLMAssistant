@@ -256,6 +256,7 @@ public static class ChatEndpoints
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
             // Named before the cache key is made, so a changed default model is asked rather than answered from the old one's reply.
             model = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
+            (systemPrompt, LlmAddendum addendum) = await LlmAddendumService.ApplyUnvariedAsync(systemPrompt, session, settings, assistantId, model, LlmAddendumService.TasksForInstruction(instructionId));
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
             input.BackendId = backendId;
@@ -273,8 +274,8 @@ public static class ChatEndpoints
             }
             else
             {
-                // The token budget is in the key too: a reply cut off by a small budget must not answer a request with a larger one.
-                string cacheModel = $"detailed|{model}|{device}|{backendId}|{input.Loops ?? 0}|{input.EnableThinking?.ToString() ?? "default"}|{input.MaxTokens}";
+                // The token budget is in the key too: a reply cut off by a small budget must not answer a request with a larger one. So is the addendum, so that changing or switching off a style asks again.
+                string cacheModel = $"detailed|{model}|{device}|{backendId}|{input.Loops ?? 0}|{input.EnableThinking?.ToString() ?? "default"}|{input.MaxTokens}|{addendum.Text}";
                 string cached = await Cache.GetOrCreate(session.User?.UserID, cacheModel, assistantId, message, instructionId, async () =>
                 {
                     return (await LLMDispatcher.GenerateDetailed(input)).ToJson();
@@ -356,15 +357,15 @@ public static class ChatEndpoints
                     };
                 }
             }
+            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
+            systemPrompt = (await LlmAddendumService.ApplyUnvariedAsync(systemPrompt, session, settings, assistantId, model, LlmAddendumService.TasksFor(enabledTools.Count > 0))).Prompt;
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
             input.ConversationId = VoiceTurnConversationId(assistantId);
             ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens, loops: loops);
-
-            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
-                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-                : [];
             AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
 
             CollectingSink collected = new();
@@ -500,7 +501,11 @@ public static class ChatEndpoints
                     return null;
                 }
             }
+            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
+                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
+                : [];
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
+            systemPrompt = (await LlmAddendumService.ApplyUnvariedAsync(systemPrompt, session, settings, assistantId, model, LlmAddendumService.TasksFor(enabledTools.Count > 0))).Prompt;
             // messages takes priority over message when both are present ("replaces", per this method's own
             // doc); CreateFromMessages applies the same no-double-injection system-prompt rule Create already
             // guarantees on the single-message path (Create always folds systemPrompt into Messages[0] itself).
@@ -511,10 +516,6 @@ public static class ChatEndpoints
             input.EnableThinking = enableThinking;
             input.ConversationId = VoiceTurnWsConversationId(rawInput["conversationId"]?.ToString(), session.ID);
             ApplyParameters(input, AssistantService.ResolveParameters(assistantId, settings, session.User), temperature, maxTokens, loops: loops);
-
-            List<JObject> enabledTools = AssistantResolver.Resolve(assistantId, session.User, settings).ToolsEnabled
-                ? ToolRegistryService.GetEnabledTools(assistantId, settings, session.User)
-                : [];
             AttachTools(input, enabledTools, session, assistantId, forceToolId: null);
             JArray deviceCalls = [];
             await ToolTurnRunner.RunAsync(input,
@@ -758,6 +759,15 @@ public static class ChatEndpoints
     {
         // Whether the message is in the chat yet: a failure before that is a refusal (see Refuse).
         bool stored = false;
+        // A refused message is never stored, so an image or video uploaded for it goes too (the page uploads again when it is sent again).
+        JObject RefuseUnsent(string error)
+        {
+            if (rawInput["media"] is JArray { Count: > 0 })
+            {
+                MediaStorageService.DiscardUnsent(session.User, rawInput["threadId"]?.ToString(), rawInput["userMessageId"]?.ToString());
+            }
+            return Refuse(error);
+        }
         try
         {
             string threadId = rawInput["threadId"]?.ToString();
@@ -771,13 +781,13 @@ public static class ChatEndpoints
             }
             if (string.IsNullOrEmpty(message))
             {
-                return Refuse("message is required.");
+                return RefuseUnsent("message is required.");
             }
             // Attached documents are named by id; what the message holds about them is built from the user's own stored files, never taken from the request.
             (JArray documents, string documentError) = ChatDocuments.Resolve(session.User, rawInput[ChatDocuments.Field], DocumentCaps.From(SettingsService.GetMergedSettings(session.User)));
             if (documentError is not null)
             {
-                return Refuse(documentError);
+                return RefuseUnsent(documentError);
             }
             // A session still working in the background is stopped first (what it had is saved), so the user's message lands after it and not before its partial reply.
             // Reports from sessions that finished since the last turn go in just before the message, where the model reads them with it.
@@ -804,7 +814,7 @@ public static class ChatEndpoints
             }
             if (ThreadStorageService.AppendMessage(session.User, threadId, userMsg) is null)
             {
-                return Refuse($"Chat '{threadId}' not found.");
+                return RefuseUnsent($"Chat '{threadId}' not found.");
             }
             stored = true;
             // AppendMessage fills in the id when the client didn't supply one; capture it as the explicit
@@ -826,7 +836,7 @@ public static class ChatEndpoints
         }
         catch (Exception ex)
         {
-            return stored ? Fail(ex.Message) : Refuse(ex.Message);
+            return stored ? Fail(ex.Message) : RefuseUnsent(ex.Message);
         }
     }
 
@@ -949,6 +959,10 @@ public static class ChatEndpoints
                 return;
             }
             CancelToolTurnOnClose(socket, cts, prepared.EnabledTools.Count > 0, () => memorySlot?.Cancel());
+            if (prepared.ToolsUnsupportedModel is not null)
+            {
+                await SendWsFrame(socket, new JObject { ["toolsUnsupported"] = prepared.ToolsUnsupportedModel });
+            }
             await LLMStreamHelper.StreamToWebSocket(socket, prepared.Input, session, threadId, prepared.AssistantId, ct: cts.Token, clientAssistantMessageId: assistantMessageId, approvalMode: approvalMode);
         }
         catch
@@ -1247,6 +1261,10 @@ public static class ChatEndpoints
                 if (cts.IsCancellationRequested)
                 {
                     return;
+                }
+                if (TurnSetupService.ToolsUnsupportedBy(modelInfo, enabledTools) is string unsupported)
+                {
+                    await SendJsonLane(socket, sendLock, lane, new JObject { ["toolsUnsupported"] = unsupported });
                 }
                 await LLMStreamHelper.StreamToWebSocket(socket, input, session, threadId, assistantId,
                     clientAssistantMessageId: L.AssistantMessageId,

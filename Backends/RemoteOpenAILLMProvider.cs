@@ -673,6 +673,21 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
         return model["meta"]?["n_ctx_train"] is JValue { Type: JTokenType.Integer } trained && trained.Value<long>() is > 0 and <= int.MaxValue ? (int)trained.Value<long>() : -1;
     }
 
+    /// <summary>Whether the model's listing says it calls tools, or null when it does not say. Mistral states <c>capabilities.function_calling</c>; OpenRouter lists the request fields a model takes in <c>supported_parameters</c>.
+    /// Most endpoints say neither.</summary>
+    internal static bool? ToolSupportOf(JObject model)
+    {
+        if (model["capabilities"] is JObject capabilities && capabilities["function_calling"] is JValue { Type: JTokenType.Boolean } calling)
+        {
+            return calling.Value<bool>();
+        }
+        if (model["supported_parameters"] is JArray { Count: > 0 } parameters)
+        {
+            return parameters.Any(p => p.Type == JTokenType.String && p.Value<string>() == "tools");
+        }
+        return null;
+    }
+
     /// <summary>The models in a <c>/v1/models</c> answer's <c>data</c>, in its order. Reads OpenAI's and Ollama's fields, and
     /// Anthropic's <c>display_name</c> and <c>max_input_tokens</c>. An Anthropic model's provider is <c>anthropic</c> (as it was under
     /// the removed Anthropic backend, so the model picker's group and <c>provider:anthropic</c> instruction variants still apply) and
@@ -697,7 +712,8 @@ public class RemoteOpenAILLMProvider : LLMProviderBackend, IEmbeddingProvider
                 Name = new[] { model.Value<string>("name"), model.Value<string>("display_name") }.FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? id,
                 Provider = anthropic ? "anthropic" : "openai_api",
                 BackendId = backendId,
-                IsLoaded = true
+                IsLoaded = true,
+                SupportsTools = ToolSupportOf(model)
             };
             string family = model.Value<string>("family") ?? model["details"]?.Value<string>("family") ?? (anthropic ? "claude" : null);
             if (!string.IsNullOrEmpty(family))

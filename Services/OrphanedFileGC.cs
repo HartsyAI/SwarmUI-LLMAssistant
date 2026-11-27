@@ -203,7 +203,7 @@ public static class OrphanedFileGC
     /// <item>any <c>documents[].id</c> on a message (the stored text of an attached document).</item>
     /// </list>
     /// Anything else in the swept folders is fair game for deletion.</summary>
-    private static HashSet<string> CollectReferencedPaths(User user)
+    internal static HashSet<string> CollectReferencedPaths(User user)
     {
         HashSet<string> result = new(StringComparer.OrdinalIgnoreCase);
         // Avatar refs from every assistant the user can see (shared + personal). A shared

@@ -330,9 +330,9 @@ public sealed partial class MemoryStore
                     return null;
                 }
             }
-            // A note whose times do not read is not old: it is left alone rather than forgotten on a guess.
+            // A note whose times do not read is not old: it is left alone rather than forgotten on a guess. A note a prompt rewrite was given lately is not unused either, though that says nothing about the user being away (above).
             List<MemoryNote> old = [.. loaded.Set.Notes
-                .Where(n => !n.Pinned && n.Slot.Length == 0)
+                .Where(n => !n.Pinned && n.Slot.Length == 0 && !(n.LastRewriteAt?.ToUniversalTime() >= cutoff))
                 .Select(n => (Note: n, Time: n.LastUsedAt ?? (n.CreatedAt == DateTime.MinValue ? (DateTime?)null : n.CreatedAt)))
                 .Where(x => x.Time is not null && x.Time.Value.ToUniversalTime() < cutoff)
                 .OrderBy(x => x.Time)

@@ -13,6 +13,22 @@ public sealed record AddendumSettings(bool Enabled, IReadOnlyCollection<string> 
     /// <summary>The settings key.</summary>
     public const string Key = "promptStyles";
 
+    /// <summary>Reads the switches for <paramref name="user"/> from only the <c>promptStyles</c> object of the shared layer and of the user's own (the user's keys win), without building the whole merged settings tree: the prompt rewrite reads this for every image.</summary>
+    public static AddendumSettings ForUser(User user)
+    {
+        JObject merged = [];
+        if (Services.SettingsService.GetSettings()[Key] is JObject shared)
+        {
+            merged.Merge(shared);
+        }
+        if (user is not null && Services.SettingsService.GetUserSettings(user)[Key] is JObject personal)
+        {
+            // A list the user saved replaces the shared one, as in the merged settings a chat turn reads.
+            merged.Merge(personal, Services.SettingsService.MergeSettings);
+        }
+        return From(new JObject { [Key] = merged });
+    }
+
     /// <summary>The most disabled ids read; the rest are ignored.</summary>
     public const int MaxDisabled = 200;
 
@@ -243,7 +259,38 @@ public static class LlmAddendumService
         return Resolve(PromptStyleService.For(user).Styles, PromptStyleService.GetOverrides(user), facts, TasksFor(toolsOn), settings, assistant.PromptAddendum, variantRank, preview);
     }
 
-    /// <summary>The one call a turn makes: <paramref name="systemPrompt"/> with the addendum for the model that answers added (the same text back when there is none), and what was done. <paramref name="toolsOn"/> is
+    /// <summary>The task of a request that runs one instruction and offers no tools: <c>vision</c>, <c>caption</c>, <c>rewrite</c> for the instructions that rewrite a prompt, and <c>chat</c> for every other one.</summary>
+    public static IReadOnlyCollection<string> TasksForInstruction(string instructionId) => instructionId switch
+    {
+        InstructionIds.Vision => ["vision"],
+        InstructionIds.Caption => ["caption"],
+        InstructionIds.Prompt or InstructionIds.VideoPrompt => ["rewrite"],
+        _ => ["chat"],
+    };
+
+    /// <summary>What would be added for a request whose instruction is not chosen by model (the voice routes, the one-shot route and the prompt rewrite), so no assistant variant of it can win over the style. The style is
+    /// chosen for the model that will answer (see <see cref="DescribeAsync"/>) doing <paramref name="tasks"/>; <paramref name="assistantAllows"/> is false when the request's assistant opted out.</summary>
+    public static async Task<LlmAddendum> DescribeUnvariedAsync(User user, Session session, AddendumSettings settings, string model, IReadOnlyCollection<string> tasks, bool assistantAllows = true)
+    {
+        if (!settings.Enabled)
+        {
+            return LlmAddendum.Nothing("Chat-model prompt tuning is switched off in Settings.");
+        }
+        string effective = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
+        LLMModelInfo facts = FactsFor(effective, await LLMModelLookup.GetByIdAsync(effective, session));
+        return Resolve(PromptStyleService.For(user).Styles, PromptStyleService.GetOverrides(user), facts, tasks, settings, assistantAllows);
+    }
+
+    /// <summary><paramref name="systemPrompt"/> with the addendum of <see cref="DescribeUnvariedAsync"/> for <paramref name="assistantId"/>'s request added (the same text back when there is none).</summary>
+    public static async Task<(string Prompt, LlmAddendum Addendum)> ApplyUnvariedAsync(string systemPrompt, Session session, JObject mergedSettings, string assistantId, string model, IReadOnlyCollection<string> tasks)
+    {
+        bool allows = AssistantResolver.Resolve(assistantId, session?.User, mergedSettings).PromptAddendum;
+        LlmAddendum addendum = await DescribeUnvariedAsync(session?.User, session, AddendumSettings.From(mergedSettings), model, tasks, allows);
+        string result = Append(systemPrompt, addendum);
+        return (result, Measured(addendum, systemPrompt, result));
+    }
+
+    /// <summary>The one call a turn makes:<paramref name="systemPrompt"/> with the addendum for the model that answers added (the same text back when there is none), and what was done. <paramref name="toolsOn"/> is
     /// whether the turn really sends tools.</summary>
     public static async Task<(string Prompt, LlmAddendum Addendum)> ApplyAsync(string systemPrompt, Session session, JObject mergedSettings, string assistantId, string instructionId, string model,
         LLMModelInfo instructionModel, bool toolsOn)
