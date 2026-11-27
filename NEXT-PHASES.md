@@ -34,8 +34,7 @@ Status (2026-11-24): **Phases 0 to 11 are merged (#58 to #73), and so is the who
 Not built:
 
 - **A sandbox for the PDF worker.** PDF files are read in a separate process with a memory and time limit (`Services/Documents/PdfWorkerHost.cs`), which contains crashes and exhaustion; that process still runs as the SwarmUI user, with the same access to files and the network.
-- Anything that reads `style` memory notes (the image rewrite does not use them yet).
-- The chat-model addendum on the voice routes, the one-shot `LLMAssistantSendMessage` and the image-prompt rewrite (they do not go through `TurnSetupService`). No addendum text ships; one is added for a model family only after it has been tried on that model.
+- Addendum text for any model family (the mechanism reaches chats, the voice routes, the one-shot route and the image-prompt rewrite). One is added for a family only after it has been tried on that model.
 - A central spend limit for background work (sessions, schedules, the memory extractor each carry their own caps).
 - Video styles for image-to-video workflows.
 - A streaming headless route, and the rest of the later work below.

@@ -155,8 +155,8 @@ app.MapPost("/v1/embeddings", async (HttpContext ctx) =>
 app.MapGet("/v1/models", () => Results.Json(new
 {
     @object = "list",
-    // mock-model states a small window (so a long scripted chat crosses the compaction threshold); mock-model-b states none.
-    data = new object[] { new { id = "mock-model", @object = "model", owned_by = "mock", context_length = 4000 }, new { id = "mock-model-b", @object = "model", owned_by = "mock" } }
+    // mock-model states a small window (so a long scripted chat crosses the compaction threshold); mock-model-b states none, and says (as OpenRouter would) that it takes no tools.
+    data = new object[] { new { id = "mock-model", @object = "model", owned_by = "mock", context_length = 4000 }, new { id = "mock-model-b", @object = "model", owned_by = "mock", supported_parameters = new[] { "temperature" } } }
 }));
 
 app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
