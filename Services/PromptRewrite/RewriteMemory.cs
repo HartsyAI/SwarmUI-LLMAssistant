@@ -131,3 +131,32 @@ public static class RewriteReports
     /// <summary>Forgets everything (for tests).</summary>
     internal static void Clear() => Reports.Clear();
 }
+
+/// <summary>The model of the chat behind each <c>generate_image</c> call that is running, under the call's report id, for the generation hook to write the rewrite with. It is kept here and not in the generation's metadata,
+/// so no saved image carries it and no request can set it. The tool removes its entry when the call ends.</summary>
+public static class RewriteChatModels
+{
+    /// <summary>The models by report id.</summary>
+    private static readonly ConcurrentDictionary<string, string> ByReport = new();
+
+    /// <summary>Keeps <paramref name="model"/> for the call with report id <paramref name="id"/>; nothing is kept for an empty one.</summary>
+    public static void Put(string id, string model)
+    {
+        if (!string.IsNullOrEmpty(id) && !string.IsNullOrWhiteSpace(model))
+        {
+            ByReport[id] = model;
+        }
+    }
+
+    /// <summary>The model kept under <paramref name="id"/>, or null. It stays: every image of the call asks.</summary>
+    public static string For(string id) => id is not null && ByReport.TryGetValue(id, out string model) ? model : null;
+
+    /// <summary>Forgets the entry under <paramref name="id"/>.</summary>
+    public static void Remove(string id)
+    {
+        if (!string.IsNullOrEmpty(id))
+        {
+            ByReport.TryRemove(id, out _);
+        }
+    }
+}

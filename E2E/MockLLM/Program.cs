@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 // A scripted OpenAI-compatible server for browser e2e tests. No model, no GPU.
 //
 //   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated and no tool support)
-//   POST   /v1/chat/completions    streaming (SSE) or plain; the reply comes from the active scenario
+//   POST   /v1/chat/completions    streaming (SSE) or plain; the reply comes from the active scenario; a request naming no model is refused (400)
 //   PUT    /__scenarios            replace the scenario list (JSON array of rules, see below)
 //   GET    /__requests             every request body seen, oldest first
 //   DELETE /__requests             forget them
@@ -171,7 +171,13 @@ app.MapPost("/v1/chat/completions", async (HttpContext ctx) =>
             requests.RemoveAt(0);
         }
     }
-    string model = body["model"]?.GetValue<string>() ?? "mock-model";
+    string model = body["model"]?.GetValue<string>();
+    if (string.IsNullOrWhiteSpace(model))
+    {
+        ctx.Response.StatusCode = 400;
+        await ctx.Response.WriteAsJsonAsync(new { error = new { message = "the request names no model", type = "mock_error" } });
+        return;
+    }
     JsonArray messages = body["messages"] as JsonArray ?? [];
     int lastUser = -1;
     for (int i = 0; i < messages.Count; i++)

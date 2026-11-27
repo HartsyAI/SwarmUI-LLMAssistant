@@ -53,8 +53,8 @@ test.afterEach(async ({ llm }) => {
 test('a model with no price shows tokens only', async ({ llm }) => {
     await setScenarios([exchange('hello', 'Hi there.')]);
     await exchangeWith(llm, 'hello', 'Hi there.');
-    await expect(chip(llm)).toHaveText('1,200 tok');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,200 tok');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,200 tok');
     await chip(llm).click();
     let popover = llm.locator('#popover_llma_usage');
     await expect(popover).toContainText('No price set for this model');
@@ -67,15 +67,15 @@ test('a price shows the cost, and editing it changes the displayed cost', async 
     await exchangeWith(llm, 'hello', 'Hi there.');
     // (1,000 x 2 + 200 x 10) / 1,000,000
     await setPrice(llm, 'mock-model', '2', '10');
-    await expect(chip(llm)).toHaveText('1,200 tok · 0.0040 USD');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,200 tok · 0.0040 USD');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok · 0.0040 USD');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,200 tok · 0.0040 USD');
     await setPrice(llm, 'mock-model', '4', '20');
-    await expect(chip(llm)).toHaveText('1,200 tok · 0.0080 USD');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,200 tok · 0.0080 USD');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok · 0.0080 USD');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,200 tok · 0.0080 USD');
     // A reload draws the same from the saved chat.
     await reopen(llm);
     await llm.locator('.llma-thread-item').first().click();
-    await expect(chip(llm)).toHaveText('1,200 tok · 0.0080 USD');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok · 0.0080 USD');
 });
 
 test('"Edit prices" on a reply opens the table with a row for its model', async ({ llm }) => {
@@ -90,7 +90,7 @@ test('"Edit prices" on a reply opens the table with a row for its model', async 
     // Save & Close saves the tab too.
     await llm.locator('#llma-settings-save').click();
     await expect(llm.locator('#llma-settings-overlay')).toBeHidden();
-    await expect(chip(llm)).toHaveText('1,200 tok · 0.0040 USD');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok · 0.0040 USD');
 });
 
 test('a half-filled price is refused and the dialog stays open', async ({ llm }) => {
@@ -176,8 +176,8 @@ test('a reply the backend reported nothing for is labelled estimated', async ({ 
     await api(llm, 'LLMAssistantSaveUsageSettings', { prices: { 'mock-model': { input: 2, output: 10 } } });
     await setScenarios([exchange('hello', 'Hi there.', true)]);
     await exchangeWith(llm, 'hello', 'Hi there.');
-    await expect(chip(llm)).toHaveText(/^~[\d,]+ tok · ~<?[\d.]+ USD · estimated$/);
-    await expect(chatTotal(llm)).toHaveText(/^Chat: ~[\d,]+ tok · ~/);
+    await expect(chip(llm)).toHaveText(/^Reply: ~[\d,]+ tok · ~<?[\d.]+ USD · estimated$/);
+    await expect(chatTotal(llm)).toHaveText(/^Chat total: ~[\d,]+ tok · ~/);
     await chip(llm).click();
     await expect(llm.locator('#popover_llma_usage')).toContainText('Estimated from the length of the saved text');
 });
@@ -188,7 +188,7 @@ test('totals add up across chats for the session, the day and the week', async (
     await exchangeWith(llm, 'hello', 'Hi there.');
     await llm.locator('#llma-new-thread-btn').click();
     await exchangeWith(llm, 'again', 'Hello again.');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,200 tok · 0.0040 EUR');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,200 tok · 0.0040 EUR');
     await chatTotal(llm).click();
     let popover = llm.locator('#popover_llma_usage');
     await expect(popover.locator('tr[data-period="day"]')).toContainText('2,400 tok');
@@ -211,7 +211,7 @@ test('a stopped reply shows an estimated figure without a reload', async ({ llm 
     await send(llm, 'slow');
     await expect(lastAssistant(llm)).toContainText('word');
     await llm.locator('#llma-stop-btn').click();
-    await expect(chip(llm)).toHaveText(/^~[\d,]+ tok · estimated$/);
+    await expect(chip(llm)).toHaveText(/^Reply: ~[\d,]+ tok · estimated$/);
 });
 
 test('a turn stopped during a later round is marked incomplete in the reply, the chat and the totals', async ({ llm }) => {
@@ -224,8 +224,8 @@ test('a turn stopped during a later round is marked incomplete in the reply, the
     await send(llm, 'two rounds');
     await expect.poll(async () => (await mockRequests()).filter(r => (r.messages ?? []).some((m: any) => m.role === 'tool')).length).toBeGreaterThan(0);
     await llm.locator('#llma-stop-btn').click();
-    await expect(chip(llm)).toHaveText('1,200 tok · incomplete');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,200 tok · incomplete');
+    await expect(chip(llm)).toHaveText('Reply: 1,200 tok · incomplete');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,200 tok · incomplete');
     await chatTotal(llm).click();
     let popover = llm.locator('#popover_llma_usage');
     await expect(popover.locator('tr[data-period="day"]')).toContainText('(incomplete)');
@@ -315,9 +315,9 @@ test('each compare lane shows its own cost, and only the priced model has one', 
     await llm.locator('#llma-model-select-b').selectOption('mock-model-b');
     await send(llm, 'versus');
     let lanes = llm.locator('.llma-compare-col');
-    await expect(lanes.filter({ hasText: 'lane A' }).locator('.llma-usage-chip')).toHaveText('1,200 tok · 0.0040 USD');
-    await expect(lanes.filter({ hasText: 'lane B' }).locator('.llma-usage-chip')).toHaveText('600 tok');
-    await expect(chatTotal(llm)).toHaveText('Chat: 1,800 tok · 0.0040 USD (priced replies only)');
+    await expect(lanes.filter({ hasText: 'lane A' }).locator('.llma-usage-chip')).toHaveText('Reply: 1,200 tok · 0.0040 USD');
+    await expect(lanes.filter({ hasText: 'lane B' }).locator('.llma-usage-chip')).toHaveText('Reply: 600 tok');
+    await expect(chatTotal(llm)).toHaveText('Chat total: 1,800 tok · 0.0040 USD (priced replies only)');
 });
 
 test('turning the token count off hides the figures', async ({ llm }) => {

@@ -70,7 +70,8 @@ class LLMAContext {
         if (bar) {
             bar.style.display = '';
         }
-        let count = LLMAState.messages.length;
+        // A reply that was never saved (it failed or was stopped before anything arrived) is not counted: a reload would not show it.
+        let count = LLMAState.messages.filter(m => !m.unsaved).length;
         let maxMessages = LLMAState.settings?.parameters?.maxContextMessages || 0;
         let used = this.currentTokens();
         let limit = this.windowTokens();
@@ -92,7 +93,7 @@ class LLMAContext {
             if (limit > 0) {
                 text += ` / ${limit.toLocaleString()}`;
             }
-            tokens.textContent = `${text} ${translate('tokens')}`;
+            tokens.textContent = `${translate('Context')}: ${text} ${translate('tokens')}`;
             tokens.title = limit > 0
                 ? translate('Tokens the conversation holds, out of what the model can hold.')
                 : translate('Tokens the conversation holds. This model does not say how many it can hold; set it in Settings > Context.');

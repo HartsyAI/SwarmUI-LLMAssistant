@@ -233,26 +233,12 @@ async function llmaLoadModels(opts = {}) {
                     byProvider[prov].push(m);
                 }
                 const providerKeys = Object.keys(byProvider);
-                // The model name, plus, once loaded, where the engine placed it (one GPU, a split, or expert offload), with the
-                // reason as the tooltip. No emoji/badges: vision capability is surfaced by the paperclip enable/disable and the
-                // Capabilities panel, not in the option text.
-                const labelFor = (m) => {
-                    const base = llmaEscapeHtml(m.name || m.id);
-                    const placed = m.metadata && m.metadata.placement;
-                    return placed ? `${base} · ${llmaEscapeHtml(placed)}` : base;
-                };
-                const titleFor = (m) => (m.metadata && m.metadata.placement_reason)
-                    ? ` title="${llmaEscapeHtml(m.metadata.placement_reason)}"` : '';
                 if (providerKeys.length === 1) {
-                    sel.innerHTML = models.map(m =>
-                        `<option value="${llmaEscapeHtml(m.id)}"${titleFor(m)}>${labelFor(m)}</option>`
-                    ).join('');
+                    sel.innerHTML = models.map(llmaModelOptionHtml).join('');
                 } else {
                     sel.innerHTML = providerKeys.map(prov =>
                         `<optgroup label="${llmaEscapeHtml(prov)}">` +
-                        byProvider[prov].map(m =>
-                            `<option value="${llmaEscapeHtml(m.id)}"${titleFor(m)}>${labelFor(m)}</option>`
-                        ).join('') +
+                        byProvider[prov].map(llmaModelOptionHtml).join('') +
                         `</optgroup>`
                     ).join('');
                 }
@@ -381,46 +367,86 @@ function llmaSetupTopBar() {
     }
 }
 
-// -- Model menu (compact popover on narrow bars) --
-// A ResizeObserver adds .llma-bar-compact to the top bar below a width threshold; CSS then turns the inline
-// model selects into a popover. This opens/closes it via the trigger button, on outside click, or after a
-// selection.
+// -- Model picker placement --
+/** The top bar width below which its model selects give way to the composer's model chip. */
+let LLMA_MODEL_COMPACT_BELOW = 900;
+
+/**
+ * Puts the one model picker where it can be used: the selects in the top bar while it is wide enough, else beside the model chip, which
+ * opens them as a popover. The chip stands by the message box, and in the top bar while no chat shows (the assistant gallery has no
+ * message box).
+ */
+function llmaPlaceModelPicker() {
+    let container = document.getElementById('llma-container');
+    let topAnchor = document.getElementById('llma-model-anchor');
+    let chipAnchor = document.getElementById('llma-chip-anchor');
+    let wrap = document.getElementById('llma-model-select-wrap');
+    let send = document.getElementById('llma-send-btn');
+    let chat = document.getElementById('llma-chat-panel');
+    if (!container || !topAnchor || !chipAnchor || !wrap || !send || !chat) {
+        return;
+    }
+    let compact = container.classList.contains('llma-model-compact');
+    let home = compact ? chipAnchor : topAnchor;
+    if (wrap.parentElement != home) {
+        llmaCloseModelMenu();
+        home.appendChild(wrap);
+    }
+    let inTopBar = compact && chat.style.display == 'none';
+    if (inTopBar != (chipAnchor.parentElement == topAnchor)) {
+        llmaCloseModelMenu();
+        if (inTopBar) {
+            topAnchor.appendChild(chipAnchor);
+        }
+        else {
+            send.parentElement.insertBefore(chipAnchor, send);
+        }
+    }
+}
+
+/** Shows one model picker for the width there is (llmaPlaceModelPicker), and wires the chip that opens it where the top bar is narrow. */
 function llmaSetupModelMenu() {
-    const anchor = document.getElementById('llma-model-anchor');
-    const btn    = document.getElementById('llma-model-menu-btn');
-    if (!anchor || !btn) return;
-    // Collapse to the popover when the top bar itself is too narrow for the inline selects. A ResizeObserver
-    // on the bar catches width changes from sidebar/panel collapse too (not just window resize).
-    const topbar = document.querySelector('.llma-topbar');
-    if (topbar && typeof ResizeObserver !== 'undefined') {
-        const COMPACT_BELOW = 900;
-        const applyCompact = () => {
-            const compact = topbar.clientWidth < COMPACT_BELOW;
+    let container = document.getElementById('llma-container');
+    let topbar = document.querySelector('.llma-topbar');
+    let chipAnchor = document.getElementById('llma-chip-anchor');
+    let chip = document.getElementById('llma-model-chip');
+    if (!container || !topbar || !chipAnchor || !chip) {
+        return;
+    }
+    // A ResizeObserver on the bar catches width changes from the sidebar and panel too, not just the window's.
+    if (typeof ResizeObserver != 'undefined') {
+        let applyCompact = () => {
+            // A tab that is not showing has no width: it keeps what it had.
+            if (topbar.clientWidth == 0) {
+                return;
+            }
+            let compact = topbar.clientWidth < LLMA_MODEL_COMPACT_BELOW;
+            container.classList.toggle('llma-model-compact', compact);
             topbar.classList.toggle('llma-bar-compact', compact);
-            if (!compact) { anchor.classList.remove('llma-model-open'); btn.classList.remove('active'); }
+            llmaPlaceModelPicker();
         };
         new ResizeObserver(applyCompact).observe(topbar);
         applyCompact();
     }
-    btn.addEventListener('click', (e) => {
+    chip.addEventListener('click', e => {
         e.stopPropagation();
-        const open = !anchor.classList.contains('llma-model-open');
+        let open = !chipAnchor.classList.contains('llma-model-open');
         llmaCloseAllPopovers();
-        anchor.classList.toggle('llma-model-open', open);
-        btn.classList.toggle('active', open);
+        chipAnchor.classList.toggle('llma-model-open', open);
     });
     // Close after picking a model (native change bubbles up from either lane's select).
-    anchor.addEventListener('change', () => {
-        anchor.classList.remove('llma-model-open');
-        btn.classList.remove('active');
-    });
+    chipAnchor.addEventListener('change', () => llmaCloseModelMenu());
     // Outside-click closes it (the select2 dropdown lives on <body>, so ignore clicks inside it).
-    document.addEventListener('click', (e) => {
-        if (!anchor.classList.contains('llma-model-open')) return;
-        if (anchor.contains(e.target) || e.target.closest('.select2-container, .select2-dropdown')) return;
-        anchor.classList.remove('llma-model-open');
-        btn.classList.remove('active');
+    document.addEventListener('click', e => {
+        if (!chipAnchor.contains(e.target) && !e.target.closest('.select2-container, .select2-dropdown')) {
+            llmaCloseModelMenu();
+        }
     });
+}
+
+/** Closes the model chip's popover. */
+function llmaCloseModelMenu() {
+    document.getElementById('llma-chip-anchor')?.classList.remove('llma-model-open');
 }
 
 function llmaSetupModelSelect() {
@@ -487,18 +513,26 @@ function llmaSetModelSelectError(hasError) {
     document.getElementById('llma-model-select')?.classList.toggle('error', !!hasError);
 }
 
-// Briefly pulse + focus the model dropdown to point the user at it (eg they tried to send with no
-// model selected). The toast says what's wrong; this says where to fix it.
+/**
+ * Briefly pulses and focuses the model picker to point the user at it (eg they tried to send with no model selected). The toast says
+ * what's wrong; this says where to fix it.
+ */
 function llmaFlashModelSelect() {
-    const sel = document.getElementById('llma-model-select');
-    if (!sel) return;
-    sel.classList.add('error', 'llma-flash');
-    try { sel.focus({ preventScroll: false }); } catch { /* older browsers */ }
-    setTimeout(() => sel.classList.remove('llma-flash'), 1100);
-    const chip = document.getElementById('llma-model-chip');
-    if (chip) {
-        chip.classList.add('llma-flash');
-        setTimeout(() => chip.classList.remove('llma-flash'), 1100);
+    let sel = document.getElementById('llma-model-select');
+    if (!sel) {
+        return;
+    }
+    sel.classList.add('error');
+    // The searchable dropdown stands in front of the select: it is what shows, and what takes the keyboard. Where the top bar is narrow
+    // both are inside the chip's closed list, and the chip is what shows.
+    let shown = sel.nextElementSibling?.classList.contains('select2-container') ? sel.nextElementSibling : null;
+    let chip = document.getElementById('llma-model-chip');
+    (chip?.offsetParent ? chip : shown?.querySelector('.select2-selection') || sel).focus({ preventScroll: false });
+    for (let part of [sel, shown, chip]) {
+        if (part) {
+            part.classList.add('llma-flash');
+            setTimeout(() => part.classList.remove('llma-flash'), 1100);
+        }
     }
 }
 
@@ -508,15 +542,11 @@ function llmaUpdateModelStatus() {
     llmaUpdateModelChip();
 }
 
-/** Composer model chip: always shows which model will answer, and opens the picker on click. */
+/** Composer model chip (narrow screens): shows which model will answer; llmaSetupModelMenu opens the picker from it. */
 function llmaUpdateModelChip() {
     const chip = document.getElementById('llma-model-chip');
     if (!chip) {
         return;
-    }
-    if (chip.dataset.llmaBound != '1') {
-        chip.dataset.llmaBound = '1';
-        chip.addEventListener('click', llmaOpenModelPicker);
     }
     const model = LLMAState.currentModel;
     const text = document.getElementById('llma-model-chip-text');
@@ -529,22 +559,6 @@ function llmaUpdateModelChip() {
     chip.setAttribute('aria-label', `${text?.textContent || ''}: ${translate('Switch model')}`);
     chip.classList.toggle('warn', !model);
     chip.title = model ? `${model}\n${translate('Click to switch model')}` : translate('No model selected: click to pick one');
-}
-
-/** Open the model picker: the top-bar popover when the bar is compact, else the searchable select. */
-function llmaOpenModelPicker() {
-    const bar = document.querySelector('.llma-topbar');
-    if (bar?.classList.contains('llma-bar-compact')) {
-        document.getElementById('llma-model-menu-btn')?.click();
-        return;
-    }
-    const sel = document.getElementById('llma-model-select');
-    if (sel && llmaModelSelect2Ready() && window.$(sel).data('select2')) {
-        window.$(sel).select2('open');
-    }
-    else {
-        sel?.focus();
-    }
 }
 
 // Sets what the paperclip / attach button offers for the active model. Documents are always offered (their text goes to any model). Images are offered unless the model is
@@ -882,8 +896,6 @@ function llmaRenderAssistantPanel(assistantId) {
     if (!assistant) { llmaRenderAssistantPanelEmpty(); return; }
 
     const icon  = llmaCategoryIcon(assistant.icon || assistant.category || 'chat');
-    const msgCount = LLMAState.messages.length;
-    const tokens   = llmaApproxTokens(LLMAState.messages) + llmaChatDocuments.tokens(LLMAState.messages);
 
     inner.innerHTML = `
         <div class="llma-panel-card">
@@ -896,10 +908,6 @@ function llmaRenderAssistantPanel(assistantId) {
                 <button class="llma-panel-action-btn translate" type="button" data-action="edit">Edit</button>
                 <button class="llma-panel-action-btn translate" type="button" data-action="switch">Switch</button>
             </div>
-        </div>
-        <div class="llma-panel-stats">
-            <div class="llma-stat-box"><div class="llma-stat-num">${msgCount}</div><div class="llma-stat-lbl translate">Messages</div></div>
-            <div class="llma-stat-box"><div class="llma-stat-num">~${tokens}</div><div class="llma-stat-lbl translate">Tokens</div></div>
         </div>
         <div class="llma-panel-memories">
             <div class="llma-mem-header">
@@ -945,27 +953,6 @@ function llmaRenderAssistantPanelEmpty() {
     if (inner) inner.innerHTML = `<div class="llma-panel-empty">${translate('Select an assistant to see details.')}</div>`;
 }
 
-// Lightweight in-place update for the Messages/Tokens stat boxes.
-// Called from chat.js on user send and on stream completion so the right panel
-// reflects the active thread's live counts without a full re-render.
-//
-// Uses the exact backend token count (LLMAState.exactTokenCount) when available,
-// otherwise falls back to the cheap char/4 heuristic. Exact counts are requested
-// via llmaRefreshExactTotalTokens() on stream completion.
-function llmaUpdatePanelStats() {
-    const boxes = document.querySelectorAll('#llma-panel-inner .llma-panel-stats .llma-stat-num');
-    if (!boxes || boxes.length < 2) return;
-    const msgs = LLMAState.messages || [];
-    boxes[0].textContent = String(msgs.length);
-    const exact = LLMAState.exactTokenCount;
-    if (typeof exact === 'number' && LLMAState.exactTokenCountForLen === msgs.length) {
-        boxes[1].textContent = exact.toLocaleString();
-    }
-    else {
-        boxes[1].textContent = '~' + (llmaApproxTokens(msgs) + llmaChatDocuments.tokens(msgs));
-    }
-}
-
 // Fires a background request to get an exact token count for the current thread's
 // full message history and patches LLMAState.exactTokenCount when it lands.
 // Fire-and-forget — safe to call without awaiting. If the active LLM backend
@@ -976,7 +963,6 @@ async function llmaRefreshExactTotalTokens() {
     if (msgs.length === 0) {
         LLMAState.exactTokenCount = 0;
         LLMAState.exactTokenCountForLen = 0;
-        llmaUpdatePanelStats();
         llmaUpdateContextBar();
         return;
     }
@@ -993,7 +979,6 @@ async function llmaRefreshExactTotalTokens() {
         LLMAState.exactTokenCount = (Number(result.count) || 0) + documentTokens;
         LLMAState.exactTokenCountForLen = snapshotLen;
         LLMAState.exactTokenCountIsExact = !!result.exact && documentTokens == 0;
-        llmaUpdatePanelStats();
         llmaUpdateContextBar();
     } catch {
         // Silent — heuristic stays.
@@ -1316,6 +1301,57 @@ function llmaRenderWelcomeAssistants() {
 }
 
 // -- Settings Modal --
+/**
+ * The tabs holding something the reset button puts back. A user who may write the shared settings resets that shared layer, and their own
+ * settings stay; anyone else resets their own. Chats, memory, knowledge, schedules and skill files are stored apart and kept either way.
+ */
+let LLMA_SETTINGS_SHARED_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'mcp'];
+let LLMA_SETTINGS_OWN_RESET_TABS = ['general', 'assistants', 'tools', 'hooks', 'skills', 'prompt-styles', 'usage', 'companion'];
+
+/** The tabs whose fields "Save & Close" saves. */
+let LLMA_SETTINGS_SAVE_TABS = ['general', 'companion'];
+
+/** Whether a field of those tabs changed since the dialog was drawn: "Save & Close" is then offered on every tab. */
+let llmaSettingsDirty = false;
+
+/**
+ * Shows each footer button only where it applies: "Save & Close" on the tabs it saves, and on any tab while something it saves (their fields,
+ * or the price table) is unsaved; the reset button, named for what it resets, on the tabs it resets. The footer goes when neither applies.
+ */
+function llmaUpdateSettingsFooter() {
+    let tab = document.querySelector('.llma-modal-tab.active')?.dataset.tab;
+    let footer = document.querySelector('.llma-settings-footer');
+    let save = document.getElementById('llma-settings-save');
+    let reset = document.getElementById('llma-settings-reset');
+    if (!footer || !save || !reset) {
+        return;
+    }
+    let shared = !!LLMAState.canWriteShared;
+    let canSave = LLMA_SETTINGS_SAVE_TABS.includes(tab) || llmaSettingsDirty || llmaUsageSettings.dirty;
+    let canReset = (shared ? LLMA_SETTINGS_SHARED_RESET_TABS : LLMA_SETTINGS_OWN_RESET_TABS).includes(tab);
+    reset.textContent = translate(shared ? 'Reset Shared Defaults' : 'Reset My Defaults');
+    reset.title = translate(shared
+        ? 'Puts the settings every user shares back to their defaults: shared assistants, tools, hooks, MCP servers and the image limit. Your own settings and the allowed workspace folders are kept.'
+        : 'Puts your own settings back to their defaults, removing your assistants, tool changes, hooks, prompt style changes, prices and workspace trust. Chats, memory, knowledge, schedules and skills are kept.');
+    save.style.display = canSave ? '' : 'none';
+    reset.style.display = canReset ? '' : 'none';
+    footer.style.display = canSave || canReset ? '' : 'none';
+}
+
+/** Scrolls the tab strip, where it is one scrolling row (narrow or short screens), so the tab showing is in view. */
+function llmaRevealSettingsTab() {
+    let tab = document.querySelector('.llma-modal-tab.active');
+    if (!tab) {
+        return;
+    }
+    let strip = tab.parentElement;
+    // Layout positions rather than on-screen boxes: the dialog's opening animation scales those.
+    let left = tab.offsetLeft - strip.offsetLeft;
+    if (left < strip.scrollLeft || left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+        strip.scrollLeft = left - (strip.clientWidth - tab.offsetWidth) / 2;
+    }
+}
+
 function llmaSetupSettingsModal() {
     const overlay  = document.getElementById('llma-settings-overlay');
     const close    = document.getElementById('llma-settings-close');
@@ -1324,6 +1360,17 @@ function llmaSetupSettingsModal() {
 
     if (close)   close.addEventListener('click', llmaCloseSettings);
     if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) llmaCloseSettings(); });
+
+    for (let id of ['llma-settings-general-form', 'llma-settings-companion-form']) {
+        let form = document.getElementById(id);
+        for (let event of ['input', 'change']) {
+            form?.addEventListener(event, () => llmaSettingsDirty = true);
+        }
+    }
+    // Heard after the field's own handler, which is what marks the price table as changed.
+    for (let event of ['input', 'change', 'click']) {
+        overlay?.addEventListener(event, llmaUpdateSettingsFooter);
+    }
 
     if (save) {
         save.addEventListener('click', async () => {
@@ -1352,7 +1399,7 @@ function llmaSetupSettingsModal() {
             // alone is not enough — the assistants dict lives server-side.
             const sharedReset = !!LLMAState.canWriteShared;
             const msg = sharedReset
-                ? translate('Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.')
+                ? translate('Reset the shared settings (assistants, tools, instructions, hooks, MCP servers) to factory defaults? This affects every user. The allowed workspace folders are kept.')
                 : translate('Reset your personal LLM Assistant settings to defaults?');
             if (!confirm(msg)) return;
             try {
@@ -1361,7 +1408,9 @@ function llmaSetupSettingsModal() {
                 await llmaLoadSettings();
                 await llmaLoadAssistants();
                 llmaWriteSettingsToModal();
+                llmaSettingsDirty = false;
                 llmaUsageSettings.discard();
+                llmaUpdateSettingsFooter();
                 if (document.getElementById('llma-settings-usage').style.display != 'none') {
                     llmaUsageSettings.load();
                 }
@@ -1398,6 +1447,8 @@ function llmaSetupSettingsModal() {
             if (tab.dataset.tab === 'knowledge') llmaKnowledgeSettings.load();
             if (tab.dataset.tab === 'memory') llmaMemorySettings.load();
             if (tab.dataset.tab === 'usage') llmaUsageSettings.load();
+            llmaUpdateSettingsFooter();
+            llmaRevealSettingsTab();
         });
     });
 
@@ -1444,6 +1495,8 @@ function llmaOpenSettings() {
     const overlay = document.getElementById('llma-settings-overlay');
     if (!overlay) return;
     llmaWriteSettingsToModal();
+    // Filling the fields raises their own change events: nothing the user did.
+    llmaSettingsDirty = false;
     llmaRenderAssistantList();
     if (typeof llmaImageTools != 'undefined') {
         llmaImageTools.load();
@@ -1453,6 +1506,8 @@ function llmaOpenSettings() {
         llmaUsageSettings.load();
     }
     overlay.style.display = '';
+    llmaUpdateSettingsFooter();
+    llmaRevealSettingsTab();
     llmaInstallFocusTrap(overlay);
     setTimeout(() => document.getElementById('llma-settings-close')?.focus(), LLMA_CONSTANTS.MODAL_FOCUS_DELAY_MS);
 }
@@ -2357,8 +2412,7 @@ function llmaCloseAllPopovers(except) {
     const enhance = document.getElementById('llma-enhance-popover');
     if (enhance && enhance !== except) llmaRewriteControls.closePopover();
     // The model menu is a class-toggled popover (not display:none), so close it separately.
-    const modelAnchor = document.getElementById('llma-model-anchor');
-    if (modelAnchor && modelAnchor !== except) modelAnchor.classList.remove('llma-model-open');
+    llmaCloseModelMenu();
     document.querySelectorAll('.llma-icon-btn.active').forEach(b => b.classList.remove('active'));
 }
 

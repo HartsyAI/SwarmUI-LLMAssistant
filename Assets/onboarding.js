@@ -127,7 +127,8 @@ class LLMAOnboarding {
         let report = this.report;
         // Every button is replaced: the one with the keyboard gets it back. A button disabled for its own request may have lost it to the page already.
         let held = box.contains(document.activeElement) ? document.activeElement.id : (document.activeElement == document.body ? this.pressed : null);
-        let html = `<h2 class="llma-onboarding-title" id="llma-onboarding-title">${translate('Getting started')}</h2>`
+        let scrolled = box.querySelector('.llma-onboarding-body')?.scrollTop || 0;
+        let html = `<div class="llma-onboarding-body"><h2 class="llma-onboarding-title" id="llma-onboarding-title">${translate('Getting started')}</h2>`
             + `<p class="text-muted">${translate('A quick look at what is ready. You can skip this and look around at any time; Settings > General brings it back.')}</p>`;
         if (!report) {
             html += this.result
@@ -137,11 +138,13 @@ class LLMAOnboarding {
         else {
             html += this.checksHtml(report) + this.starterHtml(report) + `<div id="llma-onboarding-result">${this.result}</div>`;
         }
-        html += '<div class="llma-onboarding-actions">'
+        html += '</div><div class="llma-onboarding-actions">'
             + `<button type="button" class="basic-button" id="llma-onboarding-skip">${translate('Skip for now')}</button>`
             + (report?.canChat ? `<button type="button" class="basic-button btn-primary" id="llma-onboarding-done">${translate('Start chatting')}</button>` : '')
             + '</div>';
         box.innerHTML = html;
+        // The guide is redrawn whole after each step: a reader part way down stays there.
+        box.querySelector('.llma-onboarding-body').scrollTop = scrolled;
         this.wire('llma-onboarding-skip', () => this.close('skip'));
         this.wire('llma-onboarding-done', () => this.close('complete'));
         this.wire('llma-onboarding-recheck', () => this.recheck());

@@ -165,7 +165,7 @@ public static class CompactionPlanner
 
     /// <summary>How many tokens the conversation holds now, and whether that is a count the model reported (<c>true</c>) or an estimate.
     /// The newest reply after the summary that carries <c>meta.usage</c> is the best figure: what it was sent plus what it wrote, with the
-    /// messages after it estimated. Without one, everything that would be sent is estimated, <paramref name="systemPromptTokens"/> included. Attached documents' text is counted too, up to
+    /// messages after it estimated. Without one, everything that would be sent is estimated, <paramref name="systemPromptTokens"/> (what goes ahead of the conversation: the instructions and the tools' definitions) included. Attached documents' text is counted too, up to
     /// <paramref name="documentBudget"/> quarter-tokens (the most a request carries, however many files there are); those on summarized messages are still sent, so they still count.</summary>
     public static (long Tokens, bool Reported) EstimateContext(List<JObject> path, CompactionRecord active, int systemPromptTokens = 0, int documentBudget = int.MaxValue)
     {
@@ -188,6 +188,23 @@ public static class CompactionPlanner
     /// <summary>An estimate of the tokens the documents on these messages add to a request.</summary>
     private static long EstimateDocuments(IEnumerable<JObject> messages, int documentBudget)
         => (Math.Min(messages.Sum(ChatDocuments.ReferencedCost), Math.Max(0, documentBudget)) + 3) / 4;
+
+    /// <summary>An estimate of the tokens of one saved message as a later request carries it: its text and its calls, with each call's result cut as the replay cuts it
+    /// (<see cref="ToolConstants.MaxReplayedToolResultChars"/>). This is what summarizing the message takes out of a request.</summary>
+    public static int EstimateReplayedMessage(JObject message)
+    {
+        long chars = message["content"]?.ToString().Length ?? 0;
+        foreach (JObject call in (message["toolCalls"] as JArray)?.OfType<JObject>() ?? [])
+        {
+            chars += call.Properties().Where(p => p.Name != "result").Sum(p => p.Value.ToString(Newtonsoft.Json.Formatting.None).Length);
+            if (call["result"] is { Type: not JTokenType.Null } result)
+            {
+                int length = result.Type == JTokenType.String ? result.ToString().Length : result.ToString(Newtonsoft.Json.Formatting.None).Length;
+                chars += Math.Min(length, ToolConstants.MaxReplayedToolResultChars);
+            }
+        }
+        return (int)((chars + 3) / 4);
+    }
 
     /// <summary>An estimate of one saved message's tokens: its text, plus the calls it made and what they returned.</summary>
     public static int EstimateMessage(JObject message)

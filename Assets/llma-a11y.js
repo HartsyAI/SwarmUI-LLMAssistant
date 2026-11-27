@@ -32,7 +32,7 @@ class LLMAAccessibility {
             { trigger: 'llma-params-btn', panel: 'llma-params-popover', label: 'Parameters', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
             { trigger: 'llma-export-btn', panel: 'llma-export-menu', label: 'Export this chat', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
             { trigger: 'llma-enhance-btn', panel: 'llma-enhance-popover', label: 'Auto-enhance prompt', role: 'dialog', isOpen: panel => panel.style.display != 'none' },
-            { trigger: 'llma-model-menu-btn', panel: 'llma-model-anchor', content: 'llma-model-select-wrap', label: 'Model selection', role: 'group', isOpen: panel => panel.classList.contains('llma-model-open') },
+            { trigger: 'llma-model-chip', panel: 'llma-chip-anchor', content: 'llma-model-select-wrap', label: 'Model selection', role: 'group', isOpen: panel => panel.classList.contains('llma-model-open') },
         ];
     }
 

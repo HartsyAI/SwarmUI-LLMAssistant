@@ -198,6 +198,19 @@ test('a dry run builds the request and reports on it without calling the model, 
     expect(((await api(llm, 'LLMAssistantGetThreads')).threads as any[]).length).toBe(threadsBefore);
 });
 
+test('a dry run counts the definitions of the offered tools in the prompt', async ({ llm }) => {
+    let chat = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default' })).thread.id;
+    let withTools = await run(llm, { message: 'count me', threadId: chat, dryRun: true });
+    expect(withTools.tools.length).toBeGreaterThan(0);
+    expect((await api(llm, 'LLMAssistantSetThreadToolsEnabled', { threadId: chat, enabled: false })).success).toBe(true);
+    let without = await run(llm, { message: 'count me', threadId: chat, dryRun: true });
+    expect(without.tools).toEqual([]);
+    // The tool definitions are far longer than anything else the switch changes in the instructions.
+    expect(withTools.estimatedPromptTokens - without.estimatedPromptTokens).toBeGreaterThan(Math.ceil((withTools.systemPromptChars - without.systemPromptChars) / 4) + 100);
+    // Tools alone filling the window make nothing to summarize.
+    expect(withTools.wouldCompact).toBe(false);
+});
+
 test('a dry run says a long chat would be summarized first, and does not do it', async ({ llm }) => {
     // The mock model's window is 4,000 tokens; a message of 14,000 characters is most of it.
     let first = await run(llm, { message: 'long ' + 'word '.repeat(2800) });
@@ -253,6 +266,42 @@ test('with no model named, the first one a backend offers is used', async ({ llm
     let reply = await run(llm, { message: 'no model named' });
     expect(reply.success, JSON.stringify(reply)).toBe(true);
     expect(['mock-model', 'mock-model-b']).toContain(reply.model);
+});
+
+test('with no model named, the model picked in the chat is used, after the preferred one', async ({ llm }) => {
+    await setScenarios([{ regex: 'picked', rounds: [{ text: 'ok' }] }]);
+    expect((await run(llm, { message: 'nothing picked' })).model).toBe('mock-model');
+    try {
+        await llm.locator('#llma-model-select').selectOption('mock-model-b');
+        await expect.poll(async () => (await api(llm, 'LLMAssistantGetSessionState')).state.currentModel).toBe('mock-model-b');
+        expect((await run(llm, { message: 'one picked' })).model).toBe('mock-model-b');
+        expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: 'mock-model' }) })).success).toBe(true);
+        expect((await run(llm, { message: 'preferred over picked' })).model).toBe('mock-model');
+    }
+    finally {
+        // The picker also keeps its choice in the settings, which the next page would show again; the page saves it after the pick, so the reset waits for that.
+        await llm.waitForTimeout(500);
+        await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: '', currentModel: 'mock-model' }) });
+        await api(llm, 'LLMAssistantSetSessionState', { state: { currentModel: null } });
+    }
+});
+
+test('with no model named, the preferred model is used when a backend offers it, by a turn and by a one-off request', async ({ llm }) => {
+    await setScenarios([{ regex: 'preferred', rounds: [{ text: 'ok' }] }]);
+    let prefer = async (model: string) => expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: model }) })).success).toBe(true);
+    try {
+        await prefer('mock-model-b');
+        expect((await run(llm, { message: 'my preferred' })).model).toBe('mock-model-b');
+        await clearRequests();
+        expect((await api(llm, 'LLMAssistantSendMessage', { message: 'preferred once', noCache: true })).success).toBe(true);
+        expect((await mockRequests()).map(r => r.model)).toEqual(['mock-model-b']);
+        // One nothing offers is passed over for the backend's default.
+        await prefer('a-model-that-is-gone');
+        expect((await run(llm, { message: 'preferred but gone' })).model).toBe('mock-model');
+    }
+    finally {
+        await prefer('');
+    }
 });
 
 test('a message to a session is a turn of that session, and it reports to its parent as any turn does', async ({ llm }) => {

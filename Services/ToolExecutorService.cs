@@ -69,6 +69,9 @@ public static class ToolExecutorService
     public static async Task<JObject> ExecuteTool(string toolId, JObject args, Session session, string assistantId = null, string threadId = null, string modelId = null, CancellationToken ct = default,
         ToolApprovalGate gate = null, string callId = null, ToolHookRunner hooks = null, Action<string, string> output = null)
     {
+        // Whether the call still has to pass the approval gate (its pre hooks run first, and the gate may wait for the user): a Stop then ends a
+        // call that was never allowed to run.
+        bool unapproved = false;
         try
         {
             JObject tool = ToolRegistryService.GetTool(toolId, user: session?.User);
@@ -117,6 +120,7 @@ public static class ToolExecutorService
             // user to be asked.
             bool forceAsk = false;
             List<string> hookNotes = [];
+            unapproved = gate is not null;
             if (hooks is { IsEmpty: false })
             {
                 PreHookOutcome pre = await hooks.PreAsync(toolId, handlerId, args, ct);
@@ -144,6 +148,7 @@ public static class ToolExecutorService
                 // A call that is riskier than its tool usually is (wildcard samples) is always asked about: "allow for this chat" was given for the usual calls.
                 ToolRisk callRisk = handler.RiskForCall(tool, args);
                 JObject refusal = await gate.CheckAsync(toolId, callRisk, args, callId, ct, forceAsk || callRisk != handler.RiskFor(tool));
+                unapproved = false;
                 if (refusal is not null)
                 {
                     AuditLogService.RecordToolCall(handlerId, toolId, session?.User, assistantId, threadId, args, refusal);
@@ -209,6 +214,10 @@ public static class ToolExecutorService
         catch (OperationCanceledException)
         {
             JObject cancelled = Error("Tool execution timed out or was cancelled.");
+            if (unapproved)
+            {
+                cancelled["unfinished"] = true;
+            }
             // Still audit cancellations — long-running shell/file operations that get killed are
             // exactly the events an admin would want to see post-incident.
             AuditLogService.RecordToolCall(GetHandlerIdSafe(toolId, session), toolId, session?.User, assistantId, threadId, args, cancelled);

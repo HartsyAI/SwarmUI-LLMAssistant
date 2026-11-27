@@ -100,7 +100,7 @@ public class CaptionImageTool : ToolHandler
         ImageInputResolver.ResolvedImage img;
         try
         {
-            img = await ImageInputResolver.ResolveAsync(image, ctx.Ct);
+            img = await ImageInputResolver.ResolveAsync(image, ctx.Ct, session.User);
         }
         catch (InvalidOperationException ex)
         {

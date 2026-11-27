@@ -26,8 +26,9 @@ public static class PromptRewriteService
         public RewriteResult Result { get; } = result;
     }
 
-    /// <summary>Rewrites <paramref name="request"/>. <paramref name="session"/> is the caller's Swarm session (it can be null for the server's own use); <paramref name="ct"/> cancels the wait, not other callers' shared call.</summary>
-    public static async Task<RewriteResult> RewriteAsync(RewriteRequest request, User user, SwarmUI.Accounts.Session session, CancellationToken ct = default)
+    /// <summary>Rewrites <paramref name="request"/>. <paramref name="session"/> is the caller's Swarm session (it can be null for the server's own use); <paramref name="ct"/> cancels the wait, not other callers' shared call.
+    /// <paramref name="chatModel"/> is the model of the chat that asked for the image, if one did (see <see cref="WritingModel"/>).</summary>
+    public static async Task<RewriteResult> RewriteAsync(RewriteRequest request, User user, SwarmUI.Accounts.Session session, CancellationToken ct = default, string chatModel = null)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
         {
@@ -55,14 +56,19 @@ public static class PromptRewriteService
         }
         PromptStyle style = resolution.Style;
         RewriteSettings settings = RewriteSettings.ForUser(user);
-        string model = string.IsNullOrWhiteSpace(request.RewriteModel) ? settings.Model : request.RewriteModel.Trim();
-        // The writing model's chat-model style and the user's style notes go into its instructions (see PromptRewriter.BuildSystem).
+        // The default is named here, not only by the dispatcher, so the cache and the image's metadata say which model wrote.
+        string model = await LLMModelLookup.ResolveEffectiveModelIdAsync(WritingModel(request.RewriteModel, settings.Model, chatModel), session);
+        // That model's chat-model style and the user's style notes go into its instructions (see PromptRewriter.BuildSystem).
         LlmAddendum addendum = await LlmAddendumService.DescribeUnvariedAsync(user, session, AddendumSettings.ForUser(user), model, ["rewrite"]);
         request = request with { RewriteModel = model, Addendum = addendum.Text, StyleNotes = MemoryService.StyleNotes(user, request.Prompt) };
         RewriteGenerate generate = DispatcherGenerate(request, settings, session);
         RewriteResult result = await RewriteWithStyleAsync(user?.UserID, style, request, settings, generate, ct);
         return result with { Via = resolution.Via, Reason = resolution.Reason, StyleScope = style.Scope, StyleId = style.Id };
     }
+
+    /// <summary>The model asked to write: the one the request names, else the user's rewrite model, else the model of the chat that asked for the image. Empty when none of them says, and then the default chat model writes.</summary>
+    internal static string WritingModel(string requested, string saved, string chat)
+        => new[] { requested, saved, chat }.FirstOrDefault(model => !string.IsNullOrWhiteSpace(model))?.Trim() ?? "";
 
     /// <summary>Rewrites with a style already chosen, through the cache: a repeat of the same prompt, style, size, negative and writing model is answered from it, and identical requests made at once share one call. A result that fell
     /// back is returned but not kept. <paramref name="ct"/> cancels this caller's wait, never the call other callers share. A <see cref="RewriteRequest.Fresh"/> request skips the cache.</summary>
@@ -148,7 +154,7 @@ public static class PromptRewriteService
     }
 
     /// <summary>The call to the chat model through the dispatcher the chat uses, with the settings' limits.</summary>
-    private static RewriteGenerate DispatcherGenerate(RewriteRequest request, RewriteSettings settings, SwarmUI.Accounts.Session session)
+    internal static RewriteGenerate DispatcherGenerate(RewriteRequest request, RewriteSettings settings, SwarmUI.Accounts.Session session)
     {
         return async (system, userMessage, token) =>
         {

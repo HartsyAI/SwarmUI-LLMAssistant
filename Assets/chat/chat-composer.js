@@ -205,7 +205,6 @@
         if (el) el.remove();
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
-        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
         try {
             const res = await llmaRequest('LLMAssistantDeleteMessage', { threadId: threadId, messageId: msgId });
             if (!res?.success) {
@@ -233,7 +232,6 @@
         llmaRenderMessageHistory(LLMAState.messages);
         llmaRebuildAssetsForThread();
         llmaUpdateContextBar();
-        if (typeof llmaUpdatePanelStats === 'function') llmaUpdatePanelStats();
         llmaA11y.announce(translate(said));
         if (focusAt >= 0) {
             llmaA11y.focusMessageAt(focusAt);

@@ -54,6 +54,9 @@
 .llma-copy-code-btn:focus-visible { opacity: 1; }
 /* Under the last message: Retry, and the way to the rest of a branch that stops short. */
 .llma-msg-tail { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+/* Why there is no reply, on a row of its own above the buttons. */
+.llma-msg-tail-note { flex: 1 0 100%; text-align: right; font-size: 0.85rem; color: var(--text-soft); }
+.llma-msg-tail-note .llma-msg-error { text-align: left; }
 .llma-msg-stopped { color: var(--text-soft); font-style: italic; }
 /* Where Copy renders a reply to read its text: laid out, but off screen. */
 .llma-copy-render { position: fixed; left: -10000px; top: 0; width: 600px; }
@@ -88,7 +91,7 @@
     .llma-context-bar, .llma-thread-title, .llma-icon-btn, .llma-menu-heading, .llma-menu-item, .llma-model-chip-caret,
     .llma-empty-greeting-sub, .llma-msg-meta, .llma-msg-action-btn:not([aria-disabled="true"]), .llma-branch-icon, .llma-branch-sep, .llma-branch-caret, .llma-branch-menu-time,
     .llma-input-hint, .llma-char-count, .llma-think-preview, .llma-think-body, .llma-msg-bubble blockquote,
-    .llma-panel-header-label, .llma-panel-desc, .llma-panel-action-btn, .llma-stat-lbl, .llma-mem-header, .llma-mem-chip, .llma-panel-empty,
+    .llma-panel-header-label, .llma-panel-desc, .llma-panel-action-btn, .llma-mem-header, .llma-mem-chip, .llma-panel-empty,
     .llma-asset-card-sub, .llma-asset-card-open, .llma-panel-assets-header, .llma-asset-count, .llma-asset-empty, .llma-asset-actions button, .llma-asset-view-tab, .llma-asset-view-markdown blockquote,
     .llma-json-toggle, .llma-json-null, .llma-json-bracket, .llma-json-count, .llma-empty-state, .llma-banner-text em, .llma-memory-notice-close,
     .llma-modal-close, .llma-settings-note, .llma-builtin-badge, .llma-list-desc, .llma-list-edit, .llma-editor-field label, .llma-instr-section h5, .llma-instr-sublabel, .llma-instr-sublabel small,
@@ -98,7 +101,7 @@
 ) { opacity: 1; }
 .llma-container :is(
     .llma-sidebar-label, .llma-thread-group-label, .llma-context-bar, .llma-menu-heading, .llma-msg-meta:not(.llma-msg-meta-truncated), .llma-input-hint, .llma-char-count,
-    .llma-editor-field label, .llma-instr-section h5, .llma-assist-tool-config-section h5, .llma-params-section h5, .llma-builtin-badge, .llma-panel-header-label, .llma-stat-lbl, .llma-mem-header
+    .llma-editor-field label, .llma-instr-section h5, .llma-assist-tool-config-section h5, .llma-params-section h5, .llma-builtin-badge, .llma-panel-header-label, .llma-mem-header
 ) { color: var(--text-soft); }
 .llma-container .llma-input::placeholder { color: var(--text-soft); opacity: 1; }
 /* Accent colour used for text. */
@@ -158,6 +161,8 @@
 }
 @media (min-width: 1051px) {
     .llma-container.panel-collapsed .llma-asst-panel { visibility: hidden; }
+    /* The panel is a column here, closed by the top bar's button or its split bar. As a drawer (below) it covers the top bar, so it keeps its own button. */
+    .llma-container .llma-panel-header .llma-panel-collapse { display: none; }
 }
 @media (max-width: 1050px) {
     .llma-asst-panel { transition: transform 0.22s ease, visibility 0.22s; }

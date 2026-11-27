@@ -153,7 +153,8 @@ public static class SettingsEndpoints
             // The reset removed the stored MCP servers, so their connections have to go with them.
             await McpServerManager.Instance.SyncAsync();
             AuditLogService.RecordSharedWrite("reset", "settings", session.User);
-            return new JObject { ["success"] = true, ["settings"] = defaults, ["scope"] = SettingsService.ScopeShared };
+            // The reset keeps the allowed workspace folders, whose paths on the server this caller may not be allowed to see.
+            return new JObject { ["success"] = true, ["settings"] = SettingsService.ForClient(defaults), ["scope"] = SettingsService.ScopeShared };
         }
         SettingsService.ResetUserSettings(session.User);
         AssistantResolver.Invalidate(session.User);

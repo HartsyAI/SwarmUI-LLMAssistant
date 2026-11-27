@@ -70,26 +70,28 @@ public static class TurnSetupService
         systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
         // A chat with a code tool also follows the workspace's own AGENTS.md (or CLAUDE.md).
         systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
-        // A conversation near the model's window is summarized first, so this request fits.
+        // A conversation near the model's window is summarized first, so this request fits. The tools' definitions take room in it too.
+        List<JObject> offeredTools = ChatEndpoints.OfferedTools(enabledTools, session, assistantId);
+        int toolTokens = ContextWindowService.EstimateToolTokens(offeredTools);
         bool wouldCompact = false;
         if (dryRun)
         {
-            wouldCompact = ChatEndpoints.CompactionDue(thread, settings, modelInfo, systemPrompt);
+            wouldCompact = ChatEndpoints.CompactionDue(thread, settings, modelInfo, systemPrompt, toolTokens);
         }
         else
         {
-            thread = await ChatEndpoints.AutoCompactIfDueAsync(notify, session, threadId, thread, model, modelInfo, settings, systemPrompt, ct);
+            thread = await ChatEndpoints.AutoCompactIfDueAsync(notify, session, threadId, thread, model, modelInfo, settings, systemPrompt, ct, toolTokens);
         }
         // Build LLM input from the active branch (truncated to maxContextMessages).
         // Attached documents go in as quoted data, fitted to this model's window.
         List<ChatMessageData> history = ChatEndpoints.BuildHistoryFromThread(thread, settings, rawInput, session.User, ContextWindowService.Resolve(modelInfo, settings));
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model, session.User);
         input.RequestSession = session;
         input.ConversationId = ChatEndpoints.ThreadConversationId(threadId);
         input.EnableThinking = enableThinking;
         JObject resolvedParams = AssistantService.ResolveParameters(assistantId, settings, session.User);
         ChatEndpoints.ApplyParameters(input, resolvedParams, temperature, maxTokens, seed, loops);
-        ChatEndpoints.AttachTools(input, enabledTools, session, assistantId, forceToolId);
+        ChatEndpoints.AttachTools(input, enabledTools, session, assistantId, forceToolId, offeredTools);
         return ct.IsCancellationRequested ? null : new PreparedTurn(input, enabledTools, assistantId, thread, wouldCompact, ContextWindowService.Resolve(modelInfo, settings), addendum, ToolsUnsupportedBy(modelInfo, enabledTools));
     }
 

@@ -188,6 +188,10 @@
     gap: 8px;
     margin-bottom: 12px;
 }
+/* One column on a phone. Said here, after the rule above: the same line in llma-common.css loads before this sheet and lost to it. */
+@media (max-width: 680px) {
+    .llma-tool-list-wrap { grid-template-columns: minmax(0, 1fr); }
+}
 .llma-tool-list-item {
     display: flex;
     flex-wrap: wrap;

@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 import os from 'node:os';
 
 // Code mode in the interface: the Chat / Code switch, the workspace picker, the Workspace panel (files and tasks), diff rows in the transcript,
-// the plan card and the chat list filter. A chat in code mode brings the code tools itself, so most specs leave every assistant's tool list alone.
+// the plan card and the chat list's code badge. A chat in code mode brings the code tools itself, so most specs leave every assistant's tool list alone.
 
 test.beforeEach(async ({ llm }) => {
     let listed = await api(llm, 'LLMAssistantGetWorkspaces');
@@ -40,7 +40,7 @@ test('the Code segment is on for a user who may use it, and switching shows the 
     await expect(llm.locator('#llma-workspace-select')).toBeHidden();
 });
 
-test('a chat started in Code mode is saved as one, shows in the list with a badge, and the filter splits the two kinds', async ({ llm }) => {
+test('a chat started in Code mode is saved as one and shows in the list with a badge, and the only Code control is the mode switch', async ({ llm }) => {
     await setScenarios([{ match: 'plain', rounds: [{ text: 'Plain reply.' }] }, { match: 'coding', rounds: [{ text: 'Code reply.' }] }]);
     await send(llm, 'plain');
     await expect(lastAssistant(llm)).toContainText('Plain reply.');
@@ -55,15 +55,11 @@ test('a chat started in Code mode is saved as one, shows in the list with a badg
     await expect(items).toHaveCount(2);
     await expect(llm.locator('.llma-thread-item .llma-thread-mode-badge')).toHaveCount(1);
 
-    await expect(llm.locator('#llma-thread-mode-filter')).toBeVisible();
-    await llm.locator('label[for="llma-mode-filter-code"]').click();
-    await expect(items).toHaveCount(1);
-    await expect(items.first()).toContainText(/coding|Code|New/i);
-    await llm.locator('label[for="llma-mode-filter-chat"]').click();
-    await expect(items).toHaveCount(1);
-    await expect(llm.locator('.llma-thread-mode-badge')).toHaveCount(0);
-    await llm.locator('label[for="llma-mode-filter-all"]').click();
-    await expect(items).toHaveCount(2);
+    // The chat list has no kind filter of its own: both kinds are listed, told apart by the badge.
+    await expect(llm.locator('#llma-sidebar').getByRole('radio')).toHaveCount(0);
+    await expect(llm.locator('#llma-sidebar').getByText('Code', { exact: true })).toHaveCount(0);
+    // The badge is on the chat that is open, which is the coding one.
+    await expect(llm.locator('.llma-thread-item.active .llma-thread-mode-badge')).toHaveText('code');
 });
 
 test('opening a chat takes the mode, workspace panel and approval of that chat, and the mode of a chat can be changed and is kept', async ({ llm }) => {

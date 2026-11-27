@@ -73,14 +73,15 @@ test('a request that failed with no reply can be retried, from the failed reply 
     await expect(userRows(llm)).toHaveCount(1);
     await expect(replyRows(llm)).toHaveCount(0);
     await expect(llm.locator('.llma-msg-retry')).toBeVisible();
-    // It fails again, and Regenerate on the failed reply on screen asks again for the same question.
+    // It fails again. The failed reply on screen offers no second way to ask: Retry under it is the one.
     await llm.locator('.llma-msg-retry').click();
     await expect(llm.locator('.llma-msg-error')).toBeVisible({ timeout: 20_000 });
     await expect(llm.locator('#llma-send-btn')).toBeVisible();
     await setScenarios([{ match: 'flaky', rounds: [{ text: 'worked this time' }] }]);
     let failed = replyRows(llm).last();
-    await failed.hover();
-    await action(llm, failed, 'Regenerate').click();
+    await expect(llm.locator('.llma-msg-retry')).toBeVisible();
+    await expect(action(llm, failed, 'Regenerate')).toHaveCount(0);
+    await llm.locator('.llma-msg-retry').click();
     await expect(lastAssistant(llm)).toContainText('worked this time');
     await expect(llm.locator('#llma-send-btn')).toBeVisible();
     await expect(userRows(llm)).toHaveCount(1);
@@ -101,8 +102,9 @@ test('Stop before anything arrived says so, saves no reply, and can be asked aga
     await expect(llm.locator('.llma-typing')).toHaveCount(0);
     await setScenarios([{ match: 'patience', rounds: [{ text: 'prompt reply' }] }]);
     let stopped = replyRows(llm).last();
-    await stopped.hover();
-    await action(llm, stopped, 'Regenerate').click();
+    await expect(llm.locator('.llma-msg-retry')).toBeVisible();
+    await expect(action(llm, stopped, 'Regenerate')).toHaveCount(0);
+    await llm.locator('.llma-msg-retry').click();
     await expect(lastAssistant(llm)).toContainText('prompt reply');
     await expect(replyRows(llm)).toHaveCount(1);
 });

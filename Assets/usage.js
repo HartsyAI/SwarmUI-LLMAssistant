@@ -164,10 +164,10 @@ class LLMAUsage {
         }
     }
 
-    /** The one-line figure under a reply, e.g. "1,200 tok · 0.0042 USD". */
+    /** The one-line figure under a reply, e.g. "Reply: 1,200 tok · 0.0042 USD". */
     replyLabel(reply, currency) {
         let mark = reply.estimated ? '~' : '';
-        let parts = [`${mark}${this.count(reply.promptTokens + reply.completionTokens)} ${translate('tok')}`];
+        let parts = [`${translate('Reply')}: ${mark}${this.count(reply.promptTokens + reply.completionTokens)} ${translate('tok')}`];
         if (reply.cost !== null) {
             parts.push(`${mark}${this.money(reply.cost, currency)}`);
         }
@@ -192,7 +192,7 @@ class LLMAUsage {
         }
         let totals = data.totals;
         let mark = totals.estimatedReplies > 0 ? '~' : '';
-        let text = `${translate('Chat')}: ${mark}${this.count(totals.totalTokens)} ${translate('tok')}`;
+        let text = `${translate('Chat total')}: ${mark}${this.count(totals.totalTokens)} ${translate('tok')}`;
         if (totals.cost !== null) {
             text += ` · ${totals.costEstimated ? '~' : ''}${this.money(totals.cost, data.currency)}`;
             if (totals.unpricedReplies > 0) {
@@ -523,6 +523,7 @@ class LLMAUsageSettings {
             return this.fail(status, llmaShortError(err) || translate('Could not save.'));
         }
         this.dirty = false;
+        llmaUpdateSettingsFooter();
         // The form is drawn again: the control with the keyboard keeps it.
         let held = document.activeElement?.id;
         this.render(reply.usage);

@@ -95,6 +95,40 @@ function llmaLineCount(str) {
     return str.split('\n').length;
 }
 
+/**
+ * An image's address with its percent-encoding read, for handing to core's pages: core takes the file's path out of the address
+ * (to delete or star it), as it was written. `#` and `?` stay encoded, or the address would end at them.
+ * @param {string} url - An address, as a tool result gives it.
+ * @returns {string} The address as core writes it, or as given when it is not an output file's or cannot be read.
+ */
+function llmaCoreImageUrl(url) {
+    if (!/^(View|Output)\//.test(url || '')) {
+        return url;
+    }
+    try {
+        return decodeURI(url);
+    }
+    catch (ex) {
+        return url;
+    }
+}
+
+/**
+ * The name an image is saved under. Its title is made from the prompt and always ends `.png`, whatever the file is.
+ * @param {string} title - The asset's title.
+ * @param {string} url - The image's address or data URI.
+ * @returns {string} The title, ending with the type the address or data URI names, when it names one.
+ */
+function llmaImageFileName(title, url) {
+    let type = /^data:(?:image|video|audio)\/([\w-]+)/.exec(url || '')?.[1] || /\.(png|jpe?g|webp|gif|bmp|tiff?|avif|mp4|webm|mov)$/i.exec(url || '')?.[1];
+    if (!type) {
+        return title;
+    }
+    type = type.toLowerCase();
+    let endings = { jpeg: 'jpg', quicktime: 'mov', 'x-matroska': 'mkv', mpeg: 'mp3' };
+    return title.replace(/\.png$/i, `.${endings[type] || type}`);
+}
+
 // ── Asset construction ───────────────────────────────────────────
 function llmaGuessFilename(content, lang, type) {
     if (!content) return null;
@@ -160,7 +194,8 @@ function llmaBuildAsset({ id, type, language, content, msgId, source, toolId, id
             msgId,
             source: source || 'assistant',
             toolId: toolId || null,
-            size: llmaByteSize(content),
+            // An image's content is its address, so its length says nothing about the file: no size is shown.
+            size: resolvedType == 'image' ? undefined : llmaByteSize(content),
             lines: resolvedType === 'code' || resolvedType === 'text' ? llmaLineCount(content) : undefined,
             createdAt: new Date().toISOString(),
         },
@@ -177,13 +212,14 @@ const LLMA_ASSET_MIN_BYTES = 400;
 // Returns { assets: [...], tokenizedMarkdown: "..." }
 // The tokenized markdown has each extracted fence replaced with a bare-line token
 // `LLMA_ASSET_TOKEN_{id}` which survives marked + DOMPurify as plain text.
-function llmaExtractAssetsFromMarkdown(raw, msgId) {
+// `startIdx` numbers the assets from there, for a part of a message that follows others.
+function llmaExtractAssetsFromMarkdown(raw, msgId, startIdx = 0) {
     if (!raw) return { assets: [], tokenizedMarkdown: raw || '' };
     const assets = [];
     // Preserve mermaid — utils.js handles that pipeline separately; we do NOT touch mermaid fences.
     // Pattern: ``` optional-lang \n body \n ```
     const fenceRe = /```([^\s`]*)\s*\n([\s\S]*?)```/g;
-    let idx = 0;
+    let idx = startIdx;
     const tokenized = raw.replace(fenceRe, (match, lang, body) => {
         const langLower = (lang || '').toLowerCase();
         if (langLower === 'mermaid') return match; // leave to mermaid pipeline
@@ -316,9 +352,9 @@ function llmaRebuildAssetsForThread() {
 }
 
 // ── Render assistant content (markdown + inline asset cards) ─────
-function llmaRenderAssistantContent(raw, msgId) {
+function llmaRenderAssistantContent(raw, msgId, startIdx = 0) {
     if (!raw) return '';
-    const { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId);
+    let { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId, startIdx);
     let html = llmaRenderMarkdown(tokenizedMarkdown);
     // Replace token placeholders with asset cards
     for (const asset of assets) {
@@ -415,7 +451,7 @@ function llmaOpenAssetMenu(button, assetId) {
     items.push([translate('Download'), () => llmaAssetDownload(asset)]);
     if (asset.type == 'image') {
         if (typeof setCurrentImage == 'function') {
-            items.push([translate('Use as Init'), () => { setCurrentImage(asset.content); llmaShowToast(translate('Sent as init image'), 'success'); }]);
+            items.push([translate('Use as Init'), () => { setCurrentImage(llmaCoreImageUrl(asset.content)); llmaShowToast(translate('Sent as init image'), 'success'); }]);
         }
     }
     else if (typeof llmaSendToPromptBox == 'function') {
@@ -586,6 +622,13 @@ function llmaAssetDownload(asset) {
     } else {
         dl = { filename: asset.title, mime: 'text/plain', content: asset.content || '' };
     }
+    if (dl.url) {
+        let link = document.createElement('a');
+        link.href = dl.url;
+        link.download = dl.filename || asset.title;
+        link.click();
+        return;
+    }
     llmaDownloadFile(dl.filename || asset.title, dl.content, dl.mime || 'text/plain');
 }
 
@@ -649,7 +692,7 @@ function llmaSetupAssets() {
     document.getElementById('llma-asset-use-init')?.addEventListener('click', () => {
         const a = llmaCurrentAsset();
         if (a && a.type === 'image' && typeof setCurrentImage === 'function') {
-            setCurrentImage(a.content);
+            setCurrentImage(llmaCoreImageUrl(a.content));
             llmaShowToast('Sent as init image', 'success');
         }
     });
@@ -958,11 +1001,10 @@ llmaRegisterAssetType({
         return wrap;
     },
     copyPayload: (asset) => asset.content || '',
+    // An image's content is its address, so the file is fetched from there, not written out from the content.
     download: (asset) => ({
-        filename: asset.title,
-        mime: 'image/png',
-        // Images are URLs, can't be blob-downloaded directly without fetch; link-download instead
-        content: asset.content || '',
+        filename: llmaImageFileName(asset.title, asset.content),
+        url: asset.content || '',
     }),
 });
 
