@@ -271,15 +271,18 @@ test('with no model named, the first one a backend offers is used', async ({ llm
 test('with no model named, the model picked in the chat is used, after the preferred one', async ({ llm }) => {
     await setScenarios([{ regex: 'picked', rounds: [{ text: 'ok' }] }]);
     expect((await run(llm, { message: 'nothing picked' })).model).toBe('mock-model');
-    await llm.locator('#llma-model-select').selectOption('mock-model-b');
-    await expect.poll(async () => (await api(llm, 'LLMAssistantGetSessionState')).currentModel).toBe('mock-model-b');
-    expect((await run(llm, { message: 'one picked' })).model).toBe('mock-model-b');
     try {
+        await llm.locator('#llma-model-select').selectOption('mock-model-b');
+        await expect.poll(async () => (await api(llm, 'LLMAssistantGetSessionState')).state.currentModel).toBe('mock-model-b');
+        expect((await run(llm, { message: 'one picked' })).model).toBe('mock-model-b');
         expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: 'mock-model' }) })).success).toBe(true);
         expect((await run(llm, { message: 'preferred over picked' })).model).toBe('mock-model');
     }
     finally {
+        // The picker also keeps its choice in the settings, which the next page would show again; the page saves it after the pick, so the reset waits for that.
+        await llm.waitForTimeout(500);
         await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: '', currentModel: 'mock-model' }) });
+        await api(llm, 'LLMAssistantSetSessionState', { state: { currentModel: null } });
     }
 });
 
