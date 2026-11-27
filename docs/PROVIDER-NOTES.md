@@ -18,7 +18,7 @@ Scenarios ran with the composer's Thinking switch off. The local engine is the o
 
 ## Results
 
-The latest full run: 8 passed, 3 failed, 1 skipped in 6.9 minutes, 22 model requests counted, about 70,000 tokens counted (both figures keep the worst case where usage was not reported), 1 image. An earlier full run gave the same results. The three failures are the two defects below. Afterwards the run's 11 chats, 1 preset and 1 image were gone and the models it loaded were unloaded.
+The latest full run: 8 passed, 3 failed, 1 skipped in 7.3 minutes, 22 model requests counted, about 73,000 tokens counted (both figures keep the worst case where usage was not reported), 1 image. Earlier full runs gave the same results. The three failures are the two defects below. Afterwards the run's 11 chats, 1 preset and 1 image were gone and the models it loaded were unloaded.
 
 | Scenario | Result | Measured |
 |---|---|---|
@@ -28,12 +28,12 @@ The latest full run: 8 passed, 3 failed, 1 skipped in 6.9 minutes, 22 model requ
 | Ask mode, allowed call | pass | preset saved (then deleted by the run) |
 | Stop mid-stream | pass | ended at once; next request in 0.3 s |
 | Dry run, tools off | pass | estimate 868, counted 811 (1.07) |
-| Dry run, 11 tools | **fail** (defect 2) | estimate 868, counted 4,131 (0.21) |
+| Dry run, 11 tools | **fail** (defect 2) | estimate 868, counted 4,127 (0.21) |
 | Compaction | pass | estimate 34,919 of 40,960; next request 586 prompt tokens |
 | Rewrite, no model named | **fail** (defect 1) | fell back: `LLM model '' not found` |
 | Rewrite, chat model named | pass | SDXL style, rewritten |
 | Knowledge search | skipped | no embedding model |
-| Image through the assistant | **fail** (defect 1) | the 768x768, 12-step SDXL image was made after one approval and is not a flat frame; its rewrite fell back. The turn took 189 s including the model load (109 and 163 s in earlier runs) |
+| Image through the assistant | **fail** (defect 1) | the 768x768, 12-step SDXL image was made after one approval and is not a flat frame; its rewrite fell back. The turn took 229 s including the model load (109 to 189 s in earlier runs) |
 
 The paid image API backend enabled on the same server was not used.
 
