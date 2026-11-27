@@ -60,7 +60,13 @@ test('an image is generated through the assistant, with its prompt rewritten', a
     // Recorded before anything can fail, so the image is deleted whatever else happens.
     let urls: string[] = made ? made.imageUrls ?? [made.imageUrl] : [];
     for (let url of urls) {
-        let path = decodeURIComponent(url).replace(/^\/+/, '').replace(/^View\/[^/]+\//, '').replace(/^Output\//, '');
+        // The address may or may not be percent-encoded; one that does not decode is a plain name.
+        let decoded = url;
+        try {
+            decoded = decodeURIComponent(url);
+        }
+        catch { }
+        let path = decoded.replace(/^\/+/, '').replace(/^View\/[^/]+\//, '').replace(/^Output\//, '');
         updateState(s => s.created.images.push(path));
     }
     if (refused.length > 0) {
