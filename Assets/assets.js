@@ -120,11 +120,13 @@ function llmaCoreImageUrl(url) {
  * @returns {string} The title, ending with the type the address or data URI names, when it names one.
  */
 function llmaImageFileName(title, url) {
-    let type = /^data:image\/(\w+)/.exec(url || '')?.[1] || /\.(png|jpe?g|webp|gif|bmp|tiff?|avif|mp4|webm|mov)$/i.exec(url || '')?.[1];
+    let type = /^data:(?:image|video|audio)\/([\w-]+)/.exec(url || '')?.[1] || /\.(png|jpe?g|webp|gif|bmp|tiff?|avif|mp4|webm|mov)$/i.exec(url || '')?.[1];
     if (!type) {
         return title;
     }
-    return title.replace(/\.png$/i, `.${type.toLowerCase().replace('jpeg', 'jpg')}`);
+    type = type.toLowerCase();
+    let endings = { jpeg: 'jpg', quicktime: 'mov', 'x-matroska': 'mkv', mpeg: 'mp3' };
+    return title.replace(/\.png$/i, `.${endings[type] || type}`);
 }
 
 // ── Asset construction ───────────────────────────────────────────

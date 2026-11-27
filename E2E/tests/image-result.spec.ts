@@ -54,6 +54,12 @@ test('Download on an image card saves the image, not its address', async ({ llm 
     expect(fs.readFileSync(await download.path())).toEqual(PNG);
 });
 
+test('a saved file is named with the type of its address or data URI', async ({ llm }) => {
+    let names = await llm.evaluate(() => ['data:video/mp4;base64,AAAA', 'data:video/quicktime;base64,AAAA', 'data:image/jpeg;base64,AAAA', 'View/local/raw/a.webm', 'View/local/raw/a.png', 'View/local/raw/a']
+        .map(url => (window as any).llmaImageFileName('a_fox.png', url)));
+    expect(names).toEqual(['a_fox.mp4', 'a_fox.mov', 'a_fox.jpg', 'a_fox.webm', 'a_fox.png', 'a_fox.png']);
+});
+
 test('a prompt rewrite that fell back is said under the image, once, with the reason', async ({ llm }) => {
     await chatWithImage(llm, { rewriteStatus: 'fallback', rewriteWarnings: [WARNING] });
     let notice = llm.locator('.llma-tool-rewrite-notice');

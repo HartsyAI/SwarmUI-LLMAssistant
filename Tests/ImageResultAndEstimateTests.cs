@@ -1,5 +1,6 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services;
+using Hartsy.Extensions.LLMAssistant.Services.Compaction;
 using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
 using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
@@ -174,6 +175,26 @@ public sealed class ImageResultAndEstimateTests
         // The oldest four here come to 1,200 tokens, still less than a summary may be; with 1,500 tokens it is worth writing.
         Assert.False(ChatEndpoints.CompactionDue(Chat(8, new string('w', 1200)), Window(8000), null, "You are helpful.", 4500));
         Assert.True(ChatEndpoints.CompactionDue(Chat(8, new string('w', 1500)), Window(8000), null, "You are helpful.", 4500));
+    }
+
+    /// <summary>A chat of eight short messages whose second one made calls that each returned 40,000 characters.</summary>
+    private static JObject ChatWithBigResults(int calls)
+    {
+        JObject chat = Chat(8);
+        chat["messages"][1]["toolCalls"] = new JArray(Enumerable.Range(0, calls).Select(i => new JObject { ["id"] = $"c{i}", ["name"] = "file_read", ["arguments"] = new JObject(), ["result"] = new string('r', 40_000) }));
+        return chat;
+    }
+
+    [Fact]
+    public void AToolResultCountsForSummarizingOnlyAsFarAsItIsReplayed()
+    {
+        // One such result is about 10,000 tokens as saved and 1,000 as a request carries it: too little to write a summary for.
+        Assert.False(ChatEndpoints.CompactionDue(ChatWithBigResults(1), Window(14_000), null, "You are helpful.", 4500));
+        // Two are 2,000 as carried.
+        Assert.True(ChatEndpoints.CompactionDue(ChatWithBigResults(2), Window(28_000), null, "You are helpful.", 4500));
+        JObject message = (JObject)ChatWithBigResults(1)["messages"][1];
+        Assert.InRange(CompactionPlanner.EstimateReplayedMessage(message), 1000, 1030);
+        Assert.InRange(CompactionPlanner.EstimateMessage(message), 10_000, 10_050);
     }
 
     [Fact]

@@ -189,6 +189,23 @@ public static class CompactionPlanner
     private static long EstimateDocuments(IEnumerable<JObject> messages, int documentBudget)
         => (Math.Min(messages.Sum(ChatDocuments.ReferencedCost), Math.Max(0, documentBudget)) + 3) / 4;
 
+    /// <summary>An estimate of the tokens of one saved message as a later request carries it: its text and its calls, with each call's result cut as the replay cuts it
+    /// (<see cref="ToolConstants.MaxReplayedToolResultChars"/>). This is what summarizing the message takes out of a request.</summary>
+    public static int EstimateReplayedMessage(JObject message)
+    {
+        long chars = message["content"]?.ToString().Length ?? 0;
+        foreach (JObject call in (message["toolCalls"] as JArray)?.OfType<JObject>() ?? [])
+        {
+            chars += call.Properties().Where(p => p.Name != "result").Sum(p => p.Value.ToString(Newtonsoft.Json.Formatting.None).Length);
+            if (call["result"] is { Type: not JTokenType.Null } result)
+            {
+                int length = result.Type == JTokenType.String ? result.ToString().Length : result.ToString(Newtonsoft.Json.Formatting.None).Length;
+                chars += Math.Min(length, ToolConstants.MaxReplayedToolResultChars);
+            }
+        }
+        return (int)((chars + 3) / 4);
+    }
+
     /// <summary>An estimate of one saved message's tokens: its text, plus the calls it made and what they returned.</summary>
     public static int EstimateMessage(JObject message)
     {

@@ -268,6 +268,21 @@ test('with no model named, the first one a backend offers is used', async ({ llm
     expect(['mock-model', 'mock-model-b']).toContain(reply.model);
 });
 
+test('with no model named, the model picked in the chat is used, after the preferred one', async ({ llm }) => {
+    await setScenarios([{ regex: 'picked', rounds: [{ text: 'ok' }] }]);
+    expect((await run(llm, { message: 'nothing picked' })).model).toBe('mock-model');
+    await llm.locator('#llma-model-select').selectOption('mock-model-b');
+    await expect.poll(async () => (await api(llm, 'LLMAssistantGetSessionState')).currentModel).toBe('mock-model-b');
+    expect((await run(llm, { message: 'one picked' })).model).toBe('mock-model-b');
+    try {
+        expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: 'mock-model' }) })).success).toBe(true);
+        expect((await run(llm, { message: 'preferred over picked' })).model).toBe('mock-model');
+    }
+    finally {
+        await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: '', currentModel: 'mock-model' }) });
+    }
+});
+
 test('with no model named, the preferred model is used when a backend offers it, by a turn and by a one-off request', async ({ llm }) => {
     await setScenarios([{ regex: 'preferred', rounds: [{ text: 'ok' }] }]);
     let prefer = async (model: string) => expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: model }) })).success).toBe(true);

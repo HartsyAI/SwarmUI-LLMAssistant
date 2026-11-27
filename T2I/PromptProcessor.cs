@@ -75,12 +75,12 @@ public static class PromptProcessor
                 {
                     response = Cache.GetOrCreate(user?.UserID, writer, assistantId, content, effectiveInstruction, async () =>
                     {
-                        return await CallLLM(content, effectiveInstruction, modelOverride, writer, user, assistantId, timeout.Token);
+                        return await CallLLM(content, effectiveInstruction, modelOverride, writer, input.SourceSession, assistantId, timeout.Token);
                     }).GetAwaiter().GetResult();
                 }
                 else
                 {
-                    response = CallLLM(content, effectiveInstruction, modelOverride, writer, user, assistantId, timeout.Token).GetAwaiter().GetResult();
+                    response = CallLLM(content, effectiveInstruction, modelOverride, writer, input.SourceSession, assistantId, timeout.Token).GetAwaiter().GetResult();
                 }
                 responses.Add(response);
                 return response;
@@ -118,15 +118,18 @@ public static class PromptProcessor
 
     /// <summary>One LLM call from a T2I prompt tag. Resolves the system prompt through the
     /// chosen assistant (so the persona/character active in chat shapes prompt enhancement too)
-    /// with per-model instruction variants applied. <paramref name="model"/> is the one the parameters name (it picks the variant); <paramref name="writer"/> is the one asked.</summary>
-    private static async Task<string> CallLLM(string content, string instructionId, string model, string writer, User user, string assistantId, CancellationToken ct = default)
+    /// with per-model instruction variants applied. <paramref name="model"/> is the one the parameters name (it picks the variant); <paramref name="writer"/> is the one asked, on behalf of
+    /// <paramref name="session"/>, whose backends and keys it was picked from.</summary>
+    private static async Task<string> CallLLM(string content, string instructionId, string model, string writer, Session session, string assistantId, CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model);
+        User user = session?.User;
+        LLMModelInfo modelInfo = await LLMModelLookup.GetByIdAsync(model, session);
         string systemPrompt = InstructionIds.All.Contains(instructionId)
             ? AssistantService.ResolveInstruction(instructionId, assistantId, user: user, modelInfo: modelInfo)
             : InstructionService.ResolveInstruction(instructionId, user: user);
         ExtendedLLMInput input = ExtendedLLMInput.Create(content, systemPrompt, writer);
+        input.RequestSession = session;
         return await LLMDispatcher.Generate(input).WaitAsync(ct);
     }
 }

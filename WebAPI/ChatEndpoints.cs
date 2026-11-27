@@ -1017,7 +1017,7 @@ public static class ChatEndpoints
             {
                 return;
             }
-            string title = await GenerateChatTitle(userText, replyText, await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session));
+            string title = await GenerateChatTitle(userText, replyText, await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session), session);
             bool written = false;
             if (!string.IsNullOrWhiteSpace(title))
             {
@@ -1054,8 +1054,8 @@ public static class ChatEndpoints
     public const double TitleTemperature = 0.7;
 
     /// <summary>Asks the LLM for a short (3-6 word) chat title from the first exchange. Returns null on
-    /// any failure or if the model ignores the format and returns something unusably long.</summary>
-    private static async Task<string> GenerateChatTitle(string userText, string replyText, string model)
+    /// any failure or if the model ignores the format and returns something unusably long. The request is sent for <paramref name="session"/>, as the reply was.</summary>
+    internal static async Task<string> GenerateChatTitle(string userText, string replyText, string model, Session session)
     {
         const string system = "You write extremely short titles for chat conversations, in the style of Claude.ai or ChatGPT's auto-generated chat names. Reply with ONLY the title: 3-6 words, no quotes, no trailing punctuation, no preamble like \"Title:\".";
         string prompt = $"User: {Truncate(userText, 400)}";
@@ -1066,6 +1066,7 @@ public static class ChatEndpoints
         ExtendedLLMInput input = ExtendedLLMInput.Create(prompt, system, model);
         input.MaxTokens = TitleMaxTokens;
         input.Temperature = TitleTemperature;
+        input.RequestSession = session;
         string raw = await LLMDispatcher.Generate(input);
         return CleanGeneratedTitle(raw);
     }
@@ -1410,7 +1411,7 @@ public static class ChatEndpoints
         int instructionTokens = ContextWindowService.EstimateTokens(systemPrompt);
         int fixedTokens = instructionTokens + toolTokens;
         return Due(instructionTokens) || (fixedTokens < window && Due(fixedTokens) && CompactionPlanner.Plan(path, active) is CompactionPlan plan
-            && plan.ToSummarize.Sum(CompactionPlanner.EstimateMessage) >= CompactionService.SummaryMaxTokens);
+            && plan.ToSummarize.Sum(CompactionPlanner.EstimateReplayedMessage) >= CompactionService.SummaryMaxTokens);
     }
 
     /// <summary>Summarizes the start of the active branch first when the conversation has grown to the configured share of the model's window

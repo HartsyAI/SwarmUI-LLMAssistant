@@ -1,6 +1,7 @@
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using Hartsy.Extensions.LLMAssistant.Services.PromptRewrite;
 using Hartsy.Extensions.LLMAssistant.Services.PromptStyles;
+using Hartsy.Extensions.LLMAssistant.WebAPI;
 using Newtonsoft.Json.Linq;
 using Xunit;
 
@@ -17,6 +18,9 @@ public sealed class DefaultModelTests
         /// <summary>The model of each request answered.</summary>
         public readonly List<string> Asked = [];
 
+        /// <summary>The session each answered request was sent for.</summary>
+        public readonly List<SwarmUI.Accounts.Session> Sessions = [];
+
         public string Id { get; } = "strict-" + Guid.NewGuid().ToString("N");
         public string DisplayName => Id;
         public string DefaultModelId => defaultModel;
@@ -28,6 +32,7 @@ public sealed class DefaultModelTests
                 throw new InvalidOperationException($"LLM model '{input.Model}' not found in the LLM model folder(s).");
             }
             Asked.Add(input.Model);
+            Sessions.Add(input.RequestSession);
             return Task.FromResult("A rewritten cat.");
         }
         public Task GenerateLive(ExtendedLLMInput input, string batchId, Func<JObject, Task> onChunk, CancellationToken ct) => Task.CompletedTask;
@@ -108,6 +113,48 @@ public sealed class DefaultModelTests
             Assert.Equal("embedding", await LLMModelLookup.DefaultModelIdAsync(null));
         });
         await WithProviders([], async () => Assert.Equal("", await LLMModelLookup.DefaultModelIdAsync("chat.gguf")));
+    }
+
+    [Fact]
+    public async Task TheModelPickedInTheChatComesAfterThePreferredOne()
+    {
+        StrictProvider local = new(null, "embedding", "preferred.gguf", "picked.gguf");
+        await WithProviders([local], async () =>
+        {
+            Assert.Equal("preferred.gguf", await LLMModelLookup.DefaultModelIdAsync("preferred.gguf", null, "picked.gguf"));
+            Assert.Equal("picked.gguf", await LLMModelLookup.DefaultModelIdAsync("", null, "picked.gguf"));
+            Assert.Equal("picked.gguf", await LLMModelLookup.DefaultModelIdAsync("gone", null, " PICKED.gguf "));
+            Assert.Equal("embedding", await LLMModelLookup.DefaultModelIdAsync("gone", null, "also gone"));
+        });
+        StrictProvider remote = new("its-default", "listed", "picked");
+        await WithProviders([remote], async () => Assert.Equal("picked", await LLMModelLookup.DefaultModelIdAsync(null, null, "picked")));
+    }
+
+    [Fact]
+    public async Task ATitleIsAskedForOnBehalfOfTheSessionThatChoseItsModel()
+    {
+        StrictProvider local = new(null, "writer.gguf");
+        await WithProviders([local], async () =>
+        {
+            SwarmUI.Accounts.Session session = new();
+            await ChatEndpoints.GenerateChatTitle("Hello", "Hi.", "writer.gguf", session);
+            Assert.Same(session, Assert.Single(local.Sessions));
+        });
+    }
+
+    /// <summary>The prompt tags need a running host to build their instructions, so the wiring is read from the source: the request is sent for the session whose default model was picked.</summary>
+    [Fact]
+    public void APromptTagSendsItsRequestForTheSessionThatChoseItsModel()
+    {
+        DirectoryInfo dir = new(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "SwarmUI-LLMAssistant.csproj")))
+        {
+            dir = dir.Parent;
+        }
+        string source = File.ReadAllText(Path.Combine(dir!.FullName, "T2I", "PromptProcessor.cs"));
+        Assert.Contains("ResolveEffectiveModelIdAsync(modelOverride, input.SourceSession)", source);
+        Assert.Contains("CallLLM(content, effectiveInstruction, modelOverride, writer, input.SourceSession,", source);
+        Assert.Contains("input.RequestSession = session;", source);
     }
 
     [Fact]

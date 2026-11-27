@@ -146,7 +146,7 @@ public static class HeadlessTurnService
     /// <summary>What a request is told when no backend offers a model.</summary>
     private const string NoModelMessage = "No LLM model is available. Add a backend under Server > Backends and make sure it advertises at least one model.";
 
-    /// <summary>The model to use: the one asked for, else the chat's (for a session), else the default one (the user's preferred model when a backend offers it; see
+    /// <summary>The model to use: the one asked for, else the chat's (for a session), else the default one (the user's preferred model, or the one picked in the chat, when a backend offers it; see
     /// <see cref="LLMModelLookup.ResolveEffectiveModelIdAsync"/>). Null when there is none.</summary>
     private static async Task<string> ResolveModelAsync(Session session, string asked, JObject thread)
     {
