@@ -38,6 +38,10 @@ E2E_REUSE_STACK=1 npm test              # terminal 2
 
 Environment: `E2E_SWARM_PORT` (17801), `E2E_MOCK_PORT` (17802), `E2E_SWARM_ROOT` (the SwarmUI checkout; defaults to the one this extension sits in), `E2E_REUSE_STACK` (use an already-running stack).
 
+## Live smoke suite (opt-in)
+
+[live/](live/README.md) is a separate suite that runs a few real scenarios against a SwarmUI you are already running, with your own local models. Neither `npm test` nor CI runs it.
+
 ## What the stack is
 
 - SwarmUI runs with `--data_dir`, `--settings_file` and `--backends_file` under `E2E/.run/`, and `Paths.OutputPath` / `Paths.ModelRoot` inside it too.
