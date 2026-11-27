@@ -372,17 +372,45 @@ function llmaSetupTopBar() {
 let LLMA_MODEL_COMPACT_BELOW = 900;
 
 /**
- * Shows one model picker for the width there is: the selects in the top bar while it is wide enough, else the composer's model chip, which
- * opens the same selects (moved in beside it) as a popover.
+ * Puts the one model picker where it can be used: the selects in the top bar while it is wide enough, else beside the model chip, which
+ * opens them as a popover. The chip stands by the message box, and in the top bar while no chat shows (the assistant gallery has no
+ * message box).
  */
+function llmaPlaceModelPicker() {
+    let container = document.getElementById('llma-container');
+    let topAnchor = document.getElementById('llma-model-anchor');
+    let chipAnchor = document.getElementById('llma-chip-anchor');
+    let wrap = document.getElementById('llma-model-select-wrap');
+    let send = document.getElementById('llma-send-btn');
+    let chat = document.getElementById('llma-chat-panel');
+    if (!container || !topAnchor || !chipAnchor || !wrap || !send || !chat) {
+        return;
+    }
+    let compact = container.classList.contains('llma-model-compact');
+    let home = compact ? chipAnchor : topAnchor;
+    if (wrap.parentElement != home) {
+        llmaCloseModelMenu();
+        home.appendChild(wrap);
+    }
+    let inTopBar = compact && chat.style.display == 'none';
+    if (inTopBar != (chipAnchor.parentElement == topAnchor)) {
+        llmaCloseModelMenu();
+        if (inTopBar) {
+            topAnchor.appendChild(chipAnchor);
+        }
+        else {
+            send.parentElement.insertBefore(chipAnchor, send);
+        }
+    }
+}
+
+/** Shows one model picker for the width there is (llmaPlaceModelPicker), and wires the chip that opens it where the top bar is narrow. */
 function llmaSetupModelMenu() {
     let container = document.getElementById('llma-container');
     let topbar = document.querySelector('.llma-topbar');
-    let topAnchor = document.getElementById('llma-model-anchor');
     let chipAnchor = document.getElementById('llma-chip-anchor');
     let chip = document.getElementById('llma-model-chip');
-    let wrap = document.getElementById('llma-model-select-wrap');
-    if (!container || !topbar || !topAnchor || !chipAnchor || !chip || !wrap) {
+    if (!container || !topbar || !chipAnchor || !chip) {
         return;
     }
     // A ResizeObserver on the bar catches width changes from the sidebar and panel too, not just the window's.
@@ -395,11 +423,7 @@ function llmaSetupModelMenu() {
             let compact = topbar.clientWidth < LLMA_MODEL_COMPACT_BELOW;
             container.classList.toggle('llma-model-compact', compact);
             topbar.classList.toggle('llma-bar-compact', compact);
-            let home = compact ? chipAnchor : topAnchor;
-            if (wrap.parentElement != home) {
-                llmaCloseModelMenu();
-                home.appendChild(wrap);
-            }
+            llmaPlaceModelPicker();
         };
         new ResizeObserver(applyCompact).observe(topbar);
         applyCompact();
@@ -489,18 +513,24 @@ function llmaSetModelSelectError(hasError) {
     document.getElementById('llma-model-select')?.classList.toggle('error', !!hasError);
 }
 
-// Briefly pulse + focus the model dropdown to point the user at it (eg they tried to send with no
-// model selected). The toast says what's wrong; this says where to fix it.
+/**
+ * Briefly pulses and focuses the model picker to point the user at it (eg they tried to send with no model selected). The toast says
+ * what's wrong; this says where to fix it.
+ */
 function llmaFlashModelSelect() {
-    const sel = document.getElementById('llma-model-select');
-    if (!sel) return;
-    sel.classList.add('error', 'llma-flash');
-    try { sel.focus({ preventScroll: false }); } catch { /* older browsers */ }
-    setTimeout(() => sel.classList.remove('llma-flash'), 1100);
-    const chip = document.getElementById('llma-model-chip');
-    if (chip) {
-        chip.classList.add('llma-flash');
-        setTimeout(() => chip.classList.remove('llma-flash'), 1100);
+    let sel = document.getElementById('llma-model-select');
+    if (!sel) {
+        return;
+    }
+    sel.classList.add('error');
+    // The searchable dropdown stands in front of the select: it is what shows, and what takes the keyboard.
+    let shown = sel.nextElementSibling?.classList.contains('select2-container') ? sel.nextElementSibling : null;
+    (shown?.querySelector('.select2-selection') || sel).focus({ preventScroll: false });
+    for (let part of [sel, shown, document.getElementById('llma-model-chip')]) {
+        if (part) {
+            part.classList.add('llma-flash');
+            setTimeout(() => part.classList.remove('llma-flash'), 1100);
+        }
     }
 }
 
@@ -1299,7 +1329,7 @@ function llmaUpdateSettingsFooter() {
     let canReset = (shared ? LLMA_SETTINGS_SHARED_RESET_TABS : LLMA_SETTINGS_OWN_RESET_TABS).includes(tab);
     reset.textContent = translate(shared ? 'Reset Shared Defaults' : 'Reset My Defaults');
     reset.title = translate(shared
-        ? 'Puts the settings every user shares back to their defaults: shared assistants, tools, hooks, MCP servers and the image limit. Your own settings are kept.'
+        ? 'Puts the settings every user shares back to their defaults: shared assistants, tools, hooks, MCP servers and the image limit. Your own settings and the allowed workspace folders are kept.'
         : 'Puts your own settings back to their defaults, removing your assistants, tool changes, hooks, prompt style changes, prices and workspace trust. Chats, memory, knowledge, schedules and skills are kept.');
     save.style.display = canSave ? '' : 'none';
     reset.style.display = canReset ? '' : 'none';
@@ -1367,7 +1397,7 @@ function llmaSetupSettingsModal() {
             // alone is not enough — the assistants dict lives server-side.
             const sharedReset = !!LLMAState.canWriteShared;
             const msg = sharedReset
-                ? translate('Reset ALL shared settings (assistants, tools, instructions) to factory defaults? This affects every user.')
+                ? translate('Reset the shared settings (assistants, tools, instructions, hooks, MCP servers) to factory defaults? This affects every user. The allowed workspace folders are kept.')
                 : translate('Reset your personal LLM Assistant settings to defaults?');
             if (!confirm(msg)) return;
             try {

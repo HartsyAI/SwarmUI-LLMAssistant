@@ -296,6 +296,7 @@
         const ctls = lanes.map(L => llmaMakeLaneController(L, startTime));
         for (let i = 0; i < lanes.length; i++) {
             lanes[i].renderer = ctls[i].renderer;
+            lanes[i].isDone = ctls[i].isDone;
         }
 
         let finalized = false;
@@ -466,11 +467,20 @@
     function llmaCompareHandleStop() {
         const lanes = LLMAState._streamingLanes;
         if (!lanes || !lanes.length) return false;
-        for (const L of lanes) {
+        // A lane that failed with nothing saved has its reason kept for the message both were asked: stopping the other leaves it.
+        let failed = lanes.some(L => L.isDone() && L.node.unsaved);
+        for (let L of lanes) {
+            // A lane that finished or failed keeps what it drew (asset cards and diagrams included).
+            if (L.isDone()) {
+                continue;
+            }
             L.renderer?.flushRender();
             if (L.node && L.bubble) {
                 L.bubble.querySelector('.llma-typing')?.remove();
-                llmaActions.noteFailure(L.node.parentId, null);
+                llmaSettleToolCalls(L.bubble, L.node);
+                if (!failed) {
+                    llmaActions.noteFailure(L.node.parentId, null);
+                }
             }
             // A lane stopped before anything arrived saved no reply.
             if (L.node && !L.node.content && !(L.node.toolCalls || []).length) {

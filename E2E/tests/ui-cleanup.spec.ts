@@ -197,11 +197,74 @@ test('a placed model has one short device label', async ({ llm }) => {
     await llm.locator('#llma-compare-toggle').click();
     await expect(llm.locator('#llma-model-select-b option')).toHaveText(['mock-model · GPU 0', 'mock-model-b · GPU 0+1']);
     await llm.locator('#llma-compare-toggle').click();
-    let labels = await llm.evaluate(() => ['cuda', 'cuda:1', 'cpu', 'cloud', 'Offload on cuda', 'cuda:0+1'].map(d => (0, eval)('llmaDeviceLabel')(d)));
-    expect(labels).toEqual(['GPU 0', 'GPU 1', 'CPU', 'cloud', 'GPU 0 offload', 'GPU 0+1']);
+    let labels = await llm.evaluate(() => ['cuda', 'cuda:1', 'cpu', 'cloud', 'Offload on cuda', 'cuda:0+1', 'vulkan', 'vulkan:0', 'metal', 'Split cuda:0 + vulkan:1'].map(d => (0, eval)('llmaDeviceLabel')(d)));
+    expect(labels).toEqual(['GPU 0', 'GPU 1', 'CPU', 'cloud', 'GPU 0 offload', 'GPU 0+1', 'Vulkan GPU', 'Vulkan GPU 0', 'Metal GPU', 'GPU 0 + Vulkan GPU 1']);
+});
+
+test('in the assistant gallery on a narrow screen the picker is in the top bar, and its buttons say what they do', async ({ llm }) => {
+    await llm.setViewportSize({ width: 390, height: 844 });
+    await llm.evaluate(() => (0, eval)('llmaShowWelcome')());
+    let chip = llm.locator('.llma-topbar #llma-model-chip');
+    await expect(chip).toBeVisible();
+    await chip.click();
+    for (let [button, words] of [['#llma-compare-toggle', 'Compare two models'], ['#llma-model-refresh', 'Refresh model list'], ['#llma-model-unload', 'Unload model (free VRAM)']]) {
+        await expect(llm.locator(button)).toBeInViewport({ ratio: 1 });
+        await expect(llm.locator(`${button} .llma-model-btn-label`)).toHaveText(words);
+        await expect(llm.locator(`${button} .llma-model-btn-label`)).toBeVisible();
+    }
+    await expect(llm.locator('#llma-model-select-wrap')).toBeInViewport({ ratio: 1 });
+    await llm.locator('#llma-model-refresh').click();
+    await expect(llm.locator('.llma-toast', { hasText: 'Model list refreshed' })).toBeVisible({ timeout: 30_000 });
+    // A chat brings the message box back, and the chip stands by it again.
+    await llm.evaluate(() => (0, eval)('llmaStartChatWithAssistant')('default', { persist: false }));
+    await expect(llm.locator('.llma-input-actions #llma-model-chip')).toBeVisible();
+    await expect(llm.locator('.llma-topbar #llma-model-chip')).toHaveCount(0);
+    // And a wide window has the selects in the top bar, their buttons as icons, also with the gallery showing.
+    await llm.evaluate(() => (0, eval)('llmaShowWelcome')());
+    await llm.setViewportSize({ width: 1440, height: 900 });
+    await expect(llm.locator('.llma-topbar .select2-container')).toBeVisible();
+    await expect(llm.locator('#llma-model-chip')).toBeHidden();
+    await expect(llm.locator('#llma-model-refresh .llma-model-btn-label')).toBeHidden();
+});
+
+test('being asked to pick a model flashes the picker that shows', async ({ llm }) => {
+    await expect(llm.locator('.llma-topbar .select2-container')).toBeVisible();
+    await llm.evaluate(() => (0, eval)('llmaFlashModelSelect')());
+    await expect(llm.locator('.llma-topbar .select2-container').first()).toHaveClass(/llma-flash/);
+    await expect(llm.locator('.llma-topbar .select2-selection').first()).toBeFocused();
+    await expect(llm.locator('.llma-topbar .select2-container').first()).not.toHaveClass(/llma-flash/);
 });
 
 // ---- compare ----
+
+test('Stop in compare leaves a finished lane as drawn', async ({ llm }) => {
+    let file = 'Here.\n\n```python\n' + Array.from({ length: 20 }, (_, i) => `print(${i})`).join('\n') + '\n```\n';
+    let slow = Array.from({ length: 200 }, (_, i) => `word${i}`).join(' ');
+    await setScenarios([{ match: 'one file', model: 'mock-model-b', rounds: [{ text: slow, chunkDelayMs: 200 }] }, { match: 'one file', rounds: [{ text: file }] }]);
+    await llm.locator('#llma-compare-toggle').click();
+    await send(llm, 'one file');
+    let columns = llm.locator('.llma-compare-col');
+    await expect(columns.first().locator('.llma-asset-card')).toHaveCount(1, { timeout: 20_000 });
+    await expect(columns.nth(1)).toContainText('word1');
+    await llm.locator('#llma-stop-btn').click();
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    // Checked straight away: the chat is read again a moment later, which would draw the card anew.
+    expect(await columns.first().locator('.llma-asset-card').count()).toBe(1);
+    await llm.locator('#llma-compare-toggle').click();
+});
+
+test('Stop in compare keeps why the other lane failed', async ({ llm }) => {
+    await setScenarios([{ match: 'one fails', model: 'mock-model-b', rounds: [{ delayMs: 15000, text: 'late' }] }, { match: 'one fails', rounds: [{ error: { status: 500, message: 'LANE-A-FAILED' } }] }]);
+    await llm.locator('#llma-compare-toggle').click();
+    await send(llm, 'one fails');
+    await expect(llm.locator('.llma-compare-col .llma-msg-error')).toContainText('LANE-A-FAILED', { timeout: 20_000 });
+    await llm.locator('#llma-stop-btn').click();
+    await expect(llm.locator('#llma-send-btn')).toBeVisible();
+    await reopen(llm);
+    await expect(llm.locator('.llma-msg-tail')).toContainText('LANE-A-FAILED');
+});
+
+// ---- the compare switch ----
 
 test('compare mode shows that it is on, also after a popover closes, and leaves room for the chat title', async ({ llm }) => {
     await setScenarios([{ regex: '.*', rounds: [{ text: 'a reply' }] }]);
@@ -338,6 +401,23 @@ test('a call waiting for permission says so, and a refused one is not told as do
     await setMode(llm, 'auto');
 });
 
+test('Stop settles a call that was waiting, as it reads after a reload', async ({ llm }) => {
+    await setScenarios([{ match: 'stop me', rounds: [{ toolCalls: [{ name: 'file_write', arguments: { path: `ui-stop-${Date.now()}.txt`, content: 'tea', overwrite: true } }] }, { text: 'Never.' }] }]);
+    await setMode(llm, 'ask');
+    await send(llm, 'stop me');
+    let summary = llm.locator('.llma-tool-group-summary');
+    await expect(summary).toHaveText('File Write needs permission');
+    await llm.locator('#llma-stop-btn').click();
+    // At once, not only after the chat is read again.
+    expect(await summary.textContent()).toBe('File Write failed');
+    await expect(llm.locator('.llma-tool-call-bubble.pending')).toHaveCount(0);
+    await expect(llm.locator('.llma-tool-approval')).toHaveCount(0);
+    await llm.waitForTimeout(2000);
+    await reopen(llm);
+    await expect(summary).toHaveText('File Write failed');
+    await setMode(llm, 'auto');
+});
+
 test('an allowed call is told as running, then done', async ({ llm }) => {
     await setScenarios([{ match: 'note it', rounds: [{ toolCalls: [{ name: 'file_write', arguments: { path: `ui-cleanup-${Date.now()}.txt`, content: 'tea', overwrite: true } }] }, { text: 'Noted.' }] }]);
     await setMode(llm, 'ask');
@@ -408,13 +488,18 @@ test('only real memory failures are called that, and system memory is told from 
         'CUDA error: invalid device ordinal (cuda:3)',
         'There is no room left in the queue',
         'Could not allocate a port for the backend',
-        'The cuda:0 worker stopped'
+        'The cuda:0 worker stopped',
+        // The local engine's own words.
+        'Out of VRAM: the driver refused a 2048 MB allocation; 429 MB of 24564 MB was free.',
+        'Vulkan error -2 (ErrorOutOfDeviceMemory): vkAllocateMemory(size=4294967296, typeIdx=1)',
+        'Vulkan error -1 (ErrorOutOfHostMemory): vkCreateBuffer'
     ]);
     let ram = 'Not enough system memory (RAM)';
     let vram = 'The GPU ran out of memory (VRAM)';
     expect(titles.slice(0, 8)).toEqual([ram, ram, ram, vram, vram, vram, 'The model ran out of memory', 'The model ran out of memory']);
     // The rest keep their own words.
-    expect(titles.slice(8)).toEqual(['CUDA error: invalid device ordinal (cuda:3)', 'There is no room left in the queue', 'Could not allocate a port for the backend', 'The cuda:0 worker stopped']);
+    expect(titles.slice(8, 12)).toEqual(['CUDA error: invalid device ordinal (cuda:3)', 'There is no room left in the queue', 'Could not allocate a port for the backend', 'The cuda:0 worker stopped']);
+    expect(titles.slice(12)).toEqual([vram, vram, ram]);
 });
 
 // ---- form controls ----

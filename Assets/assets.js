@@ -319,7 +319,7 @@ function llmaRebuildAssetsForThread() {
 // ── Render assistant content (markdown + inline asset cards) ─────
 function llmaRenderAssistantContent(raw, msgId, startIdx = 0) {
     if (!raw) return '';
-    const { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId, startIdx);
+    let { assets, tokenizedMarkdown } = llmaExtractAssetsFromMarkdown(raw, msgId, startIdx);
     let html = llmaRenderMarkdown(tokenizedMarkdown);
     // Replace token placeholders with asset cards
     for (const asset of assets) {

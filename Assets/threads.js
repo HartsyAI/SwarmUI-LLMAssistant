@@ -1038,6 +1038,7 @@ function llmaShowWelcome() {
     const chat    = document.getElementById('llma-chat-panel');
     if (welcome) welcome.style.display = '';
     if (chat)    chat.style.display    = 'none';
+    llmaPlaceModelPicker();
     LLMAState.activeThreadId = null;
     LLMAState.activeThreadAssistantId = null;
     LLMAState.messages = [];
@@ -1064,6 +1065,7 @@ function llmaShowChatPanel() {
     const chat    = document.getElementById('llma-chat-panel');
     if (welcome) welcome.style.display = 'none';
     if (chat)    chat.style.display    = '';
+    llmaPlaceModelPicker();
 }
 
 function llmaUpdateContextBar() {

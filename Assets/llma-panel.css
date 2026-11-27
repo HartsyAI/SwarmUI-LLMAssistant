@@ -105,21 +105,13 @@
     align-items: center;
     justify-content: space-between;
 }
-.llma-memory-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+/* What the assistant can do: plain words in a row, with nothing about them that looks like a button. */
+.llma-memory-chips { display: flex; flex-wrap: wrap; column-gap: 6px; row-gap: 2px; }
 .llma-mem-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 8px;
-    border-radius: 20px;
-    background: var(--background-panel-subtle);
-    border: 1px solid var(--light-border);
-    font-size: 11px;
+    font-size: 12px;
     color: var(--text-soft);
-    opacity: 0.88;
-    cursor: default;
 }
-.llma-mem-chip:hover { opacity: 1; }
+.llma-mem-chip:not(:last-child)::after { content: "\00b7"; margin-left: 6px; }
 .llma-panel-empty {
     padding: 20px;
     text-align: center;

@@ -34,8 +34,10 @@
             }
             llmaAppendMessageToDOM(msg.role, msg.content, media, msg.id, msg.meta, msg.documents);
             if (msg.role === 'assistant' && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
-                const bubble = document.querySelector(`[data-msg-id="${CSS.escape(msg.id)}"] .llma-msg-bubble`);
-                if (bubble) llmaReplayReply(bubble, msg);
+                let bubble = document.querySelector(`[data-msg-id="${CSS.escape(msg.id)}"] .llma-msg-bubble`);
+                if (bubble) {
+                    llmaReplayReply(bubble, msg);
+                }
             }
             if (msg.role === 'user' && typeof llmaCompareSiblings === 'function') {
                 const sibs = llmaCompareSiblings(msg.id);

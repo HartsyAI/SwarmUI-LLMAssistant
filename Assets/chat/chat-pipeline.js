@@ -487,6 +487,7 @@
             LLMAState._streamingRenderer?.flushRender();
             llmaActions.noteFailure(stopped.parentId, null);
             const bubble = document.querySelector(`[data-msg-id="${stopped.id}"] .llma-msg-bubble`);
+            llmaSettleToolCalls(bubble, stopped);
             if (LLMAState._streamingText || (stopped.toolCalls || []).length) {
                 // The server keeps a reply that had text or ran a tool, as the tip of the branch: so does the page.
                 LLMAState.activeLeafId = stopped.id;

@@ -555,17 +555,28 @@ function llmaGenerateId() {
 
 // -- Model labels --
 /**
- * A short, consistent label for a backend's device or placement text: "cuda:0" and "GPU cuda" both read "GPU 0". Text naming no device we know is kept.
- * @param {string} device - A device key ("cuda:0", "cpu", "cloud") or the engine's placement ("GPU cuda", "Split cuda:0 + cuda:1", "Offload on cuda").
+ * A short, consistent label for a backend's device or placement text: "cuda:0" and "GPU cuda" both read "GPU 0". A device reached through
+ * another API says which ("Vulkan GPU 0", "Metal GPU"), so it is not taken for the CUDA device of the same number. Text naming no device
+ * we know is kept.
+ * @param {string} device - A device key ("cuda:0", "vulkan:1", "cpu", "cloud") or the engine's placement ("GPU cuda", "Split cuda:0 + cuda:1", "Offload on cuda").
  * @returns {string} The label.
  */
 function llmaDeviceLabel(device) {
     let text = (device || '').trim();
-    let gpus = Array.from(text.matchAll(/\b(?:cuda|vulkan|metal)(?::(\d+(?:\+\d+)*))?/gi), found => found[1] || '0');
-    if (gpus.length == 0) {
+    // The numbers named for each API, in the order the APIs appear. A CUDA key with no number is the first card; another API's stays bare.
+    let apis = new Map();
+    for (let found of text.matchAll(/\b(cuda|vulkan|metal)(?::(\d+(?:\+\d+)*))?/gi)) {
+        let api = found[1].toLowerCase();
+        let number = found[2] || (api == 'cuda' ? '0' : '');
+        apis.set(api, [...(apis.get(api) || []), ...(number ? [number] : [])]);
+    }
+    if (apis.size == 0) {
         return text.toLowerCase() == 'cpu' ? 'CPU' : text;
     }
-    let label = `GPU ${gpus.join('+')}`;
+    let label = Array.from(apis, ([api, numbers]) => {
+        let name = api == 'cuda' ? 'GPU' : `${api.charAt(0).toUpperCase()}${api.slice(1)} GPU`;
+        return numbers.length > 0 ? `${name} ${numbers.join('+')}` : name;
+    }).join(' + ');
     return /offload/i.test(text) ? `${label} ${translate('offload')}` : label;
 }
 
@@ -637,16 +648,16 @@ function llmaShortError(err) {
  * @returns {?string} 'ram' (system memory), 'vram' (graphics memory), 'other' (it does not say which), or null.
  */
 function llmaMemoryErrorKind(low) {
-    let ranShort = /\bout of (?:\w+ )?memory\b|outofmemory|out_of_(?:\w+_)?memory|\boom\b|\bbad_alloc\b|\bcannot allocate memory\b|\ballocation failed\b|\bno placement fits\b/.test(low)
+    let ranShort = /\bout of (?:\w+ )?memory\b|\bout of vram\b|outof(?:device|host)?memory|out_of_(?:\w+_)?memory|\boom\b|\bbad_alloc\b|\bcannot allocate memory\b|\ballocation failed\b|\bno placement fits\b/.test(low)
         || /\b(?:not enough|insufficient)\b[^.]{0,40}\b(?:memory|ram|vram)\b/.test(low)
         || /\b(?:failed|unable) to allocate\b.{0,60}?(?:memory|buffer|tensor|vram|\bram\b|\b[kmg]i?b\b|\bbytes\b)/.test(low);
     if (!ranShort) {
         return null;
     }
-    if (/\b(?:host|system|cpu) (?:ram|memory)\b|out_of_host_memory|\bbad_alloc\b|system\.outofmemoryexception|\bcannot allocate memory\b/.test(low)) {
+    if (/\b(?:host|system|cpu) (?:ram|memory)\b|out_of_host_memory|outofhostmemory|\bbad_alloc\b|system\.outofmemoryexception|\bcannot allocate memory\b/.test(low)) {
         return 'ram';
     }
-    return /vram|cuda|cublas|vulkan|\bgpu\b|video memory|device[ _]memory|\bno placement fits\b/.test(low) ? 'vram' : 'other';
+    return /vram|cuda|cublas|vulkan|\bgpu\b|video memory|device[ _]memory|outofdevicememory|\bno placement fits\b/.test(low) ? 'vram' : 'other';
 }
 
 // Maps a raw error (server string, WS transport event, or thrown exception) to a friendly

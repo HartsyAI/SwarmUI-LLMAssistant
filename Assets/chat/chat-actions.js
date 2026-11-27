@@ -38,11 +38,12 @@ class LLMAMessageActions {
                 button.setAttribute('aria-disabled', this.busy() ? 'true' : 'false');
             }
             bar.appendChild(button);
+            return button;
         };
         add('copy', 'Copy', () => llmaCopyMessage(msgId));
         if (role == 'assistant') {
             add('markdown', 'Copy as Markdown', () => this.copyMarkdown(msgId));
-            add('regen', 'Regenerate', () => llmaRegenerateMessage(msgId), true);
+            add('regen', 'Regenerate', () => llmaRegenerateMessage(msgId), true).classList.add('llma-msg-regen');
         }
         add('fork', 'Branch from here', () => llmaForkFromMessage(msgId), true);
         if (role == 'assistant') {
@@ -210,6 +211,14 @@ class LLMAMessageActions {
         return false;
     }
 
+    /** Takes Regenerate off a failed or stopped reply still shown under this message: Retry, beside it, asks for the same thing. */
+    dropRegenerateBelow(container, messageId) {
+        let next = container.querySelector(`[data-msg-id="${CSS.escape(messageId)}"]`)?.nextElementSibling;
+        for (; next; next = next.nextElementSibling) {
+            next.querySelector('.llma-msg-regen')?.remove();
+        }
+    }
+
     /** What stands beside Retry under a message with no reply: the failure this browser saw, else that there is no reply. */
     noReplyNote(messageId) {
         let note = createDiv(null, 'llma-msg-tail-note');
@@ -358,6 +367,9 @@ class LLMAMessageActions {
             row.appendChild(later);
         }
         container.appendChild(row);
+        if (canRetry) {
+            this.dropRegenerateBelow(container, last.id);
+        }
         // Taking the old row out moved the view up: it stays with the latest, unless the user has scrolled up to read.
         llmaScrollToBottom();
         if (held) {

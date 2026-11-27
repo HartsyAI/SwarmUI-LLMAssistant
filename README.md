@@ -230,7 +230,7 @@ Anthropic describes the compatibility endpoint as meant for testing and comparin
 
 **Left sidebar**: chats grouped by date, with search, multi-select delete, and `F2` to rename inline.
 
-**Top bar**: thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings. Where the bar is too narrow for them (a phone, or a narrow window), the model picker with compare, refresh and unload moves into the model chip beside the message box.
+**Top bar**: thread title, model picker, compare toggle, model refresh, unload-model (frees VRAM), per-thread parameter overrides, export, and settings. Where the bar is too narrow for them (a phone, or a narrow window), the model picker with compare, refresh and unload moves into the model chip beside the message box (in the top bar while the assistant gallery shows, which has no message box).
 
 **Right panel**: the active assistant (with capability badges) and the thread's Assets index.
 
@@ -1173,7 +1173,7 @@ they were sent with.
 |---|---|---|
 | `LLMAssistantGetSettings` | none | `{success, settings, canWriteShared}` |
 | `LLMAssistantSaveSettings` | `settings` (object or JSON string), `scope?` | `{success, settings, scope}` |
-| `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}`. A reset keeps what is about memory: your own `memoryExtraction`, `memoryPause` and `memoryRetention` (personal reset), and an admin's `memoryAdmin` switch (shared reset), so it never starts saving again or switches the extractor back on for everyone |
+| `LLMAssistantResetSettings` | `scope?` | `{success, settings, scope}`. A reset keeps what is about memory: your own `memoryExtraction`, `memoryPause` and `memoryRetention` (personal reset), and an admin's `memoryAdmin` switch (shared reset), so it never starts saving again or switches the extractor back on for everyone. A shared reset also keeps the allowed workspace folders |
 | `LLMAssistantGetAuditLog` | `max?` (default 200, cap 5000) | `{success, enabled, entries[]}`, admin only |
 | `LLMAssistantSetAuditLogEnabled` | `enabled` | `{success, enabled}`, admin only |
 | `LLMAssistantGetModels` | none | `{success, models[], warnings[]}`; providers are queried in parallel under a timeout; a slow backend degrades into a warning instead of hanging the call |

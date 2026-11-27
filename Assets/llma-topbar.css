@@ -120,8 +120,15 @@
 .llma-chip-anchor .llma-model-select-wrap .llma-model-select,
 .llma-chip-anchor .llma-model-select-wrap .llma-model-select-b-wrap { width: 100%; max-width: none; }
 .llma-chip-anchor .llma-model-select-wrap .select2-container { width: 100% !important; }
-/* VS toggle + refresh + unload become full-width rows so the stacked layout reads cleanly. */
-.llma-chip-anchor .llma-model-select-wrap .llma-icon-btn { width: 100%; border: 1px solid var(--light-border); border-radius: 8px; }
+/* VS toggle + refresh + unload become full-width rows, each saying what it does. In the top bar, with its room, the icons stand alone. */
+.llma-model-btn-label { display: none; }
+.llma-chip-anchor .llma-model-btn-label { display: inline; font-size: 13px; }
+.llma-chip-anchor .llma-model-select-wrap .llma-icon-btn { width: 100%; justify-content: flex-start; gap: 8px; padding: 0 12px; border: 1px solid var(--light-border); border-radius: 8px; }
+/* While no chat shows, the chip stands in the top bar (llmaPlaceModelPicker): its list opens downwards, across the bar's own width. */
+.llma-model-compact .llma-topbar { position: relative; }
+.llma-model-compact .llma-topbar .llma-model-anchor,
+.llma-model-compact .llma-topbar .llma-chip-anchor { position: static; }
+.llma-topbar .llma-chip-anchor .llma-model-select-wrap { top: calc(100% + 4px); bottom: auto; right: 8px; }
 .llma-chip-anchor .llma-model-select-wrap .llma-compare-toggle[aria-pressed="true"] { border-color: var(--emphasis); }
 /* With the bar's room to spare they keep their size; when it runs short (two models beside the title) the selects give way, not the title. */
 .llma-topbar:not(.llma-bar-compact) .llma-topbar-right,
@@ -265,6 +272,7 @@
 }
 /* One-shot attention pulse — used when the user tries to send without a model selected. */
 .llma-model-select.llma-flash,
+.llma-model-select-wrap .select2-container.llma-flash .select2-selection,
 .llma-model-chip.llma-flash {
     animation: llma-flash-pulse 1.1s ease;
 }

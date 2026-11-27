@@ -707,6 +707,21 @@
         }
     }
 
+    /**
+     * Settles the calls a stopped reply left without a result: each gets the one the server saves for it, in the message and on the page,
+     * so its row reads now as it will after a reload. The Stop closes the socket before the server can send it.
+     * @param {?HTMLElement} bubble - The reply's bubble.
+     * @param {object} message - The stopped message.
+     */
+    function llmaSettleToolCalls(bubble, message) {
+        for (let call of message?.toolCalls || []) {
+            if (call.result == null) {
+                call.result = { success: false, error: translate('The turn was stopped before this tool finished.') };
+                llmaRenderToolResult(bubble, { id: call.id, name: call.name, result: call.result });
+            }
+        }
+    }
+
     /** Draws one stored call, with its result when it has one. */
     function llmaRenderStoredCall(bubble, tc) {
         llmaRenderToolCall(bubble, { id: tc.id, name: tc.name, arguments: tc.arguments });
@@ -800,5 +815,6 @@
     window.llmaRenderToolApproval = llmaRenderToolApproval;
     window.llmaRenderDiff       = llmaRenderDiff;
     window.llmaReplayReply      = llmaReplayReply;
+    window.llmaSettleToolCalls  = llmaSettleToolCalls;
     window.llmaReplyRounds      = llmaReplyRounds;
 })();
