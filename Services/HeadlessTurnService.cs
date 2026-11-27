@@ -81,7 +81,7 @@ public static class HeadlessTurnService
                 else
                 {
                     // The model is settled before the chat is made, so a request that has none to use leaves nothing behind.
-                    model = await ResolveModelAsync(session, request["model"]?.ToString(), null, settings);
+                    model = await ResolveModelAsync(session, request["model"]?.ToString(), null);
                     if (model is null)
                     {
                         return Fail(NoModelMessage);
@@ -102,7 +102,7 @@ public static class HeadlessTurnService
             {
                 approvalMode = ApprovalPolicy.Stricter(saved, approvalMode);
             }
-            model = model ?? await ResolveModelAsync(session, request["model"]?.ToString(), thread, settings);
+            model = model ?? await ResolveModelAsync(session, request["model"]?.ToString(), thread);
             if (model is null)
             {
                 return Fail(NoModelMessage);
@@ -146,17 +146,13 @@ public static class HeadlessTurnService
     /// <summary>What a request is told when no backend offers a model.</summary>
     private const string NoModelMessage = "No LLM model is available. Add a backend under Server > Backends and make sure it advertises at least one model.";
 
-    /// <summary>The model to use: the one asked for, else the chat's (for a session), else the user's preferred one, else the first any backend offers. Null when there is none.</summary>
-    private static async Task<string> ResolveModelAsync(Session session, string asked, JObject thread, JObject settings)
+    /// <summary>The model to use: the one asked for, else the chat's (for a session), else the default one (the user's preferred model when a backend offers it; see
+    /// <see cref="LLMModelLookup.ResolveEffectiveModelIdAsync"/>). Null when there is none.</summary>
+    private static async Task<string> ResolveModelAsync(Session session, string asked, JObject thread)
     {
-        foreach (string candidate in new[] { asked, thread?[SessionFields.Model]?.ToString(), settings["preferredModel"]?.ToString() })
-        {
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                return candidate.Trim();
-            }
-        }
-        return (await LLMModelLookup.GetFirstAvailableAsync(session))?.Id;
+        string named = new[] { asked, thread?[SessionFields.Model]?.ToString() }.FirstOrDefault(candidate => !string.IsNullOrWhiteSpace(candidate));
+        string model = await LLMModelLookup.ResolveEffectiveModelIdAsync(named, session);
+        return model.Length > 0 ? model : null;
     }
 
     /// <summary>A short title for a chat made by a request: the start of its first message, on one line.</summary>

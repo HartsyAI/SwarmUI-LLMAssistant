@@ -1,4 +1,5 @@
 using System.IO;
+using SwarmUI.Accounts;
 using SwarmUI.Core;
 
 namespace Hartsy.Extensions.LLMAssistant.Services;
@@ -30,7 +31,7 @@ public static class OutputUrls
     private const string LinkUnsafe = "%#?()<>[]\"'`\\";
 
     /// <summary><paramref name="url"/>, a local output URL as core gives it, with the characters that stop it working as a markdown link percent-encoded (spaces and brackets among them). Core's
-    /// <c>/View/</c> route reads the encoding back, as does <see cref="LocalPath"/>. Anything else, a data URI for one, is returned as it is.</summary>
+    /// <c>/View/</c> route reads the encoding back, as does <see cref="ReadablePath"/>. Anything else, a data URI for one, is returned as it is.</summary>
     public static string ForMarkdown(string url)
     {
         if (!IsLocal(url))
@@ -41,7 +42,7 @@ public static class OutputUrls
     }
 
     /// <summary>The file a local output URL names: the URL as written when a file is there, else with its percent-encoding read (the <see cref="ForMarkdown"/> form). When neither is a file, the answer
-    /// for the URL as written, which is null when it leaves the output root. <paramref name="toFullPath"/> and <paramref name="exists"/> are <see cref="ToFullPath"/> and <see cref="File.Exists"/>
+    /// for the URL as written, which is null when <paramref name="toFullPath"/> refuses it. A reading that holds a null character names no file. <paramref name="exists"/> is <see cref="File.Exists"/>
     /// outside tests.</summary>
     internal static string LocalPath(string url, Func<string, string> toFullPath, Func<string, bool> exists)
     {
@@ -51,11 +52,31 @@ public static class OutputUrls
             return written;
         }
         string decoded = Uri.UnescapeDataString(url);
-        return decoded != url && toFullPath(decoded) is string read && exists(read) ? read : written;
+        return decoded != url && !decoded.Contains('\0') && toFullPath(decoded) is string read && exists(read) ? read : written;
     }
 
-    /// <summary><see cref="LocalPath(string, Func{string, string}, Func{string, bool})"/> on this server's output folder, for reading a file a request names.</summary>
-    public static string LocalPath(string url) => LocalPath(url, ToFullPath, File.Exists);
+    /// <summary>The path of the file to read for a local output URL a request of <paramref name="user"/> names (see <see cref="LocalPath"/> for the two forms read), or null when it is not one they may view.
+    /// With no user, no local file is read.</summary>
+    public static string ReadablePath(string url, User user)
+        => user is null ? null : LocalPath(url, form => ViewablePath(form, user), File.Exists);
+
+    /// <summary><see cref="ViewablePath(string, string, string, bool, bool)"/> with this server's output folder and <paramref name="user"/>'s rights.</summary>
+    private static string ViewablePath(string url, User user)
+        => ToRelativePath(url) is null ? null
+            : ViewablePath(url, Root, user.UserID, Program.ServerSettings.Paths.AppendUserNameToOutputPath, user.HasPermission(Permissions.ViewOthersOutputs));
+
+    /// <summary>The full path of <paramref name="url"/> under the output root <paramref name="root"/> when a user may view it, by the rules of core's <c>/View/</c> route, else null: any file under the root where
+    /// outputs are not kept in a folder per user, or with the right to view others' outputs; otherwise only one in the user's own folder.</summary>
+    internal static string ViewablePath(string url, string root, string userId, bool folderPerUser, bool viewsOthers)
+    {
+        string full = ToFullPath(url, root);
+        if (full is null || !folderPerUser || viewsOthers)
+        {
+            return full;
+        }
+        // Compared as written, as core compares the name: the path is already normalized, so a `..` cannot lead out of the folder.
+        return !string.IsNullOrEmpty(userId) && full.StartsWith(Path.Combine(root, userId) + Path.DirectorySeparatorChar, StringComparison.Ordinal) ? full : null;
+    }
 
     /// <summary>Strips the route prefix, returning the path relative to <see cref="Root"/>. Returns null
     /// when <paramref name="url"/> isn't a local output URL.</summary>
@@ -76,15 +97,17 @@ public static class OutputUrls
         return null;
     }
 
-    /// <summary>Resolves a local output URL to a full path, or null if it isn't one / escapes the root.</summary>
-    public static string ToFullPath(string url)
+    /// <summary>Resolves a local output URL to a full path, or null if it isn't one / escapes the root. Says nothing about who may read it: see <see cref="ReadablePath"/> for a URL a request names.</summary>
+    public static string ToFullPath(string url) => ToRelativePath(url) is null ? null : ToFullPath(url, Root);
+
+    /// <summary><see cref="ToFullPath(string)"/> under the output root <paramref name="root"/>.</summary>
+    internal static string ToFullPath(string url, string root)
     {
         string rel = ToRelativePath(url);
-        if (rel is null)
+        if (rel is null || rel.Contains('\0'))
         {
             return null;
         }
-        string root = Root;
         string full = Path.GetFullPath(Path.Combine(root, rel));
         // root + separator, so a sibling folder like "Output-archive" can't pass.
         string rootPrefix = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;

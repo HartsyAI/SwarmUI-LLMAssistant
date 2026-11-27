@@ -123,7 +123,7 @@ public static class ReadinessChecks
     {
         if (string.IsNullOrWhiteSpace(i.PreferredModel))
         {
-            return new("model", "Preferred model", CheckStatus.Info, "None chosen; the first available model is used when a request does not name one.");
+            return new("model", "Preferred model", CheckStatus.Info, "None chosen; a request that names no model uses the backend's default model, else the first one offered.");
         }
         return i.Models > 0 && !i.PreferredModelFound
             ? new("model", "Preferred model", CheckStatus.Warn, $"'{i.PreferredModel}' is not offered by any backend.", "Pick another model in the chat's model list, or start the backend that has it.")

@@ -254,6 +254,8 @@ public static class ChatEndpoints
             JObject settings = SettingsService.GetMergedSettings(session.User);
             assistantId ??= AssistantService.GetActiveAssistantId(settings, session.User);
             string systemPrompt = ResolveInstructionForRequest(instructionId, assistantId, settings, session.User);
+            // Named before the cache key is made, so a changed default model is asked rather than answered from the old one's reply.
+            model = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
             input.RequestSession = session;
             input.BackendId = backendId;
@@ -343,8 +345,8 @@ public static class ChatEndpoints
             // than a missing request field. Verified on hardware 2026-09-05: this was the whole failure.
             if (string.IsNullOrWhiteSpace(model))
             {
-                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync(session);
-                if (fallback is null)
+                model = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
+                if (model.Length == 0)
                 {
                     return new JObject
                     {
@@ -353,7 +355,6 @@ public static class ChatEndpoints
                             + "make sure it advertises at least one model."
                     };
                 }
-                model = fallback.Id;
             }
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
             ExtendedLLMInput input = ExtendedLLMInput.Create(message, systemPrompt, model);
@@ -488,8 +489,8 @@ public static class ChatEndpoints
             assistantId = ResolveAssistantId(assistantId, () => AssistantService.GetActiveAssistantId(settings, session.User));
             if (string.IsNullOrWhiteSpace(model))
             {
-                LLMModelInfo fallback = await LLMModelLookup.GetFirstAvailableAsync(session);
-                if (fallback is null)
+                model = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
+                if (model.Length == 0)
                 {
                     await SendAsync(new JObject
                     {
@@ -498,7 +499,6 @@ public static class ChatEndpoints
                     });
                     return null;
                 }
-                model = fallback.Id;
             }
             string systemPrompt = ResolveInstructionForRequest(InstructionIds.Chat, assistantId, settings, session.User);
             // messages takes priority over message when both are present ("replaces", per this method's own
@@ -1017,7 +1017,7 @@ public static class ChatEndpoints
             {
                 return;
             }
-            string title = await GenerateChatTitle(userText, replyText, model);
+            string title = await GenerateChatTitle(userText, replyText, await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session));
             bool written = false;
             if (!string.IsNullOrWhiteSpace(title))
             {
@@ -1235,7 +1235,7 @@ public static class ChatEndpoints
                 systemPrompt = (await LlmAddendumService.ApplyAsync(systemPrompt, session, settings, assistantId, instructionId, L.Model, modelInfo, enabledTools.Count > 0)).Prompt;
                 systemPrompt = PromptAssetService.AppendIndex(systemPrompt, enabledTools, session.User, thread);
                 systemPrompt = ProjectInstructionsService.Append(systemPrompt, session.User, thread, enabledTools);
-                ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model);
+                ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(baseHistory, systemPrompt, L.Model, session.User);
                 input.RequestSession = session;
                 input.ConversationId = ThreadConversationId(threadId);
                 input.BackendId = L.BackendId;
@@ -1394,8 +1394,8 @@ public static class ChatEndpoints
 
     /// <summary>Whether the conversation has grown to the configured share of the model's window, so that a reply would summarize its start first. Only looks: it makes no model call
     /// and writes nothing, which is what lets a dry run say "would compact" without doing it. <paramref name="toolTokens"/> (the offered tools' definitions) counts where no reply has reported
-    /// the conversation's size. When only they make the chat due, there must also be something old enough to summarize, and the instructions and tools must leave room in the window: where they
-    /// fill it by themselves, no summary would make the request fit.</summary>
+    /// the conversation's size. When only they make the chat due, the instructions and tools must leave room in the window (where they fill it by themselves, no summary would make the request fit),
+    /// and what a summary would fold away must be at least as large as a summary may be (<see cref="CompactionService.SummaryMaxTokens"/>): folding less could make the request bigger, again and again.</summary>
     internal static bool CompactionDue(JObject thread, JObject settings, LLMModelInfo modelInfo, string systemPrompt, int toolTokens = 0)
     {
         if (!CompactionPlanner.AutoEnabled(settings))
@@ -1409,7 +1409,8 @@ public static class ChatEndpoints
         bool Due(int sentAhead) => CompactionPlanner.IsDue(CompactionPlanner.EstimateContext(path, active, sentAhead, documentBudget).Tokens, window, CompactionPlanner.Threshold(settings));
         int instructionTokens = ContextWindowService.EstimateTokens(systemPrompt);
         int fixedTokens = instructionTokens + toolTokens;
-        return Due(instructionTokens) || (fixedTokens < window && Due(fixedTokens) && CompactionPlanner.Plan(path, active) is not null);
+        return Due(instructionTokens) || (fixedTokens < window && Due(fixedTokens) && CompactionPlanner.Plan(path, active) is CompactionPlan plan
+            && plan.ToSummarize.Sum(CompactionPlanner.EstimateMessage) >= CompactionService.SummaryMaxTokens);
     }
 
     /// <summary>Summarizes the start of the active branch first when the conversation has grown to the configured share of the model's window
@@ -1457,7 +1458,7 @@ public static class ChatEndpoints
         ["createdAt"] = record.CreatedAt,
     };
 
-    /// <summary>Compacts a chat now (the <c>/compact</c> command): summarizes the start of the active branch with <c>model</c> (the first available
+    /// <summary>Compacts a chat now (the <c>/compact</c> command): summarizes the start of the active branch with <c>model</c> (the default
     /// model when empty) and saves the summary on the chat. <c>instructions</c> asks the summary to dwell on something. Returns
     /// <c>{success, compacted, compaction?}</c>; <c>compacted: false</c> means there was nothing worth compacting yet.</summary>
     public static async Task<JObject> LLMAssistantCompactThread(Session session, string threadId, string model = "", string instructions = "")
@@ -1468,7 +1469,7 @@ public static class ChatEndpoints
             {
                 return Fail($"Chat '{threadId}' not found.");
             }
-            string useModel = string.IsNullOrWhiteSpace(model) ? (await LLMModelLookup.GetFirstAvailableAsync(session))?.Id : model;
+            string useModel = await LLMModelLookup.ResolveEffectiveModelIdAsync(model, session);
             if (string.IsNullOrEmpty(useModel))
             {
                 return Fail("No model is available to write the summary.");

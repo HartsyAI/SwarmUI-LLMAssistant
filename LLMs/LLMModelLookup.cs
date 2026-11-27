@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Hartsy.Extensions.LLMAssistant.Services;
 using SwarmUI.Accounts;
 
 namespace Hartsy.Extensions.LLMAssistant.LLMs;
@@ -94,13 +95,25 @@ public static class LLMModelLookup
         return null;
     }
 
-    /// <summary>The id of the model that will answer a request that names <paramref name="model"/> (as given, or empty for none): the same one when it is named; otherwise the model the dispatcher's provider answers with
-    /// by default (the first registered provider, as <see cref="LLMDispatcher.GetProvider"/> chooses), else the first model any provider lists. Empty when there is none. Read-only: uses the cached rosters and changes nothing.</summary>
+    /// <summary>The id of the model that will answer a request that names <paramref name="model"/> (as given, or empty for none): the same one when it is named; otherwise the default one for
+    /// <paramref name="session"/>'s user (see <see cref="DefaultModelIdAsync"/>, with the <c>preferredModel</c> of their settings). Empty when there is none. Read-only: uses the cached rosters and changes nothing.</summary>
     public static async Task<string> ResolveEffectiveModelIdAsync(string model, Session session = null)
     {
         if (!string.IsNullOrWhiteSpace(model))
         {
             return model.Trim();
+        }
+        string preferred = session?.User is null ? null : SettingsService.GetMergedSettings(session.User)["preferredModel"]?.ToString();
+        return await DefaultModelIdAsync(preferred, session);
+    }
+
+    /// <summary>The default model: <paramref name="preferred"/> when a provider offers it to <paramref name="session"/>'s user; else the model the dispatcher's provider answers with by default (the first registered
+    /// provider, as <see cref="LLMDispatcher.GetProvider"/> chooses); else the first model any provider lists. Empty when there is none.</summary>
+    internal static async Task<string> DefaultModelIdAsync(string preferred, Session session = null)
+    {
+        if (!string.IsNullOrWhiteSpace(preferred) && await GetByIdAsync(preferred.Trim(), session) is LLMModelInfo offered)
+        {
+            return offered.Id;
         }
         ILLMProvider first = LLMProviderRegistry.All.FirstOrDefault();
         string defaultId = first?.DefaultModelId;

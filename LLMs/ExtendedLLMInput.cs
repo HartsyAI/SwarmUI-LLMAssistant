@@ -106,8 +106,8 @@ public class ExtendedLLMInput
         return input;
     }
 
-    /// <summary>Creates an ExtendedLLMInput from a full conversation history.</summary>
-    public static ExtendedLLMInput CreateFromHistory(List<ChatMessageData> messages, string systemPrompt = null, string model = null)
+    /// <summary>Creates an ExtendedLLMInput from a full conversation history. A file a message names under the output folder is read only where <paramref name="user"/> may view it.</summary>
+    public static ExtendedLLMInput CreateFromHistory(List<ChatMessageData> messages, string systemPrompt = null, string model = null, User user = null)
     {
         ExtendedLLMInput input = new()
         {
@@ -136,7 +136,7 @@ public class ExtendedLLMInput
             {
                 Role = llmRole,
                 Content = msg.Content,
-                Media = Services.MediaResolver.ResolveForLLM(msg.Media)
+                Media = Services.MediaResolver.ResolveForLLM(msg.Media, user)
             });
         }
         if (messages.Count > 0)

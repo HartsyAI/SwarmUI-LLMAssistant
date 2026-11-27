@@ -155,7 +155,7 @@ public class GenerateImageTool : ToolHandler
         {
             try
             {
-                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(initImageInput, ctx.Ct);
+                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(initImageInput, ctx.Ct, session.User);
                 rawInput["init_image"] = img.DataUri;
             }
             catch (InvalidOperationException ex)
@@ -216,13 +216,11 @@ public class GenerateImageTool : ToolHandler
             rawInput[PromptTagHandler.ParamAutoEnhance.Type.ID] = PromptAutoEnhance.ModeOff;
         }
         // Tag metadata so the resulting image's metadata sidecar records which presets were used, carry an id the prompt rewrite reports its outcome under, and say which chat and assistant switches apply.
-        // The chat's model goes along too, to write the rewrite when the user chose no model for that.
         string reportId = Guid.NewGuid().ToString("N");
         JObject extraMetadata = new()
         {
             [PromptAutoEnhance.MetaReportId] = reportId,
-            [PromptAutoEnhance.MetaScope] = rewriteScope.ToMeta(),
-            [PromptAutoEnhance.MetaChatModel] = ctx.ModelId ?? ""
+            [PromptAutoEnhance.MetaScope] = rewriteScope.ToMeta()
         };
         if (presetsApplied.Count > 0)
         {
@@ -231,6 +229,8 @@ public class GenerateImageTool : ToolHandler
         rawInput["extra_metadata"] = extraMetadata;
         try
         {
+            // The chat's model writes the rewrite when the user chose no model for that (see PromptRewriteService.WritingModel).
+            RewriteChatModels.Put(reportId, ctx.ModelId);
             BatchOutcome outcome = await ImageBatch.RunAsync(session, imageCount, rawInput, ctx.Ct);
             RewriteResult rewrite = RewriteReports.Take(reportId);
             if (outcome.Images.Count == 0)
@@ -308,6 +308,10 @@ public class GenerateImageTool : ToolHandler
         {
             Logs.Error($"[LLMAssistant] GenerateImageTool failed: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        finally
+        {
+            RewriteChatModels.Remove(reportId);
         }
     }
 

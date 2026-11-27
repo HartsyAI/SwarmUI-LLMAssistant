@@ -268,6 +268,24 @@ test('with no model named, the first one a backend offers is used', async ({ llm
     expect(['mock-model', 'mock-model-b']).toContain(reply.model);
 });
 
+test('with no model named, the preferred model is used when a backend offers it, by a turn and by a one-off request', async ({ llm }) => {
+    await setScenarios([{ regex: 'preferred', rounds: [{ text: 'ok' }] }]);
+    let prefer = async (model: string) => expect((await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ preferredModel: model }) })).success).toBe(true);
+    try {
+        await prefer('mock-model-b');
+        expect((await run(llm, { message: 'my preferred' })).model).toBe('mock-model-b');
+        await clearRequests();
+        expect((await api(llm, 'LLMAssistantSendMessage', { message: 'preferred once', noCache: true })).success).toBe(true);
+        expect((await mockRequests()).map(r => r.model)).toEqual(['mock-model-b']);
+        // One nothing offers is passed over for the backend's default.
+        await prefer('a-model-that-is-gone');
+        expect((await run(llm, { message: 'preferred but gone' })).model).toBe('mock-model');
+    }
+    finally {
+        await prefer('');
+    }
+});
+
 test('a message to a session is a turn of that session, and it reports to its parent as any turn does', async ({ llm }) => {
     let parent = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default' })).thread.id;
     let tools = (await api(llm, 'LLMAssistantGetTools')).tools as any[];

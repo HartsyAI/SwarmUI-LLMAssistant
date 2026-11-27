@@ -1,4 +1,5 @@
 using System.IO;
+using SwarmUI.Accounts;
 using SwarmUI.Core;
 using Hartsy.Extensions.LLMAssistant.LLMs;
 using SwarmUI.Utils;
@@ -28,12 +29,12 @@ public static class MediaResolver
 {
     /// <summary>Returns a new list with each attachment resolved for the wire. Null/empty input
     /// yields null. File-read failures degrade to skipping that attachment with a warning log —
-    /// better than failing the whole chat request because one image is gone.</summary>
-    public static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments)
-        => ResolveForLLM(attachments, OutputUrls.LocalPath);
+    /// better than failing the whole chat request because one image is gone. A local file is read only where <paramref name="user"/> may view it.</summary>
+    public static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments, User user)
+        => ResolveForLLM(attachments, url => OutputUrls.ReadablePath(url, user));
 
-    /// <summary>The testable core: <paramref name="toFullPath"/> maps a local output URL to a full path (null when it escapes the
-    /// output root), so tests do not need the server's output settings.</summary>
+    /// <summary>The testable core: <paramref name="toFullPath"/> maps a local output URL to a full path (null when it may not be read),
+    /// so tests do not need the server's output settings.</summary>
     internal static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments, Func<string, string> toFullPath)
     {
         if (attachments is null || attachments.Count == 0)
@@ -58,13 +59,11 @@ public static class MediaResolver
             // Local output-relative URL — read off disk, base64.
             if (att.Type == "url" && OutputUrls.IsLocal(att.Data))
             {
-                // Defense in depth: ToFullPath returns null on traversal outside the output root.
-                // (URLs come from our own upload endpoint so they're trusted, but we shouldn't
-                // assume that for all callers.)
+                // The URL came with a request, so it may name anything: only a file the user may view is read.
                 string fullPath = toFullPath(att.Data);
                 if (fullPath is null)
                 {
-                    Logs.Warning($"[LLMAssistant] MediaResolver refused path traversal: {att.Data}");
+                    Logs.Warning($"[LLMAssistant] MediaResolver refused a path outside what the user may view: {att.Data}");
                     continue;
                 }
                 if (!File.Exists(fullPath))

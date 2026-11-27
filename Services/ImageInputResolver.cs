@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using ImageMagick;
+using SwarmUI.Accounts;
 using SwarmUI.Backends;
 using SwarmUI.Core;
 using SwarmUI.Utils;
@@ -9,7 +10,7 @@ namespace Hartsy.Extensions.LLMAssistant.Services;
 
 /// <summary>Resolves an image referenced by an LLM tool call (or any code path that takes a
 /// "user-supplied image input") into raw bytes + MIME. Accepts a data URI, a local
-/// <c>Output/{userId}/...</c> path (traversal-checked), an HTTPS URL (gated by
+/// <c>View/{userId}/...</c> (or older <c>Output/</c>) path to a file the requesting user may view, an HTTPS URL (gated by
 /// <see cref="NetworkSafety"/> and a size cap), or raw base64. Returns a single shape
 /// (<see cref="ResolvedImage"/>) and throws <see cref="InvalidOperationException"/> with a
 /// user-facing message on failure.</summary>
@@ -40,15 +41,15 @@ public static class ImageInputResolver
     }
 
     /// <summary>Resolves the input string into bytes, then rejects anything that is not an allowed raster format.
-    /// See class doc for accepted shapes.</summary>
-    public static async Task<ResolvedImage> ResolveAsync(string input, CancellationToken ct = default)
+    /// See class doc for accepted shapes. A local output path is read only for a <paramref name="user"/> who may view it, so a caller with no user reads none.</summary>
+    public static async Task<ResolvedImage> ResolveAsync(string input, CancellationToken ct = default, User user = null)
     {
-        ResolvedImage resolved = await ResolveSourceAsync(input, ct);
+        ResolvedImage resolved = await ResolveSourceAsync(input, user, ct);
         EnsureRasterImage(resolved.Bytes);
         return resolved;
     }
 
-    private static async Task<ResolvedImage> ResolveSourceAsync(string input, CancellationToken ct)
+    private static async Task<ResolvedImage> ResolveSourceAsync(string input, User user, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(input))
         {
@@ -73,10 +74,10 @@ public static class ImageInputResolver
         // Local output URL ("View/…", or the legacy "Output/…" still stored in older threads).
         if (OutputUrls.IsLocal(input))
         {
-            string fullPath = OutputUrls.LocalPath(input);
+            string fullPath = OutputUrls.ReadablePath(input, user);
             if (fullPath is null)
             {
-                throw new InvalidOperationException("Image path is outside the Output directory.");
+                throw new InvalidOperationException("Image path is not in an Output folder you may view.");
             }
             if (!File.Exists(fullPath))
             {

@@ -112,6 +112,15 @@ test('an image a chat asks for is rewritten by the model of that chat, or by the
     }
 });
 
+test('a request cannot name the writing model through the metadata of a generation', async ({ llm }) => {
+    await setScenarios([{ match: 'metadata heron', rounds: [{ text: 'A rewritten heron.' }] }]);
+    await setAuto(llm, true);
+    await generate(llm, { prompt: 'metadata heron', extra_metadata: { llma_chat_model: 'mock-model-b' } });
+    let requests = await mockRequests();
+    expect(requests).toHaveLength(1);
+    expect(requests[0].model).toBe('mock-model');
+});
+
 test('the automatic setting is a checkbox in Settings > Prompt styles and is saved to your settings', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="prompt-styles"]').click();

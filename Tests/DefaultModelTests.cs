@@ -92,6 +92,25 @@ public sealed class DefaultModelTests
     }
 
     [Fact]
+    public async Task TheUsersPreferredModelComesFirstWhenABackendOffersIt()
+    {
+        StrictProvider remote = new("its-default", "embedding", "preferred");
+        await WithProviders([remote], async () =>
+        {
+            Assert.Equal("preferred", await LLMModelLookup.DefaultModelIdAsync(" PREFERRED "));
+            Assert.Equal("its-default", await LLMModelLookup.DefaultModelIdAsync("gone"));
+            Assert.Equal("its-default", await LLMModelLookup.DefaultModelIdAsync(""));
+        });
+        StrictProvider local = new(null, "embedding", "chat.gguf");
+        await WithProviders([local], async () =>
+        {
+            Assert.Equal("chat.gguf", await LLMModelLookup.DefaultModelIdAsync("chat.gguf"));
+            Assert.Equal("embedding", await LLMModelLookup.DefaultModelIdAsync(null));
+        });
+        await WithProviders([], async () => Assert.Equal("", await LLMModelLookup.DefaultModelIdAsync("chat.gguf")));
+    }
+
+    [Fact]
     public async Task ARewriteThatNamesNoModelIsWrittenByTheDefaultOne()
     {
         StrictProvider local = new(null, "writer.gguf");

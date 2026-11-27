@@ -43,6 +43,17 @@ test('an image address with encoded spaces is a link in a reply and loads in the
     await expect(llm.locator('.llma-tool-rewrite-notice')).toHaveCount(0);
 });
 
+test('Download on an image card saves the image, not its address', async ({ llm }) => {
+    await chatWithImage(llm, {});
+    let card = llm.locator('.llma-tool-extra .llma-asset-card');
+    await card.locator('[data-asset-menu]').click();
+    let saved = llm.waitForEvent('download');
+    await llm.locator('.llma-asset-menu').getByText('Download').click();
+    let download = await saved;
+    expect(download.suggestedFilename()).toBe('a_red_fox.png');
+    expect(fs.readFileSync(await download.path())).toEqual(PNG);
+});
+
 test('a prompt rewrite that fell back is said under the image, once, with the reason', async ({ llm }) => {
     await chatWithImage(llm, { rewriteStatus: 'fallback', rewriteWarnings: [WARNING] });
     let notice = llm.locator('.llma-tool-rewrite-notice');

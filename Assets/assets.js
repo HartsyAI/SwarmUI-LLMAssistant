@@ -113,6 +113,20 @@ function llmaCoreImageUrl(url) {
     }
 }
 
+/**
+ * The name an image is saved under. Its title is made from the prompt and always ends `.png`, whatever the file is.
+ * @param {string} title - The asset's title.
+ * @param {string} url - The image's address or data URI.
+ * @returns {string} The title, ending with the type the address or data URI names, when it names one.
+ */
+function llmaImageFileName(title, url) {
+    let type = /^data:image\/(\w+)/.exec(url || '')?.[1] || /\.(png|jpe?g|webp|gif|bmp|tiff?|avif|mp4|webm|mov)$/i.exec(url || '')?.[1];
+    if (!type) {
+        return title;
+    }
+    return title.replace(/\.png$/i, `.${type.toLowerCase().replace('jpeg', 'jpg')}`);
+}
+
 // ── Asset construction ───────────────────────────────────────────
 function llmaGuessFilename(content, lang, type) {
     if (!content) return null;
@@ -605,6 +619,13 @@ function llmaAssetDownload(asset) {
     } else {
         dl = { filename: asset.title, mime: 'text/plain', content: asset.content || '' };
     }
+    if (dl.url) {
+        let link = document.createElement('a');
+        link.href = dl.url;
+        link.download = dl.filename || asset.title;
+        link.click();
+        return;
+    }
     llmaDownloadFile(dl.filename || asset.title, dl.content, dl.mime || 'text/plain');
 }
 
@@ -977,11 +998,10 @@ llmaRegisterAssetType({
         return wrap;
     },
     copyPayload: (asset) => asset.content || '',
+    // An image's content is its address, so the file is fetched from there, not written out from the content.
     download: (asset) => ({
-        filename: asset.title,
-        mime: 'image/png',
-        // Images are URLs, can't be blob-downloaded directly without fetch; link-download instead
-        content: asset.content || '',
+        filename: llmaImageFileName(asset.title, asset.content),
+        url: asset.content || '',
     }),
 });
 

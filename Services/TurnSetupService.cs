@@ -84,7 +84,7 @@ public static class TurnSetupService
         // Build LLM input from the active branch (truncated to maxContextMessages).
         // Attached documents go in as quoted data, fitted to this model's window.
         List<ChatMessageData> history = ChatEndpoints.BuildHistoryFromThread(thread, settings, rawInput, session.User, ContextWindowService.Resolve(modelInfo, settings));
-        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model);
+        ExtendedLLMInput input = ExtendedLLMInput.CreateFromHistory(history, systemPrompt, model, session.User);
         input.RequestSession = session;
         input.ConversationId = ChatEndpoints.ThreadConversationId(threadId);
         input.EnableThinking = enableThinking;
