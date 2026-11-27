@@ -5,8 +5,8 @@ using UglyToad.PdfPig.Exceptions;
 namespace Hartsy.Extensions.LLMAssistant.Services.Documents;
 
 /// <summary>PDF files: the text layer, read with PdfPig page by page. There is no OCR, so a scanned or image-only PDF is reported as having no text layer, and so is text that cannot be
-/// decoded (a font with no text mapping gives characters that mean nothing), rather than handing that on. What the parser is given to work on is held to <see cref="PdfLimits"/> (best
-/// effort, not a guarantee); a page over them is left out.</summary>
+/// decoded (a font with no text mapping gives characters that mean nothing), rather than handing that on. The parser runs in a process of its own (<see cref="PdfWorkerHost"/>), which is
+/// what keeps a hostile file from harming the server. There it is also held to <see cref="PdfLimits"/>; a page over them is left out.</summary>
 public sealed class PdfDocumentExtractor : IDocumentExtractor
 {
     /// <summary>The share of a page's characters that may be unreadable before the page's text is not used.</summary>
@@ -25,7 +25,11 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
     public bool Recognizes(ReadOnlySpan<byte> data) => data.StartsWith("%PDF-"u8);
 
     /// <inheritdoc/>
-    public ExtractedDocument Extract(byte[] data, DocumentLimits limits, CancellationToken ct)
+    public ExtractedDocument Extract(byte[] data, DocumentLimits limits, CancellationToken ct) => PdfWorkerHost.Shared.Read(data, limits, ct);
+
+    /// <summary><see cref="Extract"/> in this process, with nothing to contain a file that crashes or exhausts the parser. For <see cref="PdfWorker"/> and tests only: the server must
+    /// never call it.</summary>
+    internal ExtractedDocument ReadInThisProcess(byte[] data, DocumentLimits limits, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
         PdfLimits.Filters filters = new();
@@ -40,7 +44,7 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         {
             return ExtractedDocument.Failed(DocumentStatus.Encrypted, Kind, "This PDF needs a password. Save a copy without one and attach that.");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
         {
             return Stopped(filters) ?? (ex is DocumentTooLargeException
                 ? ExtractedDocument.Failed(DocumentStatus.TooLarge, Kind, "That PDF is built in a way that would take too much to read.")
@@ -107,7 +111,7 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
         List<string> pages = [];
         int chars = 0, blank = 0, failed = 0, unreadable = 0, large = 0;
         bool cut = false;
-        // First of all, before a page is asked for: a reference that never ends would take the server down with it.
+        // First of all, before a page is asked for: a reference that never ends would take this process down with it.
         filters.StartChecking();
         PdfLimits.ReferenceCheck references = PdfLimits.CheckReferences(pdf.Structure.Catalog.CatalogDictionary, pdf.Structure.TokenScanner, ct);
         filters.StartReading();
@@ -159,7 +163,7 @@ public sealed class PdfDocumentExtractor : IDocumentExtractor
                     text = new string([.. text.Where(c => c is '\n' or '\t' || (!char.IsControl(c) && c != '\uFFFD' && c is not (>= '\uE000' and <= '\uF8FF')))]);
                 }
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
             {
                 failed++;
             }

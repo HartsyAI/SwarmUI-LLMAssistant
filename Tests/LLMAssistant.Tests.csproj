@@ -11,7 +11,8 @@
     <AssemblyName>Hartsy.Extensions.LLMAssistant.Tests</AssemblyName>
     <RootNamespace>Hartsy.Extensions.LLMAssistant.Tests</RootNamespace>
     <!-- Pure-logic tests only (see README in this folder): no SwarmUI host, no Program.ServerSettings, no
-         live backend. That keeps this project's own build independent of a running Swarm instance. -->
+         live backend. That keeps this project's own build independent of a running Swarm instance. (PdfWorkerTests do
+         start processes: the extension's own PDF workers.) -->
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 

@@ -12,6 +12,16 @@ export function pdf(pages: string[]): Buffer {
         objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`);
         objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
     }
+    return assemble(objects);
+}
+
+/** A PDF that overflows the parser's stack while it is being opened: the page tree's only entry is an object that refers to itself. */
+export function crashingPdf(): Buffer {
+    return assemble(['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '3 0 R']);
+}
+
+/** A PDF file holding these objects, numbered from 1; the first is the catalog. */
+function assemble(objects: string[]): Buffer {
     let file = '%PDF-1.4\n';
     let offsets = objects.map((body, i) => {
         let offset = file.length;
