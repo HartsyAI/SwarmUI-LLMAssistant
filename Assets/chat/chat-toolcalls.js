@@ -382,6 +382,25 @@
             holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
             llmaInsertToolExtra(group, holder);
         }
+        if (result?.rewriteStatus == 'fallback' && !bubble.querySelector(`[data-rewrite-notice="${CSS.escape(toolResult.id)}"]`)) {
+            llmaShowRewriteNotice(group, toolResult.id, result.rewriteWarnings);
+        }
+    }
+
+    /**
+     * Says under a call's image cards that its prompt was not enhanced, and why. The tool result holds both, but its step is closed.
+     * @param {HTMLElement} group - The activity group the call is in.
+     * @param {string} toolId - The call's id, so the notice is drawn once.
+     * @param {Array<string>|undefined} warnings - The result's `rewriteWarnings`.
+     */
+    function llmaShowRewriteNotice(group, toolId, warnings) {
+        let holder = createDiv(null, 'alert alert-warning small py-1 px-2 my-1 llma-tool-rewrite-notice');
+        holder.setAttribute('data-rewrite-notice', toolId);
+        holder.appendChild(createDiv(null, 'fw-bold', escapeHtml(translate('The prompt was not enhanced.'))));
+        if (Array.isArray(warnings) && warnings.length > 0) {
+            holder.appendChild(createDiv(null, null, escapeHtml(warnings.join(' '))));
+        }
+        llmaInsertToolExtra(group, holder);
     }
 
     /** Fill the result slot of a tool-call bubble with a tool-specific preview (or JSON fallback). */

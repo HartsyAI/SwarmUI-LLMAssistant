@@ -23,4 +23,11 @@ public static class ContextWindowService
     /// <summary>A token count for <paramref name="text"/> from its length alone (about four characters a token), for the places that cannot
     /// ask a tokenizer. Counts the text as it would be sent, so it is a little low for code and a little high for prose.</summary>
     public static int EstimateTokens(string text) => string.IsNullOrEmpty(text) ? 0 : (int)Math.Ceiling(text.Length / 4.0);
+
+    /// <summary>How many characters the definitions of the offered tools hold (each one's name, description and parameter schema, as a provider is given them). A model reads them as part of its prompt.</summary>
+    public static long ToolDefinitionChars(IEnumerable<JObject> tools)
+        => LLMMessageMapping.ToEngineTools(tools).Sum(tool => (long)(tool.Name.Length + tool.Description.Length + tool.JsonSchema.Length));
+
+    /// <summary>A token count for the definitions of the offered tools, from their length alone (see <see cref="EstimateTokens"/>).</summary>
+    public static int EstimateToolTokens(IEnumerable<JObject> tools) => (int)((ToolDefinitionChars(tools) + 3) / 4);
 }

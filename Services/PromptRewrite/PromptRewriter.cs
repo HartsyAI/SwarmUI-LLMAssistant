@@ -94,7 +94,7 @@ public sealed record RewriteUsage(int InputTokens, int OutputTokens);
 /// <param name="StyleScope">The scope that style came from, or null.</param>
 /// <param name="Via">How the style was chosen (<c>override</c>, <c>match</c>, <c>default</c>, <c>request</c>), or null.</param>
 /// <param name="Reason">One line saying why that style, for a person.</param>
-/// <param name="Model">The chat model that rewrote, or empty for the default one.</param>
+/// <param name="Model">The chat model asked to rewrite (the default one by name too), or empty when none was named and no backend says which is the default.</param>
 /// <param name="Warnings">What was fixed, dropped or could not be done, for a person.</param>
 /// <param name="Usage">A rough token count, or null when nothing was asked of the model.</param>
 public sealed record RewriteResult(string Original, string Text, string Negative, bool Rewritten, string Skipped, bool Retried, bool FellBack, string StyleId, string StyleScope, string Via, string Reason,

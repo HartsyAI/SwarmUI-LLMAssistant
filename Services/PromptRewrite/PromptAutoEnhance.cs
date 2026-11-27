@@ -30,6 +30,9 @@ public static class PromptAutoEnhance
     /// <summary>The extra-metadata key the image tool writes its <see cref="RewriteScope"/> to, so the chat's and the assistant's switches reach this hook.</summary>
     public const string MetaScope = "llma_rewrite_scope";
 
+    /// <summary>The extra-metadata key the image tool writes the chat's model to, which writes the rewrite when the user chose no rewrite model. The hook takes it off each image's input again, so it is not saved with the image.</summary>
+    public const string MetaChatModel = "llma_chat_model";
+
     /// <summary>The longest warning, and the longest of all warnings together, written to the image's metadata.</summary>
     public const int MaxWarningChars = 300, MaxWarningsTotalChars = 1500;
 
@@ -58,6 +61,7 @@ public static class PromptAutoEnhance
     {
         try
         {
+            string chatModel = input.ExtraMeta.Remove(MetaChatModel, out object asked) ? asked as string : null;
             SwarmUI.Accounts.Session session = input.SourceSession;
             // A second pass over the same input (core re-prepares a task it hands to another Swarm, and the Comfy workflow routes call this too) must not rewrite a rewritten prompt or lose the original.
             if (session?.User is null || PromptTagHandler.ParamAutoEnhance is null || input.ExtraMeta.ContainsKey(MetaStatus))
@@ -87,7 +91,7 @@ public static class PromptAutoEnhance
             // Core's hook is synchronous, so this blocks the engine thread that prepares the image; the call is bounded by the settings' timeout for each of its requests and by the generation being interrupted.
             using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(input.InterruptToken);
             limit.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds * 3 + 15));
-            RewriteResult result = PromptRewriteService.RewriteAsync(request, session.User, session, limit.Token).GetAwaiter().GetResult();
+            RewriteResult result = PromptRewriteService.RewriteAsync(request, session.User, session, limit.Token, chatModel).GetAwaiter().GetResult();
             if (result.StyleId is null)
             {
                 return;

@@ -30,7 +30,7 @@ public static class MediaResolver
     /// yields null. File-read failures degrade to skipping that attachment with a warning log —
     /// better than failing the whole chat request because one image is gone.</summary>
     public static List<LLMMediaAttachment> ResolveForLLM(List<LLMMediaAttachment> attachments)
-        => ResolveForLLM(attachments, OutputUrls.ToFullPath);
+        => ResolveForLLM(attachments, OutputUrls.LocalPath);
 
     /// <summary>The testable core: <paramref name="toFullPath"/> maps a local output URL to a full path (null when it escapes the
     /// output root), so tests do not need the server's output settings.</summary>

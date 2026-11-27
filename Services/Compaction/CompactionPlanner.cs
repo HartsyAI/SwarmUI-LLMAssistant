@@ -165,7 +165,7 @@ public static class CompactionPlanner
 
     /// <summary>How many tokens the conversation holds now, and whether that is a count the model reported (<c>true</c>) or an estimate.
     /// The newest reply after the summary that carries <c>meta.usage</c> is the best figure: what it was sent plus what it wrote, with the
-    /// messages after it estimated. Without one, everything that would be sent is estimated, <paramref name="systemPromptTokens"/> included. Attached documents' text is counted too, up to
+    /// messages after it estimated. Without one, everything that would be sent is estimated, <paramref name="systemPromptTokens"/> (what goes ahead of the conversation: the instructions and the tools' definitions) included. Attached documents' text is counted too, up to
     /// <paramref name="documentBudget"/> quarter-tokens (the most a request carries, however many files there are); those on summarized messages are still sent, so they still count.</summary>
     public static (long Tokens, bool Reported) EstimateContext(List<JObject> path, CompactionRecord active, int systemPromptTokens = 0, int documentBudget = int.MaxValue)
     {

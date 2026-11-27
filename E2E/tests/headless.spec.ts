@@ -198,6 +198,19 @@ test('a dry run builds the request and reports on it without calling the model, 
     expect(((await api(llm, 'LLMAssistantGetThreads')).threads as any[]).length).toBe(threadsBefore);
 });
 
+test('a dry run counts the definitions of the offered tools in the prompt', async ({ llm }) => {
+    let chat = (await api(llm, 'LLMAssistantCreateThread', { assistantId: 'default' })).thread.id;
+    let withTools = await run(llm, { message: 'count me', threadId: chat, dryRun: true });
+    expect(withTools.tools.length).toBeGreaterThan(0);
+    expect((await api(llm, 'LLMAssistantSetThreadToolsEnabled', { threadId: chat, enabled: false })).success).toBe(true);
+    let without = await run(llm, { message: 'count me', threadId: chat, dryRun: true });
+    expect(without.tools).toEqual([]);
+    // The tool definitions are far longer than anything else the switch changes in the instructions.
+    expect(withTools.estimatedPromptTokens - without.estimatedPromptTokens).toBeGreaterThan(Math.ceil((withTools.systemPromptChars - without.systemPromptChars) / 4) + 100);
+    // Tools alone filling the window make nothing to summarize.
+    expect(withTools.wouldCompact).toBe(false);
+});
+
 test('a dry run says a long chat would be summarized first, and does not do it', async ({ llm }) => {
     // The mock model's window is 4,000 tokens; a message of 14,000 characters is most of it.
     let first = await run(llm, { message: 'long ' + 'word '.repeat(2800) });

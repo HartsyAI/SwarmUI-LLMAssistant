@@ -210,7 +210,8 @@ public static class HeadlessTurnService
         ExtendedLLMInput input = prepared.Input;
         // The messages the model would read after its instructions: the conversation, with the new message last.
         List<LLMMessage> conversation = [.. input.Messages.Where(m => m.Role != LLMRoles.System)];
-        long characters = (input.SystemPrompt?.Length ?? 0) + conversation.Sum(m => (long)(m.Content?.Length ?? 0));
+        // The offered tools' definitions are part of the prompt, often most of it.
+        long characters = (input.SystemPrompt?.Length ?? 0) + conversation.Sum(m => (long)(m.Content?.Length ?? 0)) + ContextWindowService.ToolDefinitionChars(input.Tools);
         string model = options["model"].ToString();
         LLMModelInfo info = await LLMModelLookup.GetByIdAsync(model, session);
         JArray warnings = [];

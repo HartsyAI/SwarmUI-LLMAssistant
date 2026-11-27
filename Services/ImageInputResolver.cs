@@ -73,7 +73,7 @@ public static class ImageInputResolver
         // Local output URL ("View/…", or the legacy "Output/…" still stored in older threads).
         if (OutputUrls.IsLocal(input))
         {
-            string fullPath = OutputUrls.ToFullPath(input);
+            string fullPath = OutputUrls.LocalPath(input);
             if (fullPath is null)
             {
                 throw new InvalidOperationException("Image path is outside the Output directory.");

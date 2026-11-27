@@ -86,6 +86,32 @@ test('a failing model is asked and the generation request still comes back (the 
     expect(after.result).toBe('still works');
 });
 
+test('an image a chat asks for is rewritten by the model of that chat, or by the rewrite model when one is chosen', async ({ llm }) => {
+    await setAuto(llm, true);
+    /** Runs a turn on mock-model-b that makes an image, and returns the model the rewrite was asked of. */
+    let writerFor = async (words: string) => {
+        await clearRequests();
+        await setScenarios([
+            { match: `draw the ${words}`, rounds: [{ toolCalls: [{ name: 'generate_image', arguments: { prompt: words, model: MYSTERY } }] }, { text: 'done' }] },
+            { match: `<idea>\n${words}`, rounds: [{ text: `A rewritten ${words}.` }] }
+        ]);
+        let reply = await api(llm, 'LLMAssistantRunTurn', { message: `draw the ${words}`, model: 'mock-model-b', approvalMode: 'auto' });
+        expect(reply.success, JSON.stringify(reply)).toBe(true);
+        let rewrites = (await mockRequests()).filter(r => String(r.messages[0].content).includes('text-to-image prompt expert'));
+        expect(rewrites, JSON.stringify(reply.toolCalls)).toHaveLength(1);
+        return rewrites[0].model;
+    };
+    try {
+        expect(await writerFor('chat model heron')).toBe('mock-model-b');
+        let saved = await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptRewrite: { auto: true, model: 'mock-model' } }) });
+        expect(saved.success, JSON.stringify(saved)).toBe(true);
+        expect(await writerFor('chosen model heron')).toBe('mock-model');
+    }
+    finally {
+        await api(llm, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptRewrite: { auto: false, model: '' } }) });
+    }
+});
+
 test('the automatic setting is a checkbox in Settings > Prompt styles and is saved to your settings', async ({ llm }) => {
     await llm.locator('#llma-settings-btn').click();
     await llm.locator('.llma-modal-tab[data-tab="prompt-styles"]').click();

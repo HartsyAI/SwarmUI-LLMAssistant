@@ -216,11 +216,13 @@ public class GenerateImageTool : ToolHandler
             rawInput[PromptTagHandler.ParamAutoEnhance.Type.ID] = PromptAutoEnhance.ModeOff;
         }
         // Tag metadata so the resulting image's metadata sidecar records which presets were used, carry an id the prompt rewrite reports its outcome under, and say which chat and assistant switches apply.
+        // The chat's model goes along too, to write the rewrite when the user chose no model for that.
         string reportId = Guid.NewGuid().ToString("N");
         JObject extraMetadata = new()
         {
             [PromptAutoEnhance.MetaReportId] = reportId,
-            [PromptAutoEnhance.MetaScope] = rewriteScope.ToMeta()
+            [PromptAutoEnhance.MetaScope] = rewriteScope.ToMeta(),
+            [PromptAutoEnhance.MetaChatModel] = ctx.ModelId ?? ""
         };
         if (presetsApplied.Count > 0)
         {
@@ -240,7 +242,8 @@ public class GenerateImageTool : ToolHandler
                 // With one image the error core gave is returned as it is; with several, core keeps going after an error and only logs it, so the reason is in the SwarmUI log.
                 return new JObject { ["success"] = false, ["error"] = outcome.Error ?? (totalImages > 1 ? "No image was generated (see the SwarmUI log for why)." : "No image was generated.") };
             }
-            List<string> images = outcome.Images;
+            // The model repeats these as markdown links, which a space in the file name would break.
+            List<string> images = [.. outcome.Images.Select(OutputUrls.ForMarkdown)];
             JObject ret = new()
             {
                 ["success"] = true,
