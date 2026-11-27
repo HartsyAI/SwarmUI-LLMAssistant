@@ -59,7 +59,7 @@ public class FuseImageDescriptionsTool : ToolHandler
             }
             try
             {
-                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(url, ctx.Ct);
+                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(url, ctx.Ct, session?.User);
                 resolved.Add((role, img));
             }
             catch (InvalidOperationException ex)

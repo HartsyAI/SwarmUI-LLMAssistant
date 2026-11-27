@@ -7,6 +7,8 @@
   "scripts": {
     "test": "playwright test --project=chromium",
     "test:smoke": "playwright test --project=firefox-smoke --project=webkit-smoke",
+    "test:live": "playwright test --config=live/playwright.config.ts",
+    "test:live-selftest": "playwright test --config=live/selftest/playwright.config.ts",
     "stack": "node harness/stack.mjs",
     "install-browsers": "playwright install chromium firefox webkit"
   },
