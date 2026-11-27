@@ -87,7 +87,7 @@ public sealed record LlmAddendum(bool Applied, string Text, string StyleId, stri
 /// <para><b>Determinism.</b> The addendum's own bytes depend only on the style file: no timestamps, no user variables, no ordering that varies, so the same model and settings give the same text every turn. Where it sits in the
 /// prompt depends on the instruction before it (which may itself change from turn to turn, for example when the instruction holds per-turn recall), so how much of the prompt a backend's prefix cache can reuse depends on that
 /// text too. With no matching style (and no style ships for any model) nothing is appended and the prompt is exactly what it was before this existed.</para>
-/// <para><b>Which model, which tools.</b> The style is chosen for the model that will really answer: the one named, else the provider's default (<see cref="LLMModelLookup.ResolveEffectiveModelIdAsync"/>). Its <c>tools</c> task
+/// <para><b>Which model, which tools.</b> The style is chosen for the model that will really answer: the one named, else the default one (<see cref="LLMModelLookup.ResolveEffectiveModelIdAsync"/>). Its <c>tools</c> task
 /// is on only when the turn really sends tools. When no backend lists the model (a listing that failed or timed out is cached as empty for a few minutes), what was last known about that model is used, so a passing outage
 /// does not make a family, provider or tag condition stop matching; failing that, only the id and name globs can match.</para></summary>
 public static class LlmAddendumService

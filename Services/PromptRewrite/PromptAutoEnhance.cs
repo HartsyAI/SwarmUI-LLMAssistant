@@ -87,7 +87,9 @@ public static class PromptAutoEnhance
             // Core's hook is synchronous, so this blocks the engine thread that prepares the image; the call is bounded by the settings' timeout for each of its requests and by the generation being interrupted.
             using CancellationTokenSource limit = CancellationTokenSource.CreateLinkedTokenSource(input.InterruptToken);
             limit.CancelAfter(TimeSpan.FromSeconds(settings.TimeoutSeconds * 3 + 15));
-            RewriteResult result = PromptRewriteService.RewriteAsync(request, session.User, session, limit.Token).GetAwaiter().GetResult();
+            // The model of the chat whose image tool started this generation, if one did.
+            string chatModel = input.ExtraMeta.TryGetValue(MetaReportId, out object call) ? RewriteChatModels.For(call as string) : null;
+            RewriteResult result = PromptRewriteService.RewriteAsync(request, session.User, session, limit.Token, chatModel).GetAwaiter().GetResult();
             if (result.StyleId is null)
             {
                 return;

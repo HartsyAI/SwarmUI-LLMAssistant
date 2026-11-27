@@ -287,7 +287,7 @@ export const test = base.extend<{ llm: Page }>({
             let deleted = await api(page, 'LLMAssistantDeleteThread', { threadId: thread.id });
             expect(deleted.success).toBe(true);
         }
-        let cleared = await api(page, 'LLMAssistantSetSessionState', { state: { activeThreadId: null, compareMode: null, compareModelB: null } });
+        let cleared = await api(page, 'LLMAssistantSetSessionState', { state: { activeThreadId: null, compareMode: null, compareModelB: null, currentModel: null } });
         expect(cleared.success).toBe(true);
         // The first-run guide would show to a user with no chats; the other specs start past it (onboarding.spec.ts runs it again).
         expect((await api(page, 'LLMAssistantSetOnboarding', { action: 'skip' })).success).toBe(true);

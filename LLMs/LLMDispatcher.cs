@@ -4,20 +4,24 @@ using SwarmUI.Utils;
 namespace Hartsy.Extensions.LLMAssistant.LLMs;
 
 /// <summary>Routes LLM requests to a registered <see cref="ILLMProvider"/>.
-/// <para>When the request names a model, the dispatcher asks each provider's
-/// <see cref="ILLMProvider.ListModels"/> which one owns it. Otherwise it uses the first
-/// registered provider. Providers are supplied by the removable <c>Backends/</c> pack; with none
-/// registered, every call reports "no LLM backend running".</para></summary>
+/// <para>A request that names no model is given the default one first (<see cref="LLMModelLookup.ResolveEffectiveModelIdAsync"/>, the same a chat turn gets), because a local backend cannot answer without a
+/// name. The dispatcher then asks each provider's <see cref="ILLMProvider.ListModels"/> which one owns the model, and falls back to the first registered provider. Providers are supplied by the removable
+/// <c>Backends/</c> pack; with none registered, every call reports "no LLM backend running".</para></summary>
 public static class LLMDispatcher
 {
-    /// <summary>Gets the best provider for the given input. If a model is specified, finds the
-    /// provider that advertises it; otherwise returns the first registered provider.</summary>
+    /// <summary>Gets the best provider for the given input, first naming the default model on an input that names none: the provider that advertises the model, otherwise the first registered
+    /// provider.</summary>
     public static async Task<ILLMProvider> GetProvider(ExtendedLLMInput input = null)
     {
         List<ILLMProvider> providers = LLMProviderRegistry.All.ToList();
         if (providers.Count == 0)
         {
             throw new SwarmReadableErrorException("No LLM backend is running. Add one in Server > Backends.");
+        }
+        if (input is not null && string.IsNullOrWhiteSpace(input.Model))
+        {
+            // Still empty when no backend says or lists one; a server that picks its own model can then do so.
+            input.Model = await LLMModelLookup.ResolveEffectiveModelIdAsync(input.Model, input.RequestSession);
         }
         int backendId = input?.BackendId ?? -1;
         if ((providers.Count == 1 && backendId < 0) || string.IsNullOrEmpty(input?.Model))

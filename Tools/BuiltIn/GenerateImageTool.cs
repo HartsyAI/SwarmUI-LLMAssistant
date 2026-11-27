@@ -155,7 +155,7 @@ public class GenerateImageTool : ToolHandler
         {
             try
             {
-                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(initImageInput, ctx.Ct);
+                ImageInputResolver.ResolvedImage img = await ImageInputResolver.ResolveAsync(initImageInput, ctx.Ct, session.User);
                 rawInput["init_image"] = img.DataUri;
             }
             catch (InvalidOperationException ex)
@@ -229,6 +229,8 @@ public class GenerateImageTool : ToolHandler
         rawInput["extra_metadata"] = extraMetadata;
         try
         {
+            // The chat's model writes the rewrite when the user chose no model for that (see PromptRewriteService.WritingModel).
+            RewriteChatModels.Put(reportId, ctx.ModelId);
             BatchOutcome outcome = await ImageBatch.RunAsync(session, imageCount, rawInput, ctx.Ct);
             RewriteResult rewrite = RewriteReports.Take(reportId);
             if (outcome.Images.Count == 0)
@@ -240,7 +242,8 @@ public class GenerateImageTool : ToolHandler
                 // With one image the error core gave is returned as it is; with several, core keeps going after an error and only logs it, so the reason is in the SwarmUI log.
                 return new JObject { ["success"] = false, ["error"] = outcome.Error ?? (totalImages > 1 ? "No image was generated (see the SwarmUI log for why)." : "No image was generated.") };
             }
-            List<string> images = outcome.Images;
+            // The model repeats these as markdown links, which a space in the file name would break.
+            List<string> images = [.. outcome.Images.Select(OutputUrls.ForMarkdown)];
             JObject ret = new()
             {
                 ["success"] = true,
@@ -305,6 +308,10 @@ public class GenerateImageTool : ToolHandler
         {
             Logs.Error($"[LLMAssistant] GenerateImageTool failed: {ex.Message}");
             return new JObject { ["success"] = false, ["error"] = ex.Message };
+        }
+        finally
+        {
+            RewriteChatModels.Remove(reportId);
         }
     }
 
