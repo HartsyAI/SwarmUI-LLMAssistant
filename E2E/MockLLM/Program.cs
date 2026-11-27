@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 
 // A scripted OpenAI-compatible server for browser e2e tests. No model, no GPU.
 //
-//   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated)
+//   GET    /v1/models              the model list ("mock-model" with a 4000-token window, "mock-model-b" with none stated and no tool support)
 //   POST   /v1/chat/completions    streaming (SSE) or plain; the reply comes from the active scenario
 //   PUT    /__scenarios            replace the scenario list (JSON array of rules, see below)
 //   GET    /__requests             every request body seen, oldest first

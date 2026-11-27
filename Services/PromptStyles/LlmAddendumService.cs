@@ -23,7 +23,8 @@ public sealed record AddendumSettings(bool Enabled, IReadOnlyCollection<string> 
         }
         if (user is not null && Services.SettingsService.GetUserSettings(user)[Key] is JObject personal)
         {
-            merged.Merge(personal);
+            // A list the user saved replaces the shared one, as in the merged settings a chat turn reads.
+            merged.Merge(personal, Services.SettingsService.MergeSettings);
         }
         return From(new JObject { [Key] = merged });
     }

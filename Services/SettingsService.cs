@@ -166,7 +166,8 @@ public static class SettingsService
     /// <see cref="LLMAssistantExtension.OnPreInit"/> via <c>OtherAssets</c>.</summary>
     public const string SwarmieAvatarUrl = "/ExtensionFile/LLMAssistantExtension/Assets/swarmui-logo.jpg";
 
-    private static readonly JsonMergeSettings MergeSettings = new()
+    /// <summary>How a user's own settings are laid over the shared ones: a list replaces the shared list.</summary>
+    internal static readonly JsonMergeSettings MergeSettings = new()
     {
         MergeArrayHandling = MergeArrayHandling.Replace,
         MergeNullValueHandling = MergeNullValueHandling.Merge
