@@ -523,10 +523,12 @@ function llmaFlashModelSelect() {
         return;
     }
     sel.classList.add('error');
-    // The searchable dropdown stands in front of the select: it is what shows, and what takes the keyboard.
+    // The searchable dropdown stands in front of the select: it is what shows, and what takes the keyboard. Where the top bar is narrow
+    // both are inside the chip's closed list, and the chip is what shows.
     let shown = sel.nextElementSibling?.classList.contains('select2-container') ? sel.nextElementSibling : null;
-    (shown?.querySelector('.select2-selection') || sel).focus({ preventScroll: false });
-    for (let part of [sel, shown, document.getElementById('llma-model-chip')]) {
+    let chip = document.getElementById('llma-model-chip');
+    (chip?.offsetParent ? chip : shown?.querySelector('.select2-selection') || sel).focus({ preventScroll: false });
+    for (let part of [sel, shown, chip]) {
         if (part) {
             part.classList.add('llma-flash');
             setTimeout(() => part.classList.remove('llma-flash'), 1100);

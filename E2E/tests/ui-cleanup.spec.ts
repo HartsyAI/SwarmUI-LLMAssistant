@@ -231,8 +231,15 @@ test('being asked to pick a model flashes the picker that shows', async ({ llm }
     await expect(llm.locator('.llma-topbar .select2-container')).toBeVisible();
     await llm.evaluate(() => (0, eval)('llmaFlashModelSelect')());
     await expect(llm.locator('.llma-topbar .select2-container').first()).toHaveClass(/llma-flash/);
+    await expect(llm.locator('.llma-topbar .select2-selection').first()).toHaveCSS('animation-name', 'llma-flash-pulse');
     await expect(llm.locator('.llma-topbar .select2-selection').first()).toBeFocused();
     await expect(llm.locator('.llma-topbar .select2-container').first()).not.toHaveClass(/llma-flash/);
+    // Where the bar is narrow the chip is what shows.
+    await llm.setViewportSize({ width: 390, height: 844 });
+    await expect(llm.locator('#llma-model-chip')).toBeVisible();
+    await llm.evaluate(() => (0, eval)('llmaFlashModelSelect')());
+    await expect(llm.locator('#llma-model-chip')).toHaveCSS('animation-name', 'llma-flash-pulse');
+    await expect(llm.locator('#llma-model-chip')).toBeFocused();
 });
 
 // ---- compare ----
@@ -412,10 +419,29 @@ test('Stop settles a call that was waiting, as it reads after a reload', async (
     expect(await summary.textContent()).toBe('File Write failed');
     await expect(llm.locator('.llma-tool-call-bubble.pending')).toHaveCount(0);
     await expect(llm.locator('.llma-tool-approval')).toHaveCount(0);
+    // Nor is the reply still shown as on its way.
+    await expect(llm.locator('.llma-typing')).toHaveCount(0);
     await llm.waitForTimeout(2000);
     await reopen(llm);
     await expect(summary).toHaveText('File Write failed');
     await setMode(llm, 'auto');
+});
+
+test('Stop does not call a tool that was under way failed, nor leave it running', async ({ llm }) => {
+    // No tool here runs long enough to be stopped on cue, so the row is drawn and settled as the Stop does it.
+    let told = await llm.evaluate(() => {
+        let bubble = document.createElement('div');
+        let call = { id: 'under-way', name: 'generate_image', arguments: {}, result: null };
+        (0, eval)('llmaRenderToolCall')(bubble, call);
+        (0, eval)('llmaSettleToolCalls')(bubble, { toolCalls: [call] });
+        let row = bubble.querySelector('.llma-tool-call-bubble')!;
+        return {
+            summary: bubble.querySelector('.llma-tool-group-summary')!.textContent, status: row.querySelector('.llma-tool-call-status')!.textContent, result: call.result,
+            marks: ['pending', 'error', 'success'].filter(c => row.classList.contains(c)), spinners: row.querySelectorAll('.llma-spinner').length,
+            running: !!bubble.querySelector('.llma-tool-group.running')
+        };
+    });
+    expect(told).toEqual({ summary: 'Generate Image unfinished at Stop', status: 'stopped', result: null, marks: [], spinners: 0, running: false });
 });
 
 test('an allowed call is told as running, then done', async ({ llm }) => {

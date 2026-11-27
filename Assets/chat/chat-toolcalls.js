@@ -45,16 +45,19 @@
         session_archive: ['Archived a session', 'archived {n} sessions', 'Archiving a session'],
     };
 
-    /** What a call that did not succeed, or has not run yet, says after its tool's name. */
-    let LLMA_TOOL_OUTCOMES = { waiting: 'needs permission', declined: 'declined', failed: 'failed' };
+    /** What a call that did not succeed, or has not run to an end, says after its tool's name. */
+    let LLMA_TOOL_OUTCOMES = { waiting: 'needs permission', declined: 'declined', failed: 'failed', stopped: 'unfinished at Stop' };
 
-    /** Where a call's step stands: 'waiting' (for the user's permission), 'running', 'done', 'declined' or 'failed'. */
+    /** Where a call's step stands: 'waiting' (for the user's permission), 'running', 'stopped', 'done', 'declined' or 'failed'. */
     function llmaToolState(callBubble) {
         if (callBubble.classList.contains('pending')) {
             return callBubble.classList.contains('waiting') ? 'waiting' : 'running';
         }
         if (callBubble.classList.contains('error')) {
             return callBubble.classList.contains('declined') ? 'declined' : 'failed';
+        }
+        if (callBubble.classList.contains('stopped')) {
+            return 'stopped';
         }
         return 'done';
     }
@@ -708,17 +711,27 @@
     }
 
     /**
-     * Settles the calls a stopped reply left without a result: each gets the one the server saves for it, in the message and on the page,
-     * so its row reads now as it will after a reload. The Stop closes the socket before the server can send it.
+     * Settles the rows of the calls a stopped reply left without a result; the Stop closes the socket before the server can send one. A call
+     * still waiting for permission never runs, so it reads as the failure the server saves for it. One already under way may yet finish (an
+     * image being made does), so its row says only that it had not at the Stop: the chat read again later shows what became of it.
      * @param {?HTMLElement} bubble - The reply's bubble.
      * @param {object} message - The stopped message.
      */
     function llmaSettleToolCalls(bubble, message) {
         for (let call of message?.toolCalls || []) {
-            if (call.result == null) {
+            let row = call.result == null ? bubble?.querySelector(`.llma-tool-call-bubble.pending[data-tool-id="${CSS.escape(call.id || '')}"]`) : null;
+            if (!row) {
+                continue;
+            }
+            if (row.classList.contains('waiting')) {
                 call.result = { success: false, error: translate('The turn was stopped before this tool finished.') };
                 llmaRenderToolResult(bubble, { id: call.id, name: call.name, result: call.result });
+                continue;
             }
+            row.classList.remove('pending');
+            row.classList.add('stopped');
+            row.querySelector('.llma-tool-call-status').textContent = translate('stopped');
+            llmaUpdateToolGroup(row.closest('.llma-tool-group'));
         }
     }
 

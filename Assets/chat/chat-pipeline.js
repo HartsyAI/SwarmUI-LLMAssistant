@@ -487,6 +487,8 @@
             LLMAState._streamingRenderer?.flushRender();
             llmaActions.noteFailure(stopped.parentId, null);
             const bubble = document.querySelector(`[data-msg-id="${stopped.id}"] .llma-msg-bubble`);
+            // A reply that ran a tool and said nothing still shows its dots, and the reply is not drawn again if it was stored.
+            bubble?.querySelector('.llma-typing')?.remove();
             llmaSettleToolCalls(bubble, stopped);
             if (LLMAState._streamingText || (stopped.toolCalls || []).length) {
                 // The server keeps a reply that had text or ran a tool, as the tip of the branch: so does the page.
