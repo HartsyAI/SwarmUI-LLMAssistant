@@ -28,6 +28,8 @@ async function clean(page: Page) {
     await api(page, 'LLMAssistantSaveSettings', { settings: JSON.stringify({ promptStyles: { llmAddenda: true, disabled: [] } }) });
     await api(page, 'LLMAssistantSetMemoryControls', { recallPaused: false });
     await api(page, 'LLMAssistantClearUserProfile');
+    // The picked model answers requests that name none, so one spec's choice is not left for the next.
+    await api(page, 'LLMAssistantSetSessionState', { state: { currentModel: null } });
     await clearRequests();
     await setScenarios([]);
 }
