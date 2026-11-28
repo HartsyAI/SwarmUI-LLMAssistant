@@ -612,6 +612,29 @@
     cursor: pointer;
 }
 .llma-asset-card-menu:hover { color: var(--text); background: var(--background-soft); }
+
+/* ── A reply's images: one shown large, small ones under it to swap which ───── */
+.llma-image-gallery { margin: 8px 0; }
+.llma-gallery-main .llma-asset-card.preview { margin: 0; max-width: 520px; }
+.llma-gallery-main .llma-asset-preview.kind-image,
+.llma-gallery-main .llma-asset-preview.kind-image img { max-height: 520px; }
+/* The name is made from the prompt and says nothing the picture does not: only the buttons stay. */
+.llma-gallery-main .llma-asset-card-body { display: none; }
+.llma-gallery-main .llma-asset-foot { justify-content: flex-end; padding: 6px 10px; }
+.llma-gallery-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; max-width: 520px; }
+.llma-gallery-thumb {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: 2px solid var(--light-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--background-panel-subtle);
+    cursor: pointer;
+}
+.llma-gallery-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.llma-gallery-thumb[aria-pressed="true"] { border-color: var(--emphasis); }
+.llma-gallery-thumb:focus-visible { outline: 2px solid var(--emphasis); outline-offset: 1px; }
 .llma-asset-menu {
     position: fixed;
     z-index: 10000;

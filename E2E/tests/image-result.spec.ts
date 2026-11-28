@@ -15,8 +15,8 @@ const OTHER_ADDRESS = `View/local/raw/e2e/${OTHER_FILE}`;
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhWMyFwAAAABJRU5ErkJggg==', 'base64');
 const WARNING = 'The writing model failed: it is away. The prompt was left as you wrote it.';
 
-/** Sends a message, then opens the chat again with a generate_image call on its reply. `reply` is what the model writes; with `rounds` the saved reply also says the call came before that text. */
-async function chatWithImage(page: Page, result: Record<string, unknown>, { reply: text = `Here it is: [View image](${ADDRESS})`, rounds = false } = {}) {
+/** Sends a message, then opens the chat again with a generate_image call on its reply. `reply` is what the model writes; with `rounds` the saved reply also says the call came before that text. `later` is a second call's result, made after that text. */
+async function chatWithImage(page: Page, result: Record<string, unknown>, { reply: text = `Here it is: [View image](${ADDRESS})`, rounds = false, later = null as Record<string, unknown> | null } = {}) {
     fs.mkdirSync(FOLDER, { recursive: true });
     fs.writeFileSync(path.join(FOLDER, FILE), PNG);
     fs.writeFileSync(path.join(FOLDER, OTHER_FILE), PNG);
@@ -31,7 +31,10 @@ async function chatWithImage(page: Page, result: Record<string, unknown>, { repl
         let reply = body.thread?.messages?.filter((m: any) => m.role == 'assistant').pop();
         if (reply) {
             reply.toolCalls = [{ id: 'img1', name: 'generate_image', arguments: { prompt: 'a red fox' }, result: { success: true, imageUrl: ADDRESS, prompt: 'a red fox', ...result } }];
-            reply.rounds = rounds ? [{ text: '', toolCallIds: ['img1'] }, { text: reply.content, toolCallIds: [] }] : undefined;
+            if (later) {
+                reply.toolCalls.push({ id: 'img2', name: 'generate_image', arguments: { prompt: 'a second fox' }, result: { success: true, prompt: 'a second fox', ...later } });
+            }
+            reply.rounds = rounds ? [{ text: '', toolCallIds: ['img1'] }, { text: reply.content, toolCallIds: later ? ['img2'] : [] }] : undefined;
         }
         await route.fulfill({ response, json: body });
     });
@@ -126,3 +129,54 @@ test('an image written into a reply that has no card for it stays', async ({ llm
     await send(llm, 'show a picture');
     await expect(lastAssistant(llm).locator('img[alt="the fox"]')).toBeVisible();
 });
+
+test('a batch shows one image large, and a small one under it brings another up', async ({ llm }) => {
+    // The text repeats the second image, which is not the one shown.
+    await chatWithImage(llm, { imageUrls: [ADDRESS, OTHER_ADDRESS] }, { reply: `Here it is:\n\n![the second](${OTHER_ADDRESS})` });
+    let gallery = llm.locator('.llma-image-gallery');
+    let card = gallery.locator('.llma-asset-card');
+    let thumbs = gallery.locator('.llma-gallery-thumb');
+    await expect(gallery).toHaveCount(1);
+    await expect(card).toHaveCount(1);
+    await expect(thumbs).toHaveCount(2);
+    await expect(card.locator('img')).toHaveAttribute('src', ADDRESS);
+    await expect(thumbs.first()).toHaveAttribute('aria-pressed', 'true');
+    await expect(card.locator('.llma-asset-card-title')).toBeHidden();
+    await expect(lastAssistant(llm).locator('img[alt="the second"]')).toBeHidden();
+    await thumbs.nth(1).click();
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('img')).toHaveAttribute('src', OTHER_ADDRESS);
+    await expect(thumbs.nth(1)).toHaveAttribute('aria-pressed', 'true');
+    await expect(thumbs.first()).toHaveAttribute('aria-pressed', 'false');
+    // The menu acts on the image shown.
+    await card.locator('[data-asset-menu]').click();
+    let saved = llm.waitForEvent('download');
+    await llm.locator('.llma-asset-menu').getByText('Download').click();
+    expect((await saved).suggestedFilename()).toBe('a_red_fox_2.png');
+});
+
+test('a single image has no row of small ones', async ({ llm }) => {
+    await chatWithImage(llm, {});
+    await expect(llm.locator('.llma-image-gallery .llma-asset-card')).toHaveCount(1);
+    await expect(llm.locator('.llma-gallery-strip')).toBeHidden();
+});
+
+for (let rounds of [false, true]) {
+    test(`two calls in one reply share a gallery that shows the newer image (${rounds ? 'rounds saved' : 'no rounds saved'})`, async ({ llm }) => {
+        await chatWithImage(llm, {}, { rounds: rounds, later: { imageUrl: OTHER_ADDRESS } });
+        let gallery = llm.locator('.llma-image-gallery');
+        await expect(gallery).toHaveCount(1);
+        await expect(gallery.locator('.llma-gallery-thumb')).toHaveCount(2);
+        await expect(gallery.locator('.llma-asset-card img')).toHaveAttribute('src', OTHER_ADDRESS);
+        await expect(gallery.locator('.llma-gallery-thumb').nth(1)).toHaveAttribute('aria-pressed', 'true');
+        // It stands under the latest call that made an image.
+        expect(await gallery.evaluate(el => el.previousElementSibling == [...el.parentElement!.querySelectorAll(':scope > .llma-tool-group')].pop())).toBe(true);
+        // Drawing a result again neither adds its image twice nor moves the choice.
+        await llm.evaluate(address => {
+            let bubble = [...document.querySelectorAll('.llma-msg-row.assistant .llma-msg-bubble')].pop();
+            (window as any).llmaRenderToolResult(bubble, { id: 'img1', name: 'generate_image', result: { success: true, imageUrl: address } });
+        }, ADDRESS);
+        await expect(gallery.locator('.llma-gallery-thumb')).toHaveCount(2);
+        await expect(gallery.locator('.llma-asset-card img')).toHaveAttribute('src', OTHER_ADDRESS);
+    });
+}
