@@ -464,6 +464,10 @@ function llmaSetRenderedHtml(el, html) {
             after[i].open = true;
         }
     }
+    // Text drawn into a reply may repeat an image its card already shows.
+    if (typeof llmaHideRepeatedImages == 'function') {
+        llmaHideRepeatedImages(el.closest('.llma-msg-bubble'));
+    }
 }
 
 /** Call after inserting rendered HTML into the DOM to activate mermaid diagrams. */
