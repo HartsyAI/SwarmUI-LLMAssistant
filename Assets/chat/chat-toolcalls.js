@@ -397,7 +397,7 @@
         llmaInsertToolExtra(group, holder);
     }
 
-    /** Insert (once) the inline preview card for a generated image right after its activity group. */
+    /** Insert (once) a generated image into the reply's gallery, which sits right after the activity group of its latest image call. */
     function llmaShowToolImageCard(bubble, callBubble, toolResult, result) {
         const msgEl = bubble.closest?.('[data-msg-id]');
         const msgId = msgEl ? msgEl.getAttribute('data-msg-id') : null;
@@ -405,8 +405,9 @@
         if (!msgId || !group || typeof llmaRenderAssetCardHtml != 'function') {
             return;
         }
-        // A batch result has one card per image: the first asset keeps the plain id, the others a -2, -3 suffix (see llmaExtractAssetsFromToolCalls).
+        // A batch result has one asset per image: the first keeps the plain id, the others a -2, -3 suffix (see llmaExtractAssetsFromToolCalls).
         const count = Array.isArray(result?.imageUrls) && result.imageUrls.length > 1 ? result.imageUrls.length : 1;
+        let added = [];
         for (let k = 0; k < count; k++) {
             const assetId = k == 0 ? `${msgId}-tool-${toolResult.id}` : `${msgId}-tool-${toolResult.id}-${k + 1}`;
             const findAsset = () => (LLMAState.assets || []).find(a => a.id == assetId);
@@ -415,12 +416,13 @@
                 llmaRebuildAssetsForThread(); // only on a miss: a full rebuild per result is O(n) each
                 asset = findAsset();
             }
-            if (!asset || bubble.querySelector(`.llma-tool-extra [data-asset-id="${CSS.escape(asset.id)}"]`)) {
+            if (!asset || bubble.querySelector(`[data-gallery-asset="${CSS.escape(asset.id)}"]`)) {
                 continue;
             }
-            const holder = document.createElement('div');
-            holder.innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
-            llmaInsertToolExtra(group, holder);
+            added.push(asset);
+        }
+        if (added.length > 0) {
+            llmaAddToImageGallery(bubble, group, added);
         }
         if (result?.rewriteStatus == 'fallback' && !bubble.querySelector(`[data-rewrite-notice="${CSS.escape(toolResult.id)}"]`)) {
             llmaShowRewriteNotice(group, toolResult.id, result.rewriteWarnings);
@@ -443,7 +445,7 @@
     }
 
     /**
-     * Hides an image written into a reply's text when the same reply shows it as a card: a model often repeats the image it just made, which
+     * Hides an image written into a reply's text when the same reply's gallery holds it: a model often repeats the image it just made, which
      * then showed twice. Any other image in the text is left alone.
      * @param {?HTMLElement} bubble - The reply's bubble.
      */
@@ -451,12 +453,12 @@
         if (!bubble) {
             return;
         }
-        let carded = new Set(Array.from(bubble.querySelectorAll('.llma-tool-extra .llma-asset-card img'), img => llmaImageAddress(img.getAttribute('src'))));
+        let carded = new Set(Array.from(bubble.querySelectorAll('.llma-gallery-thumb img'), img => llmaImageAddress(img.getAttribute('src'))));
         if (carded.size == 0) {
             return;
         }
         for (let img of bubble.querySelectorAll('img')) {
-            if (img.closest('.llma-asset-card, .llma-tool-group') || !carded.has(llmaImageAddress(img.getAttribute('src')))) {
+            if (img.closest('.llma-image-gallery, .llma-tool-group') || !carded.has(llmaImageAddress(img.getAttribute('src')))) {
                 continue;
             }
             // A link or paragraph holding nothing else goes with the image, so no gap is left.
@@ -465,6 +467,57 @@
                 hidden = hidden.parentElement;
             }
             hidden.classList.add('d-none');
+        }
+    }
+
+    /**
+     * A reply's images, in one gallery: one shown large and, when there are several, a row of small ones under it that swap which. The
+     * gallery moves to the latest call that made an image, and that call's first image is the one shown.
+     * @param {HTMLElement} bubble - The reply's bubble.
+     * @param {HTMLElement} group - The activity group of the call that made the images.
+     * @param {Array<object>} assets - The images the gallery does not hold yet.
+     */
+    function llmaAddToImageGallery(bubble, group, assets) {
+        let gallery = bubble.querySelector('.llma-image-gallery');
+        if (!gallery) {
+            gallery = createDiv(null, 'llma-tool-extra llma-image-gallery');
+            let row = createDiv(null, 'llma-gallery-strip d-none');
+            row.setAttribute('role', 'group');
+            row.setAttribute('aria-label', translate('Images in this reply'));
+            gallery.append(createDiv(null, 'llma-gallery-main'), row);
+        }
+        // Ahead of anything else already under the group, so a notice about the images stays below them.
+        group.after(gallery);
+        let strip = gallery.querySelector('.llma-gallery-strip');
+        for (let asset of assets) {
+            let thumb = document.createElement('button');
+            thumb.type = 'button';
+            thumb.className = 'llma-gallery-thumb';
+            thumb.dataset.galleryAsset = asset.id;
+            let img = document.createElement('img');
+            img.src = asset.content;
+            img.alt = '';
+            img.loading = 'lazy';
+            thumb.appendChild(img);
+            thumb.addEventListener('click', () => llmaShowGalleryImage(gallery, asset));
+            strip.appendChild(thumb);
+        }
+        for (let i = 0; i < strip.children.length; i++) {
+            strip.children[i].setAttribute('aria-label', `${translate('Image')} ${i + 1} / ${strip.children.length}`);
+        }
+        strip.classList.toggle('d-none', strip.children.length < 2);
+        llmaShowGalleryImage(gallery, assets[0]);
+    }
+
+    /**
+     * Shows one of a gallery's images large, as a card whose Open and menu act on it.
+     * @param {HTMLElement} gallery - The reply's gallery.
+     * @param {object} asset - The image to show.
+     */
+    function llmaShowGalleryImage(gallery, asset) {
+        gallery.querySelector('.llma-gallery-main').innerHTML = llmaRenderAssetCardHtml(asset, { inline: true });
+        for (let thumb of gallery.querySelectorAll('.llma-gallery-thumb')) {
+            thumb.setAttribute('aria-pressed', thumb.dataset.galleryAsset == asset.id ? 'true' : 'false');
         }
     }
 
