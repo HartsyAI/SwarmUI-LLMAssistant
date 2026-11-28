@@ -425,6 +425,47 @@
         if (result?.rewriteStatus == 'fallback' && !bubble.querySelector(`[data-rewrite-notice="${CSS.escape(toolResult.id)}"]`)) {
             llmaShowRewriteNotice(group, toolResult.id, result.rewriteWarnings);
         }
+        llmaHideRepeatedImages(bubble);
+    }
+
+    /**
+     * An image address in one spelling, to tell whether two images are the same file.
+     * @param {string} url - An address, relative or whole, encoded or not.
+     * @returns {string} The whole address, decoded; the address as given when it cannot be read.
+     */
+    function llmaImageAddress(url) {
+        try {
+            return decodeURI(new URL(url, document.baseURI).href);
+        }
+        catch {
+            return url;
+        }
+    }
+
+    /**
+     * Hides an image written into a reply's text when the same reply shows it as a card: a model often repeats the image it just made, which
+     * then showed twice. Any other image in the text is left alone.
+     * @param {?HTMLElement} bubble - The reply's bubble.
+     */
+    function llmaHideRepeatedImages(bubble) {
+        if (!bubble) {
+            return;
+        }
+        let carded = new Set(Array.from(bubble.querySelectorAll('.llma-tool-extra .llma-asset-card img'), img => llmaImageAddress(img.getAttribute('src'))));
+        if (carded.size == 0) {
+            return;
+        }
+        for (let img of bubble.querySelectorAll('img')) {
+            if (img.closest('.llma-asset-card, .llma-tool-group') || !carded.has(llmaImageAddress(img.getAttribute('src')))) {
+                continue;
+            }
+            // A link or paragraph holding nothing else goes with the image, so no gap is left.
+            let hidden = img;
+            while (hidden.parentElement.matches('a, p') && hidden.parentElement.textContent.trim() == '' && hidden.parentElement.querySelectorAll('img').length == 1) {
+                hidden = hidden.parentElement;
+            }
+            hidden.classList.add('d-none');
+        }
     }
 
     /**
@@ -817,6 +858,8 @@
                 llmaRenderStoredCall(bubble, tc);
             }
         }
+        // A round's text is drawn after the cards of the calls before it.
+        llmaHideRepeatedImages(bubble);
     }
 
     /** Replay stored tool calls + results for an assistant message whose order is not known (an older chat). */
@@ -850,4 +893,5 @@
     window.llmaReplayReply      = llmaReplayReply;
     window.llmaSettleToolCalls  = llmaSettleToolCalls;
     window.llmaReplyRounds      = llmaReplyRounds;
+    window.llmaHideRepeatedImages = llmaHideRepeatedImages;
 })();
